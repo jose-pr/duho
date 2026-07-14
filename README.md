@@ -2,7 +2,8 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/duho.svg)](https://pypi.org/project/duho/)
 [![Python versions](https://img.shields.io/pypi/pyversions/duho.svg)](https://pypi.org/project/duho/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-jose--pr.github.io%2Fduho-blue.svg)](https://jose-pr.github.io/duho/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jose-pr/duho/blob/master/LICENSE)
 
 **Duho** is a declarative CLI framework for Python that turns the complexity of building command-line applications into simple, type-safe class definitions.
 

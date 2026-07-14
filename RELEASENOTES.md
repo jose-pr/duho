@@ -12,7 +12,59 @@ Nothing yet.
 
 **Performance target for the next release:** keep parser construction in the
 sub-millisecond range as features grow, and no regression on parsing. Compare
-against 0.1.0 using CI benchmark runs (see the caveat below on local numbers).
+against the 0.1.1 CI baseline below (never against local numbers).
+
+---
+
+## [0.1.1] — 2026-07-14
+
+A documentation and accuracy release. No functional changes to the library —
+the API and behavior are identical to 0.1.0.
+
+### What changed
+
+- **Documentation site** published at <https://jose-pr.github.io/duho/>, built
+  from `docs/` with MkDocs Material and a generated API reference. Six guides
+  cover declaring arguments, types and conversion, running your app,
+  configuration layers, logging, and shell completion.
+- **Corrected performance figures.** 0.1.0's notes quoted a speedup measured on
+  a development laptop. Re-measured on a fixed CI runner, the honest number for
+  parser construction is **40–70× faster**, not the ~350× a noisy machine
+  suggested. The methodology is now an A/B in one process on one runner
+  (`benchmarks/compare_cache.py`) rather than a comparison against a historical
+  local run.
+- **README fixes** — the `LICENSE` link is absolute so it resolves on PyPI, and
+  a documentation badge points at the new site.
+
+### Performance (CI baseline)
+
+Median ms per `duho.parser()` call, ubuntu-latest, uncached path vs 0.1.x:
+
+| | uncached | 0.1.x | |
+| --- | --- | --- | --- |
+| 2-field parser (3.13) | 10.51 ms | **0.154 ms** | 68× |
+| 7-field parser (3.13) | 10.98 ms | **0.252 ms** | 44× |
+| 2-field parser (3.9) | 10.64 ms | **0.178 ms** | 60× |
+| 7-field parser (3.9) | 10.90 ms | **0.265 ms** | 41× |
+
+Argument parsing is unchanged: 0.013 ms (3.13) / 0.018 ms (3.9) for a simple
+parser.
+
+### Validation evidence
+
+- CI matrix green: Python 3.9–3.13 on Linux, plus 3.9 and 3.13 on Windows and
+  macOS.
+- `mkdocs build --strict` passes (now checked on every CI run, not only at
+  release time — a docs break should never surface midway through an
+  irreversible release).
+- Benchmarks recorded on ubuntu-latest for 3.9 and 3.13.
+
+### Publication state
+
+Published to PyPI via the release workflow's Trusted Publishing (OIDC) — the
+first release to exercise the automated path end to end. 0.1.0 was uploaded
+manually, since Trusted Publishing cannot be registered for a project that does
+not yet exist on the index.
 
 ---
 

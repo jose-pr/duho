@@ -25,54 +25,59 @@ First public release. See `CHANGELOG.md` for the full feature list.
 The original prototype rebuilt every parser from scratch on each call: for each
 class in the MRO it re-read the source file with `inspect.getsource()` and re-ran
 `ast.parse()`, with no caching anywhere. Parser construction cost tens of
-milliseconds, and it grew with the size of the module the class lived in — not
+milliseconds and scaled with the size of the *module* the class lived in — not
 with the size of the class.
 
 0.1.0 replaces that with a cached, module-level AST index keyed by `__qualname__`,
 plus per-class caching of the resolved argument declarations. Building a parser is
-now a dictionary lookup in the common case.
+a dictionary lookup in the common case.
 
-Order-of-magnitude effect, measured locally on the same machine and interpreter:
+Measured in CI (ubuntu-latest), median ms per `duho.parser()` call, comparing the
+uncached and cached paths **in the same process on the same runner**
+(`benchmarks/compare_cache.py`):
 
-| | prototype | 0.1.0 |
-| --- | --- | --- |
-| Build a simple parser | ~100 ms | ~1 ms or less |
-| Build a 7-field parser | ~120 ms | ~1 ms or less |
-| Parse arguments | ~0.03 ms | unchanged |
+| | uncached (prototype path) | 0.1.0 | |
+| --- | --- | --- | --- |
+| Build a 2-field parser (3.13) | 10.51 ms | **0.154 ms** | 68× |
+| Build a 7-field parser (3.13) | 10.98 ms | **0.252 ms** | 44× |
+| Build a 2-field parser (3.9) | 10.64 ms | **0.178 ms** | 60× |
+| Build a 7-field parser (3.9) | 10.90 ms | **0.265 ms** | 41× |
 
-So: **parser construction went from tens of milliseconds to around a millisecond
-or below — roughly two orders of magnitude** — while argument *parsing* was never
-the bottleneck (argparse does that work) and is unchanged.
+**Parser construction is roughly 40–70× faster**, and now takes a fraction of a
+millisecond. Argument *parsing* was never the bottleneck — argparse does that work
+— and is unchanged, at 0.013 ms (3.13) / 0.018 ms (3.9) for a simple parser.
 
-The prototype could not even complete this project's own benchmark suite: at
-~100 ms per build, the 1000-iteration loop ran past a two-minute timeout.
+#### About these numbers
 
-#### Benchmark caveats — read before quoting these numbers
-
-- These are **local** measurements on a single developer machine (Windows 11,
-  Intel i5-1035G1 class), not CI runs. That machine shows run-to-run variance of
-  several times on an unchanged commit, so the figures above are stated as
-  orders of magnitude rather than precise multipliers on purpose.
-- Reproduce with `python benchmarks/run.py`, which reports min/median/max per call
-  over repeated samples rather than a single average.
-- Treat any future *regression* or *speedup* claim as unproven until it comes from
-  a CI run on consistent hardware.
+- They come from **CI on a fixed runner**, not a developer machine. Reproduce with
+  `python benchmarks/run.py` (steady-state) or `python benchmarks/compare_cache.py`
+  (the A/B above); both report min/median/max per call across repeated samples.
+- The uncached cost is dominated by filesystem reads and `ast.parse()`, so it
+  varies a lot with the host. On a loaded Windows laptop the same uncached path
+  measures ~90 ms rather than ~11 ms — which is precisely why the figures quoted
+  here are the CI ones, and why local timings shouldn't be used to claim a
+  regression or a speedup.
 
 ### Validation evidence
 
-Verified locally before tagging:
+Verified in CI (run on the release commit's tree, all green):
+
+- **Tests**: the full matrix passes — Python 3.9, 3.10, 3.11, 3.12, and 3.13 on
+  Linux, plus 3.9 and 3.13 on Windows and macOS.
+- **Benchmarks**: recorded on ubuntu-latest for 3.9 and 3.13 (numbers above).
+
+Verified locally:
 
 - **Tests**: 119 passed, 1 skipped on Python 3.12; 118 passed, 2 skipped on
   Python 3.9. All skips are intentional — the PEP 604 union tests can't run on
   3.9, and the "no TOML backend" test is unreachable on 3.11+ where `tomllib` is
   stdlib.
 - **Package build**: wheel and sdist build cleanly; `twine check` passes on both.
-  The wheel ships `py.typed`; the sdist includes tests and examples.
-- **Examples**: both example CLIs run end to end and are covered by smoke tests.
+  The wheel ships `py.typed`; the sdist includes tests and examples and excludes
+  development scratch.
 
-Verified in CI at tag time (the release workflow gates on all of these):
+Gated by the release workflow at tag time:
 
-- Test matrix across Linux, Windows, and macOS on Python 3.9 through 3.13.
 - `mkdocs build --strict` for the documentation site.
 
 ### Publication state

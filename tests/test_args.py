@@ -224,3 +224,80 @@ def test_module_level_build_parser():
     args = parser.parse_args(["--name", "test"])
     assert args.name == "test"
     assert isinstance(args, SimpleArgs)
+
+
+class GrandparentArgs(Args):
+    """Grandparent docstring."""
+    shared: str = "gp"
+    "Shared field from grandparent"
+    ("--shared",)
+
+
+class FirstMixin(GrandparentArgs):
+    """First mixin."""
+
+
+class SecondMixin(Args):
+    """Second mixin."""
+
+
+class MultiBaseArgs(FirstMixin, SecondMixin):
+    """Class with two mixin bases; first mixin's parent defines `shared`."""
+
+
+def test_multi_base_ancestry_docstring():
+    """A field's docstring from a grandparent reached via the FIRST mixin's
+    ancestry must surface, exercising cls.__mro__ (not just direct bases)."""
+    parser = MultiBaseArgs._build_parser_()
+    for action in parser._actions:
+        if "--shared" in action.option_strings:
+            assert action.help == "Shared field from grandparent"
+            break
+    else:
+        assert False, "--shared action not found"
+
+
+class UnderscoreFieldArgs(Args):
+    """Underscore-prefixed annotated names are skipped from discovery."""
+    _secret: str = "x"
+    "Should never become a flag"
+    ("--secret",)
+
+    name: str = "ok"
+    "Normal field"
+    ("--name",)
+
+
+def test_underscore_prefixed_field_skipped():
+    """`_secret` must produce neither `--secret` nor `--_secret`."""
+    parser = UnderscoreFieldArgs._build_parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--secret" not in flags
+    assert "--_secret" not in flags
+
+
+class MethodNameMixin(Args):
+    """Defines a plain method named `count`."""
+
+    def count(self):
+        return 42
+
+
+class MethodCollisionArgs(MethodNameMixin):
+    """Field name collides with an inherited plain method."""
+    count: int
+    "Count field colliding with inherited method"
+    ("--count",)
+
+
+def test_field_name_colliding_with_inherited_method_stays_required():
+    """A field whose name matches an inherited method must stay required,
+    not silently adopt the bound method as its default."""
+    parser = MethodCollisionArgs._build_parser_()
+    for action in parser._actions:
+        if "--count" in action.option_strings:
+            assert action.required is True
+            assert not callable(action.default) or action.default is None
+            break
+    else:
+        assert False, "--count action not found"

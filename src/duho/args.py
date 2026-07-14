@@ -116,7 +116,7 @@ class ArgumentBuilder(_argparse.Namespace):
     nargs: "str|int|None" = None
 
     def _kwargs(self):
-        kwargs = getattr(self, "kwargs", None) or {}
+        kwargs = dict(getattr(self, "kwargs", None) or {})
 
         if self.nargs != None:
             kwargs["nargs"] = self.nargs
@@ -174,6 +174,9 @@ class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
 class Args(_argparse.Namespace):
     @classmethod
     def _getargs_(cls):
+        if "_duho_builders_" in vars(cls):
+            return cls._duho_builders_
+
         clsargs = _inspect.get_clsargs(cls)
         args: list[ArgumentBuilder] = []
         for name, decl in clsargs.items():
@@ -191,6 +194,8 @@ class Args(_argparse.Namespace):
             else:
                 builder = Argument.from_type(decl.type)._argbuilder_
             args.append(builder(name, decl))
+
+        setattr(cls, "_duho_builders_", args)
         return args
 
     @classmethod
@@ -257,7 +262,6 @@ class Args(_argparse.Namespace):
                 else:
                     group = parser
                 _action = arg.add_to_parser(group)
-            setattr(cls, f"_action_{_action.dest}", _action)
 
         return parser
 

@@ -45,28 +45,28 @@ class MixedLiteralArgs(Args):
 
 def test_literal_choices_accept():
     """A value matching one of the Literal options parses through unchanged."""
-    parser = LiteralArgs._build_parser_()
+    parser = LiteralArgs._parser_()
     args = parser.parse_args(["--mode", "fast"])
     assert args.mode == "fast"
 
 
 def test_literal_choices_reject():
     """A value outside the Literal options raises SystemExit."""
-    parser = LiteralArgs._build_parser_()
+    parser = LiteralArgs._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--mode", "turbo"])
 
 
 def test_enum_choices_by_name():
     """Enum fields accept the member name and produce the Enum member."""
-    parser = EnumArgs._build_parser_()
+    parser = EnumArgs._parser_()
     args = parser.parse_args(["--color", "RED"])
     assert args.color is Color.RED
 
 
 def test_enum_choices_reject_bad_name():
     """A name that isn't a declared Enum member raises SystemExit."""
-    parser = EnumArgs._build_parser_()
+    parser = EnumArgs._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--color", "PURPLE"])
 
@@ -74,7 +74,7 @@ def test_enum_choices_reject_bad_name():
 def test_mixed_literal_round_trip():
     """Mixed-type Literal picks the type matching the declared value, not
     just the first type that doesn't raise (e.g. str would swallow "1")."""
-    parser = MixedLiteralArgs._build_parser_()
+    parser = MixedLiteralArgs._parser_()
 
     args = parser.parse_args(["--value", "auto"])
     assert args.value == "auto"
@@ -91,7 +91,7 @@ def test_mixed_literal_round_trip():
 
 def test_mixed_literal_rejects_unknown_value():
     """A value that doesn't match any declared literal raises SystemExit."""
-    parser = MixedLiteralArgs._build_parser_()
+    parser = MixedLiteralArgs._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--value", "nope"])
 
@@ -113,28 +113,28 @@ class ListArgs(Args):
 
 def test_list_accumulation_repeated_flag():
     """Repeated `--x a --x b` accumulates via the extend action."""
-    parser = ListArgs._build_parser_()
+    parser = ListArgs._parser_()
     args = parser.parse_args(["--tags", "a", "--tags", "b"])
     assert args.tags == ["a", "b"]
 
 
 def test_list_accumulation_space_separated():
     """Space-separated `--x a b` accumulates via nargs="*"."""
-    parser = ListArgs._build_parser_()
+    parser = ListArgs._parser_()
     args = parser.parse_args(["--tags", "a", "b"])
     assert args.tags == ["a", "b"]
 
 
 def test_list_default_empty_when_undeclared():
     """A list field with no explicit default gets [] rather than None."""
-    parser = ListArgs._build_parser_()
+    parser = ListArgs._parser_()
     args = parser.parse_args([])
     assert args.tags == []
 
 
 def test_list_element_type_conversion():
     """list[int] converts each element with the element factory."""
-    parser = ListArgs._build_parser_()
+    parser = ListArgs._parser_()
     args = parser.parse_args(["--numbers", "1", "2", "--numbers", "3"])
     assert args.numbers == [1, 2, 3]
     assert all(isinstance(n, int) for n in args.numbers)
@@ -155,7 +155,7 @@ class VersionedArgs(Args):
 
 def test_version_flag_prints_and_exits_zero(capsys):
     """--version prints the version string and exits with code 0."""
-    parser = VersionedArgs._build_parser_()
+    parser = VersionedArgs._parser_()
     with pytest.raises(SystemExit) as excinfo:
         parser.parse_args(["--version"])
     assert excinfo.value.code == 0
@@ -165,7 +165,7 @@ def test_version_flag_prints_and_exits_zero(capsys):
 
 def test_no_version_flag_without_version_attr():
     """Classes without _version_ don't get a --version flag."""
-    parser = LiteralArgs._build_parser_()
+    parser = LiteralArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
     assert "--version" not in flags
 

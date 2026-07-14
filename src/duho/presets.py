@@ -23,18 +23,19 @@ class LoggingArgs(Args):
     "Verbose level"
     ("-v",)  # type:ignore
 
+    quiet: _ty.Annotated[
+        int, NS(action="count", help="Decrease verbosity (repeatable)")
+    ] = 0
+    "Quiet level"
+    ("-q",)  # type:ignore
+
     def _verbose_loglevel_(self):
-        """Convert verbose count to a log level name."""
-        loglevel = (
-            list(_logging.VERBOSE_LEVELS.keys()).index(_logging.INFO)
-            if self.verbose == _logging.NOTSET
-            else self.verbose
-        )
-        loglevel = min(
-            loglevel,
-            len(_logging.VERBOSE_LEVELS) - 1,
-        )
-        return list(_logging.VERBOSE_LEVELS.keys())[loglevel]
+        """Convert verbose/quiet count to a log level name."""
+        levels = list(_logging.VERBOSE_LEVELS.keys())
+        base = levels.index(_logging.INFO)
+        index = base + self.verbose - self.quiet
+        index = max(0, min(index, len(levels) - 1))
+        return levels[index]
 
     def _set_loglevels_(self):
         """Apply parsed log levels to loggers."""

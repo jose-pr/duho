@@ -1,3 +1,4 @@
+import copy as _copy
 import logging as _logging
 import sys as _sys
 import typing as _ty
@@ -87,7 +88,9 @@ class DefaultFormatter(_logging.Formatter):  # type:ignore
         super().__init__(fmt, datefmt, style, validate)
 
     def format(self, record):
-        record.levelname = record.levelname.center(_LEVELSIZE)
+        record = _copy.copy(record)
+        levelsize = self._levelsize if self._levelsize is not None else _LEVELSIZE
+        record.levelname = record.levelname.center(levelsize)
         color = self.COLORS.get(record.levelno, None)
         if color:
             record.levelname = f"{color}{record.levelname}{self.RESET_ALL}"

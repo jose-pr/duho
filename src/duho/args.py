@@ -35,6 +35,25 @@ class _AutoVersion:
 AUTO = _AutoVersion()
 
 
+def _enum_name_factory(enum_cls: type) -> "Factory":
+    """Build a factory that resolves CLI text to an enum member by NAME.
+
+    Raises ValueError (not KeyError) on a miss so callers that catch
+    ``(TypeError, ValueError)`` (e.g. the Union-branch try-loop) can treat a
+    non-matching name as "this sub-factory rejects text" and fall through.
+    """
+    names = tuple(member.name for member in enum_cls)
+
+    def _factory(text: str, /, _enum_cls=enum_cls, _names=names):
+        if text not in _names:
+            raise ValueError(
+                f"invalid choice: {text!r} (choose from {', '.join(_names)})"
+            )
+        return _enum_cls[text]
+
+    return _factory
+
+
 def _resolve_version(cls) -> "str | None":
     """Resolve a class's effective ``--version`` string, or None to skip it.
 
@@ -141,13 +160,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             elif isinstance(cls, type) and issubclass(cls, _enum.Enum):
                 names = tuple(member.name for member in cls)
                 metavar = "{" + ",".join(names) + "}"
-
-                def _factory(text: str, /, _enum_cls=cls, _names=names):
-                    if text not in _names:
-                        raise ValueError(
-                            f"invalid choice: {text!r} (choose from {', '.join(_names)})"
-                        )
-                    return _enum_cls[text]
+                _factory = _enum_name_factory(cls)
 
             elif origin is list or cls is list:
                 elem_ty = args[0] if args else str
@@ -161,19 +174,30 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 if _NONETYPE in args:
                     args = [a for a in args if a is not _NONETYPE]
                     required = False
-                    if len(args) == 1:
-                        _factory = args[0]
 
-                if len(args) > 1:
+                # Specialized per-member factories, preserving declaration
+                # order: Enum members resolve by NAME (consistent with the
+                # bare-enum branch), others use the type itself.
+                specialized = tuple(
+                    _enum_name_factory(a)
+                    if isinstance(a, type) and issubclass(a, _enum.Enum)
+                    else a
+                    for a in args
+                )
 
-                    def _factory(text: str, /, _args=tuple(args)):
-                        for ty in _args:
+                if len(specialized) == 1:
+                    _factory = specialized[0]
+
+                if len(specialized) > 1:
+
+                    def _factory(text: str, /, _factories=specialized):
+                        for f in _factories:
                             try:
-                                return ty(text)
+                                return f(text)
                             except (TypeError, ValueError):
                                 pass
                         raise ValueError(
-                            f"could not convert {text!r} using any of {_args}"
+                            f"could not convert {text!r} using any of {_factories}"
                         )
 
         return ArgumentBuilder(

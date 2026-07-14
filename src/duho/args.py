@@ -1,9 +1,12 @@
 import argparse as _argparse
 import copy as _copy
+import enum as _enum
+import logging as _logging_module
 import typing as _ty
 
 from . import _compat as _compat
 from . import _introspect as _inspect
+from . import logging as _duho_logging
 
 NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
@@ -44,6 +47,11 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             ("--" + name.replace("_", "-"),),
         )
         required = None
+        choices = None
+        metavar = None
+        action = None
+        nargs = None
+        default = decl.default
         ty = decl.type
         if ty is _inspect.NOT_DEFINED:
             ty = factory if isinstance(factory, type) else cls
@@ -57,7 +65,52 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         if cls is not None and cls is not Argument:
             origin = _ty.get_origin(cls)
             args = _ty.get_args(cls)
-            if origin in _compat.UNION_ORIGINS:
+            if origin is _ty.Literal:
+                choices = args
+                literal_types = []
+                for lit in args:
+                    lit_ty = type(lit)
+                    if lit_ty not in literal_types:
+                        literal_types.append(lit_ty)
+                if len(literal_types) == 1:
+                    _factory = literal_types[0]
+                else:
+                    # Mixed-type Literal: try each declared literal's own type,
+                    # but only accept a conversion that round-trips to one of
+                    # the declared values (a naive "first type that doesn't
+                    # raise" would let e.g. str('1') shadow int(1)).
+                    def _factory(text: str, /, _literals=tuple(args)):
+                        for lit in _literals:
+                            try:
+                                candidate = type(lit)(text)
+                            except (TypeError, ValueError):
+                                continue
+                            if candidate == lit:
+                                return candidate
+                        raise ValueError(
+                            f"could not convert {text!r} using any of {_literals}"
+                        )
+
+            elif isinstance(cls, type) and issubclass(cls, _enum.Enum):
+                names = tuple(member.name for member in cls)
+                metavar = "{" + ",".join(names) + "}"
+
+                def _factory(text: str, /, _enum_cls=cls, _names=names):
+                    if text not in _names:
+                        raise ValueError(
+                            f"invalid choice: {text!r} (choose from {', '.join(_names)})"
+                        )
+                    return _enum_cls[text]
+
+            elif origin is list or cls is list:
+                elem_ty = args[0] if args else str
+                action = "extend"
+                nargs = "*"
+                _factory = elem_ty
+                if default is _inspect.NOT_DEFINED:
+                    default = []
+
+            elif origin in _compat.UNION_ORIGINS:
                 if _NONETYPE in args:
                     args = [a for a in args if a is not _NONETYPE]
                     required = False
@@ -80,9 +133,13 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             name=name,
             flags=flags,
             type=_factory,
-            default=decl.default,
+            default=default,
             help=help,
             required=required,
+            choices=choices,
+            metavar=metavar,
+            action=action,
+            nargs=nargs,
         )
 
     @classmethod
@@ -115,12 +172,20 @@ class ArgumentBuilder(_argparse.Namespace):
     required: "bool | None" = None
     action: "str | _type[_argparse.Action] | None" = None
     nargs: "str|int|None" = None
+    choices: "_ty.Sequence | None" = None
+    metavar: "str | None" = None
 
     def _kwargs(self):
         kwargs = dict(getattr(self, "kwargs", None) or {})
 
         if self.nargs != None:
             kwargs["nargs"] = self.nargs
+
+        if self.choices is not None:
+            kwargs["choices"] = self.choices
+
+        if self.metavar is not None:
+            kwargs["metavar"] = self.metavar
 
         if self.default is not _inspect.NOT_DEFINED:
             kwargs["default"] = self.default
@@ -233,13 +298,22 @@ class Args(_argparse.Namespace):
         )
 
         if init:
-            cls._initparser_(parser)
+            cls._initparser_(parser, is_subcommand=bool(subparser))
+
+        subcommands = getattr(cls, "_subcommands_", None)
+        if subcommands:
+            subparsers = parser.add_subparsers(dest="command", required=True)
+            for sub in subcommands:
+                sub._build_parser_(subparsers)
 
         return parser
 
     @classmethod
     def _initparser_(
-        cls, parser: _argparse.ArgumentParser, exclusive_groups: dict = None
+        cls,
+        parser: _argparse.ArgumentParser,
+        exclusive_groups: dict = None,
+        is_subcommand: bool = False,
     ):
 
         def parse_known_args(
@@ -253,11 +327,35 @@ class Args(_argparse.Namespace):
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace
             )
+
+            if is_subcommand:
+                # Invoked via argparse._SubParsersAction.__call__, which
+                # calls us with namespace=None and then copies vars(result)
+                # back onto the *parent* namespace. Keep "#cls" in the
+                # returned dict (rather than popping/constructing here) so
+                # it propagates upward and overwrites the parent's own
+                # "#cls" -- subparsers are parsed after the parent's own
+                # actions, so the deepest selection always lands last and
+                # wins. Only the true top-level call (is_subcommand=False)
+                # pops "#cls" and constructs the final instance.
+                return parsed, unk
+
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
+            parser._duho_selected_cls_ = _cls  # type:ignore
             return _cls(**parsed.__dict__), unk
 
         parser.parse_known_args = parse_known_args  # type:ignore
         exclusive_groups = exclusive_groups or {}
+
+        version = getattr(cls, "_version_", None)
+        actions_by_dest_pre = {action.dest: action for action in parser._actions}
+        if version and "version" not in actions_by_dest_pre:
+            parser.add_argument(
+                "--version",
+                action="version",
+                version=f"%(prog)s {version}",
+            )
+
         actions_by_dest = {action.dest: action for action in parser._actions}
         for arg in cls._getargs_():
             _action = actions_by_dest.get(arg.name)
@@ -303,6 +401,34 @@ class UpdateAction(_argparse.Action):
         setattr(namespace, self.dest, items)
 
 
+def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) -> int:
+    """Build a parser for cls, parse argv, and dispatch to instance.__run__().
+
+    Module-level (not a classmethod) so the Args subclass namespace stays
+    entirely user-owned. Steps: build parser (auto-registers _subcommands_),
+    parse argv (SystemExit from argparse propagates), optionally set up
+    stderr logging + apply verbosity when the resulting instance provides
+    _set_loglevels_, then call instance.__run__() and map a None return to 0.
+    """
+    parser = cls._build_parser_()
+    instance = parser.parse_args(argv)
+
+    if setup_logging and hasattr(instance, "_set_loglevels_"):
+        root = _logging_module.getLogger()
+        if not root.handlers:
+            _duho_logging.init_stderr_logging()
+        instance._set_loglevels_()
+
+    run = getattr(instance, "__run__", None)
+    if run is None:
+        raise NotImplementedError(
+            f"{type(instance).__name__} does not implement __run__"
+        )
+
+    result = run()
+    return 0 if result is None else result
+
+
 __all__ = [
     "Argument",
     "ArgumentBuilder",
@@ -311,6 +437,7 @@ __all__ = [
     "Arg",
     "Extend",
     "Factory",
+    "main",
     "NS",
     "NOT_DEFINED",
     "UpdateAction",

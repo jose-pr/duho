@@ -1,13 +1,12 @@
 import argparse as _argparse
 import copy as _copy
-import types as _types
 import typing as _ty
 
+from . import _compat as _compat
 from . import _introspect as _inspect
 
 NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
-_UNIONTYPE = type(_ty.Union)
 
 if _ty.TYPE_CHECKING:
     from typing_extensions import Self as _Self  # type:ignore
@@ -58,22 +57,24 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         if cls is not None and cls is not Argument:
             origin = _ty.get_origin(cls)
             args = _ty.get_args(cls)
-            if origin:
-                if origin is _ty.Union and _NONETYPE in args:
+            if origin in _compat.UNION_ORIGINS:
+                if _NONETYPE in args:
                     args = [a for a in args if a is not _NONETYPE]
                     required = False
                     if len(args) == 1:
                         _factory = args[0]
 
-                if origin is _ty.Union or origin is _UNIONTYPE and len(args) > 1:
+                if len(args) > 1:
 
-                    def _factory(text: str, /):
-                        for ty in args:
+                    def _factory(text: str, /, _args=tuple(args)):
+                        for ty in _args:
                             try:
                                 return ty(text)
-                            except:
+                            except (TypeError, ValueError):
                                 pass
-                        raise ValueError(text, args)
+                        raise ValueError(
+                            f"could not convert {text!r} using any of {_args}"
+                        )
 
         return ArgumentBuilder(
             name=name,
@@ -125,11 +126,18 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["default"] = self.default
 
         if self.type is bool and not self.action:
-            kwargs["action"] = "store_true"
+            if self.default is True:
+                kwargs["action"] = _argparse.BooleanOptionalAction
+            else:
+                kwargs["action"] = "store_true"
         if self.action:
             kwargs["action"] = self.action
 
-        if kwargs.get("action") not in ["count", "store_true"]:
+        if kwargs.get("action") not in (
+            "count",
+            "store_true",
+            _argparse.BooleanOptionalAction,
+        ):
             kwargs["type"] = self.type
 
         if kwargs.get("action") == "store_true" and "default" not in kwargs:
@@ -203,7 +211,7 @@ class Args(_argparse.Namespace):
         cls,
         subparser: "_argparse._SubParsersAction | None" = None,
         name: "str | None" = None,  # type:ignore
-        parents: _ty.Sequence[_argparse.ArgumentParser] = [],
+        parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         init=True,
         **kwargs,
     ) -> "_Parser[_Self]":
@@ -213,11 +221,15 @@ class Args(_argparse.Namespace):
             method = _argparse.ArgumentParser
 
         name: str = name or getattr(cls, "_parsername_", None) or cls.__name__
-        setattr(cls,'_parsername_', name)
+        if not getattr(cls, "_parsername_", None):
+            setattr(cls, "_parsername_", name)
         kwargs.setdefault("description", cls.__doc__ or "")
+        if subparser:
+            docstring = cls.__doc__ or ""
+            kwargs.setdefault("help", docstring.strip().splitlines()[0] if docstring.strip() else "")
         parser = _ty.cast(
             "_Parser[_ty.Self]",
-            method(name, parents=parents, **kwargs),
+            method(name, parents=list(parents), **kwargs),
         )
 
         if init:
@@ -241,16 +253,14 @@ class Args(_argparse.Namespace):
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace
             )
-            _cls: "type[_ty.Self]" = getattr(parsed, "#cls")
+            _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
             return _cls(**parsed.__dict__), unk
 
         parser.parse_known_args = parse_known_args  # type:ignore
         exclusive_groups = exclusive_groups or {}
+        actions_by_dest = {action.dest: action for action in parser._actions}
         for arg in cls._getargs_():
-            _action = None
-            for action in parser._actions:
-                if action.dest == arg.name:
-                    _action = action
+            _action = actions_by_dest.get(arg.name)
             if not _action:
                 conflicts = getattr(arg, "conflicts", None)
                 if conflicts:

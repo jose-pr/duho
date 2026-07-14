@@ -1,8 +1,11 @@
 """Tests for duho.cli.args module."""
 
 import argparse
+import sys
 import typing as ty
+import pytest
 from duho import Args, Argument, ArgumentBuilder, build_parser
+from duho.parsers import prerun_parse
 
 
 class SimpleArgs(Args):
@@ -301,3 +304,116 @@ def test_field_name_colliding_with_inherited_method_stays_required():
             break
     else:
         assert False, "--count action not found"
+
+
+def test_typing_optional_not_required():
+    """ty.Optional[int] (typing.Union[int, None]) must not be required."""
+    parser = OptionalArgs._build_parser_()
+    for action in parser._actions:
+        if "--count" in action.option_strings:
+            assert action.required is False
+            break
+    else:
+        assert False, "--count action not found"
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 10), reason="PEP 604 unions require Python 3.10+"
+)
+def test_pep604_union_type_conversion():
+    """`int | str` field converts '5' -> int and 'x' -> str."""
+
+    class Pep604UnionArgs(Args):
+        """Arguments with a PEP 604 union type."""
+        value: eval("int | str")
+        "Can be int or str"
+        ("--value",)
+
+    parser = Pep604UnionArgs._build_parser_()
+
+    args = parser.parse_args(["--value", "5"])
+    assert args.value == 5
+    assert isinstance(args.value, int)
+
+    args = parser.parse_args(["--value", "x"])
+    assert args.value == "x"
+    assert isinstance(args.value, str)
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 10), reason="PEP 604 unions require Python 3.10+"
+)
+def test_pep604_optional_not_required():
+    """`int | None` field must not be required."""
+
+    class Pep604OptionalArgs(Args):
+        """Arguments with a PEP 604 optional type."""
+        count: eval("int | None") = None
+        "Optional count"
+        ("--count",)
+
+    parser = Pep604OptionalArgs._build_parser_()
+    for action in parser._actions:
+        if "--count" in action.option_strings:
+            assert action.required is False
+            break
+    else:
+        assert False, "--count action not found"
+
+    args = parser.parse_args([])
+    assert args.count is None
+
+
+class BoolDefaultTrueArgs(Args):
+    """Arguments with a bool field defaulting to True."""
+    flag: bool = True
+    "A flag defaulting to True"
+    ("--flag",)
+
+
+def test_bool_default_true_round_trip():
+    """bool field with default True gets --flag/--no-flag via BooleanOptionalAction."""
+    parser = BoolDefaultTrueArgs._build_parser_()
+
+    args = parser.parse_args([])
+    assert args.flag is True
+
+    args = parser.parse_args(["--flag"])
+    assert args.flag is True
+
+    args = parser.parse_args(["--no-flag"])
+    assert args.flag is False
+
+
+def test_prerun_parse_restores_patches_on_systemexit():
+    """prerun_parse must restore _HelpAction/_SubParsersAction.__call__ even
+    when the underlying parse raises SystemExit (e.g. bad args)."""
+    help_call_before = argparse._HelpAction.__call__
+    subparsers_call_before = argparse._SubParsersAction.__call__
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--required-thing", required=True)
+
+    with pytest.raises(SystemExit):
+        # parse_known_args raises SystemExit for unrecognized/invalid options
+        # in some configurations; force one via an invalid choice-style parser.
+        sub_parser = argparse.ArgumentParser()
+        sub_parser.add_argument("--num", type=int, required=True)
+        prerun_parse(sub_parser, ["--num", "not-a-number"])
+
+    assert argparse._HelpAction.__call__ is help_call_before
+    assert argparse._SubParsersAction.__call__ is subparsers_call_before
+
+
+class NoLeakArgs(Args):
+    """Arguments used to confirm #cls does not leak into the instance."""
+    name: str = "x"
+    "Name"
+    ("--name",)
+
+
+def test_no_hash_cls_leak_in_parsed_instance():
+    """The internal '#cls' bookkeeping key must not survive into vars(instance)."""
+    parser = NoLeakArgs._build_parser_()
+    args = parser.parse_args([])
+    assert "#cls" not in vars(args)

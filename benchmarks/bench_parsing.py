@@ -34,10 +34,10 @@ class ComplexArgs(Args):
 def bench_parser_build():
     """Benchmark parser construction time."""
     def build_simple():
-        SimpleArgs._build_parser_()
+        SimpleArgs._parser_()
 
     def build_complex():
-        ComplexArgs._build_parser_()
+        ComplexArgs._parser_()
 
     simple_time = timeit.timeit(build_simple, number=1000)
     complex_time = timeit.timeit(build_complex, number=1000)
@@ -48,8 +48,8 @@ def bench_parser_build():
 
 def bench_parsing():
     """Benchmark argument parsing time."""
-    simple_parser = SimpleArgs._build_parser_()
-    complex_parser = ComplexArgs._build_parser_()
+    simple_parser = SimpleArgs._parser_()
+    complex_parser = ComplexArgs._parser_()
 
     def parse_simple():
         simple_parser.parse_args(["--name", "test", "--count", "5"])

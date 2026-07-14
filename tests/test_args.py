@@ -4,7 +4,7 @@ import argparse
 import sys
 import typing as ty
 import pytest
-from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, NS, build_parser
+from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, NS, parser as duho_parser
 from duho.parsers import prerun_parse
 
 
@@ -46,7 +46,7 @@ class UnionArgs(Args):
 
 def test_simple_args():
     """Test parsing simple string arguments."""
-    parser = SimpleArgs._build_parser_()
+    parser = SimpleArgs._parser_()
     args = parser.parse_args(["--name", "Alice"])
     assert args.name == "Alice"
     assert isinstance(args, SimpleArgs)
@@ -54,7 +54,7 @@ def test_simple_args():
 
 def test_optional_args():
     """Test optional arguments."""
-    parser = OptionalArgs._build_parser_()
+    parser = OptionalArgs._parser_()
 
     # With provided value
     args = parser.parse_args(["--name", "Bob", "--count", "5"])
@@ -69,7 +69,7 @@ def test_optional_args():
 
 def test_default_args():
     """Test default values."""
-    parser = DefaultArgs._build_parser_()
+    parser = DefaultArgs._parser_()
 
     # Override defaults
     args = parser.parse_args(["--name", "Charlie", "--verbose"])
@@ -84,7 +84,7 @@ def test_default_args():
 
 def test_bool_flags():
     """Test boolean flag parsing."""
-    parser = DefaultArgs._build_parser_()
+    parser = DefaultArgs._parser_()
 
     # Flag not provided (default False)
     args = parser.parse_args([])
@@ -97,7 +97,7 @@ def test_bool_flags():
 
 def test_type_conversion():
     """Test automatic type conversion."""
-    parser = OptionalArgs._build_parser_()
+    parser = OptionalArgs._parser_()
     args = parser.parse_args(["--name", "test", "--count", "42"])
     assert isinstance(args.count, int)
     assert args.count == 42
@@ -105,7 +105,7 @@ def test_type_conversion():
 
 def test_union_types():
     """Test union type handling."""
-    parser = UnionArgs._build_parser_()
+    parser = UnionArgs._parser_()
 
     # Parse as int if possible
     args = parser.parse_args(["--value", "123"])
@@ -120,19 +120,19 @@ def test_union_types():
 
 def test_parser_name():
     """Test that parser inherits class name."""
-    parser = SimpleArgs._build_parser_()
+    parser = SimpleArgs._parser_()
     assert parser.prog == "SimpleArgs"
 
 
 def test_help_from_docstring():
     """Test that class docstring becomes parser description."""
-    parser = SimpleArgs._build_parser_()
+    parser = SimpleArgs._parser_()
     assert parser.description == "A simple argument set."
 
 
 def test_argument_help_from_docstring():
     """Test that field docstrings become argument help."""
-    parser = SimpleArgs._build_parser_()
+    parser = SimpleArgs._parser_()
     # Find the action for --name
     for action in parser._actions:
         if "--name" in action.option_strings:
@@ -144,7 +144,7 @@ def test_argument_help_from_docstring():
 
 def test_required_vs_optional():
     """Test required vs optional argument detection."""
-    parser = SimpleArgs._build_parser_()
+    parser = SimpleArgs._parser_()
 
     # name is required (no default)
     required_found = False
@@ -169,7 +169,7 @@ class PositionalArgs(Args):
 
 def test_positional_arguments():
     """Test positional (non-flag) arguments."""
-    parser = PositionalArgs._build_parser_()
+    parser = PositionalArgs._parser_()
     args = parser.parse_args(["input.txt", "output.txt"])
     # Positional args map to action dest, which is the field name
     assert hasattr(args, "input_file") or hasattr(args, "input")
@@ -192,14 +192,14 @@ class MultiFlag(Args):
 
 def test_short_flags():
     """Test single-character flags."""
-    parser = ShortFlagsArgs._build_parser_()
+    parser = ShortFlagsArgs._parser_()
     args = parser.parse_args(["-v"])
     assert args.verbose is True
 
 
 def test_multiple_flags():
     """Test arguments with multiple flag names."""
-    parser = MultiFlag._build_parser_()
+    parser = MultiFlag._parser_()
 
     # Both short and long forms work
     args = parser.parse_args(["-v", "2"])
@@ -214,16 +214,16 @@ def test_subparser_integration():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
-    SimpleArgs._build_parser_(subparsers, name="simple")
-    DefaultArgs._build_parser_(subparsers, name="default")
+    SimpleArgs._parser_(subparsers, name="simple")
+    DefaultArgs._parser_(subparsers, name="default")
 
     # Should not raise
     assert subparsers is not None
 
 
-def test_module_level_build_parser():
-    """Test module-level build_parser function."""
-    parser = build_parser(SimpleArgs)
+def test_module_level_parser():
+    """Test module-level parser() function (rename smoke test)."""
+    parser = duho_parser(SimpleArgs)
     args = parser.parse_args(["--name", "test"])
     assert args.name == "test"
     assert isinstance(args, SimpleArgs)
@@ -251,7 +251,7 @@ class MultiBaseArgs(FirstMixin, SecondMixin):
 def test_multi_base_ancestry_docstring():
     """A field's docstring from a grandparent reached via the FIRST mixin's
     ancestry must surface, exercising cls.__mro__ (not just direct bases)."""
-    parser = MultiBaseArgs._build_parser_()
+    parser = MultiBaseArgs._parser_()
     for action in parser._actions:
         if "--shared" in action.option_strings:
             assert action.help == "Shared field from grandparent"
@@ -273,7 +273,7 @@ class UnderscoreFieldArgs(Args):
 
 def test_underscore_prefixed_field_skipped():
     """`_secret` must produce neither `--secret` nor `--_secret`."""
-    parser = UnderscoreFieldArgs._build_parser_()
+    parser = UnderscoreFieldArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
     assert "--secret" not in flags
     assert "--_secret" not in flags
@@ -296,7 +296,7 @@ class MethodCollisionArgs(MethodNameMixin):
 def test_field_name_colliding_with_inherited_method_stays_required():
     """A field whose name matches an inherited method must stay required,
     not silently adopt the bound method as its default."""
-    parser = MethodCollisionArgs._build_parser_()
+    parser = MethodCollisionArgs._parser_()
     for action in parser._actions:
         if "--count" in action.option_strings:
             assert action.required is True
@@ -308,7 +308,7 @@ def test_field_name_colliding_with_inherited_method_stays_required():
 
 def test_typing_optional_not_required():
     """ty.Optional[int] (typing.Union[int, None]) must not be required."""
-    parser = OptionalArgs._build_parser_()
+    parser = OptionalArgs._parser_()
     for action in parser._actions:
         if "--count" in action.option_strings:
             assert action.required is False
@@ -329,7 +329,7 @@ def test_pep604_union_type_conversion():
         "Can be int or str"
         ("--value",)
 
-    parser = Pep604UnionArgs._build_parser_()
+    parser = Pep604UnionArgs._parser_()
 
     args = parser.parse_args(["--value", "5"])
     assert args.value == 5
@@ -352,7 +352,7 @@ def test_pep604_optional_not_required():
         "Optional count"
         ("--count",)
 
-    parser = Pep604OptionalArgs._build_parser_()
+    parser = Pep604OptionalArgs._parser_()
     for action in parser._actions:
         if "--count" in action.option_strings:
             assert action.required is False
@@ -373,7 +373,7 @@ class BoolDefaultTrueArgs(Args):
 
 def test_bool_default_true_round_trip():
     """bool field with default True gets --flag/--no-flag via BooleanOptionalAction."""
-    parser = BoolDefaultTrueArgs._build_parser_()
+    parser = BoolDefaultTrueArgs._parser_()
 
     args = parser.parse_args([])
     assert args.flag is True
@@ -414,7 +414,7 @@ class NoLeakArgs(Args):
 
 def test_no_hash_cls_leak_in_parsed_instance():
     """The internal '#cls' bookkeeping key must not survive into vars(instance)."""
-    parser = NoLeakArgs._build_parser_()
+    parser = NoLeakArgs._parser_()
     args = parser.parse_args([])
     assert "#cls" not in vars(args)
 
@@ -430,7 +430,7 @@ class ImplicitFlagFromDocstringArgs(Args):
 
 def test_implicit_flag_derived_from_name_with_docstring():
     """No flag tuple + docstring present -> flag still derives from field name."""
-    parser = ImplicitFlagFromDocstringArgs._build_parser_()
+    parser = ImplicitFlagFromDocstringArgs._parser_()
     args = parser.parse_args(["--count", "5"])
     assert args.count == 5
 
@@ -444,7 +444,7 @@ class ImplicitFlagNoDocstringArgs(Args):
 
 
 def test_implicit_flag_derived_from_name_no_docstring():
-    parser = ImplicitFlagNoDocstringArgs._build_parser_()
+    parser = ImplicitFlagNoDocstringArgs._parser_()
     args = parser.parse_args(["--workers", "8"])
     assert args.workers == 8
 
@@ -458,7 +458,7 @@ class UnderscoreToDashArgs(Args):
 
 
 def test_implicit_flag_underscore_to_dash():
-    parser = UnderscoreToDashArgs._build_parser_()
+    parser = UnderscoreToDashArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
     assert "--dry-run" in flags
     assert "--dry_run" not in flags
@@ -479,7 +479,7 @@ class KwargsOverrideArgs(Args):
 
 def test_kwargs_dict_overrides_explicit_field():
     """The raw kwargs dict escape hatch takes precedence over field-derived values."""
-    parser = KwargsOverrideArgs._build_parser_()
+    parser = KwargsOverrideArgs._parser_()
     args = parser.parse_args([])
     assert args.mode == "x"
 
@@ -492,7 +492,7 @@ class StoreConstArgs(Args):
 
 
 def test_store_const_requires_and_forwards_const():
-    parser = StoreConstArgs._build_parser_()
+    parser = StoreConstArgs._parser_()
     args = parser.parse_args(["--fast"])
     assert args.mode == "fast"
 
@@ -510,7 +510,7 @@ def test_store_const_without_const_raises():
         ("--fast",)
 
     with pytest.raises(ValueError):
-        BadConstArgs._build_parser_()
+        BadConstArgs._parser_()
 
 
 def test_action_version_forwards_version_and_suppresses_type():
@@ -520,7 +520,7 @@ def test_action_version_forwards_version_and_suppresses_type():
         "Show version"
         ("--show-version",)
 
-    parser = VersionArgs._build_parser_()
+    parser = VersionArgs._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--show-version"])
 
@@ -535,7 +535,7 @@ def test_type_incompatible_actions_suppress_type_kwarg():
             "A flag"
             ("--flag",)
 
-        parser = ActionArgs._build_parser_()
+        parser = ActionArgs._parser_()
         for a in parser._actions:
             if "--flag" in a.option_strings:
                 assert a.type is None
@@ -555,7 +555,7 @@ class RequiredPositionalArgs(Args):
 
 
 def test_required_positional():
-    parser = RequiredPositionalArgs._build_parser_()
+    parser = RequiredPositionalArgs._parser_()
     args = parser.parse_args(["in.txt"])
     assert args.src == "in.txt"
 
@@ -571,7 +571,7 @@ class OptionalPositionalArgs(Args):
 
 
 def test_optional_positional_uses_nargs_question_mark():
-    parser = OptionalPositionalArgs._build_parser_()
+    parser = OptionalPositionalArgs._parser_()
     for action in parser._actions:
         if action.dest == "dst":
             assert action.nargs == "?"
@@ -599,7 +599,7 @@ class TwoPositionalsArgs(Args):
 
 
 def test_two_positionals_preserve_order():
-    parser = TwoPositionalsArgs._build_parser_()
+    parser = TwoPositionalsArgs._parser_()
     args = parser.parse_args(["in.txt"])
     assert args.src == "in.txt"
     assert args.dst == "-"
@@ -617,7 +617,7 @@ class PositionalNargsPlusArgs(Args):
 
 
 def test_positional_nargs_plus():
-    parser = PositionalNargsPlusArgs._build_parser_()
+    parser = PositionalNargsPlusArgs._parser_()
     args = parser.parse_args(["a.txt", "b.txt", "c.txt"])
     assert args.files == ["a.txt", "b.txt", "c.txt"]
 
@@ -643,7 +643,7 @@ class CountArgs(Args):
 
 
 def test_count_helper():
-    parser = CountArgs._build_parser_()
+    parser = CountArgs._parser_()
     args = parser.parse_args(["-vvv"])
     assert args.verbose == 3
 
@@ -659,7 +659,7 @@ class AppendArgs(Args):
 
 
 def test_append_helper():
-    parser = AppendArgs._build_parser_()
+    parser = AppendArgs._parser_()
     args = parser.parse_args(["--tags", "a", "--tags", "b"])
     assert args.tags == ["a", "b"]
 
@@ -672,7 +672,7 @@ class ConstHelperArgs(Args):
 
 
 def test_const_helper():
-    parser = ConstHelperArgs._build_parser_()
+    parser = ConstHelperArgs._parser_()
     args = parser.parse_args(["--fast"])
     assert args.mode == "fast"
 
@@ -688,7 +688,7 @@ class ChoiceArgs(Args):
 
 
 def test_choice_helper():
-    parser = ChoiceArgs._build_parser_()
+    parser = ChoiceArgs._parser_()
     args = parser.parse_args(["--mode", "a"])
     assert args.mode == "a"
 

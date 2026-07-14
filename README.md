@@ -1,5 +1,9 @@
 # Duho
 
+[![PyPI version](https://img.shields.io/pypi/v/duho.svg)](https://pypi.org/project/duho/)
+[![Python versions](https://img.shields.io/pypi/pyversions/duho.svg)](https://pypi.org/project/duho/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Duho** is a declarative CLI framework for Python that turns the complexity of building command-line applications into simple, type-safe class definitions.
 
 Named after the sacred Taíno ceremonial stool—a symbol of power and authority—duho provides the **foundation** from which you command your application.
@@ -97,6 +101,7 @@ switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 | `list` / `list[T]` | Accepts both repeated (`--x a --x b`) and space-separated (`--x a b`) forms via `action="extend", nargs="*"`; bare `list` elements are `str`; default is `[]` when no explicit default is given |
 | `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
 | `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
+| `Union`/`Optional` containing an `Enum` | The Enum member is matched by **name**, same as a bare `enum.Enum` field — a name match wins before falling through to a later `str` member, so declaration order matters (`Union[Color, str]` with `--c RED` yields `Color.RED`, while `--c other` yields the string `"other"`) |
 
 ### Run your app
 
@@ -304,12 +309,17 @@ from duho import LoggingArgs
 class MyApp(LoggingArgs):
     command: str
     "The command to run"
-    
-    def run(self):
-        self._set_loglevels_()
+    ("--command",)
+
+    def __run__(self):
         logger = self._logger_
         logger.info(f"Running: {self.command}")
 ```
+
+`duho.main()` calls `self._set_loglevels_()` for you before dispatching to
+`__run__` (pass `setup_logging=False` to opt out). If you drive the parser
+yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
+you start logging.
 
 Control logging from the CLI:
 
@@ -364,33 +374,26 @@ Both paths walk the built parser tree, including nested `_subcommands_`:
 `pathlib.Path`-typed fields get the shell's native file/directory
 completion.
 
-### Subcommands
+### Manual subparsers
 
-Build hierarchical CLIs with subparsers:
+`_subcommands_` (above) is the recommended way to build command trees. If you
+need to attach duho commands to a parser you build yourself, pass the
+subparsers action to `_parser_`:
 
 ```python
+import argparse
 from duho import Args
 
 class Serve(Args):
     """Start the development server."""
-    host: str = "localhost"
-    ("--host",)
     port: int = 8000
     ("--port",)
 
-class Build(Args):
-    """Build the project."""
-    output: str
-    ("--output",)
+root = argparse.ArgumentParser()
+subparsers = root.add_subparsers()
+Serve._parser_(subparsers, name="serve")
 
-if __name__ == "__main__":
-    main_parser = argparse.ArgumentParser()
-    subparsers = main_parser.add_subparsers()
-    
-    Serve._parser_(subparsers, name="serve")
-    Build._parser_(subparsers, name="build")
-    
-    args = main_parser.parse_args()
+args = root.parse_args()
 ```
 
 ## Examples

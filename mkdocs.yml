@@ -1,0 +1,62 @@
+site_name: duho
+site_description: A declarative CLI framework for building command-line applications with minimal boilerplate.
+site_url: https://jose-pr.github.io/duho/
+repo_url: https://github.com/jose-pr/duho
+repo_name: jose-pr/duho
+edit_uri: edit/main/docs/
+
+# Constrain the scan to docs/ so pymdownx.snippets + strict nav don't trip on
+# repo-level markdown.
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Declaring arguments: guide/arguments.md
+      - Types and conversion: guide/types.md
+      - Running your app: guide/running.md
+      - Configuration layers: guide/config.md
+      - Logging: guide/logging.md
+      - Shell completion: guide/completion.md
+  - API Reference:
+      - Overview: api/reference.md
+      - Args: api/args.md
+      - Presets: api/presets.md
+      - Logging: api/logging.md
+      - Completion: api/completion.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            merge_init_into_class: true
+            show_if_no_docstring: true
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.snippets:
+      base_path: ["."]
+  - pymdownx.superfences

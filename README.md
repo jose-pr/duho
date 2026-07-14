@@ -27,7 +27,7 @@ class MyApp(Args):
     ("--count",)
 
 if __name__ == "__main__":
-    parser = MyApp._build_parser_()
+    parser = MyApp._parser_()
     args = parser.parse_args()
     for _ in range(args.count):
         print(f"Hello, {args.name}!")
@@ -126,7 +126,7 @@ normally. If the selected class has no `__run__`, `main` raises
 `NotImplementedError` naming the class.
 
 **Subcommands**: set `_subcommands_` to a sequence of `Args` subclasses and
-`main`/`_build_parser_` wires up `add_subparsers(dest="command", required=True)`
+`main`/`_parser_` wires up `add_subparsers(dest="command", required=True)`
 automatically — no manual subparser plumbing needed. Nested `_subcommands_`
 (a subcommand that itself declares `_subcommands_`) compose naturally into
 multi-level command trees, and `main` always dispatches to the deepest
@@ -172,11 +172,44 @@ class MyApp(Args):
 ### Build and Parse
 
 ```python
-parser = Deploy._build_parser_()
+parser = Deploy._parser_()
 args = parser.parse_args()
 
 print(f"Deploying to {args.environment} (dry-run: {args.dry_run})")
 ```
+
+### Quick parse
+
+`duho.parser(cls, ...)` is the module-level entry point for building a parser
+(delegates to `cls._parser_(...)`). `duho.parse(spec, argv=None, *,
+parser_kwargs=None)` goes one step further and parses in a single call:
+
+```python
+import duho
+
+# spec is a type: build + parse in one call
+args = duho.parse(Deploy)
+```
+
+`spec` can also be an **instance**, letting you layer CLI overrides on top of
+config-file/programmatic defaults. The instance's current field values become
+the argparse defaults; CLI args still win; the original instance is left
+unmutated and a new instance of the same type is returned:
+
+```python
+base = Deploy(environment="staging", dry_run=False)
+
+# No --env on the CLI -> falls back to base.environment ("staging")
+result = duho.parse(base, ["--dry-run"])
+
+assert result.environment == "staging"   # from base
+assert result.dry_run is True            # from CLI
+assert base.dry_run is False             # base is untouched
+```
+
+Precedence: **CLI args > instance field values > class defaults**. This also
+means a required field with no class default becomes effectively optional
+for that call if the instance already supplies a value.
 
 ### Logging Integration
 
@@ -234,8 +267,8 @@ if __name__ == "__main__":
     main_parser = argparse.ArgumentParser()
     subparsers = main_parser.add_subparsers()
     
-    Serve._build_parser_(subparsers, name="serve")
-    Build._build_parser_(subparsers, name="build")
+    Serve._parser_(subparsers, name="serve")
+    Build._parser_(subparsers, name="build")
     
     args = main_parser.parse_args()
 ```

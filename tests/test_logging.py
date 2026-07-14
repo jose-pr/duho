@@ -65,7 +65,7 @@ class MyCommand(LoggingArgs):
 
 def test_logging_args_integration():
     """Test LoggingArgs mixin."""
-    parser = MyCommand._build_parser_()
+    parser = MyCommand._parser_()
     args = parser.parse_args(["--name", "test", "-v"])
 
     assert args.name == "test"
@@ -83,7 +83,7 @@ class VerboseCommand(LoggingArgs):
 
 def test_verbose_to_loglevel():
     """Test converting verbose count to log level."""
-    parser = VerboseCommand._build_parser_()
+    parser = VerboseCommand._parser_()
 
     # No -v: use INFO
     args = parser.parse_args([])
@@ -104,7 +104,7 @@ class SimpleLoggingCommand(LoggingArgs):
 
 def test_logging_args_set_loglevels():
     """Test setting log levels from parsed args."""
-    parser = SimpleLoggingCommand._build_parser_()
+    parser = SimpleLoggingCommand._parser_()
     args = parser.parse_args(["--loglevel", "DEBUG"])
     loglevels = args._set_loglevels_()
 
@@ -131,7 +131,7 @@ def test_verbosity_contract():
     duho_logging.initverbose()
     levels = list(duho_logging.VERBOSE_LEVELS.keys())
     base = levels.index(logging.INFO)
-    parser = VerbosityContractCommand._build_parser_()
+    parser = VerbosityContractCommand._parser_()
 
     args = parser.parse_args([])
     assert args._verbose_loglevel_() == levels[base]
@@ -156,7 +156,7 @@ def test_quiet_contract():
     duho_logging.initverbose()
     levels = list(duho_logging.VERBOSE_LEVELS.keys())
     base = levels.index(logging.INFO)
-    parser = VerbosityContractCommand._build_parser_()
+    parser = VerbosityContractCommand._parser_()
 
     args = parser.parse_args(["-q"])
     assert args._verbose_loglevel_() == levels[base - 1]
@@ -181,7 +181,7 @@ def test_verbose_and_quiet_offset():
     duho_logging.initverbose()
     levels = list(duho_logging.VERBOSE_LEVELS.keys())
     base = levels.index(logging.INFO)
-    parser = VerbosityContractCommand._build_parser_()
+    parser = VerbosityContractCommand._parser_()
 
     args = parser.parse_args(["-v", "-v", "-q"])
     assert args._verbose_loglevel_() == levels[base + 1]

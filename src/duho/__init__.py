@@ -18,9 +18,11 @@ from .args import (
     main,
     NS,
     parse,
+    print_completion,
     UpdateAction,
     value_sources,
 )
+from . import completion
 from .logging import (
     DefaultFormatter,
     add_logging_level,
@@ -48,6 +50,7 @@ __all__ = [
     "ArgumentBuilder",
     "AUTO",
     "Choice",
+    "completion",
     "Const",
     "Count",
     "Extend",
@@ -56,6 +59,7 @@ __all__ = [
     "NS",
     "parse",
     "parser",
+    "print_completion",
     "UpdateAction",
     "value_sources",
     "add_logging_level",

@@ -327,6 +327,43 @@ opposite directions and can be combined (e.g. `-vv -q` nets one step more verbos
 than the default); each end of the scale (`CRITICAL`/`TRACE`) clamps rather than
 wrapping or erroring.
 
+### Shell completion
+
+Generate a self-contained bash/zsh/fish completion script from your parser —
+**static** generation (no runtime dependency, no per-keystroke re-invocation
+of your program, unlike argcomplete):
+
+```python
+import duho
+
+class MyApp(duho.Args):
+    _completion_ = True  # opt-in: adds --print-completion to --help
+    ...
+```
+
+```bash
+python app.py --print-completion bash > _myapp.bash && source _myapp.bash
+python app.py --print-completion zsh  > _myapp   # place on your $fpath
+python app.py --print-completion fish > myapp.fish && source myapp.fish
+```
+
+`_completion_` is off by default (matches the `_version_` opt-in precedent) —
+set it to add the `--print-completion {bash,zsh,fish}` flag. You can also
+generate a script without adding the flag at all, via the standalone
+function:
+
+```python
+import sys
+import duho
+
+duho.print_completion(MyApp, "bash", file=sys.stdout)
+```
+
+Both paths walk the built parser tree, including nested `_subcommands_`:
+`Literal`/`Enum` fields offer their choices as completion candidates, and
+`pathlib.Path`-typed fields get the shell's native file/directory
+completion.
+
 ### Subcommands
 
 Build hierarchical CLIs with subparsers:

@@ -5,6 +5,7 @@ import importlib.metadata as _importlib_metadata
 import logging as _logging_module
 import os as _os
 import pathlib as _pathlib
+import sys as _sys
 import typing as _ty
 
 from . import _compat as _compat
@@ -92,6 +93,32 @@ def _resolve_version(cls) -> "str | None":
             )
             return None
     return None
+
+
+class _PrintCompletionAction(_argparse.Action):
+    """argparse Action for --print-completion: emits a shell completion
+    script for the *root* parser tree and exits 0, mirroring how the
+    stdlib's own action="version" short-circuits before dispatch.
+
+    ``root_parser`` is captured at injection time (the top-level parser
+    built by this call to _parser_/_initparser_) rather than re-derived
+    from ``parser`` at call time, since a subcommand's own parser only
+    sees its own subtree, not the whole app.
+    """
+
+    def __init__(self, option_strings, dest, root_parser=None, **kwargs):
+        kwargs.setdefault("nargs", None)
+        kwargs.setdefault("default", _argparse.SUPPRESS)
+        super().__init__(option_strings, dest, **kwargs)
+        self.root_parser = root_parser
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from . import completion as _completion
+
+        emitter = getattr(_completion, values)
+        root = self.root_parser if self.root_parser is not None else parser
+        parser._print_message(emitter(root), _sys.stdout)
+        parser.exit()
 
 
 def _resolve_env_defaults(cls) -> "dict[str, object]":
@@ -660,6 +687,22 @@ class Args(_argparse.Namespace):
                 version=f"%(prog)s {version}",
             )
 
+        # --print-completion: opt-in via _completion_ = True, only injected
+        # on the top-level parser (a subcommand's own parser only sees its
+        # own subtree, not the whole app) -- skipped if a "print_completion"
+        # dest already exists (e.g. from a parents=[...] parser).
+        if not is_subcommand and getattr(cls, "_completion_", False):
+            actions_by_dest_pre2 = {action.dest: action for action in parser._actions}
+            if "print_completion" not in actions_by_dest_pre2:
+                parser.add_argument(
+                    "--print-completion",
+                    choices=("bash", "zsh", "fish"),
+                    action=_PrintCompletionAction,
+                    root_parser=parser,
+                    dest="print_completion",
+                    help="Print a shell completion script for the given shell and exit.",
+                )
+
         actions_by_dest = {action.dest: action for action in parser._actions}
         for arg in cls._getargs_():
             _action = actions_by_dest.get(arg.name)
@@ -728,6 +771,22 @@ class UpdateAction(_argparse.Action):
         items = _copy.deepcopy(items)
         items.update(values or {})
         setattr(namespace, self.dest, items)
+
+
+def print_completion(cls, shell: str, file=None) -> None:
+    """Print a shell completion script for `cls` to `file` (default sys.stdout).
+
+    Standalone counterpart to the `--print-completion` flag injected when
+    `_completion_ = True` -- builds cls's parser tree fresh (independent of
+    whether `_completion_` is set) and delegates to `duho.completion.<shell>`.
+    """
+    from . import completion as _completion
+
+    if file is None:
+        file = _sys.stdout
+    parser = cls._parser_()
+    emitter = getattr(_completion, shell)
+    file.write(emitter(parser))
 
 
 def main(
@@ -872,6 +931,7 @@ __all__ = [
     "NS",
     "NOT_DEFINED",
     "parse",
+    "print_completion",
     "UpdateAction",
     "value_sources",
 ]

@@ -9,7 +9,18 @@ from .logging import parse_loglevels
 
 
 class LoggingArgs(Args):
-    """Args subclass with built-in --verbose and --loglevel support."""
+    """Args subclass with built-in --verbose and --loglevel support.
+
+    Set a class attr ``_version_`` to opt into a ``--version`` flag; no
+    separate preset class is needed::
+
+        class MyApp(LoggingArgs):
+            _version_ = "1.2.3"
+
+    ``--version`` prints ``"%(prog)s 1.2.3"`` and exits 0. It is skipped if
+    a ``version``-dest action already exists (e.g. supplied by a parent
+    parser).
+    """
 
     loglevels: _ty.Annotated[
         dict[str, int], NS(type=parse_loglevels, action=UpdateAction)

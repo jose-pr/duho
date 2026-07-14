@@ -1,4 +1,4 @@
-"""Tests for Plan 04 features: Literal/Enum choices, list[T], --version, main()/__run__."""
+"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/__run__ dispatch."""
 
 import enum
 import logging
@@ -10,7 +10,7 @@ import duho
 from duho import Args, LoggingArgs
 
 
-# --- Phase 1: Literal & Enum -> choices --------------------------------
+# --- Literal & Enum -> choices -----------------------------------------
 
 
 class Color(enum.Enum):
@@ -96,7 +96,7 @@ def test_mixed_literal_rejects_unknown_value():
         parser.parse_args(["--value", "nope"])
 
 
-# --- Phase 2: list[T] fields --------------------------------------------
+# --- list[T] fields ------------------------------------------------------
 
 
 class ListArgs(Args):
@@ -140,7 +140,7 @@ def test_list_element_type_conversion():
     assert all(isinstance(n, int) for n in args.numbers)
 
 
-# --- Phase 3: --version --------------------------------------------------
+# --- --version -----------------------------------------------------------
 
 
 class VersionedArgs(Args):
@@ -170,7 +170,7 @@ def test_no_version_flag_without_version_attr():
     assert "--version" not in flags
 
 
-# --- Plan 10: _version_ = duho.AUTO ---------------------------------------
+# --- _version_ = duho.AUTO ------------------------------------------------
 
 
 class AutoVersionArgs(Args):
@@ -234,7 +234,7 @@ def test_auto_version_not_found_skips_flag(monkeypatch):
     assert "version" not in {action.dest for action in parser._actions}
 
 
-# --- Phase 4: duho.main()/__run__ dispatch -------------------------------
+# --- duho.main()/__run__ dispatch ----------------------------------------
 
 
 class ServeCmd(Args):

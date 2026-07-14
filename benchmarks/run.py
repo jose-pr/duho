@@ -2,11 +2,11 @@
 """Structured benchmark runner for duho.
 
 Produces a comparable JSON result plus a human summary. Save a run to the
-history with --save; results land in .agents/bench/<name>.json where <name>
-defaults to duho-<version>-py<major><minor>.
+history with --save; results land in benchmarks/results/<name>.json where
+<name> defaults to duho-<version>-py<major><minor>.
 
     python benchmarks/run.py            # print summary only
-    python benchmarks/run.py --save     # also write .agents/bench/<name>.json
+    python benchmarks/run.py --save     # also write benchmarks/results/<name>.json
     python benchmarks/run.py --name foo # custom result name
 
 Each metric is sampled `repeat` times (each sample is `inner` iterations) and
@@ -90,7 +90,7 @@ def measure():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Run duho benchmarks")
-    ap.add_argument("--save", action="store_true", help="write result to .agents/bench/")
+    ap.add_argument("--save", action="store_true", help="write result to benchmarks/results/")
     ap.add_argument("--name", default=None, help="result name (default duho-<ver>-py<ver>)")
     args = ap.parse_args(argv)
 
@@ -115,7 +115,7 @@ def main(argv=None):
         print(f"{key:16s} {m['median_ms']:10.4f} {m['min_ms']:10.4f} {m['max_ms']:10.4f}")
 
     if args.save:
-        dest = Path(__file__).resolve().parent.parent / ".agents" / "bench"
+        dest = Path(__file__).resolve().parent / "results"
         dest.mkdir(parents=True, exist_ok=True)
         out = dest / f"{name}.json"
         out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")

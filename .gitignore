@@ -134,3 +134,6 @@ Thumbs.db
 .claude/
 CLAUDE*
 AGENTS.md
+
+# Benchmark run outputs (local, machine-specific)
+benchmarks/results/

@@ -2,6 +2,8 @@ import logging as _logging
 import sys as _sys
 import typing as _ty
 
+from ._compat import get_level_names_mapping
+
 if _ty.TYPE_CHECKING:
     from logging import *  # type:ignore
 
@@ -39,11 +41,8 @@ def _getcolor(color: str):
     return color
 
 
-if not hasattr(_logging, "getLevelNamesMapping"):
-    _logging.getLevelNamesMapping = lambda: _logging._nameToLevel.copy()
-
-
 def add_logging_level(name: str, level: int, force=False, color: 'str | None' = None):
+    """Register a custom log level."""
     name = name.upper()
     if hasattr(_logging, name) and not force:
         return
@@ -67,6 +66,7 @@ def add_logging_level(name: str, level: int, force=False, color: 'str | None' = 
 
 
 class DefaultFormatter(_logging.Formatter):  # type:ignore
+    """Log formatter with colored output."""
     COLORS: dict[int, str] = {
         _logging.DEBUG: _asicode(34),  # Fore.BLUE
         _logging.INFO: _asicode(32),  # Fore.GREEN
@@ -100,9 +100,10 @@ _LEVELSIZE = 4
 
 
 def initverbose():
+    """Initialize verbose level mappings."""
     global VERBOSE_LEVELS, VERBOSE_HELP, _LEVELSIZE
 
-    for name, loglevel in _logging.getLevelNamesMapping().items():
+    for name, loglevel in get_level_names_mapping().items():
         if not loglevel:
             continue
         aliases: list[str] = VERBOSE_LEVELS.setdefault(loglevel, [])
@@ -117,7 +118,26 @@ def initverbose():
     VERBOSE_HELP = ", ".join([aliases[0] for aliases in VERBOSE_LEVELS.values()])
 
 
+def parse_loglevels(text: str, itemdivider: str = ",", valkey_separator=":"):
+    """Parse a log level specification string."""
+    levels: dict[str, int] = {}
+    levelmapping = get_level_names_mapping()
+
+    for entry in text.split(itemdivider):
+        name, *level = entry.split(valkey_separator, maxsplit=1)
+        if not level:
+            level = name
+            name = ""
+        else:
+            level = level[0]
+        level = levelmapping.get(level)
+        if level is not None:
+            levels[name] = level
+    return levels
+
+
 def init_stderr_logging(name=None, level: 'int | None' = None):
+    """Initialize logging to stderr with color support."""
     initverbose()
     handler = _logging.StreamHandler(_sys.stderr)
     logger = _logging.getLogger(name)
@@ -127,5 +147,16 @@ def init_stderr_logging(name=None, level: 'int | None' = None):
     handler.setFormatter(DefaultFormatter())
     return logger
 
+
 add_logging_level("TRACE", _logging.DEBUG - 5, color=_asicode(36))
 initverbose()
+
+__all__ = [
+    "add_logging_level",
+    "DefaultFormatter",
+    "VERBOSE_LEVELS",
+    "VERBOSE_HELP",
+    "parse_loglevels",
+    "init_stderr_logging",
+    "initverbose",
+]

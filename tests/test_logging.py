@@ -1,8 +1,7 @@
 """Tests for duho.logging module."""
 
 import logging
-from duho import add_logging_level, DefaultFormatter, init_stderr_logging
-from duho.cli.utils import LoggingArgs, parse_loglevels
+from duho import add_logging_level, DefaultFormatter, init_stderr_logging, LoggingArgs, parse_loglevels
 
 
 def test_add_logging_level():
@@ -66,15 +65,15 @@ class MyCommand(LoggingArgs):
 
 def test_logging_args_integration():
     """Test LoggingArgs mixin."""
-    parser = MyCommand.build_parser()
+    parser = MyCommand._build_parser_()
     args = parser.parse_args(["--name", "test", "-v"])
 
     assert args.name == "test"
     assert args.verbose == 1
 
     # Should have logger property
-    assert hasattr(args, "logger")
-    assert isinstance(args.logger, logging.Logger)
+    assert hasattr(args, "_logger_")
+    assert isinstance(args._logger_, logging.Logger)
 
 
 class VerboseCommand(LoggingArgs):
@@ -84,16 +83,16 @@ class VerboseCommand(LoggingArgs):
 
 def test_verbose_to_loglevel():
     """Test converting verbose count to log level."""
-    parser = VerboseCommand.build_parser()
+    parser = VerboseCommand._build_parser_()
 
     # No -v: use INFO
     args = parser.parse_args([])
-    level = args.verbose_as_loglevel()
+    level = args._verbose_loglevel_()
     assert level is not None
 
     # -v: higher level
     args = parser.parse_args(["-v"])
-    level_verbose = args.verbose_as_loglevel()
+    level_verbose = args._verbose_loglevel_()
     # Should be different from no-verbose case
     assert level_verbose is not None
 
@@ -105,9 +104,9 @@ class SimpleLoggingCommand(LoggingArgs):
 
 def test_logging_args_set_loglevels():
     """Test setting log levels from parsed args."""
-    parser = SimpleLoggingCommand.build_parser()
+    parser = SimpleLoggingCommand._build_parser_()
     args = parser.parse_args(["--loglevel", "DEBUG"])
-    loglevels = args.set_loglevels()
+    loglevels = args._set_loglevels_()
 
     # Should return a dict of level assignments
     assert isinstance(loglevels, dict)

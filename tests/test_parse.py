@@ -1,4 +1,4 @@
-"""Tests for the module-level duho.parser() / duho.parse() entry points (Plan 08)."""
+"""Tests for the module-level duho.parser() / duho.parse() entry points."""
 
 import argparse
 import typing as ty

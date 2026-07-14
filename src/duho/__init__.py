@@ -16,6 +16,7 @@ from .args import (
     Extend,
     main,
     NS,
+    parse,
     UpdateAction,
 )
 from .logging import (
@@ -29,12 +30,12 @@ from .presets import LoggingArgs
 __version__ = "0.1.0"
 
 
-def build_parser(cls, *args, **kwargs):
+def parser(cls, *args, **kwargs):
     """Build an ArgumentParser for an Args class.
 
-    Public module-level entry point (delegates to cls._build_parser_).
+    Public module-level entry point (delegates to cls._parser_).
     """
-    return cls._build_parser_(*args, **kwargs)
+    return cls._parser_(*args, **kwargs)
 
 
 __all__ = [
@@ -50,9 +51,10 @@ __all__ = [
     "LoggingArgs",
     "main",
     "NS",
+    "parse",
+    "parser",
     "UpdateAction",
     "add_logging_level",
-    "build_parser",
     "DefaultFormatter",
     "init_stderr_logging",
     "parse_loglevels",

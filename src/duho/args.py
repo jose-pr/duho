@@ -327,7 +327,7 @@ class Args(_argparse.Namespace):
         return args
 
     @classmethod
-    def _build_parser_(
+    def _parser_(
         cls,
         subparser: "_argparse._SubParsersAction | None" = None,
         name: "str | None" = None,  # type:ignore
@@ -359,7 +359,7 @@ class Args(_argparse.Namespace):
         if subcommands:
             subparsers = parser.add_subparsers(dest="command", required=True)
             for sub in subcommands:
-                sub._build_parser_(subparsers)
+                sub._parser_(subparsers)
 
         return parser
 
@@ -490,7 +490,7 @@ def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) ->
     stderr logging + apply verbosity when the resulting instance provides
     _set_loglevels_, then call instance.__run__() and map a None return to 0.
     """
-    parser = cls._build_parser_()
+    parser = cls._parser_()
     instance = parser.parse_args(argv)
 
     if setup_logging and hasattr(instance, "_set_loglevels_"):
@@ -509,6 +509,47 @@ def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) ->
     return 0 if result is None else result
 
 
+def parse(spec, argv: "_ty.Sequence[str] | None" = None, *, parser_kwargs=None):
+    """Build a parser from `spec` and parse `argv` into a new instance.
+
+    `spec` may be:
+    - An `Args` subclass (type): equivalent to `spec._parser_().parse_args(argv)`.
+    - An instance of an `Args` subclass: the instance's current field values
+      are used as argparse defaults (via `parser.set_defaults(**overrides)`,
+      filtered to actual CLI fields -- not `vars(spec)`, which would include
+      framework attrs). CLI args still override those defaults. Returns a
+      NEW instance of `type(spec)`; `spec` itself is never mutated.
+
+    Precedence: CLI args > instance field values > class defaults. Note this
+    means a required field (no class default) that the instance already has
+    a value for becomes effectively optional for this call.
+    """
+    parser_kwargs = parser_kwargs or {}
+    if isinstance(spec, type):
+        cls = spec
+        parser = cls._parser_(**parser_kwargs)
+        return parser.parse_args(argv)
+
+    cls = type(spec)
+    parser = cls._parser_(**parser_kwargs)
+    field_names = {builder.name for builder in cls._getargs_()}
+    overrides = {
+        name: value
+        for name, value in vars(spec).items()
+        if name in field_names
+    }
+    parser.set_defaults(**overrides)
+    # set_defaults() alone doesn't satisfy argparse's required= check (it's
+    # enforced independently of the default value) -- an instance-supplied
+    # value for a field that has no class default (required=True) must also
+    # clear the action's required flag, or parse_args([]) still raises
+    # SystemExit even though a usable value is now present via the default.
+    for action in parser._actions:
+        if action.dest in overrides:
+            action.required = False
+    return parser.parse_args(argv)
+
+
 __all__ = [
     "Append",
     "Argument",
@@ -524,5 +565,6 @@ __all__ = [
     "main",
     "NS",
     "NOT_DEFINED",
+    "parse",
     "UpdateAction",
 ]

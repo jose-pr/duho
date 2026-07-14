@@ -91,16 +91,19 @@ def prerun_parse(
         for action in parser._subparsers._actions:
             if isinstance(action, _argparse._SubParsersAction):
                 subparser = action
+    required = None
     _argparse._HelpAction.__call__ = lambda *args: ...  # type: ignore
-    if subparser:
-        required = subparser.required
-        subparser.required = False
-        disable_subparser_check(subparser)
-    args, _ = parser.parse_known_args(argv)
-    if subparser:
-        enable_subparser_check(subparser)
-        subparser.required = required  # type: ignore
-    _argparse._HelpAction.__call__ = _HELPACTION_CALL
+    try:
+        if subparser:
+            required = subparser.required
+            subparser.required = False
+            disable_subparser_check(subparser)
+        args, _ = parser.parse_known_args(argv)
+    finally:
+        if subparser:
+            enable_subparser_check(subparser)
+            subparser.required = required  # type: ignore
+        _argparse._HelpAction.__call__ = _HELPACTION_CALL
     return args
 
 

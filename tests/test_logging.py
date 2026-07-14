@@ -110,3 +110,116 @@ def test_logging_args_set_loglevels():
 
     # Should return a dict of level assignments
     assert isinstance(loglevels, dict)
+
+
+class VerbosityContractCommand(LoggingArgs):
+    """Command used to pin down the verbose/quiet -> loglevel contract."""
+    pass
+
+
+def test_verbosity_contract():
+    """0 -v -> INFO, 1 -> DEBUG, 2 -> TRACE, >=3 clamps at TRACE.
+
+    Uses duho's own VERBOSE_LEVELS (rather than hardcoded stdlib level
+    numbers) because other tests in this module register extra custom
+    levels (e.g. CUSTOM=25) via the shared, process-global `logging`
+    module, which shifts numeric level values without changing the
+    verbose/quiet *index* contract under test here.
+    """
+    from duho import logging as duho_logging
+
+    duho_logging.initverbose()
+    levels = list(duho_logging.VERBOSE_LEVELS.keys())
+    base = levels.index(logging.INFO)
+    parser = VerbosityContractCommand._build_parser_()
+
+    args = parser.parse_args([])
+    assert args._verbose_loglevel_() == levels[base]
+
+    args = parser.parse_args(["-v"])
+    assert args._verbose_loglevel_() == levels[base + 1]
+
+    # A verbose count large enough to run off either end of the table must
+    # clamp to the least-severe (last) entry, regardless of table length.
+    overshoot = len(levels) + 5
+    args = parser.parse_args(["-v"] * overshoot)
+    assert args._verbose_loglevel_() == levels[-1]
+
+    args = parser.parse_args(["-v"] * (overshoot + 1))
+    assert args._verbose_loglevel_() == levels[-1]
+
+
+def test_quiet_contract():
+    """-q -> WARNING, -qq -> ERROR, -qqq -> CRITICAL, more clamps at CRITICAL."""
+    from duho import logging as duho_logging
+
+    duho_logging.initverbose()
+    levels = list(duho_logging.VERBOSE_LEVELS.keys())
+    base = levels.index(logging.INFO)
+    parser = VerbosityContractCommand._build_parser_()
+
+    args = parser.parse_args(["-q"])
+    assert args._verbose_loglevel_() == levels[base - 1]
+
+    args = parser.parse_args(["-q", "-q"])
+    assert args._verbose_loglevel_() == levels[base - 2]
+
+    # A quiet count large enough to run off either end of the table must
+    # clamp to the most-severe (first) entry, regardless of table length.
+    overshoot = len(levels) + 5
+    args = parser.parse_args(["-q"] * overshoot)
+    assert args._verbose_loglevel_() == levels[0]
+
+    args = parser.parse_args(["-q"] * (overshoot + 1))
+    assert args._verbose_loglevel_() == levels[0]
+
+
+def test_verbose_and_quiet_offset():
+    """verbose and quiet counts offset each other around INFO."""
+    from duho import logging as duho_logging
+
+    duho_logging.initverbose()
+    levels = list(duho_logging.VERBOSE_LEVELS.keys())
+    base = levels.index(logging.INFO)
+    parser = VerbosityContractCommand._build_parser_()
+
+    args = parser.parse_args(["-v", "-v", "-q"])
+    assert args._verbose_loglevel_() == levels[base + 1]
+
+    args = parser.parse_args(["-v", "-q", "-q"])
+    assert args._verbose_loglevel_() == levels[base - 1]
+
+
+def test_formatter_does_not_mutate_record():
+    """DefaultFormatter.format must leave the original record untouched."""
+    formatter = DefaultFormatter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="hello",
+        args=(),
+        exc_info=None,
+    )
+    original_levelname = record.levelname
+    formatter.format(record)
+    assert record.levelname == original_levelname
+
+
+def test_formatter_does_not_leak_across_handlers():
+    """A record formatted twice (e.g. by two handlers) must not accumulate
+    padding/color from the first format() call."""
+    formatter = DefaultFormatter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="hello",
+        args=(),
+        exc_info=None,
+    )
+    first = formatter.format(record)
+    second = formatter.format(record)
+    assert first == second

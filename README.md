@@ -83,6 +83,10 @@ class Deploy(Args):
     ("--dry-run",)
 ```
 
+Bool fields defaulting to `False` (or with no default) get a simple `--flag`
+switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
+`argparse.BooleanOptionalAction`) so the default can be explicitly turned back off.
+
 ### Build and Parse
 
 ```python
@@ -112,10 +116,18 @@ class MyApp(LoggingArgs):
 Control logging from the CLI:
 
 ```bash
-python app.py mycommand -v                    # Verbose
+python app.py mycommand -v                    # Verbose: INFO -> DEBUG
+python app.py mycommand -vv                   # More verbose: -> TRACE (max)
+python app.py mycommand -q                    # Quiet: INFO -> WARNING
+python app.py mycommand -qq                   # Quieter: -> ERROR
 python app.py mycommand --loglevel DEBUG      # Debug level
 python app.py mycommand --loglevel foo:TRACE  # Module-specific level
 ```
+
+`-v`/`-q` are counted flags that move away from/toward the default `INFO` level in
+opposite directions and can be combined (e.g. `-vv -q` nets one step more verbose
+than the default); each end of the scale (`CRITICAL`/`TRACE`) clamps rather than
+wrapping or erroring.
 
 ### Subcommands
 

@@ -293,6 +293,60 @@ if __name__ == "__main__":
     args = main_parser.parse_args()
 ```
 
+## Examples
+
+Two self-contained example CLIs under [`examples/`](examples/) each build a small
+umbrella app with an `install` subcommand, ported from real-world scripts to show
+duho's full surface (they stub the actual filesystem work — the point is the CLI):
+
+- [`examples/dotagents.py`](examples/dotagents.py) — an agent-config installer
+  (`LoggingArgs`, `_subcommands_`, `--dest`/`--dry-run`/`--with-examples`):
+
+  ```python
+  class Install(LoggingArgs):
+      """Copy the agent-config payload into the destination directory."""
+
+      dest: Path = Path.home() / ".agents"
+      ("--dest",)
+      dry_run: bool = False
+      ("--dry-run",)
+
+  # ...
+  if __name__ == "__main__":
+      sys.exit(duho.main(Dotagents))
+  ```
+
+  ```bash
+  python examples/dotagents.py install --dry-run
+  ```
+
+- [`examples/buildutils.py`](examples/buildutils.py) — an `install(1)`-like file
+  installer; exercises positionals, `Union` types, `NS(nargs="?")`, a custom
+  `action=UpdateAction`, and `NS(conflicts=...)` mutually-exclusive grouping:
+
+  ```python
+  class Install(LoggingArgs):
+      """Install SOURCE at DESTINATION."""
+
+      options: Arg[
+          dict,
+          NS(action=UpdateAction, type=lambda x: [x.split("=", maxsplit=1)]),
+      ] = {}
+      ("-O",)
+      source: Path
+      ("source",)
+      destination: Path
+      ("destination",)
+
+  # ...
+  if __name__ == "__main__":
+      sys.exit(duho.main(Buildutils))
+  ```
+
+  ```bash
+  python examples/buildutils.py install --type dir -O k=v src dst
+  ```
+
 ## Documentation
 
 Full documentation: https://jose-pr.github.io/duho/

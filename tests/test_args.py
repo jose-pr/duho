@@ -444,7 +444,7 @@ def test_no_hash_cls_leak_in_parsed_instance():
     assert "#cls" not in vars(args)
 
 
-# --- Phase 2: implicit-flag + positional coverage (locking in existing behavior) ---
+# --- implicit flag names derived from the field name ---
 
 
 class ImplicitFlagFromDocstringArgs(Args):
@@ -492,7 +492,7 @@ def test_implicit_flag_underscore_to_dash():
     assert args.dry_run is True
 
 
-# --- Phase 3: full argparse kwargs passthrough ---
+# --- full argparse kwargs passthrough via Arg[T, NS(...)] ---
 
 
 class KwargsOverrideArgs(Args):
@@ -569,7 +569,7 @@ def test_type_incompatible_actions_suppress_type_kwarg():
             assert False, f"--flag action not found for action={action!r}"
 
 
-# --- Phase 4: positional arguments (formalized) ---
+# --- positional arguments ---
 
 
 class RequiredPositionalArgs(Args):
@@ -657,7 +657,7 @@ def test_positional_never_gets_required_kwarg():
         assert "required" not in kwargs
 
 
-# --- Phase 5: typed helper wrappers ---
+# --- argument helper factories (Count/Append/Const/Choice) ---
 
 
 class CountArgs(Args):

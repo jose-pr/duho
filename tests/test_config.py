@@ -1,4 +1,4 @@
-"""Tests for Plan 05: config-file + env-var default layers.
+"""Tests for config-file + env-var default layers.
 
 Precedence contract (locked): CLI > env > config file > class default.
 A value from any layer un-requires the corresponding field for free (via

@@ -216,7 +216,7 @@ def _apply_default_layers_one(
 
     Records `_duho_value_sources_` on the parser: the source ("config" or
     "env") for every field touched by a non-default layer, so
-    `duho.value_sources()` can report provenance after parsing (Phase 4).
+    `duho.value_sources()` can report provenance after parsing.
     """
     sources: "dict[str, str]" = {}
     merged: "dict[str, object]" = {}

@@ -1,4 +1,4 @@
-"""Smoke tests for examples/dotagents.py and examples/buildutils.py (Plan 09).
+"""Smoke tests for examples/dotagents.py and examples/buildutils.py.
 
 These exercise the example files as acceptance tests for duho's public API
 surface: LoggingArgs, _subcommands_, __run__ dispatch via duho.main(), and

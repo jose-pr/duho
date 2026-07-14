@@ -231,6 +231,69 @@ Precedence: **CLI args > instance field values > class defaults**. This also
 means a required field with no class default becomes effectively optional
 for that call if the instance already supplies a value.
 
+### Configuration layers
+
+Beyond instance overrides, `duho.parse`/`duho.main` support two more default
+layers: per-field environment variables and a TOML config file. Combined
+precedence ladder, highest wins:
+
+```
+CLI args > env var > config file > class default
+```
+
+A value supplied by *any* layer also un-requires that field — a field with
+no class default that's set in the config file (say) no longer needs to be
+passed on the CLI.
+
+**Environment variables**: annotate a field with `NS(env="VAR_NAME")`:
+
+```python
+from duho import Args, Arg, NS
+
+class Deploy(Args):
+    token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
+    "Auth token"
+    ("--token",)
+```
+
+**Config file**: set `_config_` on the class, or pass `config=` to
+`duho.parse`/`duho.main` (the kwarg overrides the class attr):
+
+```python
+class Deploy(Args):
+    _config_ = "~/.config/myapp/config.toml"
+    ...
+
+result = duho.parse(Deploy, config="./deploy.toml")
+result = duho.main(Deploy, config="./deploy.toml")
+```
+
+Top-level TOML keys map to the root command's fields; a table named after a
+subcommand's `_parsername_` maps to that subcommand's fields:
+
+```toml
+# deploy.toml
+verbose = true
+
+[install]
+target = "prod"
+```
+
+Reading TOML uses the stdlib `tomllib` on Python 3.11+; on 3.9/3.10 it falls
+back to the third-party `tomli` package if installed (`pip install
+duho[config]`) — duho stays zero-runtime-dependency by default, so this
+extra is only needed if you actually use `_config_`/`config=` on an older
+interpreter.
+
+**Debugging where a value came from**: `duho.value_sources(parsed)` returns
+`{field_name: "cli" | "env" | "config" | "default"}` for the instance
+returned by `duho.parse`/`duho.main`.
+
+```python
+result = duho.parse(Deploy, [], config="./deploy.toml")
+duho.value_sources(result)  # {"token": "env", "verbose": "config", ...}
+```
+
 ### Logging Integration
 
 Combine with `LoggingArgs` for structured logging:

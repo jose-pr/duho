@@ -3,11 +3,15 @@ import copy as _copy
 import enum as _enum
 import importlib.metadata as _importlib_metadata
 import logging as _logging_module
+import os as _os
+import pathlib as _pathlib
 import typing as _ty
 
 from . import _compat as _compat
 from . import _introspect as _inspect
 from . import logging as _duho_logging
+
+_duho_module_logger = _logging_module.getLogger("duho")
 
 NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
@@ -88,6 +92,172 @@ def _resolve_version(cls) -> "str | None":
             )
             return None
     return None
+
+
+def _resolve_env_defaults(cls) -> "dict[str, object]":
+    """Build {field_name: converted_value} for fields whose NS(env=...) var is set.
+
+    Conversion runs the field's `type` factory (same one used for CLI text) so
+    a bad env value raises the same clear error argparse would give, and so a
+    non-str field (e.g. `port: int`) never leaks a raw str into set_defaults
+    (which bypasses argparse's own type= conversion).
+    """
+    resolved: "dict[str, object]" = {}
+    for builder in cls._getargs_():
+        if not builder.env:
+            continue
+        raw = _os.environ.get(builder.env)
+        if raw is None:
+            continue
+        try:
+            resolved[builder.name] = builder.type(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"environment variable {builder.env!r} for field {builder.name!r}: "
+                f"invalid value {raw!r} ({exc})"
+            ) from exc
+    return resolved
+
+
+def _load_config(path: "str | _pathlib.Path") -> dict:
+    """Read a TOML config file into a plain dict.
+
+    Uses stdlib `tomllib` (3.11+) when available, else falls back to the
+    third-party `tomli` package IFF it's installed. Neither is a hard
+    dependency (duho stays zero-runtime-deps) -- if neither is importable,
+    raises a clear RuntimeError telling the user to `pip install tomli`.
+    """
+    try:
+        import tomllib as _toml  # type:ignore[import-not-found]
+    except ImportError:
+        try:
+            import tomli as _toml  # type:ignore[import-not-found,no-redef]
+        except ImportError:
+            raise RuntimeError(
+                "duho: reading a config file requires a TOML backend. "
+                "Python 3.11+ has one built in (tomllib); on earlier "
+                "versions, install the optional 'tomli' package "
+                "(e.g. `pip install tomli` or `pip install duho[config]`)."
+            ) from None
+
+    p = _pathlib.Path(path).expanduser()
+    with p.open("rb") as f:
+        return _toml.load(f)
+
+
+def _config_values_for(cls, config: dict) -> "dict[str, object]":
+    """Extract + convert this class's field values from a loaded config dict.
+
+    Top-level keys map to the root command's fields. When `cls` is a
+    subcommand (has `_parsername_`), its own table `[<_parsername_>]` is
+    consulted instead of the top-level keys -- callers pass the right slice
+    of the config for the class being resolved. Unknown keys are ignored
+    (logged at debug) rather than erroring, for forward-compat.
+    """
+    resolved: "dict[str, object]" = {}
+    field_builders = {b.name: b for b in cls._getargs_()}
+    for key, raw in config.items():
+        builder = field_builders.get(key)
+        if builder is None:
+            _duho_module_logger.debug(
+                "duho: ignoring unknown config key %r for %s", key, cls
+            )
+            continue
+        try:
+            resolved[key] = builder.type(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"config value for field {key!r} on {cls.__name__}: "
+                f"invalid value {raw!r} ({exc})"
+            ) from exc
+    return resolved
+
+
+def _apply_default_layers_one(
+    parser: "_argparse.ArgumentParser", cls, config_table: dict
+):
+    """Resolve + apply the env/config/class-default layers onto a single parser.
+
+    Merge order per field: class default (already argparse's default) ->
+    overlay config value if present (from `config_table`, this class's own
+    slice of the loaded TOML) -> overlay env value if present -> then
+    `parser.set_defaults(**merged)`. CLI parsing overlays on top of that
+    naturally (argparse's own behavior), yielding the locked precedence
+    contract: CLI > env > config > class default. A `set_defaults` value
+    also un-requires the corresponding action for free -- no manual
+    `required=` surgery needed.
+
+    Records `_duho_value_sources_` on the parser: the source ("config" or
+    "env") for every field touched by a non-default layer, so
+    `duho.value_sources()` can report provenance after parsing (Phase 4).
+    """
+    sources: "dict[str, str]" = {}
+    merged: "dict[str, object]" = {}
+
+    if config_table:
+        for name, value in _config_values_for(cls, config_table).items():
+            merged[name] = value
+            sources[name] = "config"
+
+    for name, value in _resolve_env_defaults(cls).items():
+        merged[name] = value
+        sources[name] = "env"
+
+    if merged:
+        parser.set_defaults(**merged)
+        for action in parser._actions:
+            if action.dest in merged:
+                action.required = False
+
+    parser._duho_value_sources_ = sources  # type:ignore[attr-defined]
+    parser._duho_merged_defaults_ = merged  # type:ignore[attr-defined]
+
+
+def _apply_default_layers(
+    parser: "_argparse.ArgumentParser", cls, config: "str | _pathlib.Path | None"
+):
+    """Resolve config (once) + apply env/config/class-default layers across
+    the whole parser tree rooted at `parser`/`cls`.
+
+    `config` (explicit kwarg) overrides `cls._config_` (sandwich-named class
+    attr). Top-level TOML keys map to the root command's fields; a
+    `[<subcommand-name>]` table (subcommand name = its `_parsername_`) maps
+    to that subcommand's fields. Recurses into `_subcommands_` so nested
+    command trees get their own table looked up by name, applied to their
+    own (sub)parser. Shared by both `duho.parse` and `duho.main`.
+    """
+    config_path = config if config is not None else getattr(cls, "_config_", None)
+    raw_config: dict = _load_config(config_path) if config_path is not None else {}
+
+    def _walk(parser_, cls_, table: dict):
+        _apply_default_layers_one(parser_, cls_, table)
+        subcommands = getattr(cls_, "_subcommands_", None)
+        if not subcommands:
+            return
+        # argparse stores each subcommand's parser on the _SubParsersAction
+        # registered on parser_; find it and look up by the subcommand's
+        # registered name (its _parsername_, set during _parser_()).
+        subparsers_action = next(
+            (
+                a
+                for a in parser_._actions
+                if isinstance(a, _argparse._SubParsersAction)
+            ),
+            None,
+        )
+        if subparsers_action is None:
+            return
+        choices = subparsers_action.choices or {}
+        for sub in subcommands:
+            sub_name = getattr(sub, "_parsername_", None) or sub.__name__
+            sub_parser = choices.get(sub_name)
+            if sub_parser is None:
+                continue
+            sub_table = table.get(sub_name)
+            sub_table = sub_table if isinstance(sub_table, dict) else {}
+            _walk(sub_parser, sub, sub_table)
+
+    _walk(parser, cls, raw_config)
 
 
 class ArgumentMeta(_ty._ProtocolMeta):
@@ -265,6 +435,7 @@ class ArgumentBuilder(_argparse.Namespace):
     metavar: "str | None" = None
     const: "object | _inspect.NotDefined" = NOT_DEFINED
     version: "str | None" = None
+    env: "str | None" = None
 
     def _kwargs(self):
         # NS(kwargs={...}) is the raw escape-hatch override: it must win over
@@ -468,7 +639,14 @@ class Args(_argparse.Namespace):
 
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
             parser._duho_selected_cls_ = _cls  # type:ignore
-            return _cls(**parsed.__dict__), unk
+            instance = _cls(**parsed.__dict__)
+            # Debug-aid linkage for duho.value_sources(): remember the parser
+            # (which carries _duho_value_sources_/_duho_merged_defaults_ from
+            # _apply_default_layers) that produced instances of this class.
+            # Per-class, not per-instance -- keeps Args instances themselves
+            # free of framework bookkeeping in vars()/__dict__.
+            _cls._duho_last_parser_ = parser  # type:ignore[attr-defined]
+            return instance, unk
 
         parser.parse_known_args = parse_known_args  # type:ignore
         exclusive_groups = exclusive_groups or {}
@@ -552,16 +730,25 @@ class UpdateAction(_argparse.Action):
         setattr(namespace, self.dest, items)
 
 
-def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) -> int:
+def main(
+    cls,
+    argv: "_ty.Sequence[str] | None" = None,
+    *,
+    setup_logging=True,
+    config: "str | _pathlib.Path | None" = None,
+) -> int:
     """Build a parser for cls, parse argv, and dispatch to instance.__run__().
 
     Module-level (not a classmethod) so the Args subclass namespace stays
     entirely user-owned. Steps: build parser (auto-registers _subcommands_),
-    parse argv (SystemExit from argparse propagates), optionally set up
-    stderr logging + apply verbosity when the resulting instance provides
-    _set_loglevels_, then call instance.__run__() and map a None return to 0.
+    apply the env/config/class-default layers (`config` overrides `cls._config_`;
+    precedence CLI > env > config > class default), parse argv (SystemExit from
+    argparse propagates), optionally set up stderr logging + apply verbosity
+    when the resulting instance provides _set_loglevels_, then call
+    instance.__run__() and map a None return to 0.
     """
     parser = cls._parser_()
+    _apply_default_layers(parser, cls, config)
     instance = parser.parse_args(argv)
 
     if setup_logging and hasattr(instance, "_set_loglevels_"):
@@ -580,29 +767,40 @@ def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) ->
     return 0 if result is None else result
 
 
-def parse(spec, argv: "_ty.Sequence[str] | None" = None, *, parser_kwargs=None):
+def parse(
+    spec,
+    argv: "_ty.Sequence[str] | None" = None,
+    *,
+    parser_kwargs=None,
+    config: "str | _pathlib.Path | None" = None,
+):
     """Build a parser from `spec` and parse `argv` into a new instance.
 
     `spec` may be:
-    - An `Args` subclass (type): equivalent to `spec._parser_().parse_args(argv)`.
+    - An `Args` subclass (type): equivalent to `spec._parser_().parse_args(argv)`,
+      with the env/config/class-default layers applied first (see below).
     - An instance of an `Args` subclass: the instance's current field values
       are used as argparse defaults (via `parser.set_defaults(**overrides)`,
       filtered to actual CLI fields -- not `vars(spec)`, which would include
       framework attrs). CLI args still override those defaults. Returns a
       NEW instance of `type(spec)`; `spec` itself is never mutated.
 
-    Precedence: CLI args > instance field values > class defaults. Note this
-    means a required field (no class default) that the instance already has
-    a value for becomes effectively optional for this call.
+    `config` (a path, or None to fall back to `cls._config_`) layers config-file
+    and environment-variable defaults under the instance/CLI ones. Full
+    precedence: CLI args > instance field values > env > config file > class
+    defaults. Note this means a required field (no class default) that is
+    supplied by *any* layer becomes effectively optional for this call.
     """
     parser_kwargs = parser_kwargs or {}
     if isinstance(spec, type):
         cls = spec
         parser = cls._parser_(**parser_kwargs)
+        _apply_default_layers(parser, cls, config)
         return parser.parse_args(argv)
 
     cls = type(spec)
     parser = cls._parser_(**parser_kwargs)
+    _apply_default_layers(parser, cls, config)
     field_names = {builder.name for builder in cls._getargs_()}
     overrides = {
         name: value
@@ -619,6 +817,43 @@ def parse(spec, argv: "_ty.Sequence[str] | None" = None, *, parser_kwargs=None):
         if action.dest in overrides:
             action.required = False
     return parser.parse_args(argv)
+
+
+def value_sources(parsed) -> "dict[str, str]":
+    """Report the origin layer ("cli", "env", "config", or "default") of each
+    field on a parsed instance produced by `duho.parse`/`duho.main`.
+
+    Looks up the owning parser via the per-class `_duho_last_parser_`
+    linkage stashed during dispatch (see `_initparser_`). Returns `{}` if
+    unavailable (e.g. the instance wasn't produced via a parser built by
+    this framework, or no parse has happened yet for its class).
+
+    A field is "cli" if its parsed value differs from the effective default
+    that was in effect for that parse -- the merged env/config value when
+    the field was touched by one of those layers, else the class default.
+    Otherwise it's whatever layer contributed that default ("env"/"config"),
+    or "default" if no layer touched it (value == the untouched class default).
+    """
+    parser = getattr(type(parsed), "_duho_last_parser_", None)
+    if parser is None:
+        return {}
+    sources: "dict[str, str]" = getattr(parser, "_duho_value_sources_", None) or {}
+    merged: "dict[str, object]" = getattr(parser, "_duho_merged_defaults_", None) or {}
+
+    result: "dict[str, str]" = {}
+    for builder in type(parsed)._getargs_():
+        name = builder.name
+        if not hasattr(parsed, name):
+            continue
+        value = getattr(parsed, name)
+        if name in merged:
+            effective_default = merged[name]
+            layer = sources.get(name, "default")
+        else:
+            effective_default = builder.default
+            layer = "default"
+        result[name] = layer if value == effective_default else "cli"
+    return result
 
 
 __all__ = [
@@ -638,4 +873,5 @@ __all__ = [
     "NOT_DEFINED",
     "parse",
     "UpdateAction",
+    "value_sources",
 ]

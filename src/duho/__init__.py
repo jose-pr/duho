@@ -19,6 +19,7 @@ from .args import (
     NS,
     parse,
     UpdateAction,
+    value_sources,
 )
 from .logging import (
     DefaultFormatter,
@@ -56,6 +57,7 @@ __all__ = [
     "parse",
     "parser",
     "UpdateAction",
+    "value_sources",
     "add_logging_level",
     "DefaultFormatter",
     "init_stderr_logging",

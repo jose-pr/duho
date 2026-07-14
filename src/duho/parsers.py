@@ -1,13 +1,11 @@
-import argparse as _argparse
-import copy as _copy
-import typing as _ty
-import functools as _func
+"""Subparser utilities and helper functions."""
 
-from .. import logging as _logging
-from .args import *
+import argparse as _argparse
+import typing as _ty
 
 
 def pop_action(parser: _argparse.ArgumentParser, name: str):
+    """Remove an action from a parser by destination name."""
     index = None
     for idx, action in enumerate(parser._actions):
         if action.dest == name:
@@ -24,95 +22,14 @@ def pop_action(parser: _argparse.ArgumentParser, name: str):
 def insert_action(
     parser: _argparse.ArgumentParser, action: _argparse.Action, index: int = -1
 ):
+    """Insert an action into a parser at a given index."""
     parser._actions.insert(index, action)
     for k in action.option_strings:
         parser._option_string_actions[k] = action
 
 
-def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
-    kwargs.setdefault("default", [])
-    if isinstance(split, str):
-        ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type:ignore
-    else:
-
-        def ty(text: str):
-            result = split(text)
-            if isinstance(result, list):
-                return result
-            return list(result)
-
-    return _argparse.Namespace(type=ty, action="extend", kwargs=kwargs)
-
-
-class UpdateAction(_argparse.Action):
-    def __call__(  # type:ignore
-        self, parser, namespace, values: dict, option_string=None
-    ):
-        items: dict = getattr(namespace, self.dest, {})
-        items = _copy.deepcopy(items)
-        items.update(values or {})
-        setattr(namespace, self.dest, items)
-
-
-def parse_loglevels(text: str, itemdivider: str = ",", valkey_separator=":"):
-    levels: dict[str, int] = {}
-    levelmapping = _logging.getLevelNamesMapping()
-
-    for entry in text.split(itemdivider):
-        name, *level = entry.split(valkey_separator, maxsplit=1)
-        if not level:
-            level = name
-            name = ""
-        else:
-            level = level[0]
-        level = levelmapping.get(level)
-        if level is not None:
-            levels[name] = level
-    return levels
-
-
-class LoggingArgs(Args):
-    loglevels: _ty.Annotated[
-        dict[str, int], NS(type=parse_loglevels, action=UpdateAction)
-    ] = {}
-    "Log Levels"
-    ("--loglevel",)  # type:ignore
-
-    verbose: _ty.Annotated[
-        int, NS(action="count", help=lambda: _logging.VERBOSE_HELP)
-    ] = 0
-    "Verbose level"
-    ("-v",)  # type:ignore
-
-    def verbose_as_loglevel(self):
-        loglevel = (
-            list(_logging.VERBOSE_LEVELS.keys()).index(_logging.INFO)
-            if self.verbose == _logging.NOTSET
-            else self.verbose
-        )
-        loglevel = min(
-            loglevel,
-            len(_logging.VERBOSE_LEVELS) - 1,
-        )
-        return list(_logging.VERBOSE_LEVELS.keys())[loglevel]
-
-    def set_loglevels(self):
-        loglevels = self.loglevels.copy()
-        loglevels.setdefault(self.logger.name, LoggingArgs.verbose_as_loglevel(self))
-        for name, level in loglevels.items():
-            _logging.getLogger(name).setLevel(level)
-
-        return loglevels
-
-    @property
-    def logger(self):
-        return _logging.getLogger(getattr(self, "_logger_", self._parsername_))
-
-
-_SUBPARSERACTION_CALL = _argparse._SubParsersAction.__call__
-
-
 def add_help_argument(parser: _argparse.ArgumentParser):
+    """Add a help argument to a parser."""
     return parser.add_argument(
         "-h",
         "--help",
@@ -122,7 +39,11 @@ def add_help_argument(parser: _argparse.ArgumentParser):
     )
 
 
+_SUBPARSERACTION_CALL = _argparse._SubParsersAction.__call__
+
+
 def disable_subparser_check(action: _argparse._SubParsersAction):
+    """Disable validation of subparser names (allow any subparser to be invoked)."""
     action.choices = None  # type:ignore
     action_called = False
 
@@ -153,6 +74,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction):
 
 
 def enable_subparser_check(action: _argparse._SubParsersAction):
+    """Re-enable validation of subparser names."""
     _argparse._SubParsersAction.__call__ = _SUBPARSERACTION_CALL
     action.choices = action._name_parser_map
 
@@ -163,6 +85,7 @@ _HELPACTION_CALL = _argparse._HelpAction.__call__
 def prerun_parse(
     parser: _argparse.ArgumentParser, argv: "_ty.Sequence[str] | None" = None
 ):
+    """Parse arguments without triggering help or strict subparser validation."""
     subparser = None
     if parser._subparsers:
         for action in parser._subparsers._actions:
@@ -179,3 +102,13 @@ def prerun_parse(
         subparser.required = required  # type: ignore
     _argparse._HelpAction.__call__ = _HELPACTION_CALL
     return args
+
+
+__all__ = [
+    "pop_action",
+    "insert_action",
+    "add_help_argument",
+    "disable_subparser_check",
+    "enable_subparser_check",
+    "prerun_parse",
+]

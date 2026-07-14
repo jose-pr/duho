@@ -163,6 +163,24 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         return Arg
 
 
+#: Actions argparse forbids from receiving `type=`.
+_TYPE_INCOMPATIBLE_ACTIONS = frozenset(
+    {
+        "store_true",
+        "store_false",
+        "store_const",
+        "append_const",
+        "count",
+        "help",
+        "version",
+        _argparse.BooleanOptionalAction,
+    }
+)
+
+#: Actions that require `const=` to be supplied.
+_CONST_REQUIRED_ACTIONS = frozenset({"store_const", "append_const"})
+
+
 class ArgumentBuilder(_argparse.Namespace):
     name: str
     flags: list[str]
@@ -174,9 +192,16 @@ class ArgumentBuilder(_argparse.Namespace):
     nargs: "str|int|None" = None
     choices: "_ty.Sequence | None" = None
     metavar: "str | None" = None
+    const: "object | _inspect.NotDefined" = NOT_DEFINED
+    version: "str | None" = None
 
     def _kwargs(self):
-        kwargs = dict(getattr(self, "kwargs", None) or {})
+        # NS(kwargs={...}) is the raw escape-hatch override: it must win over
+        # every field-derived kwarg (explicit NS(field=...) loses to it), so
+        # field derivation writes into `kwargs` first and the raw overrides
+        # are applied last, on top.
+        overrides = dict(getattr(self, "kwargs", None) or {})
+        kwargs: dict = {}
 
         if self.nargs != None:
             kwargs["nargs"] = self.nargs
@@ -198,29 +223,59 @@ class ArgumentBuilder(_argparse.Namespace):
         if self.action:
             kwargs["action"] = self.action
 
-        if kwargs.get("action") not in (
-            "count",
-            "store_true",
-            _argparse.BooleanOptionalAction,
-        ):
-            kwargs["type"] = self.type
+        # Resolve the *effective* action (raw override wins) so the
+        # type-incompatibility / const / version guards below key off what
+        # will actually be sent to add_argument, not the pre-override value.
+        action = overrides.get("action", kwargs.get("action"))
 
-        if kwargs.get("action") == "store_true" and "default" not in kwargs:
+        if action not in _TYPE_INCOMPATIBLE_ACTIONS:
+            kwargs["type"] = self.type
+        else:
+            kwargs.pop("type", None)
+
+        if action == "store_true" and "default" not in kwargs:
             kwargs["default"] = False
+
+        if action in _CONST_REQUIRED_ACTIONS:
+            const = self.const if self.const is not NOT_DEFINED else kwargs.get("const", NOT_DEFINED)
+            if const is NOT_DEFINED:
+                raise ValueError(
+                    f"argument {self.name!r}: action={action!r} requires const="
+                )
+            kwargs["const"] = const
+        elif self.const is not NOT_DEFINED:
+            kwargs["const"] = self.const
+
+        if action == "version":
+            version = self.version if self.version is not None else kwargs.get("version")
+            if version is not None:
+                kwargs["version"] = version
 
         flags = self.flags
         dest = self.name
-        if len(flags) == 1 and not flags[0].startswith("-"):
+        positional = len(flags) == 1 and not flags[0].startswith("-")
+        if positional:
             dest = None
 
         if dest:
             kwargs["dest"] = dest
 
-        if self.required is not None:
+        if positional:
+            # Optional positional (has a real default, nargs unset) needs
+            # nargs="?" -- otherwise argparse makes it required and ignores
+            # the default. argparse also forbids required= on positionals.
+            if "default" in kwargs and "nargs" not in kwargs:
+                kwargs["nargs"] = "?"
+            kwargs.pop("required", None)
+        elif action in ("version", "help"):
+            # argparse's _VersionAction / _HelpAction don't accept required=.
+            pass
+        elif self.required is not None:
             kwargs["required"] = self.required
         elif dest is not None:
             kwargs["required"] = "default" not in kwargs
 
+        kwargs.update(overrides)
         return kwargs
 
     def add_to_parser(self, parser: _argparse.ArgumentParser):
@@ -390,6 +445,31 @@ def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
     return _argparse.Namespace(type=ty, action="extend", kwargs=kwargs)
 
 
+def Count(**kw):
+    """Create a count-action argument (e.g. `-vvv` -> 3)."""
+    return NS(action="count", kwargs=kw)
+
+
+def Append(type: "Factory" = str, **kw):
+    """Create an append-action argument, accumulating repeated flag values.
+
+    Explicitly clears nargs: a bare `list`/`list[T]` annotation's implicit
+    builder defaults to action="extend", nargs="*" (space-separated), which
+    would make append() collect a *list* per occurrence instead of a scalar.
+    """
+    return NS(action="append", type=type, nargs=None, kwargs=kw)
+
+
+def Const(value, **kw):
+    """Create a store_const-action argument that stores `value` when present."""
+    return NS(action="store_const", const=value, kwargs=kw)
+
+
+def Choice(*choices, **kw):
+    """Restrict an argument's accepted values to `choices`."""
+    return NS(choices=tuple(choices), kwargs=kw)
+
+
 class UpdateAction(_argparse.Action):
     """Action that updates a dict instead of replacing it."""
     def __call__(  # type:ignore
@@ -430,11 +510,15 @@ def main(cls, argv: "_ty.Sequence[str] | None" = None, *, setup_logging=True) ->
 
 
 __all__ = [
+    "Append",
     "Argument",
     "ArgumentBuilder",
     "ArgumentMeta",
     "Args",
     "Arg",
+    "Choice",
+    "Const",
+    "Count",
     "Extend",
     "Factory",
     "main",

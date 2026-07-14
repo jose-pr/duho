@@ -4,7 +4,7 @@ import argparse
 import sys
 import typing as ty
 import pytest
-from duho import Args, Argument, ArgumentBuilder, build_parser
+from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, NS, build_parser
 from duho.parsers import prerun_parse
 
 
@@ -417,3 +417,280 @@ def test_no_hash_cls_leak_in_parsed_instance():
     parser = NoLeakArgs._build_parser_()
     args = parser.parse_args([])
     assert "#cls" not in vars(args)
+
+
+# --- Phase 2: implicit-flag + positional coverage (locking in existing behavior) ---
+
+
+class ImplicitFlagFromDocstringArgs(Args):
+    """A field with a docstring but no flag tuple derives --count from the name."""
+    count: ty.Optional[int] = None
+    "Optional count"
+
+
+def test_implicit_flag_derived_from_name_with_docstring():
+    """No flag tuple + docstring present -> flag still derives from field name."""
+    parser = ImplicitFlagFromDocstringArgs._build_parser_()
+    args = parser.parse_args(["--count", "5"])
+    assert args.count == 5
+
+    args = parser.parse_args([])
+    assert args.count is None
+
+
+class ImplicitFlagNoDocstringArgs(Args):
+    """A field with neither docstring nor flag tuple still derives --workers."""
+    workers: int = 4
+
+
+def test_implicit_flag_derived_from_name_no_docstring():
+    parser = ImplicitFlagNoDocstringArgs._build_parser_()
+    args = parser.parse_args(["--workers", "8"])
+    assert args.workers == 8
+
+    args = parser.parse_args([])
+    assert args.workers == 4
+
+
+class UnderscoreToDashArgs(Args):
+    """A field with underscores in its name, no flag tuple, dashes when derived."""
+    dry_run: bool = False
+
+
+def test_implicit_flag_underscore_to_dash():
+    parser = UnderscoreToDashArgs._build_parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--dry-run" in flags
+    assert "--dry_run" not in flags
+
+    args = parser.parse_args(["--dry-run"])
+    assert args.dry_run is True
+
+
+# --- Phase 3: full argparse kwargs passthrough ---
+
+
+class KwargsOverrideArgs(Args):
+    """NS(kwargs={...}) must win over explicit NS(field=...) values."""
+    mode: Arg[str, NS(required=True, kwargs={"required": False, "default": "x"})] = None
+    "Mode with conflicting required flags"
+    ("--mode",)
+
+
+def test_kwargs_dict_overrides_explicit_field():
+    """The raw kwargs dict escape hatch takes precedence over field-derived values."""
+    parser = KwargsOverrideArgs._build_parser_()
+    args = parser.parse_args([])
+    assert args.mode == "x"
+
+
+class StoreConstArgs(Args):
+    """store_const action requires and forwards const=."""
+    mode: Arg[str, Const("fast")] = "slow"
+    "Mode flag"
+    ("--fast",)
+
+
+def test_store_const_requires_and_forwards_const():
+    parser = StoreConstArgs._build_parser_()
+    args = parser.parse_args(["--fast"])
+    assert args.mode == "fast"
+
+    args = parser.parse_args([])
+    assert args.mode == "slow"
+
+
+def test_store_const_without_const_raises():
+    """action='store_const' with no const= must fail loudly, not silently pass None."""
+
+    class BadConstArgs(Args):
+        """Missing const for store_const."""
+        mode: Arg[str, NS(action="store_const")] = None
+        "Mode flag missing const"
+        ("--fast",)
+
+    with pytest.raises(ValueError):
+        BadConstArgs._build_parser_()
+
+
+def test_action_version_forwards_version_and_suppresses_type():
+    class VersionArgs(Args):
+        """Class exercising a manual version action."""
+        ver: Arg[str, NS(action="version", version="myprog 1.2.3")] = None
+        "Show version"
+        ("--show-version",)
+
+    parser = VersionArgs._build_parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--show-version"])
+
+
+def test_type_incompatible_actions_suppress_type_kwarg():
+    """store_true/store_false/count/etc must never receive type= (argparse rejects it)."""
+    for action in ("store_true", "store_false", "count"):
+
+        class ActionArgs(Args):
+            f"""Class exercising action={action!r}."""
+            flag: Arg[int, NS(action=action)] = 0
+            "A flag"
+            ("--flag",)
+
+        parser = ActionArgs._build_parser_()
+        for a in parser._actions:
+            if "--flag" in a.option_strings:
+                assert a.type is None
+                break
+        else:
+            assert False, f"--flag action not found for action={action!r}"
+
+
+# --- Phase 4: positional arguments (formalized) ---
+
+
+class RequiredPositionalArgs(Args):
+    """A single required positional argument."""
+    src: str
+    "Source path"
+    ("src",)
+
+
+def test_required_positional():
+    parser = RequiredPositionalArgs._build_parser_()
+    args = parser.parse_args(["in.txt"])
+    assert args.src == "in.txt"
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([])
+
+
+class OptionalPositionalArgs(Args):
+    """A positional with a real default becomes optional (nargs='?')."""
+    dst: str = "-"
+    "Destination path"
+    ("dst",)
+
+
+def test_optional_positional_uses_nargs_question_mark():
+    parser = OptionalPositionalArgs._build_parser_()
+    for action in parser._actions:
+        if action.dest == "dst":
+            assert action.nargs == "?"
+            assert action.required is False
+            break
+    else:
+        assert False, "dst positional action not found"
+
+    args = parser.parse_args([])
+    assert args.dst == "-"
+
+    args = parser.parse_args(["out.txt"])
+    assert args.dst == "out.txt"
+
+
+class TwoPositionalsArgs(Args):
+    """Two positionals preserve declaration order."""
+    src: str
+    "Source"
+    ("src",)
+
+    dst: str = "-"
+    "Destination"
+    ("dst",)
+
+
+def test_two_positionals_preserve_order():
+    parser = TwoPositionalsArgs._build_parser_()
+    args = parser.parse_args(["in.txt"])
+    assert args.src == "in.txt"
+    assert args.dst == "-"
+
+    args = parser.parse_args(["in.txt", "out.txt"])
+    assert args.src == "in.txt"
+    assert args.dst == "out.txt"
+
+
+class PositionalNargsPlusArgs(Args):
+    """A positional bound to nargs='+' via Arg[list, NS(nargs='+')]."""
+    files: Arg[list, NS(nargs="+")]
+    "Files to process"
+    ("files",)
+
+
+def test_positional_nargs_plus():
+    parser = PositionalNargsPlusArgs._build_parser_()
+    args = parser.parse_args(["a.txt", "b.txt", "c.txt"])
+    assert args.files == ["a.txt", "b.txt", "c.txt"]
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([])
+
+
+def test_positional_never_gets_required_kwarg():
+    """required= must never be passed for positionals (argparse forbids it)."""
+    for action in RequiredPositionalArgs._getargs_():
+        kwargs = action._kwargs()
+        assert "required" not in kwargs
+
+
+# --- Phase 5: typed helper wrappers ---
+
+
+class CountArgs(Args):
+    """verbose: Arg[int, Count()] counts repeated -v flags."""
+    verbose: Arg[int, Count()] = 0
+    "Verbosity"
+    ("-v", "--verbose")
+
+
+def test_count_helper():
+    parser = CountArgs._build_parser_()
+    args = parser.parse_args(["-vvv"])
+    assert args.verbose == 3
+
+    args = parser.parse_args([])
+    assert args.verbose == 0
+
+
+class AppendArgs(Args):
+    """tags: Arg[list, Append()] accumulates repeated --tags flags."""
+    tags: Arg[list, Append()] = []
+    "Tags"
+    ("--tags",)
+
+
+def test_append_helper():
+    parser = AppendArgs._build_parser_()
+    args = parser.parse_args(["--tags", "a", "--tags", "b"])
+    assert args.tags == ["a", "b"]
+
+
+class ConstHelperArgs(Args):
+    """mode: Arg[str, Const('fast')] sets the const value on presence."""
+    mode: Arg[str, Const("fast")] = "slow"
+    "Mode"
+    ("--fast",)
+
+
+def test_const_helper():
+    parser = ConstHelperArgs._build_parser_()
+    args = parser.parse_args(["--fast"])
+    assert args.mode == "fast"
+
+    args = parser.parse_args([])
+    assert args.mode == "slow"
+
+
+class ChoiceArgs(Args):
+    """mode: Arg[str, Choice('a', 'b')] restricts accepted values."""
+    mode: Arg[str, Choice("a", "b")] = "a"
+    "Mode"
+    ("--mode",)
+
+
+def test_choice_helper():
+    parser = ChoiceArgs._build_parser_()
+    args = parser.parse_args(["--mode", "a"])
+    assert args.mode == "a"
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--mode", "c"])

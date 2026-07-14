@@ -5,10 +5,14 @@ your arguments and commands as Python classes.
 """
 
 from .args import (
+    Append,
     Args,
     Arg,
     Argument,
     ArgumentBuilder,
+    Choice,
+    Const,
+    Count,
     Extend,
     main,
     NS,
@@ -34,10 +38,14 @@ def build_parser(cls, *args, **kwargs):
 
 
 __all__ = [
+    "Append",
     "Args",
     "Arg",
     "Argument",
     "ArgumentBuilder",
+    "Choice",
+    "Const",
+    "Count",
     "Extend",
     "LoggingArgs",
     "main",

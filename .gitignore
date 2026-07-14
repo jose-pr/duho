@@ -132,4 +132,5 @@ Thumbs.db
 # Project-specific
 .agents/
 .claude/
-CLAUDE.md
+CLAUDE*
+AGENTS.md

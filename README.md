@@ -87,6 +87,88 @@ Bool fields defaulting to `False` (or with no default) get a simple `--flag`
 switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 `argparse.BooleanOptionalAction`) so the default can be explicitly turned back off.
 
+### Supported Field Types
+
+| Annotation | Behavior |
+| --- | --- |
+| `str`, `int`, `float`, `bool` | Direct conversion; `bool` gets `store_true` or `--flag`/`--no-flag` (see above) |
+| `typing.Literal["a", "b"]` | `choices=("a", "b")`; mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips |
+| `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`) |
+| `list` / `list[T]` | Accepts both repeated (`--x a --x b`) and space-separated (`--x a b`) forms via `action="extend", nargs="*"`; bare `list` elements are `str`; default is `[]` when no explicit default is given |
+| `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
+| `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
+
+### Run your app
+
+`duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses
+`argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
+verbosity (for classes mixing in `LoggingArgs`), and calls `instance.__run__()`:
+
+```python
+from duho import Args, main
+
+class Greet(Args):
+    """Print a greeting."""
+    name: str = "world"
+    "Who to greet"
+    ("--name",)
+
+    def __run__(self) -> int | None:
+        print(f"Hello, {self.name}!")
+        # returning None counts as a successful exit (code 0)
+
+if __name__ == "__main__":
+    raise SystemExit(main(Greet))
+```
+
+`SystemExit` raised by argparse (bad args, `--help`, `--version`) propagates
+normally. If the selected class has no `__run__`, `main` raises
+`NotImplementedError` naming the class.
+
+**Subcommands**: set `_subcommands_` to a sequence of `Args` subclasses and
+`main`/`_build_parser_` wires up `add_subparsers(dest="command", required=True)`
+automatically — no manual subparser plumbing needed. Nested `_subcommands_`
+(a subcommand that itself declares `_subcommands_`) compose naturally into
+multi-level command trees, and `main` always dispatches to the deepest
+selected class's `__run__`.
+
+```python
+class Serve(Args):
+    """Start the development server."""
+    port: int = 8000
+    ("--port",)
+    def __run__(self):
+        print(f"serving on {self.port}")
+
+class Build(Args):
+    """Build the project."""
+    output: str = "dist"
+    ("--output",)
+    def __run__(self):
+        print(f"building to {self.output}")
+
+class App(Args):
+    """Example multi-command app."""
+    _subcommands_ = [Serve, Build]
+
+if __name__ == "__main__":
+    raise SystemExit(main(App))
+```
+
+```bash
+python app.py Serve --port 3000
+python app.py Build --output dist
+```
+
+**Version flag**: set `_version_` on any `Args` subclass to add a `--version`
+flag that prints `"%(prog)s <version>"` and exits 0 (skipped if a `version`-dest
+action already exists, e.g. from a parent parser):
+
+```python
+class MyApp(Args):
+    _version_ = "1.2.3"
+```
+
 ### Build and Parse
 
 ```python

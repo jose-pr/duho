@@ -10,6 +10,7 @@ from .args import (
     Argument,
     ArgumentBuilder,
     Extend,
+    main,
     NS,
     UpdateAction,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "ArgumentBuilder",
     "Extend",
     "LoggingArgs",
+    "main",
     "NS",
     "UpdateAction",
     "add_logging_level",

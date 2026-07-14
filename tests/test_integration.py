@@ -23,7 +23,7 @@ class DeployArgs(Args):
 
 def test_deploy_command_full():
     """Test a realistic deploy command."""
-    parser = DeployArgs.build_parser()
+    parser = DeployArgs._build_parser_()
 
     # Parse typical deploy command
     args = parser.parse_args(["--env", "prod", "--version", "1.2.3", "--dry-run"])
@@ -35,7 +35,7 @@ def test_deploy_command_full():
 
 def test_deploy_with_defaults():
     """Test deploy with default version."""
-    parser = DeployArgs.build_parser()
+    parser = DeployArgs._build_parser_()
     args = parser.parse_args(["--env", "staging"])
 
     assert args.environment == "staging"
@@ -45,7 +45,7 @@ def test_deploy_with_defaults():
 
 def test_deploy_short_flags():
     """Test deploy with short flags."""
-    parser = DeployArgs.build_parser()
+    parser = DeployArgs._build_parser_()
     args = parser.parse_args(["-e", "dev", "-v", "2.0.0"])
 
     assert args.environment == "dev"
@@ -73,8 +73,8 @@ def test_subcommands():
     parser = argparse.ArgumentParser(prog="myapp")
     subparsers = parser.add_subparsers(dest="command")
 
-    ServeArgs.build_parser(subparsers, name="serve")
-    BuildArgs.build_parser(subparsers, name="build")
+    ServeArgs._build_parser_(subparsers, name="serve")
+    BuildArgs._build_parser_(subparsers, name="build")
 
     # Parse 'serve' command
     args = parser.parse_args(["serve", "--port", "3000"])
@@ -89,7 +89,7 @@ def test_subcommands():
 
 def test_help_output():
     """Test that help text is properly generated."""
-    parser = DeployArgs.build_parser()
+    parser = DeployArgs._build_parser_()
 
     # Capture help output
     help_text = parser.format_help()
@@ -117,7 +117,7 @@ class AppConfig(LoggingArgs):
 
 def test_complex_workflow():
     """Test a more complex real-world scenario."""
-    parser = AppConfig.build_parser()
+    parser = AppConfig._build_parser_()
 
     # Simulate real CLI usage
     args = parser.parse_args([
@@ -150,7 +150,7 @@ class TransformArgs(Args):
 
 def test_mixed_positional_and_flags():
     """Test mixing positional and flag arguments."""
-    parser = TransformArgs.build_parser()
+    parser = TransformArgs._build_parser_()
     args = parser.parse_args(["data.csv", "result.json", "--format", "xml"])
 
     # Check positional args (dest may differ from field name)
@@ -161,7 +161,7 @@ def test_mixed_positional_and_flags():
 
 def test_error_handling_missing_required():
     """Test that missing required arguments raise errors."""
-    parser = DeployArgs.build_parser()
+    parser = DeployArgs._build_parser_()
 
     try:
         parser.parse_args([])
@@ -180,7 +180,7 @@ class TypedArgs(Args):
 
 def test_error_handling_type_conversion():
     """Test that type conversion errors are caught."""
-    parser = TypedArgs.build_parser()
+    parser = TypedArgs._build_parser_()
 
     try:
         parser.parse_args(["--count", "not_a_number"])

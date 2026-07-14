@@ -27,7 +27,7 @@ class MyApp(Args):
     ("--count",)
 
 if __name__ == "__main__":
-    parser = MyApp.build_parser()
+    parser = MyApp._build_parser_()
     args = parser.parse_args()
     for _ in range(args.count):
         print(f"Hello, {args.name}!")
@@ -86,7 +86,7 @@ class Deploy(Args):
 ### Build and Parse
 
 ```python
-parser = Deploy.build_parser()
+parser = Deploy._build_parser_()
 args = parser.parse_args()
 
 print(f"Deploying to {args.environment} (dry-run: {args.dry_run})")
@@ -104,8 +104,8 @@ class MyApp(LoggingArgs):
     "The command to run"
     
     def run(self):
-        self.set_loglevels()
-        logger = self.logger
+        self._set_loglevels_()
+        logger = self._logger_
         logger.info(f"Running: {self.command}")
 ```
 
@@ -140,8 +140,8 @@ if __name__ == "__main__":
     main_parser = argparse.ArgumentParser()
     subparsers = main_parser.add_subparsers()
     
-    Serve.build_parser(subparsers, name="serve")
-    Build.build_parser(subparsers, name="build")
+    Serve._build_parser_(subparsers, name="serve")
+    Build._build_parser_(subparsers, name="build")
     
     args = main_parser.parse_args()
 ```

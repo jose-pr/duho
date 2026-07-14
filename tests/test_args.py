@@ -2,7 +2,7 @@
 
 import argparse
 import typing as ty
-from duho import Args, Argument, ArgumentBuilder
+from duho import Args, Argument, ArgumentBuilder, build_parser
 
 
 class SimpleArgs(Args):
@@ -43,7 +43,7 @@ class UnionArgs(Args):
 
 def test_simple_args():
     """Test parsing simple string arguments."""
-    parser = SimpleArgs.build_parser()
+    parser = SimpleArgs._build_parser_()
     args = parser.parse_args(["--name", "Alice"])
     assert args.name == "Alice"
     assert isinstance(args, SimpleArgs)
@@ -51,7 +51,7 @@ def test_simple_args():
 
 def test_optional_args():
     """Test optional arguments."""
-    parser = OptionalArgs.build_parser()
+    parser = OptionalArgs._build_parser_()
 
     # With provided value
     args = parser.parse_args(["--name", "Bob", "--count", "5"])
@@ -66,7 +66,7 @@ def test_optional_args():
 
 def test_default_args():
     """Test default values."""
-    parser = DefaultArgs.build_parser()
+    parser = DefaultArgs._build_parser_()
 
     # Override defaults
     args = parser.parse_args(["--name", "Charlie", "--verbose"])
@@ -81,7 +81,7 @@ def test_default_args():
 
 def test_bool_flags():
     """Test boolean flag parsing."""
-    parser = DefaultArgs.build_parser()
+    parser = DefaultArgs._build_parser_()
 
     # Flag not provided (default False)
     args = parser.parse_args([])
@@ -94,7 +94,7 @@ def test_bool_flags():
 
 def test_type_conversion():
     """Test automatic type conversion."""
-    parser = OptionalArgs.build_parser()
+    parser = OptionalArgs._build_parser_()
     args = parser.parse_args(["--name", "test", "--count", "42"])
     assert isinstance(args.count, int)
     assert args.count == 42
@@ -102,7 +102,7 @@ def test_type_conversion():
 
 def test_union_types():
     """Test union type handling."""
-    parser = UnionArgs.build_parser()
+    parser = UnionArgs._build_parser_()
 
     # Parse as int if possible
     args = parser.parse_args(["--value", "123"])
@@ -117,19 +117,19 @@ def test_union_types():
 
 def test_parser_name():
     """Test that parser inherits class name."""
-    parser = SimpleArgs.build_parser()
+    parser = SimpleArgs._build_parser_()
     assert parser.prog == "SimpleArgs"
 
 
 def test_help_from_docstring():
     """Test that class docstring becomes parser description."""
-    parser = SimpleArgs.build_parser()
+    parser = SimpleArgs._build_parser_()
     assert parser.description == "A simple argument set."
 
 
 def test_argument_help_from_docstring():
     """Test that field docstrings become argument help."""
-    parser = SimpleArgs.build_parser()
+    parser = SimpleArgs._build_parser_()
     # Find the action for --name
     for action in parser._actions:
         if "--name" in action.option_strings:
@@ -141,7 +141,7 @@ def test_argument_help_from_docstring():
 
 def test_required_vs_optional():
     """Test required vs optional argument detection."""
-    parser = SimpleArgs.build_parser()
+    parser = SimpleArgs._build_parser_()
 
     # name is required (no default)
     required_found = False
@@ -166,7 +166,7 @@ class PositionalArgs(Args):
 
 def test_positional_arguments():
     """Test positional (non-flag) arguments."""
-    parser = PositionalArgs.build_parser()
+    parser = PositionalArgs._build_parser_()
     args = parser.parse_args(["input.txt", "output.txt"])
     # Positional args map to action dest, which is the field name
     assert hasattr(args, "input_file") or hasattr(args, "input")
@@ -189,14 +189,14 @@ class MultiFlag(Args):
 
 def test_short_flags():
     """Test single-character flags."""
-    parser = ShortFlagsArgs.build_parser()
+    parser = ShortFlagsArgs._build_parser_()
     args = parser.parse_args(["-v"])
     assert args.verbose is True
 
 
 def test_multiple_flags():
     """Test arguments with multiple flag names."""
-    parser = MultiFlag.build_parser()
+    parser = MultiFlag._build_parser_()
 
     # Both short and long forms work
     args = parser.parse_args(["-v", "2"])
@@ -211,8 +211,16 @@ def test_subparser_integration():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
-    SimpleArgs.build_parser(subparsers, name="simple")
-    DefaultArgs.build_parser(subparsers, name="default")
+    SimpleArgs._build_parser_(subparsers, name="simple")
+    DefaultArgs._build_parser_(subparsers, name="default")
 
     # Should not raise
     assert subparsers is not None
+
+
+def test_module_level_build_parser():
+    """Test module-level build_parser function."""
+    parser = build_parser(SimpleArgs)
+    args = parser.parse_args(["--name", "test"])
+    assert args.name == "test"
+    assert isinstance(args, SimpleArgs)

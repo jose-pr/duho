@@ -1,8 +1,9 @@
 import argparse as _argparse
+import copy as _copy
 import types as _types
 import typing as _ty
 
-from .. import inspect as _inspect
+from . import _introspect as _inspect
 
 NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
@@ -193,7 +194,7 @@ class Args(_argparse.Namespace):
         return args
 
     @classmethod
-    def build_parser(
+    def _build_parser_(
         cls,
         subparser: "_argparse._SubParsersAction | None" = None,
         name: "str | None" = None,  # type:ignore
@@ -213,14 +214,14 @@ class Args(_argparse.Namespace):
             "_Parser[_ty.Self]",
             method(name, parents=parents, **kwargs),
         )
-        
+
         if init:
-            cls.initparser(parser)
+            cls._initparser_(parser)
 
         return parser
 
     @classmethod
-    def initparser(
+    def _initparser_(
         cls, parser: _argparse.ArgumentParser, exclusive_groups: dict = None
     ):
 
@@ -259,3 +260,44 @@ class Args(_argparse.Namespace):
             setattr(cls, f"_action_{_action.dest}", _action)
 
         return parser
+
+
+def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
+    """Create an extend-action argument with optional string splitting."""
+    kwargs.setdefault("default", [])
+    if isinstance(split, str):
+        ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type:ignore
+    else:
+
+        def ty(text: str):
+            result = split(text)
+            if isinstance(result, list):
+                return result
+            return list(result)
+
+    return _argparse.Namespace(type=ty, action="extend", kwargs=kwargs)
+
+
+class UpdateAction(_argparse.Action):
+    """Action that updates a dict instead of replacing it."""
+    def __call__(  # type:ignore
+        self, parser, namespace, values: dict, option_string=None
+    ):
+        items: dict = getattr(namespace, self.dest, {})
+        items = _copy.deepcopy(items)
+        items.update(values or {})
+        setattr(namespace, self.dest, items)
+
+
+__all__ = [
+    "Argument",
+    "ArgumentBuilder",
+    "ArgumentMeta",
+    "Args",
+    "Arg",
+    "Extend",
+    "Factory",
+    "NS",
+    "NOT_DEFINED",
+    "UpdateAction",
+]

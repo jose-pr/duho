@@ -14,13 +14,6 @@ Note: duho resolves `enum.Enum` CLI values by member *name* (not `.value`),
 so `FileType` members are named lowercase (`dir`/`file`/`link`) to match the
 `--type dir` CLI spelling directly, rather than the upstream script's
 `DIRECTORY`/`REGULAR`/`SOFTLINK` names with lowercase string values.
-
-Known duho gap (see .agents/plans/11_union_enum_argument_factory_gap.md):
-``Arg[Union[FileType, str], ...]`` does not resolve enum members by name --
-the union-branch factory falls back to plain ``str``. Per that field's
-original design intent (`type: cli.Arg[Union[FileType, str], ...]`), the
-`type` field below is stubbed to a plain `str` annotation instead of hacking
-around the gap; `FileType` is still defined/used for illustration.
 """
 import enum
 import sys
@@ -66,9 +59,7 @@ class Install(LoggingArgs):
     "Optional root to prefix the (absolute) destination with."
     ("--buildroot", "-r")
 
-    # NOTE: upstream is `Arg[Union[FileType, str], NS(conflicts="type")]`;
-    # stubbed to plain str -- see the module docstring's "Known duho gap".
-    type: Arg[str, NS(conflicts="type")] = "-"
+    type: Arg[Union[FileType, str], NS(conflicts="type")] = "-"
     "Install type ('dir'/'file'/'link'); '-' autodetects from the source."
     ("--type",)
 

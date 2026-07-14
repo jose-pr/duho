@@ -38,7 +38,12 @@ def test_buildutils_install_positionals_are_path():
 
 def test_buildutils_install_type_flag():
     result = duho.parse(buildutils.Install, ["--type", "dir", "src", "dst"])
-    assert result.type == "dir"
+    assert result.type is buildutils.FileType.dir
+
+
+def test_buildutils_install_type_flag_str_fallback():
+    result = duho.parse(buildutils.Install, ["--type", "custom", "src", "dst"])
+    assert result.type == "custom"
 
 
 def test_buildutils_install_options_update_action():

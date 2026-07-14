@@ -1,6 +1,7 @@
 """Tests for duho.cli.args module."""
 
 import argparse
+import enum
 import sys
 import typing as ty
 import pytest
@@ -116,6 +117,30 @@ def test_union_types():
     args = parser.parse_args(["--value", "not_a_number"])
     assert args.value == "not_a_number"
     assert isinstance(args.value, str)
+
+
+def test_union_enum_resolves_by_name():
+    """Union[Enum, str]: an enum-member name short-circuits to the enum
+    (resolved by NAME, not value); a non-matching string falls through to
+    the str member unchanged."""
+
+    class Color(enum.Enum):
+        RED = 1
+        GREEN = 2
+
+    class UnionEnumArgs(Args):
+        """Arguments with a union of an enum and str."""
+        col: ty.Union[Color, str]
+        "Can be a Color name or an arbitrary string"
+        ("--col",)
+
+    parser = UnionEnumArgs._parser_()
+
+    args = parser.parse_args(["--col", "RED"])
+    assert args.col is Color.RED
+
+    args = parser.parse_args(["--col", "freeform"])
+    assert args.col == "freeform"
 
 
 def test_parser_name():

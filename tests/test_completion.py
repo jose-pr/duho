@@ -1,4 +1,4 @@
-"""Tests for Plan 06: shell completion generation (bash/zsh/fish)."""
+"""Tests for shell completion generation (bash/zsh/fish)."""
 
 import pathlib
 import typing as ty
@@ -38,7 +38,7 @@ class CompletionApp(Args):
     _subcommands_ = [Deploy]
 
 
-# --- Phase 1: spec walker --------------------------------------------------
+# --- parser-tree spec walker ------------------------------------------------
 
 
 def test_walk_captures_subcommand_choices_and_path():
@@ -57,7 +57,7 @@ def test_walk_captures_subcommand_choices_and_path():
     assert target_opt.choices is None
 
 
-# --- Phase 2/3: emitters ----------------------------------------------------
+# --- shell script emitters --------------------------------------------------
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -96,7 +96,7 @@ def test_bash_script_is_syntactically_valid():
     assert result.returncode == 0, result.stderr
 
 
-# --- Phase 4: --print-completion wiring ------------------------------------
+# --- --print-completion wiring ----------------------------------------------
 
 
 def test_print_completion_flag_prints_script_and_exits_zero(capsys):

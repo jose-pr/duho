@@ -24,6 +24,7 @@ dependencies = []
 
 [project.optional-dependencies]
 colorama = ["colorama"]
+config = ["tomli; python_version < '3.11'"]
 dev = ["build", "pytest", "pytest-cov"]
 docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
 

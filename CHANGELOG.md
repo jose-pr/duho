@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-14
+
+### Added
+
+- Documentation site at <https://jose-pr.github.io/duho/> — guides for declaring
+  arguments, types and conversion, running your app, configuration layers,
+  logging, and shell completion, plus a generated API reference.
+
+### Changed
+
+- Corrected the performance figures in the release notes to numbers measured on
+  a fixed CI runner. Parser construction is **40–70× faster** than the uncached
+  path (10.5–11.0 ms → 0.15–0.27 ms, median, on Python 3.9 and 3.13); the
+  previously published multiplier came from a noisy development machine.
+
+### Fixed
+
+- README links to `LICENSE` are absolute, so they resolve on the PyPI project
+  page rather than 404ing.
+
 ## [0.1.0] - 2026-07-14
 
 Initial release.
@@ -61,5 +81,6 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jose-pr/duho/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jose-pr/duho/releases/tag/v0.1.0

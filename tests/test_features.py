@@ -170,6 +170,70 @@ def test_no_version_flag_without_version_attr():
     assert "--version" not in flags
 
 
+# --- Plan 10: _version_ = duho.AUTO ---------------------------------------
+
+
+class AutoVersionArgs(Args):
+    """Arguments with _version_ = duho.AUTO (no _distribution_ override)."""
+
+    _version_ = duho.AUTO
+
+    name: str = "x"
+    "Name"
+    ("--name",)
+
+
+class AutoVersionDistArgs(Args):
+    """Arguments with _version_ = duho.AUTO and a _distribution_ override."""
+
+    _version_ = duho.AUTO
+    _distribution_ = "some-other-package"
+
+    name: str = "x"
+    "Name"
+    ("--name",)
+
+
+def test_auto_version_resolves(monkeypatch, capsys):
+    """AUTO resolves via importlib.metadata.version and adds --version."""
+    monkeypatch.setattr(
+        "duho.args._importlib_metadata.version", lambda dist: "9.9.9"
+    )
+    parser = AutoVersionArgs._parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--version" in flags
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--version"])
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "9.9.9" in captured.out
+
+
+def test_auto_version_uses_distribution_override(monkeypatch):
+    """_distribution_ overrides the dist name passed to importlib.metadata.version."""
+    calls = []
+
+    def fake_version(dist):
+        calls.append(dist)
+        return "1.0.0"
+
+    monkeypatch.setattr("duho.args._importlib_metadata.version", fake_version)
+    AutoVersionDistArgs._parser_()
+    assert calls == ["some-other-package"]
+
+
+def test_auto_version_not_found_skips_flag(monkeypatch):
+    """AUTO that can't be resolved (PackageNotFoundError) skips --version silently."""
+
+    def raise_not_found(dist):
+        raise duho.args._importlib_metadata.PackageNotFoundError(dist)
+
+    monkeypatch.setattr("duho.args._importlib_metadata.version", raise_not_found)
+    parser = AutoVersionArgs._parser_()  # must not raise
+
+    assert "version" not in {action.dest for action in parser._actions}
+
+
 # --- Phase 4: duho.main()/__run__ dispatch -------------------------------
 
 

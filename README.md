@@ -169,6 +169,26 @@ class MyApp(Args):
     _version_ = "1.2.3"
 ```
 
+**Autodetected version**: set `_version_ = duho.AUTO` to resolve the version
+from installed package metadata via `importlib.metadata.version(...)` instead
+of hardcoding a string. By default the distribution name is the class's
+top-level import package (`cls.__module__.split(".")[0]`); set `_distribution_`
+to override it when the import name differs from the distribution name on
+PyPI:
+
+```python
+import duho
+
+class MyApp(duho.Args):
+    _version_ = duho.AUTO
+    _distribution_ = "my-package"  # only needed if it differs from the import name
+```
+
+If the distribution can't be found (e.g. running from a source checkout that
+isn't installed), duho does **not** add a `--version` flag at all — it logs a
+debug message via `logging.getLogger("duho")` instead of printing a bogus
+`0.0.0+unknown`-style version or raising.
+
 ### Build and Parse
 
 ```python

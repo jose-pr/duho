@@ -1,6 +1,7 @@
 import argparse as _argparse
 import copy as _copy
 import enum as _enum
+import importlib.metadata as _importlib_metadata
 import logging as _logging_module
 import typing as _ty
 
@@ -22,6 +23,52 @@ Factory = _ty.Callable[[str], _T]
 
 NS = _argparse.Namespace
 Arg = _ty.Annotated
+
+
+class _AutoVersion:
+    """Sentinel for ``_version_ = duho.AUTO``: resolve via importlib.metadata."""
+
+    def __repr__(self) -> str:
+        return "duho.AUTO"
+
+
+AUTO = _AutoVersion()
+
+
+def _resolve_version(cls) -> "str | None":
+    """Resolve a class's effective ``--version`` string, or None to skip it.
+
+    ``_version_`` may be unset/None (no --version), an explicit str (used
+    as-is), or the ``AUTO`` sentinel (resolved via importlib.metadata using
+    ``_distribution_`` or the class's top-level import package). Never
+    raises -- any resolution failure is logged at debug level and treated
+    as "no version available".
+    """
+    raw = getattr(cls, "_version_", None)
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    if raw is AUTO:
+        dist = getattr(cls, "_distribution_", None) or cls.__module__.split(".")[0]
+        try:
+            return _importlib_metadata.version(dist)
+        except _importlib_metadata.PackageNotFoundError:
+            _logging_module.getLogger("duho").debug(
+                "duho.AUTO: distribution %r not found for %s; skipping --version",
+                dist,
+                cls,
+            )
+            return None
+        except Exception:
+            _logging_module.getLogger("duho").debug(
+                "duho.AUTO: failed to resolve version for %s (distribution %r)",
+                cls,
+                dist,
+                exc_info=True,
+            )
+            return None
+    return None
 
 
 class ArgumentMeta(_ty._ProtocolMeta):
@@ -402,7 +449,7 @@ class Args(_argparse.Namespace):
         parser.parse_known_args = parse_known_args  # type:ignore
         exclusive_groups = exclusive_groups or {}
 
-        version = getattr(cls, "_version_", None)
+        version = _resolve_version(cls)
         actions_by_dest_pre = {action.dest: action for action in parser._actions}
         if version and "version" not in actions_by_dest_pre:
             parser.add_argument(

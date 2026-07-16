@@ -1,4 +1,4 @@
-"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/__run__ dispatch."""
+"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/__call__ dispatch."""
 
 import enum
 import logging
@@ -170,6 +170,44 @@ def test_no_version_flag_without_version_attr():
     assert "--version" not in flags
 
 
+class DunderVersionArgs(Args):
+    """Arguments carrying only a conventional __version__ (no _version_)."""
+
+    __version__ = "3.4.5"
+
+    name: str = "x"
+    "Name"
+    ("--name",)
+
+
+class BothVersionArgs(Args):
+    """_version_ set alongside __version__ — _version_ must win."""
+
+    _version_ = "1.0.0"
+    __version__ = "9.9.9"
+
+    name: str = "x"
+    "Name"
+    ("--name",)
+
+
+def test_dunder_version_used_as_fallback(capsys):
+    """A class __version__ string is used for --version when _version_ is unset."""
+    parser = DunderVersionArgs._parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--version" in flags
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--version"])
+    assert "3.4.5" in capsys.readouterr().out
+
+
+def test_explicit_version_wins_over_dunder():
+    """_version_ takes precedence over a class __version__ fallback."""
+    from duho.args import _resolve_version
+
+    assert _resolve_version(BothVersionArgs) == "1.0.0"
+
+
 # --- _version_ = duho.AUTO ------------------------------------------------
 
 
@@ -234,7 +272,7 @@ def test_auto_version_not_found_skips_flag(monkeypatch):
     assert "version" not in {action.dest for action in parser._actions}
 
 
-# --- duho.main()/__run__ dispatch ----------------------------------------
+# --- duho.main()/__call__ dispatch ----------------------------------------
 
 
 class ServeCmd(Args):
@@ -244,7 +282,7 @@ class ServeCmd(Args):
     "Port to listen on"
     ("--port",)
 
-    def __run__(self):
+    def __call__(self):
         return 11
 
 
@@ -255,26 +293,64 @@ class BuildCmd(Args):
     "Output path"
     ("--output",)
 
-    def __run__(self):
+    def __call__(self):
         return 22
 
 
 class DispatchApp(Args):
-    """App with two subcommands with distinct __run__ return values."""
+    """App with two subcommands with distinct __call__ return values."""
 
     _subcommands_ = [ServeCmd, BuildCmd]
 
 
 def test_main_dispatch_first_subcommand():
-    """duho.main dispatches to the selected subcommand's __run__."""
+    """duho.main dispatches to the selected subcommand's __call__."""
     rc = duho.main(DispatchApp, ["ServeCmd", "--port", "9000"], setup_logging=False)
     assert rc == 11
 
 
 def test_main_dispatch_second_subcommand():
-    """A different subcommand selection dispatches to its own __run__."""
+    """A different subcommand selection dispatches to its own __call__."""
     rc = duho.main(DispatchApp, ["BuildCmd", "--output", "dist"], setup_logging=False)
     assert rc == 22
+
+
+class AliasedCmd(Args):
+    """A subcommand registered under a name plus short aliases."""
+
+    _parsername_ = "create"
+    _parseraliases_ = ["c", "cr"]
+
+    tag: str = "none"
+    "A tag value"
+    ("--tag",)
+
+    def __call__(self):
+        return self.tag
+
+
+class AliasApp(Args):
+    """App whose subcommand carries `_parseraliases_`."""
+
+    _subcommands_ = [AliasedCmd]
+
+
+def test_subcommand_canonical_name_dispatches():
+    """The canonical `_parsername_` still selects the subcommand."""
+    rc = duho.main(AliasApp, ["create", "--tag", "x"], setup_logging=False)
+    assert rc == "x"
+
+
+def test_subcommand_alias_dispatches_to_same_run():
+    """Each `_parseraliases_` entry dispatches to the same __call__."""
+    assert duho.main(AliasApp, ["c", "--tag", "y"], setup_logging=False) == "y"
+    assert duho.main(AliasApp, ["cr", "--tag", "z"], setup_logging=False) == "z"
+
+
+def test_subcommand_without_aliases_still_works():
+    """Absence of `_parseraliases_` is the unchanged default (no aliases added)."""
+    rc = duho.main(DispatchApp, ["ServeCmd", "--port", "9000"], setup_logging=False)
+    assert rc == 11
 
 
 class InnerCmd(Args):
@@ -284,7 +360,7 @@ class InnerCmd(Args):
     "A value"
     ("--value",)
 
-    def __run__(self):
+    def __call__(self):
         return 33
 
 
@@ -301,7 +377,7 @@ class NestedApp(Args):
 
 
 def test_main_dispatch_nested_subcommands():
-    """A 2-level nested subcommand tree dispatches to the deepest __run__."""
+    """A 2-level nested subcommand tree dispatches to the deepest __call__."""
     rc = duho.main(
         NestedApp, ["MidCmd", "InnerCmd", "--value", "7"], setup_logging=False
     )
@@ -309,7 +385,7 @@ def test_main_dispatch_nested_subcommands():
 
 
 class NoRunArgs(Args):
-    """Arguments for a class that never implements __run__."""
+    """Arguments for a class that never implements __call__."""
 
     x: int = 1
     "A value"
@@ -317,16 +393,16 @@ class NoRunArgs(Args):
 
 
 def test_main_missing_run_raises_not_implemented():
-    """Selecting a class without __run__ raises NotImplementedError naming it."""
+    """Selecting a class without __call__ raises NotImplementedError naming it."""
     with pytest.raises(NotImplementedError, match="NoRunArgs"):
         duho.main(NoRunArgs, [], setup_logging=False)
 
 
 def test_main_none_return_maps_to_zero():
-    """A __run__ returning None maps to exit code 0."""
+    """A __call__ returning None maps to exit code 0."""
 
     class NoneReturn(Args):
-        def __run__(self):
+        def __call__(self):
             return None
 
     rc = duho.main(NoneReturn, [], setup_logging=False)
@@ -339,7 +415,7 @@ def test_main_setup_logging_false_leaves_handlers_unchanged():
     before = len(root.handlers)
 
     class LoggedApp(LoggingArgs):
-        def __run__(self):
+        def __call__(self):
             return None
 
     rc = duho.main(LoggedApp, [], setup_logging=False)
@@ -355,7 +431,7 @@ def test_main_systemexit_propagates():
         "Required value"
         ("--needed",)
 
-        def __run__(self):
+        def __call__(self):
             return 0
 
     with pytest.raises(SystemExit):

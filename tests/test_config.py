@@ -119,7 +119,7 @@ class Install(Args):
     "Install target"
     ("--target",)
 
-    def __run__(self):
+    def __call__(self):
         return 0
 
 
@@ -132,7 +132,7 @@ class App(Args):
     "Verbose output"
     ("--verbose",)
 
-    def __run__(self):
+    def __call__(self):
         return 0
 
 

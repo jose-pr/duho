@@ -108,7 +108,9 @@ switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses
 `argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
-verbosity (for classes mixing in `LoggingArgs`), and calls `instance.__run__()`:
+verbosity (for classes mixing in `LoggingArgs`), and calls the instance directly
+— an `Args` instance is callable, so `instance()` runs the command via its
+`__call__()`:
 
 ```python
 from duho import Args, main
@@ -119,7 +121,7 @@ class Greet(Args):
     "Who to greet"
     ("--name",)
 
-    def __run__(self) -> int | None:
+    def __call__(self) -> int | None:
         print(f"Hello, {self.name}!")
         # returning None counts as a successful exit (code 0)
 
@@ -128,7 +130,7 @@ if __name__ == "__main__":
 ```
 
 `SystemExit` raised by argparse (bad args, `--help`, `--version`) propagates
-normally. If the selected class has no `__run__`, `main` raises
+normally. If the selected class has no `__call__`, `main` raises
 `NotImplementedError` naming the class.
 
 **Subcommands**: set `_subcommands_` to a sequence of `Args` subclasses and
@@ -136,21 +138,21 @@ normally. If the selected class has no `__run__`, `main` raises
 automatically — no manual subparser plumbing needed. Nested `_subcommands_`
 (a subcommand that itself declares `_subcommands_`) compose naturally into
 multi-level command trees, and `main` always dispatches to the deepest
-selected class's `__run__`.
+selected class's `__call__`.
 
 ```python
 class Serve(Args):
     """Start the development server."""
     port: int = 8000
     ("--port",)
-    def __run__(self):
+    def __call__(self):
         print(f"serving on {self.port}")
 
 class Build(Args):
     """Build the project."""
     output: str = "dist"
     ("--output",)
-    def __run__(self):
+    def __call__(self):
         print(f"building to {self.output}")
 
 class App(Args):
@@ -312,13 +314,13 @@ class MyApp(LoggingArgs):
     "The command to run"
     ("--command",)
 
-    def __run__(self):
+    def __call__(self):
         logger = self._logger_
         logger.info(f"Running: {self.command}")
 ```
 
 `duho.main()` calls `self._set_loglevels_()` for you before dispatching to
-`__run__` (pass `setup_logging=False` to opt out). If you drive the parser
+`__call__` (pass `setup_logging=False` to opt out). If you drive the parser
 yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
 you start logging.
 

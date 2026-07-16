@@ -55,7 +55,7 @@ class Greet(Args):
     "How many times"
     ("--count", "-c")
 
-    def __run__(self):
+    def __call__(self):
         for _ in range(self.count):
             print(f"Hello, {self.name}!")
 
@@ -85,7 +85,7 @@ options:
 - **[Declaring arguments](guide/arguments.md)** — fields, flags, help text,
   positionals, and the full `argparse` surface.
 - **[Types and conversion](guide/types.md)** — what each annotation does.
-- **[Running your app](guide/running.md)** — `duho.main`, `__run__`, subcommands,
+- **[Running your app](guide/running.md)** — `duho.main`, `__call__`, subcommands,
   `--version`.
 - **[Configuration layers](guide/config.md)** — env vars and TOML config files.
 - **[Logging](guide/logging.md)** — `LoggingArgs`, `-v`/`-q`, colored output.

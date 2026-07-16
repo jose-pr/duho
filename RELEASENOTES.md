@@ -16,6 +16,56 @@ against the 0.1.1 CI baseline below (never against local numbers).
 
 ---
 
+## [0.2.0] — 2026-07-16
+
+A small API release adding subcommand aliases and a cleaner dispatch idiom.
+
+### What changed
+
+- **Dispatch hook renamed `__run__` → `__call__` (breaking).** An `Args`
+  instance is now directly callable — `instance()` runs the command — and
+  `duho.main()` dispatches to `instance.__call__()`. The migration is a
+  one-line rename per command class. This aligns the run hook with a real
+  Python protocol rather than a bespoke dunder; the `getattr(instance,
+  "__call__", None)` check still makes a subcommands-only class with no
+  `__call__` raise `NotImplementedError`, so the "did you implement it?"
+  guard is unchanged.
+- **Subcommand aliases via `_parseraliases_`.** A list of alternate names on a
+  subcommand class registers argparse aliases (e.g. `create`/`c`), all
+  dispatching to the same `__call__`. Absence of the attr is the prior
+  behavior (no aliases). Applied only when the class is registered as a
+  subparser (the top-level `ArgumentParser` has no `aliases`).
+- **`__version__` fallback for `--version`.** When `_version_` is unset, a
+  class-level `__version__` string now populates `--version`, so an app already
+  carrying the conventional dunder gets the flag for free. `_version_` still
+  wins when both are set and remains the only form accepting `duho.AUTO`.
+
+### Migration
+
+Rename `def __run__(self)` to `def __call__(self)` on every command class. No
+other change is required; aliases and the `__version__` fallback are additive.
+
+### Performance
+
+No perf-relevant changes — dispatch and version resolution are one-time,
+non-hot-path operations. The 0.1.1 CI baseline for parser construction stands.
+
+### Validation
+
+- Full suite green on Python 3.9 (123 passed, 2 skipped — the PEP-604 cases)
+  and 3.14 (124 passed, 1 skipped), including new tests for alias dispatch, the
+  canonical-name path, the no-alias default, the `__version__` fallback, and
+  `_version_`-wins-over-`__version__`.
+- Local `python -m build` is isolated and hangs on the dev machine; the no-
+  isolation `hatchling.build` path plus `twine check` was used for the local
+  sanity build, and CI's release workflow performs the authoritative isolated
+  build before publish.
+- **Publication state:** prepared and committed on `master`; the `v0.2.0` tag
+  is pushed only with per-release user consent (which triggers the PyPI
+  publish).
+
+---
+
 ## [0.1.1] — 2026-07-14
 
 A documentation and accuracy release. No functional changes to the library —

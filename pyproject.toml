@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "duho"
-version = "0.1.1"
+version = "0.2.0"
 authors = [{ name = "Jose A." }]
 description = "A declarative CLI framework for building command-line applications with minimal boilerplate"
 readme = "README.md"

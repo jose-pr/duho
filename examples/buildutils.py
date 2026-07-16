@@ -82,7 +82,7 @@ class Install(LoggingArgs):
     "Path to install to."
     ("destination",)
 
-    def __run__(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info(
             "would install %s -> %s (type=%s, mode=%s, owner=%s, group=%s)",
             self.source,
@@ -107,7 +107,7 @@ class Buildutils(LoggingArgs):
     _version_ = duho.__version__
     _subcommands_ = [Install]
 
-    def __run__(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info("pick a subcommand, e.g. `install`")
         return 0
 

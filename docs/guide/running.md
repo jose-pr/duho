@@ -5,7 +5,8 @@
 `duho.main(cls, argv=None, *, setup_logging=True, config=None)` is the one-call
 entry point. It builds the parser, parses `argv` (defaulting to `sys.argv`), sets
 up logging if the class mixes in [`LoggingArgs`](logging.md), and calls the parsed
-instance's `__run__()`.
+instance — an `Args` instance is directly callable, so `instance()` runs the
+command via its `__call__()`.
 
 ```python
 import duho
@@ -18,7 +19,7 @@ class Greet(Args):
     "Who to greet"
     ("--name",)
 
-    def __run__(self) -> int | None:
+    def __call__(self) -> int | None:
         print(f"Hello, {self.name}!")
         # returning None counts as success (exit code 0)
 
@@ -26,9 +27,9 @@ if __name__ == "__main__":
     raise SystemExit(duho.main(Greet))
 ```
 
-`__run__` returns the process exit code; `None` means 0. `SystemExit` raised by
+`__call__` returns the process exit code; `None` means 0. `SystemExit` raised by
 argparse (bad arguments, `--help`, `--version`) propagates normally. If the
-selected class has no `__run__`, `main` raises `NotImplementedError` naming it.
+selected class has no `__call__`, `main` raises `NotImplementedError` naming it.
 
 ## Building the parser yourself
 
@@ -75,7 +76,7 @@ files, which slot into the same ladder.
 ## Subcommands
 
 Set `_subcommands_` to a sequence of `Args` subclasses. duho wires up
-`add_subparsers()` for you and dispatches to the selected one's `__run__`:
+`add_subparsers()` for you and dispatches to the selected one's `__call__`:
 
 ```python
 import duho
@@ -86,7 +87,7 @@ class Serve(Args):
     port: int = 8000
     ("--port",)
 
-    def __run__(self):
+    def __call__(self):
         print(f"serving on {self.port}")
 
 class Build(Args):
@@ -94,7 +95,7 @@ class Build(Args):
     output: str = "dist"
     ("--output",)
 
-    def __run__(self):
+    def __call__(self):
         print(f"building to {self.output}")
 
 class App(Args):

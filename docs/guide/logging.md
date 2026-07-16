@@ -13,7 +13,7 @@ class App(LoggingArgs):
     "What to act on"
     ("--target",)
 
-    def __run__(self):
+    def __call__(self):
         self._logger_.info("working on %s", self.target)
         self._logger_.debug("some detail")
 
@@ -22,7 +22,7 @@ if __name__ == "__main__":
 ```
 
 `duho.main` calls `self._set_loglevels_()` before dispatching, so by the time
-`__run__` runs the levels are applied. (Pass `setup_logging=False` to opt out; if
+`__call__` runs the levels are applied. (Pass `setup_logging=False` to opt out; if
 you drive the parser yourself, call `_set_loglevels_()` before you start logging.)
 
 ## The flags

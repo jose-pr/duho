@@ -5,7 +5,7 @@ Duho port of the local ``dotagents`` installer: copies a payload tree of
 agent-config files into a destination, backing up any file that would be
 overwritten with different content. This example is a stub -- it logs the
 actions it *would* take instead of touching the filesystem, since the point
-here is exercising duho's CLI surface (subcommands, LoggingArgs, __run__),
+here is exercising duho's CLI surface (subcommands, LoggingArgs, __call__),
 not re-implementing the real backup/copy logic.
 """
 import sys
@@ -32,7 +32,7 @@ class Install(LoggingArgs):
     "Additionally copy the opt-in examples/ payload (never overwrites)."
     ("--with-examples",)
 
-    def __run__(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info("would install payload into %s", self.dest)
         if self.dry_run:
             self._logger_.info("dry-run: no files will be written")
@@ -52,7 +52,7 @@ class Dotagents(LoggingArgs):
     _version_ = duho.__version__
     _subcommands_ = [Install]
 
-    def __run__(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info("pick a subcommand, e.g. `install`")
         return 0
 

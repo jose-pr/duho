@@ -67,10 +67,17 @@ def _resolve_version(cls) -> "str | None":
     ``_distribution_`` or the class's top-level import package). Never
     raises -- any resolution failure is logged at debug level and treated
     as "no version available".
+
+    When ``_version_`` is unset/None, a class-level ``__version__`` string is
+    used as a fallback (so an app that already carries the conventional
+    ``__version__`` gets ``--version`` for free). ``_version_`` always wins when
+    both are set; the ``__version__`` fallback accepts only a plain ``str``
+    (not the ``AUTO`` sentinel).
     """
     raw = getattr(cls, "_version_", None)
     if raw is None:
-        return None
+        fallback = getattr(cls, "__version__", None)
+        return fallback if isinstance(fallback, str) else None
     if isinstance(raw, str):
         return raw
     if raw is AUTO:
@@ -616,6 +623,11 @@ class Args(_argparse.Namespace):
         if subparser:
             docstring = cls.__doc__ or ""
             kwargs.setdefault("help", docstring.strip().splitlines()[0] if docstring.strip() else "")
+            # Subcommand aliases (argparse's add_parser accepts `aliases`; the
+            # top-level ArgumentParser does not, so only apply when nested).
+            aliases = getattr(cls, "_parseraliases_", None)
+            if aliases:
+                kwargs.setdefault("aliases", list(aliases))
         parser = _ty.cast(
             "_Parser[_ty.Self]",
             method(name, parents=list(parents), **kwargs),
@@ -796,7 +808,7 @@ def main(
     setup_logging=True,
     config: "str | _pathlib.Path | None" = None,
 ) -> int:
-    """Build a parser for cls, parse argv, and dispatch to instance.__run__().
+    """Build a parser for cls, parse argv, and dispatch to instance.__call__().
 
     Module-level (not a classmethod) so the Args subclass namespace stays
     entirely user-owned. Steps: build parser (auto-registers _subcommands_),
@@ -804,7 +816,7 @@ def main(
     precedence CLI > env > config > class default), parse argv (SystemExit from
     argparse propagates), optionally set up stderr logging + apply verbosity
     when the resulting instance provides _set_loglevels_, then call
-    instance.__run__() and map a None return to 0.
+    instance() (i.e. instance.__call__()) and map a None return to 0.
     """
     parser = cls._parser_()
     _apply_default_layers(parser, cls, config)
@@ -816,10 +828,10 @@ def main(
             _duho_logging.init_stderr_logging()
         instance._set_loglevels_()
 
-    run = getattr(instance, "__run__", None)
+    run = getattr(instance, "__call__", None)
     if run is None:
         raise NotImplementedError(
-            f"{type(instance).__name__} does not implement __run__"
+            f"{type(instance).__name__} does not implement __call__"
         )
 
     result = run()

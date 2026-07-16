@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-16
+
+### Added
+
+- **Subcommand aliases**: set `_parseraliases_` on an `Args` subclass to register
+  short/alternate names for it in a `_subcommands_` tree (e.g. `_parseraliases_ =
+  ["c"]` so `app c` runs the same command as `app create`). Aliases dispatch to the
+  same `__call__`. Absence of the attr is the unchanged default (no aliases).
+- **`__version__` fallback for `--version`**: when `_version_` is unset, a
+  class-level `__version__` string is now used to populate the `--version` flag, so
+  an app already carrying the conventional `__version__` gets `--version` for free.
+  `_version_` still wins when both are set (and remains the only form that accepts
+  the `duho.AUTO` sentinel).
+
+### Changed
+
+- **BREAKING**: the command-dispatch hook is renamed from `__run__` to `__call__`.
+  An `Args` instance is now directly callable — `instance()` runs the command —
+  and `duho.main()` dispatches to `instance.__call__()`. Rename `def __run__(self)`
+  to `def __call__(self)` on your command classes.
+
 ## [0.1.1] - 2026-07-14
 
 ### Added
@@ -81,6 +102,7 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jose-pr/duho/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jose-pr/duho/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jose-pr/duho/releases/tag/v0.1.0

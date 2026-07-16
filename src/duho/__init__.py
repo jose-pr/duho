@@ -31,7 +31,7 @@ from .logging import (
 )
 from .presets import LoggingArgs
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 
 def parser(cls, *args, **kwargs):

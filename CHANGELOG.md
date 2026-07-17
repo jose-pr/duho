@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and exposed on the parsed instance as `_passthrough_: list[str]` (empty when no
   `--`; only the first `--` splits). Useful for forwarding trailing args to a wrapped
   command.
+- **`duho.app()` / `duho.run_command()`** (`runtime.py`): a multi-command app runner.
+  `app(root=None, *, commands=None, source=None, argv=None, name=None,
+  description=None, env=None, setup_logging=True) -> int` builds a top-level parser
+  for a `root` command, resolves a command set (explicit `commands` >
+  `discover_commands(source)` > `env.list("CMDS_PATH", ty=Path)` >
+  `root._subcommands_`), registers each under a subparsers tree, parses `argv`, and
+  dispatches one command. Class commands and module commands (`ModuleCommand`) are
+  both supported; global options are inherited by every subcommand, a module
+  `register(parser, args)` hook can add arguments directly, `_passthrough_` reaches
+  the dispatched command, and discovery is resilient (one bad command is skipped).
+  `run_command(command, instance, *, context=None) -> int` dispatches a single
+  resolved command: a class command via `instance.main()`, a module command through
+  the `init -> main -> success / finally_` lifecycle with a shared context (hooks read
+  the args instance's `_logger_`; no separate `logger` argument). `None` maps to exit
+  code `0`; a returned int is propagated.
 
 ### Changed
 

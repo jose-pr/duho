@@ -660,6 +660,26 @@ class Args(_argparse.Namespace):
 
             setattr(namespace, "#cls", cls)
 
+            # `_passthrough_`: capture argv after the FIRST literal `--`
+            # separator (coquilib cli/parser.py::parse_known_args). Only the
+            # top-level parse owns the split -- a subparser is invoked by
+            # argparse._SubParsersAction with an already-sliced arg list and
+            # namespace=None, so splitting there would double-consume. The
+            # left side is parsed normally; the right side is stashed on the
+            # constructed instance as `_passthrough_` (empty list when absent
+            # or when multiple `--` appear, only the first splits).
+            passthrough: "list[str] | None" = None
+            if not is_subcommand:
+                if args is None:
+                    argv = _sys.argv[1:]
+                else:
+                    argv = list(args)
+                if "--" in argv:
+                    idx = argv.index("--")
+                    passthrough = argv[idx + 1 :]
+                    argv = argv[:idx]
+                args = argv
+
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace
             )
@@ -679,6 +699,8 @@ class Args(_argparse.Namespace):
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
             parser._duho_selected_cls_ = _cls  # type:ignore
             instance = _cls(**parsed.__dict__)
+            # Attach captured passthrough (empty list when no `--` was seen).
+            instance._passthrough_ = passthrough if passthrough is not None else []
             # Debug-aid linkage for duho.value_sources(): remember the parser
             # (which carries _duho_value_sources_/_duho_merged_defaults_ from
             # _apply_default_layers) that produced instances of this class.
@@ -731,6 +753,89 @@ class Args(_argparse.Namespace):
                 _action = arg.add_to_parser(group)
 
         return parser
+
+
+class Cmd(Args):
+    """An executable command: a data ``Args`` plus the command contract.
+
+    ``Args`` (Plan 13) is pure data -- a Namespace of parsed values, not
+    required to run. ``Cmd`` adds the *executable* contract on top: a
+    ``main(self)`` entrypoint (named to align with ``__main__``), with
+    ``__call__`` delegating to it so a ``Cmd`` instance stays directly
+    callable (``instance()`` runs the command via ``main``).
+
+    A ``Cmd`` subclass that defines neither ``main`` nor its own
+    ``__call__`` raises ``NotImplementedError`` naming the class when
+    dispatched -- the same loud-failure spirit as Plan 04's earlier
+    "missing ``__call__``", just relocated onto ``Cmd``. Data-only ``Args``
+    subclasses stay non-runnable by design: ``duho.main`` rejects them with
+    a clear error rather than silently no-op'ing (the whole point of the
+    split is that "runnable" is explicit).
+
+    Base-order for the ``LoggingArgs`` mixin: ``class App(LoggingArgs, Cmd)``
+    (data mixin first, executable base last). Both orders resolve the MRO
+    correctly since ``LoggingArgs`` defines no ``main``/``__call__``; the
+    recommended order reads "add logging to a command".
+    """
+
+    #: argv captured after the first literal ``--`` separator (parse-time);
+    #: an empty list when no ``--`` was present. Populated on the parsed
+    #: instance by ``_initparser_``'s patched ``parse_known_args``.
+    _passthrough_: "list[str]"
+
+    def main(self):  # noqa: D401 - contract stub, overridden by subclasses
+        """Primary command entrypoint. Override in a ``Cmd`` subclass.
+
+        The base raises ``NotImplementedError`` naming the concrete class,
+        so a ``Cmd`` that forgets to implement ``main`` (and does not
+        override ``__call__``) fails loud when dispatched rather than
+        silently doing nothing.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} is a Cmd but implements neither "
+            f"'main' nor '__call__'"
+        )
+
+    def __call__(self):
+        """Run the command by delegating to ``main`` (keeps ``Cmd`` callable)."""
+        return self.main()
+
+
+def command(
+    args_cls: "type[Args]",
+    func: "_ty.Callable[[_ty.Any], object]",
+    *,
+    name: "str | None" = None,
+) -> "type[Cmd]":
+    """Build a ``Cmd`` subclass from a data ``Args`` class and a callable.
+
+    Lets a user attach behavior to an existing data ``Args`` without
+    rewriting it as a ``Cmd`` subclass ("build one from Args and a
+    method"). The returned class subclasses BOTH ``args_cls`` (to inherit
+    its declared fields / parsing machinery) and ``Cmd`` (for the
+    executable contract). Its ``main`` calls ``func(self)`` -- the parsed
+    instance IS the parsed args, matching ``Cmd.main(self)`` -- so
+    ``command(MyArgs, f)`` makes ``f`` receive the parsed ``MyArgs``-shaped
+    instance and its return value becomes the command's result.
+
+    ``name`` (optional) sets the built class's ``_parsername_`` (the
+    subcommand name). When omitted, the usual
+    ``_parsername_``/class-name rule applies to the generated class.
+    """
+    if Cmd in getattr(args_cls, "__mro__", ()):
+        bases: tuple = (args_cls,)
+    else:
+        bases = (args_cls, Cmd)
+
+    def main(self, _func=func):
+        return _func(self)
+
+    namespace: "dict[str, object]" = {"main": main}
+    if name is not None:
+        namespace["_parsername_"] = name
+
+    cls_name = name or getattr(args_cls, "__name__", "Command")
+    return _ty.cast("type[Cmd]", type(cls_name, bases, namespace))
 
 
 def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
@@ -808,15 +913,20 @@ def main(
     setup_logging=True,
     config: "str | _pathlib.Path | None" = None,
 ) -> int:
-    """Build a parser for cls, parse argv, and dispatch to instance.__call__().
+    """Build a parser for cls, parse argv, and dispatch the selected Cmd.
 
     Module-level (not a classmethod) so the Args subclass namespace stays
     entirely user-owned. Steps: build parser (auto-registers _subcommands_),
     apply the env/config/class-default layers (`config` overrides `cls._config_`;
     precedence CLI > env > config > class default), parse argv (SystemExit from
     argparse propagates), optionally set up stderr logging + apply verbosity
-    when the resulting instance provides _set_loglevels_, then call
-    instance() (i.e. instance.__call__()) and map a None return to 0.
+    when the resulting instance provides _set_loglevels_, then run the command
+    and map a None return to 0.
+
+    Since Plan 13's Args/Cmd split, dispatch expects the selected class to be
+    a ``Cmd`` (executable). A bare data ``Args`` -- with no ``main`` and no
+    ``__call__`` -- raises a clear ``NotImplementedError`` ("Args holds data;
+    make it a Cmd to run it") rather than silently doing nothing.
     """
     parser = cls._parser_()
     _apply_default_layers(parser, cls, config)
@@ -831,7 +941,9 @@ def main(
     run = getattr(instance, "__call__", None)
     if run is None:
         raise NotImplementedError(
-            f"{type(instance).__name__} does not implement __call__"
+            f"{type(instance).__name__} holds data but is not runnable "
+            f"(no '__call__'/'main'); make it a Cmd (subclass duho.Cmd or "
+            f"build one with duho.command(...)) to run it"
         )
 
     result = run()
@@ -935,6 +1047,8 @@ __all__ = [
     "Args",
     "Arg",
     "Choice",
+    "Cmd",
+    "command",
     "Const",
     "Count",
     "Extend",

@@ -11,15 +11,28 @@ from .logging import parse_loglevels
 class LoggingArgs(Args):
     """Args subclass with built-in --verbose and --loglevel support.
 
-    Set a class attr ``_version_`` to opt into a ``--version`` flag; no
-    separate preset class is needed::
+    ``LoggingArgs`` is a **data mixin** (verbosity fields + ``_set_loglevels_``
+    + the ``_logger_`` property); it defines no ``main``/``__call__`` and is
+    NOT itself runnable. Since Plan 13's ``Args``/``Cmd`` split, combine it
+    with ``Cmd`` to get a runnable command with logging::
 
-        class MyApp(LoggingArgs):
+        class MyApp(LoggingArgs, Cmd):
             _version_ = "1.2.3"
 
-    ``--version`` prints ``"%(prog)s 1.2.3"`` and exits 0. It is skipped if
-    a ``version``-dest action already exists (e.g. supplied by a parent
-    parser).
+            def main(self):
+                self._logger_.info("running")
+                return 0
+
+    **Recommended base order: ``(LoggingArgs, Cmd)``** -- data mixin first,
+    executable base last (reads "add logging to a command"). Both orders
+    resolve correctly because ``LoggingArgs`` overrides no ``Cmd`` member;
+    ``_logger_``/``_set_loglevels_`` come from ``LoggingArgs`` and
+    ``main``/``__call__`` from ``Cmd`` regardless of order.
+
+    Set a class attr ``_version_`` to opt into a ``--version`` flag; no
+    separate preset class is needed. ``--version`` prints
+    ``"%(prog)s 1.2.3"`` and exits 0. It is skipped if a ``version``-dest
+    action already exists (e.g. supplied by a parent parser).
     """
 
     loglevels: _ty.Annotated[

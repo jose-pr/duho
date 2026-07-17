@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Cmd` command type**: a new `duho.Cmd(Args)` base carries the executable
+  contract. Define `main(self)` on a `Cmd` subclass; `__call__` delegates to it, so
+  a `Cmd` instance stays directly callable. `Cmd.main`'s base raises
+  `NotImplementedError` naming the class when a subclass implements neither.
+- **`duho.command(args_cls, func, *, name=None)`**: build a `Cmd` subclass from an
+  existing data `Args` class and a callable — `func(self)` receives the parsed
+  instance and its return value is the command result. `name` sets the subcommand
+  name (`_parsername_`).
+- **`_passthrough_`**: argv after a literal `--` separator is captured at parse time
+  and exposed on the parsed instance as `_passthrough_: list[str]` (empty when no
+  `--`; only the first `--` splits). Useful for forwarding trailing args to a wrapped
+  command.
+
+### Changed
+
+- **BREAKING**: `Args` is now pure **data** and no longer runnable on its own —
+  "every `Args` is callable" (from 0.2.0) is reversed. To run a command, subclass
+  `duho.Cmd` and implement `main(self)` (or build one with `duho.command(...)`).
+  Dispatching a bare data `Args` via `duho.main` now raises a clear
+  `NotImplementedError` instead of silently doing nothing. The `LoggingArgs` preset
+  stays a data mixin; combine it as `class App(LoggingArgs, Cmd)` (recommended base
+  order) to get logging + a runnable command. Migrate `def __call__(self)` command
+  bodies to `def main(self)` on a `Cmd` subclass.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

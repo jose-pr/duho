@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.Env(prefix)`**: a prefixed, typed, app-wide view over `os.environ`. Reads
+  keys sharing a normalized `<PREFIX>_` prefix (`Env("my-app")` → `MY_APP_*`), with
+  `.bool(key)` and `.list(key, sep=":", ty=str)` accessors and an optional autoloaded
+  `<prefix>env` defaults module. It is a `MutableMapping`. Distinct from the per-field
+  `NS(env="VAR")` default layer — this is the app-level settings accessor.
+- **Text/name utilities** (`duho.expand`, `pysafe`, `camelcase`, `snakecase`,
+  `gettext`): `expand("web[01-03]")` expands `[a-b]` brace ranges into concrete
+  strings (cartesian product for multiple ranges; **not** zero-padded); `pysafe`
+  coerces text to a Python-safe dotted identifier; `camelcase`/`snakecase` convert
+  case; `gettext` is a `gettext` shim.
+- **`duho.PythonName` / `duho.QualName`**: dotted-name algebra (parts, parent,
+  join/split, `/` composition, path mapping) for building command qualnames;
+  `PythonName` runs each part through `pysafe`.
+- **Command discovery** (`discovery.py`): `duho.discover_commands(source)` walks a
+  dotted package name or a directory and returns a `list[Command]`, collecting BOTH
+  class commands (`Cmd` subclasses) and module commands (`ModuleCommand`). It is
+  **resilient** — a command that fails with `ImportError` (missing optional dep) or
+  `NotImplementedError` (not a command) is logged and skipped so the rest still load,
+  while a real bug (e.g. `SyntaxError`) still propagates. `duho.CmdBuilder(qualname,
+  source=None)` resolves a single import path / filesystem path / module to a
+  `Command`; `duho.ModuleCommand` adapts a `.py` module (entrypoint `main`/`run`/
+  `call`, docstring help, optional `register`/`init`/`success`/`finally_` lifecycle
+  hooks) to the `Command` protocol without subclassing `ModuleType`. The
+  `duho.Command` protocol is the shape dispatch needs.
+- **`duho.register_command_provider(predicate, builder)`**: an injection seam letting
+  an external package teach `CmdBuilder` how to build a command from a directory shape
+  core duho doesn't understand (e.g. an ordered run-path of numbered step files),
+  without core importing that package. Consulted newest-first before a normal import.
 - **`Cmd` command type**: a new `duho.Cmd(Args)` base carries the executable
   contract. Define `main(self)` on a `Cmd` subclass; `__call__` delegates to it, so
   a `Cmd` instance stays directly callable. `Cmd.main`'s base raises

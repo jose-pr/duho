@@ -121,6 +121,30 @@ To name a command something other than its class name, pass `name=`:
 Serve._parser_(subparsers, name="serve")
 ```
 
+### Mode flags instead of positional commands
+
+Some established command-line interfaces select a mode with a flag rather than
+a positional command, such as tar's `-c` and `-x`. Keep that application-specific
+vocabulary at the entry-point boundary by normalizing `argv` before passing it to
+`duho.main`; the command classes and generated subcommand help remain unchanged:
+
+```python
+import sys
+
+MODES = {"-c": "create", "-x": "extract"}
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in MODES:
+        args[0] = MODES[args[0]]
+    return duho.main(App, args)
+```
+
+This can coexist with ordinary forms such as `app create`: only an exact leading
+mode flag is translated, so flags belonging to the selected command are left
+alone. Use `_parseraliases_` instead when the alternate spelling is itself a
+positional command (for example, `create` and `c`).
+
 ## Version flag
 
 Set `_version_` and duho adds a `--version` flag that prints

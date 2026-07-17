@@ -1,0 +1,334 @@
+"""Multi-command app runner: wire discovered commands into a runnable app.
+
+This is the driver layer that turns a set of :class:`~duho.discovery.Command`
+objects (class commands -- ``Cmd`` subclasses -- and module commands --
+:class:`~duho.discovery.ModuleCommand`) into a real subcommand app:
+
+* build a top-level parser for a *root* ``Cmd``/``Args`` (global options);
+* add a subparsers tree and register every command under it;
+* parse ``argv`` (with ``_passthrough_`` and the nested-help / shared-namespace
+  behaviors preserved);
+* dispatch exactly one selected command through the lifecycle
+  ``init -> main -> success / finally_`` with a shared **context**.
+
+**Composed on the shipped parser, not a parallel one.** The whole point of this
+layer is that it reuses duho's existing ``_parser_``/``_initparser_``/``"#cls"``
+machinery rather than introducing a second parser class. The four parser
+behaviors clients rely on are reproduced on that path:
+
+* **Parent-arg inheritance** -- every subcommand parser is built with argparse
+  ``parents=[<root parser>]`` so global/root options appear on each subcommand.
+* **Shared namespace** -- class commands already carry the ``"#cls"``
+  deepest-selection contract (``_initparser_``), which yields one merged instance
+  of the deepest selected class. Module commands don't declare their own args, so
+  the parsed instance is the root instance (plus any fields a module ``register``
+  hook added directly).
+* **Nested-help suppression** -- the optional two-pass prepass uses the existing
+  :func:`duho.parsers.prerun_parse`, which already relaxes ``_HelpAction`` and
+  subparser validation for the prepass and restores them. No hand-patching.
+* **``register`` hook** -- a module command may define ``register(parser, args)``
+  to add arguments directly on the argparse object of its subcommand.
+
+* **``_passthrough_``** -- argv after the first literal ``--`` is captured by the
+  root parser's patched ``parse_known_args`` and reaches the dispatched command.
+
+All union annotations are quoted so the module imports cleanly on Python 3.9.
+No target fan-out / thread pools live here -- a single command is dispatched.
+Parallel/fan-out patterns are a documented client wrapper and a future add-on.
+"""
+
+import argparse as _argparse
+import logging as _logging
+import typing as _ty
+from pathlib import Path as _Path
+
+from . import logging as _duho_logging
+from .args import Args as _Args, Cmd as _Cmd
+from .discovery import (
+    Command as _Command,
+    ModuleCommand as _ModuleCommand,
+    discover_commands as _discover_commands,
+    is_class_command as _is_class_command,
+    is_module_command as _is_module_command,
+)
+
+__all__ = ["run_command", "app"]
+
+_LOGGER = _logging.getLogger("duho")
+
+
+def _command_name(command: object) -> str:
+    """Resolve a command's subcommand name (class or module command)."""
+    if _is_class_command(command):
+        return getattr(command, "_parsername_", None) or command.__name__  # type: ignore[union-attr]
+    return getattr(command, "_parsername_", "")
+
+
+def run_command(
+    command: "_Command",
+    instance: object,
+    *,
+    context: object = None,
+) -> int:
+    """Dispatch one already-resolved command against a parsed ``instance``.
+
+    ``instance`` is the parsed args/command instance produced by parsing (for a
+    class command it IS the command; for a module command it is the root/parent
+    instance carrying the parsed globals). Returns an exit code: a command that
+    returns ``None`` maps to ``0``; a returned int is propagated.
+
+    * **Class command** (a ``Cmd``): the parsed ``instance`` is itself the
+      command, so this calls ``instance.main()`` (``__call__`` delegates to it).
+      Parsing already owns building the instance; there is no separate parse here.
+    * **Module command** (:class:`ModuleCommand`): runs the lifecycle --
+      ``ctx = command.init(instance)`` (identity/no-op default returning
+      ``None``), then ``command.main(instance)`` and ``command.success(ctx,
+      instance)`` inside a ``try`` whose ``finally`` always runs
+      ``command.finally_(ctx, instance)``. If ``context`` is passed it overrides
+      the ``init`` result (the driver builds the context once and threads it in).
+      ``main``'s return value (or ``None`` -> ``0``) is the exit code; an
+      exception from ``main`` propagates after ``finally_`` runs.
+
+    No separate ``logger`` argument is threaded: hooks read ``instance._logger_``
+    when the args class provides one (``ModuleCommand`` resolves it internally).
+    """
+    if _is_module_command(command):
+        module_command = _ty.cast(_ModuleCommand, command)
+        ctx = context if context is not None else module_command.init(instance)
+        try:
+            result = module_command.main(instance)
+            module_command.success(ctx, instance)
+        finally:
+            module_command.finally_(ctx, instance)
+        return 0 if result is None else result
+
+    # Class command: the parsed instance is the command; run its main().
+    result = instance.main()  # type: ignore[attr-defined]
+    return 0 if result is None else result
+
+
+def _resolve_commands(
+    root: "type | None",
+    commands: "_ty.Sequence[_Command] | None",
+    source: "str | _Path | None",
+    env: object,
+) -> "list[_Command]":
+    """Resolve the command set for :func:`app` by precedence.
+
+    Order: an explicit ``commands`` list > ``discover_commands(source)`` >
+    an ``env``-derived list of paths (``env.list("CMDS_PATH", ty=Path)``) >
+    ``root._subcommands_``. Discovery is resilient (a bad command drops out with
+    a warning -- see :func:`duho.discovery.discover_commands`).
+    """
+    if commands is not None:
+        return list(commands)
+
+    if source is not None:
+        return _discover_commands(source)
+
+    if env is not None:
+        paths = []
+        try:
+            paths = env.list("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - env is best-effort here
+            paths = []
+        resolved: "list[_Command]" = []
+        for path in paths:
+            if path:
+                resolved.extend(_discover_commands(path))
+        if resolved:
+            return resolved
+
+    if root is not None:
+        return list(getattr(root, "_subcommands_", []) or [])
+    return []
+
+
+def _register_class_command(
+    subparsers: "_argparse._SubParsersAction",
+    command: type,
+    base_parser: "_argparse.ArgumentParser",
+) -> None:
+    """Register a class command under ``subparsers`` with parent-arg inheritance.
+
+    Delegates to the class's own ``_parser_(subparsers, parents=[base_parser])``:
+    this reuses the shipped registration path (which installs the ``"#cls"``
+    deepest-selection ``parse_known_args`` on the subparser and recurses into any
+    nested ``_subcommands_``), while ``parents=`` makes the root/global options
+    appear on the subcommand too.
+    """
+    command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
+
+
+def _register_module_command(
+    subparsers: "_argparse._SubParsersAction",
+    command: "_ModuleCommand",
+    base_parser: "_argparse.ArgumentParser",
+    root_instance_args: object,
+) -> None:
+    """Register a module command as a subparser and run its ``register`` hook.
+
+    The subparser inherits the root/global options via ``parents=[base_parser]``
+    (parent-arg inheritance). If the wrapped module defines ``register`` (a real
+    one, not the no-op default), it is called as ``register(parser, args)`` so the
+    module adds its own arguments directly on the argparse object -- the
+    "work directly with the argparse object" API. ``args`` is a best-effort parsed
+    root instance for the prepass; a module ``register`` that ignores it (the
+    common case) simply adds static args.
+    """
+    module = command.module
+    doc = (getattr(module, "__doc__", None) or "").strip()
+    help_text = doc.splitlines()[0] if doc else ""
+    parser = subparsers.add_parser(
+        command._parsername_,
+        parents=[base_parser],
+        help=help_text,
+        description=doc,
+        add_help=True,
+    )
+
+    register = getattr(command, "register", None)
+    # ``ModuleCommand`` binds ``register`` to a no-op default when the module
+    # defines none; only call a real module-provided hook.
+    module_register = getattr(module, "register", None)
+    if callable(module_register):
+        register(parser, root_instance_args)
+
+
+def _build_parser(
+    root: "type | None",
+    name: "str | None",
+    description: "str | None",
+) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type]":
+    """Build the top-level parser and a help-free base parser for ``root``.
+
+    Returns ``(parser, base_parser, root_cls)``. ``root`` may be any ``Cmd``/
+    ``Args``/``LoggingArgs`` subclass supplying global options; ``None`` yields a
+    bare data ``Args`` root so an app with only external commands still works.
+    ``name`` / ``description`` override the parser prog / description when given.
+
+    The **base parser** carries the same global options but is built with
+    ``add_help=False``. It is the one used as ``parents=`` for each subcommand:
+    inheriting a parser that itself owns ``-h/--help`` would collide with the
+    subparser's own auto-added help action (argparse ``conflicting option
+    strings: -h``). The top-level ``parser`` keeps its own help; the base parser
+    (help-suppressed) just donates the root's non-help options downward.
+    """
+    root_cls = root if root is not None else _Args
+    parser_kwargs: "dict[str, object]" = {}
+    if name is not None:
+        parser_kwargs["name"] = name
+    if description is not None:
+        parser_kwargs["description"] = description
+    parser = root_cls._parser_(**parser_kwargs)  # type: ignore[attr-defined]
+    base_parser = root_cls._parser_(add_help=False)  # type: ignore[attr-defined]
+    return parser, base_parser, root_cls
+
+
+def app(
+    root: "type | None" = None,
+    *,
+    commands: "_ty.Sequence[_Command] | None" = None,
+    source: "str | _Path | None" = None,
+    argv: "_ty.Sequence[str] | None" = None,
+    name: "str | None" = None,
+    description: "str | None" = None,
+    env: object = None,
+    setup_logging: bool = True,
+) -> int:
+    """Build a multi-command app, parse ``argv``, and dispatch one command.
+
+    ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
+    global options (``None`` -> a bare data root, for an app whose commands all
+    come from discovery). The command set is resolved by precedence
+    (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
+    ``env.list("CMDS_PATH", ty=Path)`` > ``root._subcommands_``.
+
+    Each command is registered under a ``title="command"`` subparsers action:
+
+    * a **class command** via its own ``_parser_(subparsers, parents=[root])`` --
+      the shipped path, so ``"#cls"`` deepest-selection and any nested
+      ``_subcommands_`` keep working, with global options inherited via
+      ``parents=``;
+    * a **module command** as a subparser (help/description from the module
+      docstring), inheriting global options via ``parents=``; if the module
+      defines ``register(parser, args)`` it is called so the module adds its own
+      arguments directly.
+
+    Parsing goes through the root parser's patched ``parse_known_args`` (from
+    ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and
+    the layered instance construction all apply. When ``setup_logging`` and the
+    parsed instance exposes ``_set_loglevels_`` (``LoggingArgs``), stderr logging
+    is initialised (unless the root logger already has handlers) and verbosity
+    applied -- identical to ``duho.main``.
+
+    The selected command is dispatched via :func:`run_command`; its int return is
+    this function's return (success -> ``0``, a ``main`` returning ``2`` ->
+    ``2``). Discovery is resilient: a single unimportable command drops out with a
+    warning and the rest still run.
+    """
+    resolved_commands = _resolve_commands(root, commands, source, env)
+
+    parser, base_parser, root_cls = _build_parser(root, name, description)
+
+    # A prepass parsed root instance is offered to module ``register`` hooks so a
+    # hook that wants the already-parsed globals can read them. It is a
+    # best-effort, help-suppressed prepass (nested-help gotcha handled by the
+    # existing prerun_parse); most register hooks ignore it and add static args.
+    prepass_args: object = None
+    if any(_is_module_command(c) for c in resolved_commands):
+        try:
+            from .parsers import prerun_parse as _prerun_parse
+
+            prepass_args = _prerun_parse(parser, argv)
+        except SystemExit:
+            raise
+        except Exception:  # pragma: no cover - prepass is advisory only
+            prepass_args = None
+
+    # Map each subcommand name back to its command object for dispatch. Class
+    # commands are selected via "#cls" (their own instance); module commands are
+    # looked up by the parsed ``command`` dest name.
+    module_commands_by_name: "dict[str, _ModuleCommand]" = {}
+
+    subparsers = parser.add_subparsers(title="command", dest="command", required=True)
+    for command in resolved_commands:
+        if _is_class_command(command):
+            _register_class_command(subparsers, _ty.cast(type, command), base_parser)
+        elif _is_module_command(command):
+            module_command = _ty.cast(_ModuleCommand, command)
+            _register_module_command(
+                subparsers, module_command, base_parser, prepass_args
+            )
+            module_commands_by_name[module_command._parsername_] = module_command
+
+    instance = parser.parse_args(argv)
+
+    if setup_logging and hasattr(instance, "_set_loglevels_"):
+        root_logger = _logging.getLogger()
+        if not root_logger.handlers:
+            _duho_logging.init_stderr_logging()
+        instance._set_loglevels_()  # type: ignore[attr-defined]
+
+    # Resolve which command was selected. A class command selection yields a
+    # constructed instance that IS the command (a Cmd subclass); a module command
+    # selection leaves ``instance`` as the root instance and names the module via
+    # the ``command`` dest.
+    selected_name = getattr(instance, "command", None)
+    module_command = module_commands_by_name.get(selected_name) if selected_name else None
+
+    if module_command is not None:
+        # run_command owns the full lifecycle (init -> main -> success/finally_).
+        # Don't pre-build the context here or init would run twice.
+        return run_command(module_command, instance)
+
+    # Class command (or the root itself if it is a runnable Cmd): dispatch the
+    # parsed instance directly. It is already the deepest selected Cmd.
+    if not isinstance(instance, _Cmd):
+        raise NotImplementedError(
+            f"{type(instance).__name__} holds data but is not runnable "
+            f"(no 'main'/'__call__'); make it a Cmd (subclass duho.Cmd or "
+            f"build one with duho.command(...)) to run it, or register runnable "
+            f"commands"
+        )
+    return run_command(_ty.cast(_Command, type(instance)), instance)

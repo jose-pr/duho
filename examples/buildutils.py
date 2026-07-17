@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import duho
-from duho import Arg, LoggingArgs, NS, UpdateAction
+from duho import Arg, Cmd, LoggingArgs, NS, UpdateAction
 
 
 class FileType(enum.Enum):
@@ -30,7 +30,7 @@ class FileType(enum.Enum):
     link = "softlink"
 
 
-class Install(LoggingArgs):
+class Install(LoggingArgs, Cmd):
     """Install SOURCE at DESTINATION."""
 
     _parsername_ = "install"
@@ -82,7 +82,7 @@ class Install(LoggingArgs):
     "Path to install to."
     ("destination",)
 
-    def __call__(self) -> int:
+    def main(self) -> int:
         self._logger_.info(
             "would install %s -> %s (type=%s, mode=%s, owner=%s, group=%s)",
             self.source,
@@ -101,13 +101,13 @@ class Install(LoggingArgs):
         return 0
 
 
-class Buildutils(LoggingArgs):
+class Buildutils(LoggingArgs, Cmd):
     """Umbrella CLI for the buildutils file installer."""
 
     _version_ = duho.__version__
     _subcommands_ = [Install]
 
-    def __call__(self) -> int:
+    def main(self) -> int:
         self._logger_.info("pick a subcommand, e.g. `install`")
         return 0
 

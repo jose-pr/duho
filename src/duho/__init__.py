@@ -12,6 +12,8 @@ from .args import (
     ArgumentBuilder,
     AUTO,
     Choice,
+    Cmd,
+    command,
     Const,
     Count,
     Extend,

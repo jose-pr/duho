@@ -12,10 +12,10 @@ import sys
 from pathlib import Path
 
 import duho
-from duho import LoggingArgs
+from duho import Cmd, LoggingArgs
 
 
-class Install(LoggingArgs):
+class Install(LoggingArgs, Cmd):
     """Copy the agent-config payload into the destination directory."""
 
     _parsername_ = "install"
@@ -32,7 +32,7 @@ class Install(LoggingArgs):
     "Additionally copy the opt-in examples/ payload (never overwrites)."
     ("--with-examples",)
 
-    def __call__(self) -> int:
+    def main(self) -> int:
         self._logger_.info("would install payload into %s", self.dest)
         if self.dry_run:
             self._logger_.info("dry-run: no files will be written")
@@ -46,13 +46,13 @@ class Install(LoggingArgs):
         return 0
 
 
-class Dotagents(LoggingArgs):
+class Dotagents(LoggingArgs, Cmd):
     """Umbrella CLI for installing agent configs."""
 
     _version_ = duho.__version__
     _subcommands_ = [Install]
 
-    def __call__(self) -> int:
+    def main(self) -> int:
         self._logger_.info("pick a subcommand, e.g. `install`")
         return 0
 

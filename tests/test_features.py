@@ -1,4 +1,4 @@
-"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/__call__ dispatch."""
+"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/Cmd dispatch."""
 
 import enum
 import logging
@@ -7,7 +7,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import Args, LoggingArgs
+from duho import Args, Cmd, LoggingArgs
 
 
 # --- Literal & Enum -> choices -----------------------------------------
@@ -275,30 +275,30 @@ def test_auto_version_not_found_skips_flag(monkeypatch):
 # --- duho.main()/__call__ dispatch ----------------------------------------
 
 
-class ServeCmd(Args):
+class ServeCmd(Cmd):
     """Start the server."""
 
     port: int = 8000
     "Port to listen on"
     ("--port",)
 
-    def __call__(self):
+    def main(self):
         return 11
 
 
-class BuildCmd(Args):
+class BuildCmd(Cmd):
     """Build the project."""
 
     output: str = "out"
     "Output path"
     ("--output",)
 
-    def __call__(self):
+    def main(self):
         return 22
 
 
 class DispatchApp(Args):
-    """App with two subcommands with distinct __call__ return values."""
+    """App with two subcommands with distinct return values."""
 
     _subcommands_ = [ServeCmd, BuildCmd]
 
@@ -315,7 +315,7 @@ def test_main_dispatch_second_subcommand():
     assert rc == 22
 
 
-class AliasedCmd(Args):
+class AliasedCmd(Cmd):
     """A subcommand registered under a name plus short aliases."""
 
     _parsername_ = "create"
@@ -325,7 +325,7 @@ class AliasedCmd(Args):
     "A tag value"
     ("--tag",)
 
-    def __call__(self):
+    def main(self):
         return self.tag
 
 
@@ -342,7 +342,7 @@ def test_subcommand_canonical_name_dispatches():
 
 
 def test_subcommand_alias_dispatches_to_same_run():
-    """Each `_parseraliases_` entry dispatches to the same __call__."""
+    """Each `_parseraliases_` entry dispatches to the same command."""
     assert duho.main(AliasApp, ["c", "--tag", "y"], setup_logging=False) == "y"
     assert duho.main(AliasApp, ["cr", "--tag", "z"], setup_logging=False) == "z"
 
@@ -353,14 +353,14 @@ def test_subcommand_without_aliases_still_works():
     assert rc == 11
 
 
-class InnerCmd(Args):
+class InnerCmd(Cmd):
     """Innermost leaf command."""
 
     value: int = 0
     "A value"
     ("--value",)
 
-    def __call__(self):
+    def main(self):
         return 33
 
 
@@ -377,7 +377,7 @@ class NestedApp(Args):
 
 
 def test_main_dispatch_nested_subcommands():
-    """A 2-level nested subcommand tree dispatches to the deepest __call__."""
+    """A 2-level nested subcommand tree dispatches to the deepest command."""
     rc = duho.main(
         NestedApp, ["MidCmd", "InnerCmd", "--value", "7"], setup_logging=False
     )
@@ -385,24 +385,29 @@ def test_main_dispatch_nested_subcommands():
 
 
 class NoRunArgs(Args):
-    """Arguments for a class that never implements __call__."""
+    """A bare data Args: no `main`/`__call__`, so not runnable."""
 
     x: int = 1
     "A value"
     ("--x",)
 
 
-def test_main_missing_run_raises_not_implemented():
-    """Selecting a class without __call__ raises NotImplementedError naming it."""
+def test_main_bare_args_not_runnable_raises_not_implemented():
+    """Dispatching a bare data Args raises NotImplementedError naming it.
+
+    Since the Plan-13 Args/Cmd split, `duho.main` expects a runnable `Cmd`;
+    a data-only `Args` (no `main`, no `__call__`) fails loud rather than
+    silently no-op'ing.
+    """
     with pytest.raises(NotImplementedError, match="NoRunArgs"):
         duho.main(NoRunArgs, [], setup_logging=False)
 
 
 def test_main_none_return_maps_to_zero():
-    """A __call__ returning None maps to exit code 0."""
+    """A command whose main returns None maps to exit code 0."""
 
-    class NoneReturn(Args):
-        def __call__(self):
+    class NoneReturn(Cmd):
+        def main(self):
             return None
 
     rc = duho.main(NoneReturn, [], setup_logging=False)
@@ -414,8 +419,8 @@ def test_main_setup_logging_false_leaves_handlers_unchanged():
     root = logging.getLogger()
     before = len(root.handlers)
 
-    class LoggedApp(LoggingArgs):
-        def __call__(self):
+    class LoggedApp(LoggingArgs, Cmd):
+        def main(self):
             return None
 
     rc = duho.main(LoggedApp, [], setup_logging=False)
@@ -426,12 +431,12 @@ def test_main_setup_logging_false_leaves_handlers_unchanged():
 def test_main_systemexit_propagates():
     """SystemExit from argparse (e.g. missing required arg) propagates."""
 
-    class RequiredArgs(Args):
+    class RequiredArgs(Cmd):
         needed: str
         "Required value"
         ("--needed",)
 
-        def __call__(self):
+        def main(self):
             return 0
 
     with pytest.raises(SystemExit):

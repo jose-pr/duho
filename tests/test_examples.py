@@ -1,7 +1,7 @@
 """Smoke tests for examples/dotagents.py and examples/buildutils.py.
 
 These exercise the example files as acceptance tests for duho's public API
-surface: LoggingArgs, _subcommands_, __call__ dispatch via duho.main(), and
+surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
 (for buildutils) positionals, Union types, NS(nargs="?"), a custom
 action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping.
 """

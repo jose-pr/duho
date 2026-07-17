@@ -1,6 +1,5 @@
 """Prefixed, app-wide environment accessor.
 
-Ported from coquilib's ``env.py`` (``CoquiEnv`` -> :class:`Env`, brand dropped).
 An :class:`Env` presents a single typed view over ``os.environ`` keys sharing a
 common prefix (``MYAPP_DEBUG``, ``MYAPP_CMDS_PATH``, ...), plus an optional
 companion ``<prefix>env`` module of defaults an app may ship.
@@ -77,8 +76,7 @@ class Env(_abc.MutableMapping):
                     yield stripped
 
     def __len__(self) -> int:
-        # coquilib's original did ``len(self.__iter__())`` which raises (a
-        # generator has no ``__len__``); count the unique keys instead.
+        # A generator has no ``__len__``; count the unique keys instead.
         return sum(1 for _ in self)
 
     # -- Typed accessors --------------------------------------------------
@@ -98,6 +96,6 @@ class Env(_abc.MutableMapping):
 
         A missing or empty value yields ``[ty("")]`` -- a single empty-string
         element, not an empty list -- because ``"".split(sep) == [""]``. This
-        matches coquilib's split contract, which existing clients rely on.
+        split contract is intentional; callers rely on it.
         """
         return [ty(part) for part in self.get(key, "").split(sep)]

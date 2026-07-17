@@ -69,7 +69,7 @@ class TestList:
         assert Env("ma").list("PORTS", ty=int) == [1, 2, 3]
 
     def test_missing_key_single_empty_element(self):
-        # Documented coquilib behavior: "".split(":") == [""], so a missing
+        # Intentional split contract: "".split(":") == [""], so a missing
         # or empty var yields one empty-string element, not [].
         assert Env("ma").list("MISSING") == [""]
 

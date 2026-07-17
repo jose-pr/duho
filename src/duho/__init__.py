@@ -25,6 +25,14 @@ from .args import (
     value_sources,
 )
 from . import completion
+from .discovery import (
+    CmdBuilder,
+    Command,
+    ModuleCommand,
+    discover_commands,
+    register_command_provider,
+)
+from .env import Env
 from .logging import (
     DefaultFormatter,
     add_logging_level,
@@ -32,6 +40,9 @@ from .logging import (
     parse_loglevels,
 )
 from .presets import LoggingArgs
+from .qualname import PythonName, QualName
+from .runtime import app, run_command
+from .text import camelcase, expand, gettext, pysafe, snakecase
 
 __version__ = "0.2.0"
 
@@ -46,22 +57,39 @@ def parser(cls, *args, **kwargs):
 
 __all__ = [
     "Append",
+    "app",
     "Args",
     "Arg",
     "Argument",
     "ArgumentBuilder",
     "AUTO",
+    "camelcase",
     "Choice",
+    "Cmd",
+    "CmdBuilder",
+    "command",
+    "Command",
     "completion",
     "Const",
     "Count",
+    "discover_commands",
+    "Env",
+    "expand",
     "Extend",
+    "gettext",
     "LoggingArgs",
     "main",
+    "ModuleCommand",
     "NS",
     "parse",
     "parser",
     "print_completion",
+    "pysafe",
+    "PythonName",
+    "QualName",
+    "register_command_provider",
+    "run_command",
+    "snakecase",
     "UpdateAction",
     "value_sources",
     "add_logging_level",

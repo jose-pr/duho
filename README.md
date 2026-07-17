@@ -108,20 +108,20 @@ switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses
 `argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
-verbosity (for classes mixing in `LoggingArgs`), and calls the instance directly
-— an `Args` instance is callable, so `instance()` runs the command via its
-`__call__()`:
+verbosity (for classes mixing in `LoggingArgs`), and runs the command. The class
+must be a `duho.Cmd` (see [Commands: Args vs Cmd](#commands-args-vs-cmd) below) —
+`main` dispatches the parsed instance's `main(self)`:
 
 ```python
-from duho import Args, main
+from duho import Cmd, main
 
-class Greet(Args):
+class Greet(Cmd):
     """Print a greeting."""
     name: str = "world"
     "Who to greet"
     ("--name",)
 
-    def __call__(self) -> int | None:
+    def main(self) -> int | None:
         print(f"Hello, {self.name}!")
         # returning None counts as a successful exit (code 0)
 
@@ -130,29 +130,29 @@ if __name__ == "__main__":
 ```
 
 `SystemExit` raised by argparse (bad args, `--help`, `--version`) propagates
-normally. If the selected class has no `__call__`, `main` raises
+normally. Dispatching a bare data `Args` (not a `Cmd`) raises a clear
 `NotImplementedError` naming the class.
 
-**Subcommands**: set `_subcommands_` to a sequence of `Args` subclasses and
+**Subcommands**: set `_subcommands_` to a sequence of `Cmd` subclasses and
 `main`/`_parser_` wires up `add_subparsers(dest="command", required=True)`
 automatically — no manual subparser plumbing needed. Nested `_subcommands_`
 (a subcommand that itself declares `_subcommands_`) compose naturally into
 multi-level command trees, and `main` always dispatches to the deepest
-selected class's `__call__`.
+selected command's `main`.
 
 ```python
-class Serve(Args):
+class Serve(Cmd):
     """Start the development server."""
     port: int = 8000
     ("--port",)
-    def __call__(self):
+    def main(self):
         print(f"serving on {self.port}")
 
-class Build(Args):
+class Build(Cmd):
     """Build the project."""
     output: str = "dist"
     ("--output",)
-    def __call__(self):
+    def main(self):
         print(f"building to {self.output}")
 
 class App(Args):
@@ -307,20 +307,20 @@ duho.value_sources(result)  # {"token": "env", "verbose": "config", ...}
 Combine with `LoggingArgs` for structured logging:
 
 ```python
-from duho import LoggingArgs
+from duho import LoggingArgs, Cmd
 
-class MyApp(LoggingArgs):
+class MyApp(LoggingArgs, Cmd):
     command: str
     "The command to run"
     ("--command",)
 
-    def __call__(self):
+    def main(self):
         logger = self._logger_
         logger.info(f"Running: {self.command}")
 ```
 
 `duho.main()` calls `self._set_loglevels_()` for you before dispatching to
-`__call__` (pass `setup_logging=False` to opt out). If you drive the parser
+`main` (pass `setup_logging=False` to opt out). If you drive the parser
 yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
 you start logging.
 
@@ -397,6 +397,243 @@ subparsers = root.add_subparsers()
 Serve._parser_(subparsers, name="serve")
 
 args = root.parse_args()
+```
+
+## Commands: Args vs Cmd
+
+`Args` classes are **pure data** — a typed namespace of parsed values. To make one
+*runnable*, subclass `duho.Cmd` and implement `main(self)`. A `Cmd` instance stays
+directly callable (`__call__` delegates to `main`), and `duho.main`/`duho.app`
+dispatch a `Cmd`:
+
+```python
+import duho
+
+class Deploy(duho.Cmd):
+    """Deploy the application."""
+    environment: str
+    ("--env",)
+
+    def main(self):
+        print(f"deploying to {self.environment}")
+        # returning None counts as a successful exit (code 0)
+
+if __name__ == "__main__":
+    raise SystemExit(duho.main(Deploy))
+```
+
+> **Upgrade note (breaking):** earlier releases made *every* `Args` instance
+> callable. `Args` is now data-only; make a command a `Cmd` (or build one with
+> `duho.command(...)`). Dispatching a bare data `Args` raises a clear
+> `NotImplementedError` instead of silently doing nothing. Migrate a
+> `def __call__(self)` command body to `def main(self)` on a `Cmd` subclass.
+
+To attach behavior to an **existing** data `Args` class without rewriting it,
+use `duho.command(args_cls, func, *, name=None)` — it returns a `Cmd` subclass
+whose `main` calls `func(self)` (the parsed instance):
+
+```python
+class Greet(duho.Args):
+    name: str = "world"
+    ("--name",)
+
+def run(args):
+    print(f"Hello, {args.name}!")
+
+GreetCmd = duho.command(Greet, run, name="greet")
+raise SystemExit(duho.main(GreetCmd))
+```
+
+`LoggingArgs` stays a data mixin; combine it as `class App(LoggingArgs, Cmd)`
+(recommended base order — data mixin first, executable base last) to get logging
+plus a runnable command.
+
+## Environment access
+
+`duho.Env(prefix)` is an app-wide, typed view over the environment variables
+sharing a common prefix. The prefix is uppercased with `-`→`_` and a trailing `_`
+ensured, so `Env("my-app")` reads `MY_APP_*` keys:
+
+```python
+import duho
+
+env = duho.Env("my-app")           # reads MY_APP_* from os.environ
+debug = env.bool("DEBUG")          # MY_APP_DEBUG -> True for 1/true/yes/y/t
+paths = env.list("CMDS_PATH", ty=Path)   # MY_APP_CMDS_PATH split on ":" into Paths
+```
+
+`Env` is a `MutableMapping`, so `env["KEY"]`, `env.get(...)`, `in`, and iteration
+all work. `.bool(key)` treats a missing key as `False`; `.list(key, sep=":",
+ty=str)` splits on `sep` and applies `ty` to each part (a missing/empty value
+yields `[ty("")]` — a single empty-string element, not an empty list). On
+construction `Env` also autoloads an optional companion `<prefix>env` module of
+defaults an app may ship (e.g. `my_app_env`); a missing one is ignored. This is
+distinct from the per-field `NS(env="VAR")` default layer above — that resolves one
+argparse field; `Env` is the app-level accessor a driver reads settings through.
+
+## String/target expansion
+
+`duho.expand` expands `[a-b]` brace ranges into concrete strings — handy for
+turning a host pattern into a target list. Output is **not** zero-padded:
+
+```python
+import duho
+
+list(duho.expand("web[01-03].example.com"))
+# ['web1.example.com', 'web2.example.com', 'web3.example.com']
+
+list(duho.expand("rack[A-C]"))
+# ['rackA', 'rackB', 'rackC']
+
+list(duho.expand("plain"))          # no range -> unchanged
+# ['plain']
+
+list(duho.expand("x[1-2]y[1-2]"))   # multiple ranges -> cartesian product
+# ['x1y1', 'x2y1', 'x1y2', 'x2y2']
+```
+
+Companion helpers `duho.pysafe` (coerce text to a Python-safe dotted identifier),
+`duho.snakecase`/`duho.camelcase` (case conversion), and `duho.gettext` (a
+`gettext` shim) round out the text utilities.
+
+## Dynamic command discovery
+
+Instead of listing subcommands by hand, point `duho.app` at a package or directory
+and it discovers every command living there. Commands come in two shapes — a
+**class command** (a `Cmd` subclass) and a **module command** (a `.py` file whose
+top-level `main` is the entrypoint):
+
+```
+myapp/
+├── cli.py            # defines the CLI root (global options)
+└── cmds/
+    ├── deploy.py     # a class command
+    └── backup.py     # a module command
+```
+
+```python
+# myapp/cmds/deploy.py
+import duho
+
+class Deploy(duho.Cmd):
+    """Deploy the application."""
+    name: str
+    ("--name",)
+    def main(self):
+        print("deployed", self.name)
+```
+
+```python
+# myapp/cmds/backup.py
+"""Back things up."""
+
+def main(args):
+    print("backing up")
+```
+
+```python
+import duho
+
+class CLI(duho.LoggingArgs, duho.Cmd):
+    "myapp"
+
+# discover by dotted package name...
+raise SystemExit(duho.app(CLI, source="myapp.cmds"))
+# ...or by directory path:
+raise SystemExit(duho.app(CLI, source=Path("myapp/cmds")))
+```
+
+The subcommand name is the class's `_parsername_`/class name for class commands,
+and the file **stem with `_`→`-`** for module commands (`deploy_all.py` →
+`deploy-all`; override with a module-level `_parsername_`/`_cli_name`). You can
+also call `duho.discover_commands(source)` directly to get the `list[Command]`.
+
+Discovery is **resilient**: a command that can't be imported (a missing optional
+dependency → `ImportError`) or isn't actually a command (`NotImplementedError`) is
+logged with a warning and skipped, so one broken command never takes down the rest.
+A genuine bug in a command file (e.g. a `SyntaxError`) is *not* swallowed — it
+surfaces so you can fix it.
+
+## Module commands & lifecycle
+
+A **module command** is a plain `.py` file. Its entrypoint is `main` (preferred),
+falling back to `run` or `call`, and receives the parsed args instance:
+
+```python
+"""Restore from a backup."""   # docstring -> subcommand help
+
+def init(args):                # optional: build a shared context
+    return {"db": connect()}
+
+def main(args):                # required entrypoint (or run/call)
+    print("restoring", args)
+
+def success(ctx, args):        # optional: ran only if main() didn't raise
+    ctx["db"].commit()
+
+def finally_(ctx, args):       # optional: always runs (cleanup)
+    ctx["db"].close()
+
+def register(parser, args):    # optional: add args directly on argparse
+    parser.add_argument("--force", action="store_true")
+```
+
+The driver runs the lifecycle `init → main → success / finally_`: `ctx =
+init(args)` builds a shared context (default: `None`), `main(args)` runs the
+command, `success(ctx, args)` runs only on a clean return, and `finally_(ctx,
+args)` always runs. Note the entrypoint receives **only** the args instance
+(`main(args)`) — the context is threaded to `success`/`finally_`, not to `main`.
+There is **no separate `logger` parameter**: hooks read the logger from the args
+instance's `_logger_` (present on `LoggingArgs`-based commands), falling back to
+`logging.getLogger("duho")`.
+
+## Customizing a subcommand parser
+
+A module command's optional `register(parser, args)` hook hands you the raw
+argparse subparser so you can add arguments the declarative layer doesn't cover:
+
+```python
+def register(parser, args):
+    parser.add_argument("--force", action="store_true")
+
+def main(args):
+    if args.force:
+        ...
+```
+
+Every subcommand parser is built with **parent-arg inheritance** — the root
+command's global options (verbosity, etc.) appear on each subcommand automatically
+via argparse `parents=`, so `myapp -v deploy` and `myapp deploy -v` both work.
+
+## Passthrough args
+
+Argv after the first literal `--` separator is captured at parse time and exposed
+on the parsed instance as `_passthrough_: list[str]` — useful for forwarding
+trailing args to a wrapped tool. Only the first `--` splits; a second `--` is part
+of the payload:
+
+```python
+class Run(duho.Cmd):
+    def main(self):
+        subprocess.run(["pytest", *self._passthrough_])
+
+# myapp Run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]
+```
+
+## Target fan-out is client glue
+
+duho dispatches **one** command per run; it deliberately ships no thread-pool /
+target fan-out helper (a real one is the future `duho-async`). Fanning a command
+out over `expand`ed targets is a short client wrapper around `duho.run_command`:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+import duho
+
+targets = list(duho.expand("web[01-03].example.com"))
+with ThreadPoolExecutor() as pool:
+    codes = pool.map(lambda t: run_for(t), targets)   # your per-target run
+raise SystemExit(max(codes, default=0))
 ```
 
 ## Examples

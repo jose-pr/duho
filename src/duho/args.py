@@ -661,7 +661,7 @@ class Args(_argparse.Namespace):
             setattr(namespace, "#cls", cls)
 
             # `_passthrough_`: capture argv after the FIRST literal `--`
-            # separator (coquilib cli/parser.py::parse_known_args). Only the
+            # separator. Only the
             # top-level parse owns the split -- a subparser is invoked by
             # argparse._SubParsersAction with an already-sliced arg list and
             # namespace=None, so splitting there would double-consume. The

@@ -1,9 +1,9 @@
 """Dotted-name algebra for command qualnames.
 
-Ported from coquilib's ``qualname.py``: a :class:`QualName` base defining the
-parts/parent/join/split algebra, a :class:`DotQualNamed` mixing it into ``str``
-with ``.`` as the separator, and :class:`PythonName`, whose :meth:`PythonName.new`
-runs parts through :func:`duho.text.pysafe`.
+A :class:`QualName` base defines the parts/parent/join/split algebra, a
+:class:`DotQualNamed` mixes it into ``str`` with ``.`` as the separator, and
+:class:`PythonName`, whose :meth:`PythonName.new` runs parts through
+:func:`duho.text.pysafe`.
 
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """

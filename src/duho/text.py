@@ -1,8 +1,8 @@
 """Zero-dependency string and name utilities.
 
-Ported from coquilib's ``text.py``: brace-range expansion (:func:`expand`),
-Python-safe name coercion (:func:`pysafe`), case conversion
-(:func:`snakecase`, :func:`camelcase`), and a :mod:`gettext` shim.
+Brace-range expansion (:func:`expand`), Python-safe name coercion
+(:func:`pysafe`), case conversion (:func:`snakecase`, :func:`camelcase`),
+and a :mod:`gettext` shim.
 
 All union annotations are quoted so the module imports cleanly on Python 3.9,
 where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and

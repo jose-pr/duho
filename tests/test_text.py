@@ -5,7 +5,7 @@ from duho.text import camelcase, expand, pysafe, snakecase
 
 class TestExpand:
     def test_digit_range_not_zero_padded(self):
-        # Verified 2026-07-17 vs coquilib: output is NOT zero-padded.
+        # By design, digit-range output is NOT zero-padded (int() drops zeros).
         assert list(expand("h[01-03]")) == ["h1", "h2", "h3"]
 
     def test_letter_range(self):
@@ -43,8 +43,8 @@ class TestPysafe:
 
 
 class TestSnakeCase:
-    # snakecase is a faithful port of coquilib's WIP implementation. Its
-    # uppercase handler replaces each [A-Z] match with match[1:].lower() — for a
+    # snakecase's uppercase handler is a known WIP quirk. It
+    # replaces each [A-Z] match with match[1:].lower() — for a
     # single-char match that is the empty string, so an interior uppercase letter
     # is DROPPED rather than lowercased-with-underscore. These assertions pin the
     # ported behavior exactly (quirks included), not an idealized snake_case.

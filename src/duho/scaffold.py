@@ -35,7 +35,6 @@ All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
 import os as _os
-import stat as _stat
 import sys as _sys
 import typing as _ty
 from pathlib import Path as _Path

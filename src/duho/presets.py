@@ -1,6 +1,5 @@
 """Pre-configured argument classes for common patterns."""
 
-import argparse as _argparse
 import typing as _ty
 
 from . import logging as _logging

@@ -123,6 +123,47 @@ def main(args):
     return None
 '''
 
+# A module command whose register hook takes the 3-arg (parser, args, logger)
+# shape: it records that it got a real logger and still adds a --flag argument.
+_MODULE_CMD_REGISTER_3ARG = '''\
+"""A module command with a 3-arg register(parser, args, logger)."""
+import logging
+
+SEEN = {}
+
+
+def register(parser, args, logger):
+    SEEN["logger_is_logger"] = isinstance(logger, logging.Logger)
+    SEEN["logger_name"] = getattr(logger, "name", None)
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
+# A module command whose register hook is *args-variadic: it must be treated as
+# 3-arg-capable and thus receive the logger as the third positional.
+_MODULE_CMD_REGISTER_VARARGS = '''\
+"""A module command with a *args register hook."""
+import logging
+
+SEEN = {}
+
+
+def register(*args):
+    SEEN["argc"] = len(args)
+    SEEN["third_is_logger"] = len(args) >= 3 and isinstance(args[2], logging.Logger)
+    parser = args[0]
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
 # A class command that returns its passthrough argv.
 _CLASS_CMD_PASSTHROUGH = '''\
 """A class command that reports passthrough argv."""
@@ -294,6 +335,68 @@ def test_register_hook_flag_shows_in_subcommand_help(tmp_path, capsys):
         app(Root, source=tmp_path, argv=["reg", "--help"], setup_logging=False)
     out = capsys.readouterr().out
     assert "--flag" in out
+
+
+def test_register_hook_3arg_gets_logger_and_adds_flag(tmp_path):
+    """A 3-arg register(parser, args, logger) receives a real logger + adds --flag."""
+    _write(tmp_path, "reg3.py", _MODULE_CMD_REGISTER_3ARG)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["reg3", "--flag", "three"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("reg3")
+    ][0]
+    # The hook got a real logging.Logger as its third positional...
+    assert discovered.SEEN["logger_is_logger"] is True
+    # ...and (Root is LoggingArgs-based) it is the args instance's own _logger_,
+    # whose name is the root parser's name ("Root"), not the fallback "duho".
+    assert discovered.SEEN["logger_name"] == "Root"
+    # ...and the flag it added parsed into the instance.
+    assert discovered.SEEN["flag"] == "three"
+
+
+def test_register_hook_varargs_treated_as_3arg(tmp_path):
+    """A *args register hook is treated as 3-arg-capable and gets the logger."""
+    _write(tmp_path, "regv.py", _MODULE_CMD_REGISTER_VARARGS)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["regv", "--flag", "var"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("regv")
+    ][0]
+    assert discovered.SEEN["argc"] == 3
+    assert discovered.SEEN["third_is_logger"] is True
+    assert discovered.SEEN["flag"] == "var"
+
+
+def test_register_hook_2arg_still_works(tmp_path):
+    """The historical 2-arg register(parser, args) is called unchanged (no logger)."""
+    _write(tmp_path, "reg.py", _MODULE_CMD_REGISTER)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["reg", "--flag", "two"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("reg")
+    ][0]
+    assert discovered.SEEN["flag"] == "two"
 
 
 # --------------------------------------------------------------------------

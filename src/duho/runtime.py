@@ -27,7 +27,8 @@ behaviors clients rely on are reproduced on that path:
   :func:`duho.parsers.prerun_parse`, which already relaxes ``_HelpAction`` and
   subparser validation for the prepass and restores them. No hand-patching.
 * **``register`` hook** -- a module command may define ``register(parser, args)``
-  to add arguments directly on the argparse object of its subcommand.
+  (or the arity-tolerant ``register(parser, args, logger)``) to add arguments
+  directly on the argparse object of its subcommand.
 
 * **``_passthrough_``** -- argv after the first literal ``--`` is captured by the
   root parser's patched ``parse_known_args`` and reaches the dispatched command.
@@ -38,6 +39,7 @@ Parallel/fan-out patterns are a documented client wrapper and a future add-on.
 """
 
 import argparse as _argparse
+import inspect as _inspect
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
@@ -165,6 +167,34 @@ def _register_class_command(
     command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
 
 
+def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
+    """True if a module ``register`` hook takes a 3rd ``logger`` positional.
+
+    A module's ``register`` may be written either 2-arg ``(parser, args)`` or
+    3-arg ``(parser, args, logger)``. This inspects the hook's signature and
+    returns ``True`` only when it accepts a third positional argument -- either
+    because it declares three (or more) positional parameters, or because it
+    declares a ``*args`` catch-all (which can absorb a logger). If the signature
+    cannot be introspected (a builtin / C callable / anything ``inspect`` refuses),
+    we conservatively default to ``False`` (the 2-arg call), which is the
+    historical shape and never over-supplies an argument the hook can't take.
+    """
+    try:
+        params = _inspect.signature(register).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins/C callables
+        return False
+    positional = 0
+    for param in params.values():
+        if param.kind is _inspect.Parameter.VAR_POSITIONAL:
+            return True  # *args absorbs the extra logger positional
+        if param.kind in (
+            _inspect.Parameter.POSITIONAL_ONLY,
+            _inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            positional += 1
+    return positional >= 3
+
+
 def _register_module_command(
     subparsers: "_argparse._SubParsersAction",
     command: "_ModuleCommand",
@@ -175,11 +205,21 @@ def _register_module_command(
 
     The subparser inherits the root/global options via ``parents=[base_parser]``
     (parent-arg inheritance). If the wrapped module defines ``register`` (a real
-    one, not the no-op default), it is called as ``register(parser, args)`` so the
-    module adds its own arguments directly on the argparse object -- the
-    "work directly with the argparse object" API. ``args`` is a best-effort parsed
-    root instance for the prepass; a module ``register`` that ignores it (the
-    common case) simply adds static args.
+    one, not the no-op default), it is called so the module adds its own arguments
+    directly on the argparse object -- the "work directly with the argparse object"
+    API. Two hook arities are accepted:
+
+    * ``register(parser, args)`` -- the 2-arg form. ``args`` is a best-effort
+      parsed root instance from the prepass; a hook that ignores it (the common
+      case) simply adds static args.
+    * ``register(parser, args, logger)`` -- the 3-arg form. ``logger`` is
+      ``getattr(args, "_logger_", logging.getLogger("duho"))`` (the parsed args'
+      own logger on a ``LoggingArgs``-based root, else duho's ``"duho"`` logger).
+
+    The arity is detected via ``inspect.signature`` (a ``*args`` hook is treated as
+    3-arg-capable, and a hook whose signature can't be introspected falls back to
+    the 2-arg call). This lets a module written against the 3-arg shape work
+    without change while staying fully backward-compatible with 2-arg hooks.
     """
     module = command.module
     doc = (getattr(module, "__doc__", None) or "").strip()
@@ -197,7 +237,13 @@ def _register_module_command(
     # defines none; only call a real module-provided hook.
     module_register = getattr(module, "register", None)
     if callable(module_register):
-        register(parser, root_instance_args)
+        if _wants_logger_arg(module_register):
+            logger = getattr(root_instance_args, "_logger_", None)
+            if not isinstance(logger, _logging.Logger):
+                logger = _LOGGER
+            register(parser, root_instance_args, logger)
+        else:
+            register(parser, root_instance_args)
 
 
 def _build_parser(
@@ -304,8 +350,8 @@ def app(
       ``parents=``;
     * a **module command** as a subparser (help/description from the module
       docstring), inheriting global options via ``parents=``; if the module
-      defines ``register(parser, args)`` it is called so the module adds its own
-      arguments directly.
+      defines ``register(parser, args)`` (or ``register(parser, args, logger)``)
+      it is called so the module adds its own arguments directly.
 
     Parsing goes through the root parser's patched ``parse_known_args`` (from
     ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and

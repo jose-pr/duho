@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Module `register` hook now accepts a 3-arg `(parser, args, logger)` form** in
+  addition to the existing 2-arg `(parser, args)`. `duho.app` inspects the hook's
+  signature and, for a 3-arg (or `*args`) hook, passes
+  `logger = getattr(args, "_logger_", logging.getLogger("duho"))`; a 2-arg or
+  non-introspectable hook is called unchanged. Fully backward-compatible — existing
+  2-arg hooks are unaffected.
 - **`duho.parse_globals(cls, argv=None, **parser_kwargs)`**: parse only a root
   command's global args, ignoring/relaxing the subcommand tree, so a consumer can
   resolve config-file-driven command search paths (or any other global) *before*

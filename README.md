@@ -931,6 +931,14 @@ Every subcommand parser is built with **parent-arg inheritance** — the root
 command's global options (verbosity, etc.) appear on each subcommand automatically
 via argparse `parents=`, so `myapp -v deploy` and `myapp deploy -v` both work.
 
+> **Avoid the root's reserved flags in `register`.** Because the subparser already
+> carries every root/global option, a `register` hook that adds one of them
+> collides. Steer clear of the globals the root contributes — `-h`/`--help`,
+> `--version` (if `_version_` is set), and, with a `LoggingArgs` root, `-v`
+> (verbose), `-q` (quiet), and `--loglevel`. If you do collide, `duho.app` raises a
+> clear error naming your command and the offending flag (rather than argparse's
+> bare "conflicting option string"), so pick a different flag.
+
 ## Passthrough args
 
 Argv after the first literal `--` separator is captured at parse time and exposed

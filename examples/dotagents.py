@@ -32,7 +32,7 @@ class Install(LoggingArgs, Cmd):
     "Additionally copy the opt-in examples/ payload (never overwrites)."
     ("--with-examples",)
 
-    def main(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info("would install payload into %s", self.dest)
         if self.dry_run:
             self._logger_.info("dry-run: no files will be written")
@@ -52,7 +52,7 @@ class Dotagents(LoggingArgs, Cmd):
     _version_ = duho.__version__
     _subcommands_ = [Install]
 
-    def main(self) -> int:
+    def __call__(self) -> int:
         self._logger_.info("pick a subcommand, e.g. `install`")
         return 0
 

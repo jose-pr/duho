@@ -46,7 +46,7 @@ class Deploy(Cmd):
     "Target environment"
     ("--env",)
 
-    def main(self):
+    def __call__(self):
         return "deployed " + self.env
 '''
 
@@ -59,7 +59,7 @@ from duho import Cmd
 class Status(Cmd):
     """Show status."""
 
-    def main(self):
+    def __call__(self):
         return "status ok"
 '''
 
@@ -110,14 +110,14 @@ from duho import Cmd
 class Alpha(Cmd):
     """Alpha command."""
 
-    def main(self):
+    def __call__(self):
         return "a"
 
 
 class Beta(Cmd):
     """Beta command."""
 
-    def main(self):
+    def __call__(self):
         return "b"
 '''
 
@@ -129,7 +129,7 @@ from duho import Cmd
 
 
 class Needy(Cmd):
-    def main(self):
+    def __call__(self):
         return "needy"
 '''
 
@@ -140,7 +140,7 @@ from duho import Cmd
 
 
 class Broken(Cmd)      # <- missing colon: SyntaxError
-    def main(self):
+    def __call__(self):
         return "broken"
 '''
 
@@ -205,7 +205,7 @@ def _names(commands):
 
 def test_is_class_command_predicate():
     class MyCmd(Cmd):
-        def main(self):
+        def __call__(self):
             return 0
 
     assert is_class_command(MyCmd)
@@ -217,12 +217,12 @@ def test_is_class_command_predicate():
 
 def test_class_command_satisfies_protocol():
     class MyCmd(Cmd):
-        def main(self):
+        def __call__(self):
             return 0
 
     # runtime_checkable Protocol: a Cmd subclass has _parsername_ (once parsed
-    # or via the class rule) and main.
-    assert hasattr(MyCmd, "main")
+    # or via the class rule) and __call__.
+    assert hasattr(MyCmd, "__call__")
 
 
 # --------------------------------------------------------------------------
@@ -555,7 +555,7 @@ def test_discovered_commands_usable_as_subcommands(flat_cmds):
 
         _subcommands_ = class_cmds
 
-        def main(self):
+        def __call__(self):
             return None
 
     # The discovered class commands register as real subcommands and dispatch.

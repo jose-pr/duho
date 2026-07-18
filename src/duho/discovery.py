@@ -56,7 +56,7 @@ __all__ = [
 _LOGGER = _logging.getLogger("duho")
 
 #: Names, in priority order, looked up on a module to find its entrypoint.
-#: ``main`` is primary (aligns with ``__main__``/``Cmd.main``); ``run``/``call``
+#: ``main`` is primary (aligns with the ``__main__`` convention); ``run``/``call``
 #: are accepted fallbacks for modules written against an older calling shape.
 _ENTRYPOINT_NAMES = ("main", "run", "call")
 
@@ -80,7 +80,7 @@ class Command(_ty.Protocol):
 
     * a :class:`~duho.Cmd` **subclass** -- a *class command*; its
       ``_parsername_``/class name names the subcommand, ``_parser_`` builds its
-      parser, and an instance is run via ``main``/``__call__``;
+      parser, and an instance is run via ``__call__``;
     * a :class:`ModuleCommand` -- a *module command* wrapping a ``.py`` module,
       exposing the same surface.
 
@@ -93,7 +93,7 @@ class Command(_ty.Protocol):
     #: name for modules).
     _parsername_: str
 
-    def main(self) -> object:  # pragma: no cover - protocol stub
+    def __call__(self) -> object:  # pragma: no cover - protocol stub
         ...
 
 

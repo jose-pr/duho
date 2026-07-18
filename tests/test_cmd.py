@@ -1,6 +1,6 @@
 """Tests for the Plan-13 Args/Cmd split.
 
-Covers: Cmd.main dispatch, __call__ -> main delegation, bare data Args is
+Covers: Cmd.__call__ dispatch, direct callability, bare data Args is
 not runnable (clear error), the command() builder, _passthrough_ capture
 (with/without `--`, only the first `--` splits), and the LoggingArgs+Cmd
 MRO / recommended base order.
@@ -20,7 +20,7 @@ import duho
 from duho import Args, Cmd, LoggingArgs, command
 
 
-# --- Cmd.main dispatch + __call__ delegation -------------------------------
+# --- Cmd.__call__ dispatch + direct callability ----------------------------
 
 
 class Greeter(Cmd):
@@ -30,28 +30,27 @@ class Greeter(Cmd):
     "Who to greet"
     ("--name",)
 
-    def main(self):
+    def __call__(self):
         return f"hello {self.name}"
 
 
 def test_cmd_main_runs_via_duho_main():
-    """duho.main builds+parses a Cmd and dispatches its main()."""
+    """duho.main builds+parses a Cmd and dispatches its __call__()."""
     assert duho.main(Greeter, ["--name", "duho"], setup_logging=False) == "hello duho"
 
 
-def test_cmd_call_delegates_to_main():
-    """A Cmd instance is directly callable; __call__ delegates to main()."""
+def test_cmd_call_runs_the_command():
+    """A Cmd instance is directly callable; __call__ runs the command."""
     inst = duho.parse(Greeter, ["--name", "x"])
     assert isinstance(inst, Cmd)
     assert inst() == "hello x"
-    assert inst.main() == "hello x"
 
 
 def test_cmd_none_return_maps_to_zero():
-    """A main() returning None maps to exit code 0 through duho.main."""
+    """A __call__() returning None maps to exit code 0 through duho.main."""
 
     class NoneCmd(Cmd):
-        def main(self):
+        def __call__(self):
             return None
 
     assert duho.main(NoneCmd, [], setup_logging=False) == 0
@@ -84,11 +83,11 @@ def test_bare_args_still_parses_as_data():
     assert not callable(getattr(inst, "__call__", None)) or not isinstance(inst, Cmd)
 
 
-# --- Cmd subclass that implements neither main nor __call__ -----------------
+# --- Cmd subclass that implements no __call__ -------------------------------
 
 
 class ForgotMain(Cmd):
-    """A Cmd that forgot to implement main()."""
+    """A Cmd that forgot to implement __call__()."""
 
     x: int = 1
     "A value"
@@ -96,7 +95,7 @@ class ForgotMain(Cmd):
 
 
 def test_cmd_without_main_raises_naming_class():
-    """Cmd.main's base stub raises NotImplementedError naming the class."""
+    """Cmd.__call__'s base stub raises NotImplementedError naming the class."""
     with pytest.raises(NotImplementedError, match="ForgotMain"):
         duho.main(ForgotMain, [], setup_logging=False)
 
@@ -113,7 +112,7 @@ class BuildMe(Args):
 
 
 def test_command_builder_dispatches_and_returns():
-    """command(Args, func) builds a Cmd whose main calls func(self)."""
+    """command(Args, func) builds a Cmd whose __call__ calls func(self)."""
     Built = command(BuildMe, lambda self: 0)
     assert issubclass(Built, Cmd)
     assert duho.main(Built, [], setup_logging=False) == 0
@@ -139,11 +138,11 @@ def test_command_builder_on_a_cmd_subclass_does_not_double_base():
         "v"
         ("--v",)
 
-        def main(self):
+        def __call__(self):
             return -1
 
     Built = command(AlreadyCmd, lambda self: 42)
-    # func wins over the inherited main (Built.main is the wrapper).
+    # func wins over the inherited __call__ (Built.__call__ is the wrapper).
     assert duho.main(Built, [], setup_logging=False) == 42
     assert Built.__mro__.count(Cmd) == 1
 
@@ -158,7 +157,7 @@ class PassCmd(Cmd):
     "A flag"
     ("--flag",)
 
-    def main(self):
+    def __call__(self):
         return list(self._passthrough_)
 
 
@@ -182,7 +181,7 @@ def test_passthrough_only_first_double_dash_splits():
 
 
 def test_passthrough_available_through_duho_main():
-    """A Cmd's main() can read _passthrough_ during dispatch."""
+    """A Cmd's __call__() can read _passthrough_ during dispatch."""
     rc = duho.main(PassCmd, ["--", "p", "q"], setup_logging=False)
     assert rc == ["p", "q"]
 
@@ -193,17 +192,17 @@ def test_passthrough_available_through_duho_main():
 class LoggedCmd(LoggingArgs, Cmd):
     """Recommended base order: data mixin first, executable base last."""
 
-    def main(self):
+    def __call__(self):
         # both logging (_logger_) and the run contract must resolve
         return self._logger_.name
 
 
 def test_loggingargs_cmd_mro_resolves_logger_and_main():
-    """(LoggingArgs, Cmd) parses verbosity AND runs main()."""
+    """(LoggingArgs, Cmd) parses verbosity AND runs __call__()."""
     inst = duho.parse(LoggedCmd, ["-v"])
     assert inst.verbose == 1
     assert isinstance(inst, Cmd)
-    # main() reachable and returns the scoped logger name
+    # __call__() reachable and returns the scoped logger name
     assert duho.main(LoggedCmd, [], setup_logging=False) == inst._logger_.name
 
 
@@ -211,7 +210,7 @@ def test_loggingargs_cmd_reverse_order_also_resolves():
     """(Cmd, LoggingArgs) also resolves both contracts (order-independent)."""
 
     class OtherOrder(Cmd, LoggingArgs):
-        def main(self):
+        def __call__(self):
             return self.verbose
 
     inst = duho.parse(OtherOrder, ["-vv"])
@@ -252,7 +251,7 @@ def test_cmd_from_real_fixture_file_dispatches(tmp_path):
             "How many"
             ("--count",)
 
-            def main(self):
+            def __call__(self):
                 return self.count + 100
         ''',
     )

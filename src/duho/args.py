@@ -759,23 +759,28 @@ class Cmd(Args):
     """An executable command: a data ``Args`` plus the command contract.
 
     ``Args`` (Plan 13) is pure data -- a Namespace of parsed values, not
-    required to run. ``Cmd`` adds the *executable* contract on top: a
-    ``main(self)`` entrypoint (named to align with ``__main__``), with
-    ``__call__`` delegating to it so a ``Cmd`` instance stays directly
-    callable (``instance()`` runs the command via ``main``).
+    required to run. ``Cmd`` adds the *executable* contract on top:
+    ``__call__(self)`` is the command entrypoint (``instance()`` runs the
+    command).
 
-    A ``Cmd`` subclass that defines neither ``main`` nor its own
-    ``__call__`` raises ``NotImplementedError`` naming the class when
-    dispatched -- the same loud-failure spirit as Plan 04's earlier
-    "missing ``__call__``", just relocated onto ``Cmd``. Data-only ``Args``
-    subclasses stay non-runnable by design: ``duho.main`` rejects them with
-    a clear error rather than silently no-op'ing (the whole point of the
+    The entrypoint is ``__call__`` -- a dunder -- deliberately. A ``Cmd``
+    subclass's namespace is user-owned: annotated non-underscore attributes
+    become CLI fields, so a plain method name like ``main`` would collide
+    with a user field ``main: str`` (``--main``). ``__call__`` lives in the
+    dunder namespace duho's field introspection already skips, so it can
+    never clash with a declared flag.
+
+    A ``Cmd`` subclass that does not override ``__call__`` raises
+    ``NotImplementedError`` naming the class when dispatched -- the same
+    loud-failure spirit as Plan 04's earlier "missing ``__call__``". Data-only
+    ``Args`` subclasses stay non-runnable by design: ``duho.main`` rejects them
+    with a clear error rather than silently no-op'ing (the whole point of the
     split is that "runnable" is explicit).
 
     Base-order for the ``LoggingArgs`` mixin: ``class App(LoggingArgs, Cmd)``
     (data mixin first, executable base last). Both orders resolve the MRO
-    correctly since ``LoggingArgs`` defines no ``main``/``__call__``; the
-    recommended order reads "add logging to a command".
+    correctly since ``LoggingArgs`` defines no ``__call__``; the recommended
+    order reads "add logging to a command".
     """
 
     #: argv captured after the first literal ``--`` separator (parse-time);
@@ -783,22 +788,16 @@ class Cmd(Args):
     #: instance by ``_initparser_``'s patched ``parse_known_args``.
     _passthrough_: "list[str]"
 
-    def main(self):  # noqa: D401 - contract stub, overridden by subclasses
-        """Primary command entrypoint. Override in a ``Cmd`` subclass.
+    def __call__(self):  # noqa: D401 - contract stub, overridden by subclasses
+        """Run the command. Override ``__call__`` in a ``Cmd`` subclass.
 
         The base raises ``NotImplementedError`` naming the concrete class,
-        so a ``Cmd`` that forgets to implement ``main`` (and does not
-        override ``__call__``) fails loud when dispatched rather than
-        silently doing nothing.
+        so a ``Cmd`` that forgets to implement ``__call__`` fails loud when
+        dispatched rather than silently doing nothing.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} is a Cmd but implements neither "
-            f"'main' nor '__call__'"
+            f"{type(self).__name__} is a Cmd but does not implement '__call__'"
         )
-
-    def __call__(self):
-        """Run the command by delegating to ``main`` (keeps ``Cmd`` callable)."""
-        return self.main()
 
 
 def command(
@@ -813,10 +812,10 @@ def command(
     rewriting it as a ``Cmd`` subclass ("build one from Args and a
     method"). The returned class subclasses BOTH ``args_cls`` (to inherit
     its declared fields / parsing machinery) and ``Cmd`` (for the
-    executable contract). Its ``main`` calls ``func(self)`` -- the parsed
-    instance IS the parsed args, matching ``Cmd.main(self)`` -- so
-    ``command(MyArgs, f)`` makes ``f`` receive the parsed ``MyArgs``-shaped
-    instance and its return value becomes the command's result.
+    executable contract). Its ``__call__`` calls ``func(self)`` -- the parsed
+    instance IS the parsed args -- so ``command(MyArgs, f)`` makes ``f``
+    receive the parsed ``MyArgs``-shaped instance and its return value becomes
+    the command's result.
 
     ``name`` (optional) sets the built class's ``_parsername_`` (the
     subcommand name). When omitted, the usual
@@ -827,10 +826,10 @@ def command(
     else:
         bases = (args_cls, Cmd)
 
-    def main(self, _func=func):
+    def __call__(self, _func=func):
         return _func(self)
 
-    namespace: "dict[str, object]" = {"main": main}
+    namespace: "dict[str, object]" = {"__call__": __call__}
     if name is not None:
         namespace["_parsername_"] = name
 
@@ -924,8 +923,8 @@ def main(
     and map a None return to 0.
 
     Since Plan 13's Args/Cmd split, dispatch expects the selected class to be
-    a ``Cmd`` (executable). A bare data ``Args`` -- with no ``main`` and no
-    ``__call__`` -- raises a clear ``NotImplementedError`` ("Args holds data;
+    a ``Cmd`` (executable, defines ``__call__``). A bare data ``Args`` -- with
+    no ``__call__`` -- raises a clear ``NotImplementedError`` ("Args holds data;
     make it a Cmd to run it") rather than silently doing nothing.
     """
     parser = cls._parser_()
@@ -942,7 +941,7 @@ def main(
     if run is None:
         raise NotImplementedError(
             f"{type(instance).__name__} holds data but is not runnable "
-            f"(no '__call__'/'main'); make it a Cmd (subclass duho.Cmd or "
+            f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
             f"build one with duho.command(...)) to run it"
         )
 

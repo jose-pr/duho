@@ -46,7 +46,7 @@ class Deploy(Cmd):
     "Deploy target name"
     ("--name",)
 
-    def main(self):
+    def __call__(self):
         return "deployed " + self.name
 '''
 
@@ -133,7 +133,7 @@ from duho import Cmd
 class Echo(Cmd):
     """Echo passthrough."""
 
-    def main(self):
+    def __call__(self):
         return list(self._passthrough_)
 '''
 
@@ -180,7 +180,7 @@ def _write(dir_path, name, source):
 class Root(duho.LoggingArgs, duho.Cmd):
     """A root command supplying global options (verbosity)."""
 
-    def main(self):  # pragma: no cover - root is not dispatched in these tests
+    def __call__(self):  # pragma: no cover - root is not dispatched in these tests
         return 0
 
 
@@ -200,10 +200,10 @@ def _clean_discovered_modules():
 
 
 def test_class_command_dispatches(tmp_path):
-    """app(root, source=dir, argv=[name, ...]) runs the Cmd's main()."""
+    """app(root, source=dir, argv=[name, ...]) runs the Cmd's __call__()."""
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
     rc = app(Root, source=tmp_path, argv=["Deploy", "--name", "x"], setup_logging=False)
-    # Deploy.main returns a string; run_command propagates a non-None return.
+    # Deploy.__call__ returns a string; run_command propagates a non-None return.
     assert rc == "deployed x"
 
 
@@ -422,10 +422,10 @@ def test_run_command_module_lifecycle_direct(tmp_path):
 
 
 def test_run_command_class_command_direct():
-    """run_command on a class command calls the instance's main()."""
+    """run_command on a class command calls the instance via __call__()."""
 
     class Inline(duho.Cmd):
-        def main(self):
+        def __call__(self):
             return 7
 
     inst = Inline()

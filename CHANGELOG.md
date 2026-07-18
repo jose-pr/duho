@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.runpath` opt-in RunPath step-runner**: an opt-in module (not on the core
+  `duho.*` surface) that turns a directory of numbered `NN-name.py` files into one
+  command running them in order. `import duho.runpath` registers a command provider
+  on the Plan-13 `register_command_provider` hook (its first consumer) — core `duho`
+  never imports it. Steps declare ordering via the `NN` prefix or a module-level
+  `PRIORITY`, and dependencies via `REQUIRED`; a `--rcopts`/`-O` flag selects steps
+  with comma-separated fnmatch patterns (`!` disables, `!*,x` = "only x") and a
+  `strict` marker that turns unmatched-pattern / failed-step warnings into errors
+  (resilient by default, matching discovery). Public API: `RunPathCmd`, `register`,
+  `unregister`. Additive; nothing on the existing surface changes.
 - **`duho.Cli` application root**: an opt-in mixin over `Cmd` for the *root* of a
   multi-command app. It types and documents the app-wide, sandwich-named config
   attributes a leaf `Cmd` doesn't declare — `_version_`, `_distribution_`,

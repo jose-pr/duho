@@ -800,6 +800,118 @@ class Cmd(Args):
         )
 
 
+class Cli(Cmd):
+    """Application-root layer: an opt-in mixin over ``Cmd``.
+
+    A leaf ``Cmd`` is lean -- it declares its own CLI fields and a
+    ``__call__``. A ``Cli`` root is the *top* of an app and additionally
+    exposes the app-wide, sandwich-named configuration attributes a plain
+    ``Cmd`` does not declare (``--version``, shell completion, a config
+    file, a subcommand tree). Opt in by subclassing ``Cli``::
+
+        class MyApp(LoggingArgs, Cli):
+            _version_ = "1.2.3"
+            _completion_ = True
+
+    ``Cli`` adds **no new runtime behavior for *running*** -- it inherits
+    ``Cmd.__call__`` unchanged (a data-only ``Cli`` that never overrides
+    ``__call__`` still fails loud when dispatched, exactly like a ``Cmd``).
+    What it adds is two things:
+
+    1. **Typed, documented app-root class attrs.** Every one of these is
+       already read elsewhere via ``getattr(cls, "_x_", default)``
+       (``args.py``/``runtime.py``), so declaring them here changes no
+       reader -- it only gives them a typed home and a class-level default
+       where one exists. A plain ``Cmd`` leaves them undeclared; a ``Cli``
+       root is where they belong.
+    2. **Self-registration** (``_register_subcmd_`` / ``@subcommand``): a
+       leaf command file can attach itself to the root's subcommand tree
+       instead of the root listing every child centrally in
+       ``_subcommands_``. The two mechanisms compose (union + dedup).
+
+    ``LoggingArgs`` stays orthogonal (a separate data mixin) -- the
+    batteries-included recipe is ``class MyApp(LoggingArgs, Cli)`` (data
+    mixin first, executable/root base last), NOT a forced bundle. Every
+    member ``Cli`` adds is sandwich-named or dunder, so a ``Cli`` subclass's
+    field namespace stays 100% user-owned (annotated non-underscore attrs
+    still become CLI fields).
+    """
+
+    #: ``--version`` string, the ``AUTO`` sentinel (resolve via
+    #: ``importlib.metadata``), or ``None`` for no ``--version`` flag. Read by
+    #: ``_resolve_version`` (``args.py``).
+    #:
+    #: NOTE: every annotation on this class is written with ``typing.Union`` /
+    #: ``typing.Optional`` and quoted, NEVER PEP-604 ``X | Y`` -- even sandwich-
+    #: named fields are evaluated by ``typing.get_type_hints`` in
+    #: ``_introspect.get_clsargs`` (before the ``_``-prefix filter drops them),
+    #: so a ``|`` union would raise ``TypeError`` at parser-build time on 3.9.
+    _version_: "_ty.Optional[_ty.Union[str, _AutoVersion]]" = None
+
+    #: Distribution name override for ``_version_ = duho.AUTO`` when the import
+    #: package differs from the PyPI distribution name. Read by
+    #: ``_resolve_version``.
+    _distribution_: "_ty.Optional[str]" = None
+
+    #: When ``True``, inject ``--print-completion {bash,zsh,fish}`` on the
+    #: top-level parser. Read by ``_initparser_`` (``args.py``); defaults off.
+    _completion_: bool = False
+
+    #: Path to a TOML config file whose values become layered defaults
+    #: (precedence CLI > env > config > class default). ``None`` disables it.
+    #: Read by ``_apply_default_layers`` (``args.py``) and ``duho.main``.
+    _config_: "_ty.Optional[_ty.Union[str, _pathlib.Path]]" = None
+
+    #: The static subcommand tree. ``None`` (the default) means "no declared
+    #: subcommands"; self-registration lazily materializes a per-class list.
+    #: Read via ``getattr(cls, "_subcommands_", None)`` (``args.py`` +
+    #: ``runtime.py``) -- declaring it here does NOT change that contract.
+    _subcommands_: "_ty.Optional[_ty.Sequence[_ty.Type[Cmd]]]" = None
+
+    @classmethod
+    def _register_subcmd_(cls, child: "type[Cmd]") -> "type[Cmd]":
+        """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
+
+        Appends ``child`` to a per-class list, materialized copy-on-write on
+        first use: if ``_subcommands_`` is not set directly in ``vars(cls)``
+        (i.e. it is unset or inherited from a parent ``Cli``), a fresh list
+        is created -- never mutating a parent class's inherited list, so two
+        ``Cli`` subclasses never cross-contaminate. An inherited
+        ``_subcommands_`` seeds the fresh list (its children are kept, then
+        ``child`` is added). Idempotent: if ``child`` is already present it
+        is a no-op, so a child registered both statically (in a declared
+        ``_subcommands_``) and via this API appears exactly once. Returns
+        ``child`` so it can be used as a decorator.
+        """
+        if "_subcommands_" in vars(cls):
+            current = cls._subcommands_
+            existing = list(current) if current else []
+        else:
+            # Copy-on-write: seed from an inherited/unset value WITHOUT
+            # mutating the parent's list.
+            inherited = getattr(cls, "_subcommands_", None)
+            existing = list(inherited) if inherited else []
+        if child not in existing:
+            existing.append(child)
+        cls._subcommands_ = existing
+        return child
+
+    @classmethod
+    def subcommand(cls, child: "type[Cmd]") -> "type[Cmd]":
+        """Decorator form of :meth:`_register_subcmd_`.
+
+        Lets a command file self-attach to the root::
+
+            @MyApp.subcommand
+            class Deploy(Cmd):
+                ...
+
+        Returns ``child`` unchanged, so the decorated class keeps its
+        identity. Equivalent to calling ``MyApp._register_subcmd_(Deploy)``.
+        """
+        return cls._register_subcmd_(child)
+
+
 def command(
     args_cls: "type[Args]",
     func: "_ty.Callable[[_ty.Any], object]",
@@ -1046,6 +1158,7 @@ __all__ = [
     "Args",
     "Arg",
     "Choice",
+    "Cli",
     "Cmd",
     "command",
     "Const",

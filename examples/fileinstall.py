@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """An ``install(1)``-like file installer.
 
-Duho port of buildutils' ``scripts/install``: copies (or decompresses,
-symlinks, ...) a single source path to a destination, optionally setting
-mode/owner/group and recording the install in a file database. This example
-is a stub -- it logs the resolved install plan instead of touching the
-filesystem, since the point here is exercising duho's heavier argparse
-surface (positionals, Union types, mutually-exclusive groups via
-``NS(conflicts=...)``, ``NS(nargs="?")``, a custom ``action=``, and
-``enum.Enum`` choices), not re-implementing the real install logic.
+Copies (or decompresses, symlinks, ...) a single source path to a destination,
+optionally setting mode/owner/group. This example is a stub -- it logs the
+resolved install plan instead of touching the filesystem, since the point here
+is exercising duho's heavier argparse surface (positionals, Union types,
+mutually-exclusive groups via ``NS(conflicts=...)``, ``NS(nargs="?")``, a custom
+``action=``, and ``enum.Enum`` choices), not re-implementing real install logic.
 
 Note: duho resolves `enum.Enum` CLI values by member *name* (not `.value`),
 so `FileType` members are named lowercase (`dir`/`file`/`link`) to match the
-`--type dir` CLI spelling directly, rather than the upstream script's
-`DIRECTORY`/`REGULAR`/`SOFTLINK` names with lowercase string values.
+`--type dir` CLI spelling directly.
 """
 import enum
 import sys
@@ -55,9 +52,9 @@ class Install(LoggingArgs, Cmd):
     "Treat DESTINATION as a normal file, not a directory to install into."
     ("--no-target-directory", "-T")
 
-    buildroot: Optional[Path] = None
-    "Optional root to prefix the (absolute) destination with."
-    ("--buildroot", "-r")
+    root: Optional[Path] = None
+    "Optional staging root to prefix the (absolute) destination with."
+    ("--root", "-r")
 
     type: Arg[Union[FileType, str], NS(conflicts="type")] = "-"
     "Install type ('dir'/'file'/'link'); '-' autodetects from the source."
@@ -92,8 +89,8 @@ class Install(LoggingArgs, Cmd):
             self.owner,
             self.group,
         )
-        if self.buildroot:
-            self._logger_.info("under buildroot %s", self.buildroot)
+        if self.root:
+            self._logger_.info("under staging root %s", self.root)
         if self.decompress:
             self._logger_.info("would decompress using %s", self.decompress)
         if self.options:
@@ -101,8 +98,8 @@ class Install(LoggingArgs, Cmd):
         return 0
 
 
-class Buildutils(LoggingArgs, Cmd):
-    """Umbrella CLI for the buildutils file installer."""
+class FileInstall(LoggingArgs, Cmd):
+    """Umbrella CLI for the file installer."""
 
     _version_ = duho.__version__
     _subcommands_ = [Install]
@@ -113,4 +110,4 @@ class Buildutils(LoggingArgs, Cmd):
 
 
 if __name__ == "__main__":
-    sys.exit(duho.main(Buildutils))
+    sys.exit(duho.main(FileInstall))

@@ -1002,6 +1002,46 @@ The callable receives the resolved command and the parsed instance and returns a
 `app()` behaves exactly as before, calling `duho.run_command` — existing callers are
 unaffected.
 
+## Generating launchers (`duho.scaffold`, opt-in)
+
+An app laid out as `bin/` + a `lib/` (or `src/`) package can be run straight from a
+checkout — no install — with a tiny launcher that puts the package on `PYTHONPATH`
+and runs `python -m <app>`. `duho.scaffold` generates that launcher for you, as a
+cross-platform pair. It's an **opt-in** dev tool: core `duho` never imports it, and it
+is deliberately **not** on the top-level `duho.*` surface — you `import duho.scaffold`
+or run `python -m duho.scaffold`.
+
+```console
+$ python -m duho.scaffold myapp --root . --libdir lib
+bin/myapp
+bin/myapp.cmd
+```
+
+This writes a matched pair into `<root>/bin/`:
+
+- `bin/myapp` — a POSIX `sh` launcher that resolves its own directory, derives the app
+  root (the parent of `bin/`), prepends `<root>/<libdir>` to `PYTHONPATH`, and execs
+  `python -m myapp "$@"`;
+- `bin/myapp.cmd` — the Windows cousin doing the same via `%~dp0` and `%PYTHON%`.
+
+Both launchers are dependency-free and honor a **`PYTHON` environment override** so you
+can pin the interpreter (e.g. `PYTHON=python3.11 bin/myapp`). The generator writes
+**plain files — never symlinks** (symlinks need privilege on Windows and add failure
+modes), and sets the POSIX launcher's executable bit best-effort. An existing launcher
+is **not** overwritten unless you pass `--force` (`overwrite=True`), so a customized
+launcher is never silently clobbered.
+
+The same thing from Python:
+
+```python
+from duho.scaffold import generate_launchers
+
+paths = generate_launchers("myapp", ".", libdir="src")   # -> [Path("bin/myapp"), Path("bin/myapp.cmd")]
+```
+
+The CLI dogfoods duho itself — `duho.scaffold.ScaffoldCmd` is an ordinary `duho.Cli`
+command.
+
 ## Examples
 
 Two self-contained example CLIs under [`examples/`](examples/) each build a small

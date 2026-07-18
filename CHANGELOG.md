@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.scaffold` opt-in launcher generator**: an opt-in, stdlib-only module (not on
+  the core `duho.*` surface — core never imports it) that generates a cross-platform
+  launcher pair so an app laid out as `bin/` + a `lib/`/`src/` package can run from a
+  checkout without an install. `generate_launchers(app, root, *, libdir="lib",
+  python=None, overwrite=False)` writes `bin/<app>` (POSIX `sh`) + `bin/<app>.cmd`
+  (Windows), each of which prepends `<root>/<libdir>` to `PYTHONPATH` and runs
+  `python -m <app>`, honoring a `PYTHON` environment override. The generator writes
+  plain files (never symlinks), sets the POSIX launcher executable best-effort, and
+  refuses to overwrite an existing launcher unless `overwrite=True`. A thin CLI
+  (`python -m duho.scaffold <app> [--root DIR] [--libdir lib] [--python PY] [--force]`)
+  dogfoods duho — it is itself a `duho.Cli` command.
 - **`set`/`set[T]` and `tuple[T, ...]`/`tuple` collection fields**: annotate a field
   with `set`, `set[T]`, bare `tuple`, or a variadic homogeneous `tuple[T, ...]` and it
   parses like a `list` field — both `--x a --x b` (repeated) and `--x a b`

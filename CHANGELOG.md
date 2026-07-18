@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Clearer error when a module `register` hook collides with a global flag.** Because
+  every subcommand parser inherits the root's global options (parent-arg inheritance),
+  a `register(parser, args)` hook that adds an inherited flag (e.g. `-q` from a
+  `LoggingArgs` root) previously crashed with argparse's bare `conflicting option
+  string: -q`. `duho.app` now catches that and re-raises naming the command and pointing
+  at the global-flag cause. The README also documents the root's reserved flags to avoid
+  in `register`.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

@@ -237,13 +237,30 @@ def _register_module_command(
     # defines none; only call a real module-provided hook.
     module_register = getattr(module, "register", None)
     if callable(module_register):
-        if _wants_logger_arg(module_register):
-            logger = getattr(root_instance_args, "_logger_", None)
-            if not isinstance(logger, _logging.Logger):
-                logger = _LOGGER
-            register(parser, root_instance_args, logger)
-        else:
-            register(parser, root_instance_args)
+        try:
+            if _wants_logger_arg(module_register):
+                logger = getattr(root_instance_args, "_logger_", None)
+                if not isinstance(logger, _logging.Logger):
+                    logger = _LOGGER
+                register(parser, root_instance_args, logger)
+            else:
+                register(parser, root_instance_args)
+        except _argparse.ArgumentError as exc:
+            # The subparser inherits every root/global option (parent-arg
+            # inheritance via ``parents=[base_parser]``), so a ``register`` hook
+            # that adds a flag already owned by the root (e.g. ``-q`` from
+            # ``LoggingArgs``, or ``-h``/``-v``/``--version``) collides. argparse's
+            # own message doesn't say it clashed with a *global*, and the crash
+            # only appears once a command is moved onto ``app``'s inheritance --
+            # re-raise naming the command and the cause.
+            raise _argparse.ArgumentError(
+                None,
+                f"command {command._parsername_!r}: its register() hook added an "
+                f"option that collides with a global flag inherited from the app "
+                f"root ({exc}). Every subcommand parser inherits the root's global "
+                f"options (e.g. -h, -v, -q, --version); pick a different flag in "
+                f"register().",
+            ) from exc
 
 
 def _build_parser(

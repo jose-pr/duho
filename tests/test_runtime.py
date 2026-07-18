@@ -123,6 +123,21 @@ def main(args):
     return None
 '''
 
+# A module command whose register hook adds a flag (-q) already owned by the
+# root's LoggingArgs. Under app's parent-arg inheritance the subparser already
+# carries -q, so this collides -- app must re-raise a clear, command-named error.
+_MODULE_CMD_REGISTER_COLLIDES = '''\
+"""A module command whose register reuses a global short flag."""
+
+
+def register(parser, args):
+    parser.add_argument("-q", "--query", help="the query")
+
+
+def main(args):
+    return None
+'''
+
 # A module command whose register hook takes the 3-arg (parser, args, logger)
 # shape: it records that it got a real logger and still adds a --flag argument.
 _MODULE_CMD_REGISTER_3ARG = '''\
@@ -335,6 +350,26 @@ def test_register_hook_flag_shows_in_subcommand_help(tmp_path, capsys):
         app(Root, source=tmp_path, argv=["reg", "--help"], setup_logging=False)
     out = capsys.readouterr().out
     assert "--flag" in out
+
+
+def test_register_hook_global_flag_collision_error_names_command(tmp_path):
+    """A register() reusing a global flag raises a clear, command-named error.
+
+    Because every subcommand parser inherits the root's globals (parent-arg
+    inheritance), a hook that adds an inherited flag (-q here, owned by
+    LoggingArgs) collides. app must re-raise argparse's ArgumentError with a
+    message naming the command and pointing at the global-flag cause, instead of
+    argparse's bare "conflicting option string".
+    """
+    import argparse
+
+    _write(tmp_path, "query.py", _MODULE_CMD_REGISTER_COLLIDES)
+    with pytest.raises(argparse.ArgumentError) as excinfo:
+        app(Root, source=tmp_path, argv=["query", "--help"], setup_logging=False)
+    msg = str(excinfo.value)
+    assert "query" in msg  # names the command
+    assert "global" in msg  # explains the cause
+    assert "-q" in msg  # preserves argparse's original detail
 
 
 def test_register_hook_3arg_gets_logger_and_adds_flag(tmp_path):

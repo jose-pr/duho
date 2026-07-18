@@ -193,6 +193,14 @@ verbosity (for classes mixing in `LoggingArgs`), and runs the command. The class
 must be a `duho.Cmd` (see [Commands: Args vs Cmd](#commands-args-vs-cmd) below) —
 `main` dispatches the parsed instance via `__call__`:
 
+> **`main` vs `app` — which entry point?** Use **`duho.main(cls)`** for a command
+> (or a tree declared statically with `_subcommands_`) — it's the simple, direct
+> runner. Reach for **`duho.app(root, ...)`** when you need what `main` doesn't do:
+> **discovering** commands from a package/directory (`source=`), threading app-wide
+> **config/env** down to subcommands, or **overriding dispatch** (`dispatch=`, e.g. to
+> fan a command out over targets). `app` is the multi-command driver; `main` is the
+> one-shot runner. Both dispatch a `Cmd` root via `__call__`.
+
 ```python
 from duho import Cmd, main
 
@@ -650,8 +658,8 @@ Each `@MyApp.subcommand` appends the class to `MyApp`'s **own** subcommand list
 parent's list is never mutated by a subclass). It composes with a
 statically-declared `_subcommands_` (union + dedup — a child listed both ways
 appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form. Once the
-command files are imported, `duho.main(MyApp)` (or `duho.app(MyApp)`) sees the full
-tree.
+command files are imported, `duho.main(MyApp)` sees the full tree (use `duho.app` if
+you also want discovery/config/env — see [main vs app](#run-your-app)).
 
 ### App-wide config & env with `duho.app`
 

@@ -119,6 +119,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the args instance's `_logger_`; no separate `logger` argument). `None` maps to exit
   code `0`; a returned int is propagated.
 
+### Fixed
+
+- **`duho.camelcase` crashed on a trailing, doubled, or leading separator**
+  (`camelcase("global_")` raised `IndexError`). Empty segments from the split are now
+  skipped. This surfaced constantly in code generation, where `pysafe` turns a Python
+  keyword (e.g. a namespace named `global`) into `global_` and camelcasing that name
+  hit the trailing underscore.
+
 ### Changed
 
 - **BREAKING**: `Args` is now pure **data** and no longer runnable on its own —

@@ -1,4 +1,4 @@
-"""Tests for Literal/Enum choices, list[T] fields, --version, and main()/Cmd dispatch."""
+"""Tests for Literal/Enum choices, list[T] fields, --version, and Cmd dispatch."""
 
 import enum
 import logging
@@ -282,7 +282,7 @@ class ServeCmd(Cmd):
     "Port to listen on"
     ("--port",)
 
-    def main(self):
+    def __call__(self):
         return 11
 
 
@@ -293,7 +293,7 @@ class BuildCmd(Cmd):
     "Output path"
     ("--output",)
 
-    def main(self):
+    def __call__(self):
         return 22
 
 
@@ -304,7 +304,7 @@ class DispatchApp(Args):
 
 
 def test_main_dispatch_first_subcommand():
-    """duho.main dispatches to the selected subcommand's __call__."""
+    """duho.main dispatches to the selected subcommand's __call__()."""
     rc = duho.main(DispatchApp, ["ServeCmd", "--port", "9000"], setup_logging=False)
     assert rc == 11
 
@@ -325,7 +325,7 @@ class AliasedCmd(Cmd):
     "A tag value"
     ("--tag",)
 
-    def main(self):
+    def __call__(self):
         return self.tag
 
 
@@ -360,7 +360,7 @@ class InnerCmd(Cmd):
     "A value"
     ("--value",)
 
-    def main(self):
+    def __call__(self):
         return 33
 
 
@@ -385,7 +385,7 @@ def test_main_dispatch_nested_subcommands():
 
 
 class NoRunArgs(Args):
-    """A bare data Args: no `main`/`__call__`, so not runnable."""
+    """A bare data Args: no `__call__`, so not runnable."""
 
     x: int = 1
     "A value"
@@ -396,7 +396,7 @@ def test_main_bare_args_not_runnable_raises_not_implemented():
     """Dispatching a bare data Args raises NotImplementedError naming it.
 
     Since the Plan-13 Args/Cmd split, `duho.main` expects a runnable `Cmd`;
-    a data-only `Args` (no `main`, no `__call__`) fails loud rather than
+    a data-only `Args` (no `__call__`) fails loud rather than
     silently no-op'ing.
     """
     with pytest.raises(NotImplementedError, match="NoRunArgs"):
@@ -404,10 +404,10 @@ def test_main_bare_args_not_runnable_raises_not_implemented():
 
 
 def test_main_none_return_maps_to_zero():
-    """A command whose main returns None maps to exit code 0."""
+    """A command whose __call__ returns None maps to exit code 0."""
 
     class NoneReturn(Cmd):
-        def main(self):
+        def __call__(self):
             return None
 
     rc = duho.main(NoneReturn, [], setup_logging=False)
@@ -420,7 +420,7 @@ def test_main_setup_logging_false_leaves_handlers_unchanged():
     before = len(root.handlers)
 
     class LoggedApp(LoggingArgs, Cmd):
-        def main(self):
+        def __call__(self):
             return None
 
     rc = duho.main(LoggedApp, [], setup_logging=False)
@@ -436,7 +436,7 @@ def test_main_systemexit_propagates():
         "Required value"
         ("--needed",)
 
-        def main(self):
+        def __call__(self):
             return 0
 
     with pytest.raises(SystemExit):

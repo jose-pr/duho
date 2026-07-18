@@ -78,7 +78,7 @@ def run_command(
     returns ``None`` maps to ``0``; a returned int is propagated.
 
     * **Class command** (a ``Cmd``): the parsed ``instance`` is itself the
-      command, so this calls ``instance.main()`` (``__call__`` delegates to it).
+      command, so this calls ``instance()`` (``Cmd.__call__`` is the entrypoint).
       Parsing already owns building the instance; there is no separate parse here.
     * **Module command** (:class:`ModuleCommand`): runs the lifecycle --
       ``ctx = command.init(instance)`` (identity/no-op default returning
@@ -102,8 +102,8 @@ def run_command(
             module_command.finally_(ctx, instance)
         return 0 if result is None else result
 
-    # Class command: the parsed instance is the command; run its main().
-    result = instance.main()  # type: ignore[attr-defined]
+    # Class command: the parsed instance is the command; run it via __call__.
+    result = instance()  # type: ignore[operator]
     return 0 if result is None else result
 
 
@@ -327,7 +327,7 @@ def app(
     if not isinstance(instance, _Cmd):
         raise NotImplementedError(
             f"{type(instance).__name__} holds data but is not runnable "
-            f"(no 'main'/'__call__'); make it a Cmd (subclass duho.Cmd or "
+            f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
             f"build one with duho.command(...)) to run it, or register runnable "
             f"commands"
         )

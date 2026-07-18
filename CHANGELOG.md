@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.Cli` application root**: an opt-in mixin over `Cmd` for the *root* of a
+  multi-command app. It types and documents the app-wide, sandwich-named config
+  attributes a leaf `Cmd` doesn't declare — `_version_`, `_distribution_`,
+  `_completion_`, `_config_`, `_subcommands_` — without changing how any of them is
+  read (purely additive; a plain `Cmd` root still works). Recommended batteries-
+  included recipe: `class MyApp(LoggingArgs, Cli)`. `LoggingArgs` stays orthogonal.
+- **`@MyApp.subcommand` self-registration**: a leaf command file can attach itself to
+  a `Cli` root's subcommand tree with the `@Root.subcommand` decorator (or
+  `Root._register_subcmd_(child)`), instead of the root centrally listing every child
+  in `_subcommands_`. Registration is per-class (copy-on-write — two `Cli` subclasses
+  never cross-contaminate, a parent's list is never mutated) and composes with a
+  statically-declared `_subcommands_` (union + dedup — a child listed both ways
+  appears once).
+- **`duho.app` config/env thread-down**: `app(root, ..., env=, config=)` now layers a
+  `Cli` root's `_config_` (or an explicit `config=`) TOML defaults onto the root and
+  each class command's fields (top-level keys → root, `[<Subcommand>]` table →
+  subcommand), and attaches the resolved `Env` to the dispatched instance as the
+  sandwich-named `_env_` handle so a command can read app-wide settings via
+  `self._env_`. Precedence is unchanged: CLI > env > config > class default.
 - **`duho.Env(prefix)`**: a prefixed, typed, app-wide view over `os.environ`. Reads
   keys sharing a normalized `<PREFIX>_` prefix (`Env("my-app")` → `MY_APP_*`), with
   `.bool(key)` and `.list(key, sep=":", ty=str)` accessors and an optional autoloaded

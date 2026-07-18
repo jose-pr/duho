@@ -12,14 +12,14 @@ class LoggingArgs(Args):
     """Args subclass with built-in --verbose and --loglevel support.
 
     ``LoggingArgs`` is a **data mixin** (verbosity fields + ``_set_loglevels_``
-    + the ``_logger_`` property); it defines no ``main``/``__call__`` and is
+    + the ``_logger_`` property); it defines no ``__call__`` and is
     NOT itself runnable. Since Plan 13's ``Args``/``Cmd`` split, combine it
     with ``Cmd`` to get a runnable command with logging::
 
         class MyApp(LoggingArgs, Cmd):
             _version_ = "1.2.3"
 
-            def main(self):
+            def __call__(self):
                 self._logger_.info("running")
                 return 0
 
@@ -27,7 +27,7 @@ class LoggingArgs(Args):
     executable base last (reads "add logging to a command"). Both orders
     resolve correctly because ``LoggingArgs`` overrides no ``Cmd`` member;
     ``_logger_``/``_set_loglevels_`` come from ``LoggingArgs`` and
-    ``main``/``__call__`` from ``Cmd`` regardless of order.
+    ``__call__`` from ``Cmd`` regardless of order.
 
     Set a class attr ``_version_`` to opt into a ``--version`` flag; no
     separate preset class is needed. ``--version`` prints

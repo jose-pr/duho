@@ -18,7 +18,6 @@ Completion data is read off the built parser's private attrs
 import argparse as _argparse
 import dataclasses as _dc
 import pathlib as _pathlib
-import typing as _ty
 
 __all__ = ["CompletionOption", "CompletionPositional", "CompletionSpec", "bash", "zsh", "fish"]
 
@@ -210,15 +209,6 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 # --------------------------------------------------------------------------
 
 
-def _zsh_value_spec(opt: CompletionOption) -> str:
-    if opt.choices:
-        values = " ".join(opt.choices)
-        return f"({values})"
-    if opt.is_path:
-        return "_files"
-    return None
-
-
 def _zsh_arguments_block(spec: CompletionSpec, root_prog: str, indent: str = "    ") -> "list[str]":
     lines: "list[str]" = []
     lines.append(f"{indent}local -a args")
@@ -227,7 +217,6 @@ def _zsh_arguments_block(spec: CompletionSpec, root_prog: str, indent: str = "  
         flag_list = "|".join(opt.flags)
         flags = flag_list if len(opt.flags) == 1 else f"'{{{flag_list}}}'"
         if opt.takes_value:
-            value_spec = _zsh_value_spec(opt)
             if opt.choices:
                 values = " ".join(opt.choices)
                 lines.append(f"{indent}    {flags}'[option]:value:({values})'")
@@ -280,7 +269,6 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
         lines.append(f'    if [[ "$cmd_path" == "{key}" ]]; then')
         lines.extend(_zsh_arguments_block(spec, root_prog, indent="        "))
         if spec.subcommands:
-            names = " ".join(spec.subcommands)
             lines.append(f'        _describe "{spec.prog} subcommand" subcmds')
         lines.append("        return")
         lines.append("    fi")

@@ -451,6 +451,99 @@ raise SystemExit(duho.main(GreetCmd))
 (recommended base order — data mixin first, executable base last) to get logging
 plus a runnable command.
 
+## Cli: the application root
+
+A leaf `Cmd` is lean — it declares its own flags and a `__call__`. The **root** of
+a multi-command app usually wants more: a `--version` flag, shell completion, a
+config file, a subcommand tree. `duho.Cli` is an **opt-in** mixin over `Cmd` that
+gives those a typed home. Subclass `Cli` for your app root; keep leaf commands as
+plain `Cmd`:
+
+```python
+import duho
+from duho import Cli, LoggingArgs
+
+class MyApp(LoggingArgs, Cli):     # data mixin first, root base last
+    """My multi-command app."""
+    _version_ = "1.2.3"            # adds --version
+    _completion_ = True            # adds --print-completion {bash,zsh,fish}
+    _config_ = "myapp.toml"        # layered config-file defaults
+```
+
+`Cli` is purely additive: it adds **no** new runtime behavior for *running* (it
+inherits `Cmd.__call__` unchanged), and a plain `Cmd` root still works everywhere
+`Cli` does — `Cli` just types and documents the app-root attributes (`_version_`,
+`_distribution_`, `_completion_`, `_config_`, `_subcommands_`), all sandwich-named
+so your CLI-field namespace stays 100% yours. `LoggingArgs` stays orthogonal — mix
+it in when you want `-v`/`-q` verbosity, leave it out when you don't.
+
+### Self-registration: `@MyApp.subcommand`
+
+Instead of the root listing every child in `_subcommands_`, a leaf command file can
+**attach itself** to the root with the `@MyApp.subcommand` decorator. This keeps
+command definitions decentralized — each command lives in its own file and opts into
+the app:
+
+```python
+# myapp/app.py
+from duho import Cli
+
+class MyApp(Cli):
+    """My app."""
+    _version_ = "1.0.0"
+
+# myapp/commands/deploy.py
+import duho
+from myapp.app import MyApp
+
+@MyApp.subcommand
+class Deploy(duho.Cmd):
+    """Deploy to a region."""
+    region: str = "local"
+    ("--region",)
+
+    def __call__(self):
+        print(f"deploying to {self.region}")
+
+# myapp/commands/build.py
+from myapp.app import MyApp
+
+@MyApp.subcommand
+class Build(duho.Cmd):
+    """Build the project."""
+    def __call__(self):
+        print("building")
+```
+
+Each `@MyApp.subcommand` appends the class to `MyApp`'s **own** subcommand list
+(materialized copy-on-write, so two `Cli` subclasses never cross-contaminate and a
+parent's list is never mutated by a subclass). It composes with a
+statically-declared `_subcommands_` (union + dedup — a child listed both ways
+appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form. Once the
+command files are imported, `duho.main(MyApp)` (or `duho.app(MyApp)`) sees the full
+tree.
+
+### App-wide config & env with `duho.app`
+
+`duho.app(root, ...)` threads a `Cli` root's `_config_` and any `env` down to the
+dispatched subcommand. TOML top-level keys apply to the root's fields; a
+`[<Subcommand>]` table applies to that subcommand; and the resolved `duho.Env` (if
+passed) is reachable from the command as `self._env_`:
+
+```python
+# app.toml
+# [Deploy]
+# region = "eu-west"
+
+raise SystemExit(duho.app(MyApp, source="myapp.commands",
+                          env=duho.Env("myapp")))
+# `myapp deploy` now defaults region to "eu-west" (CLI still overrides),
+# and Deploy.__call__ can read self._env_ for app-wide settings.
+```
+
+Pass `config="other.toml"` to `duho.app` to override the root's `_config_` for one
+run. Precedence is unchanged: CLI > env > config > class default.
+
 ## Environment access
 
 `duho.Env(prefix)` is an app-wide, typed view over the environment variables

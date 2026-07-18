@@ -474,6 +474,11 @@ def test_cmdbuilder_unique_sys_modules_name(tmp_path):
 
 
 def test_cmdbuilder_bare_directory_without_provider_raises(tmp_path):
+    # Explicitly assert the "no provider registered" path. The autouse
+    # _restore_providers fixture restores afterward, so clearing here is safe;
+    # it also insulates this test from an opt-in provider (e.g. duho.runpath)
+    # another test imported and left globally registered.
+    _discovery._PROVIDERS.clear()
     d = tmp_path / "steps"
     d.mkdir()
     _write(d, "01-first.py", _MODULE_CMD)

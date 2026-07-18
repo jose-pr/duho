@@ -57,9 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   core duho doesn't understand (e.g. an ordered run-path of numbered step files),
   without core importing that package. Consulted newest-first before a normal import.
 - **`Cmd` command type**: a new `duho.Cmd(Args)` base carries the executable
-  contract. Define `main(self)` on a `Cmd` subclass; `__call__` delegates to it, so
-  a `Cmd` instance stays directly callable. `Cmd.main`'s base raises
-  `NotImplementedError` naming the class when a subclass implements neither.
+  contract. Define `__call__(self)` on a `Cmd` subclass — a dunder, so it never
+  collides with a CLI field (a plain `main` method would clash with a `--main` flag).
+  A `Cmd` instance stays directly callable. `Cmd.__call__`'s base raises
+  `NotImplementedError` naming the class when a subclass doesn't override it.
 - **`duho.command(args_cls, func, *, name=None)`**: build a `Cmd` subclass from an
   existing data `Args` class and a callable — `func(self)` receives the parsed
   instance and its return value is the command result. `name` sets the subcommand
@@ -79,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `register(parser, args)` hook can add arguments directly, `_passthrough_` reaches
   the dispatched command, and discovery is resilient (one bad command is skipped).
   `run_command(command, instance, *, context=None) -> int` dispatches a single
-  resolved command: a class command via `instance.main()`, a module command through
+  resolved command: a class command via `instance()`, a module command through
   the `init -> main -> success / finally_` lifecycle with a shared context (hooks read
   the args instance's `_logger_`; no separate `logger` argument). `None` maps to exit
   code `0`; a returned int is propagated.
@@ -88,12 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **BREAKING**: `Args` is now pure **data** and no longer runnable on its own —
   "every `Args` is callable" (from 0.2.0) is reversed. To run a command, subclass
-  `duho.Cmd` and implement `main(self)` (or build one with `duho.command(...)`).
+  `duho.Cmd` and implement `__call__(self)` (or build one with `duho.command(...)`).
   Dispatching a bare data `Args` via `duho.main` now raises a clear
   `NotImplementedError` instead of silently doing nothing. The `LoggingArgs` preset
   stays a data mixin; combine it as `class App(LoggingArgs, Cmd)` (recommended base
-  order) to get logging + a runnable command. Migrate `def __call__(self)` command
-  bodies to `def main(self)` on a `Cmd` subclass.
+  order) to get logging + a runnable command. A `Cmd`'s command body is `__call__`
+  (dunder, collision-free); if you used a `main`-method draft during pre-release, rename
+  it to `__call__`.
 
 ## [0.2.0] - 2026-07-16
 

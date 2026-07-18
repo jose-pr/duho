@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.fanout` opt-in target fan-out**: an opt-in, stdlib-only module (not on the
+  core `duho.*` surface — core never imports it) for running one command against many
+  targets concurrently and rolling their exit codes into one.
+  `run_targets(func, targets, *, max_workers=None, aggregate=max)` runs `func(target)`
+  for each target on a `ThreadPoolExecutor` and returns an aggregated exit code
+  (`None` → `0`, an int as-is, an unhandled exception → logged and treated as `1` so
+  one failing target never aborts the rest; default `max` policy — `0` only if all
+  succeed; empty targets → `0`; pass `aggregate=any` or a custom reducer to change it).
+  Log records a target emits while it runs are tagged with a `[<target>]` prefix via a
+  filter installed on the app's existing stderr handler for the duration and removed
+  afterwards (no leaked filter, no per-target handler churn). `fan_out_command(command,
+  make_instance, targets, ...)` is thin sugar dispatching one resolved command once per
+  target via `duho.run_command`. Public API: `run_targets`, `fan_out_command`,
+  `target_logging`, `TargetPrefixFilter`, `current_target`. Additive.
+- **`duho.app(dispatch=...)` seam**: `app()` now accepts an optional
+  `dispatch(command, instance) -> int` callback that replaces only the final
+  "run the one selected command" step, while `app()` keeps owning discovery, parser
+  build, registration, config/env thread-down, parsing, and logging setup. A consumer
+  that needs a custom run contract (build a per-invocation context, fan the command out
+  over targets via `duho.fanout`) reuses everything `app()` resolved instead of
+  re-deriving it. `dispatch` receives the resolved `Command` (a `Cmd` subclass, or the
+  `ModuleCommand`) and the parsed instance and returns the exit code. With
+  `dispatch=None` (the default) behavior is unchanged — `app()` calls `run_command` as
+  before.
 - **`duho.runpath` opt-in RunPath step-runner**: an opt-in module (not on the core
   `duho.*` surface) that turns a directory of numbered `NN-name.py` files into one
   command running them in order. `import duho.runpath` registers a command provider

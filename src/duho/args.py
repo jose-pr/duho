@@ -636,6 +636,16 @@ class ArgumentBuilder(_argparse.Namespace):
             **self._kwargs(),
         )
 
+    def _effective_default_(self):
+        """The value argparse would leave this field at when not supplied.
+
+        Reuses ``_kwargs()`` so it agrees exactly with what ``add_to_parser``
+        registers (e.g. a ``store_true`` bool resolves to ``False`` even when no
+        ``default`` was declared). Returns :data:`NOT_DEFINED` for a required
+        field with no default -- callers seeding an instance leave those unset.
+        """
+        return self._kwargs().get("default", NOT_DEFINED)
+
 
 class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
     def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type:ignore
@@ -647,7 +657,49 @@ class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
         raise NotImplementedError()
 
 
+def _suppress_inherited_defaults(child_parser, root_dests):
+    """Make a subcommand's inherited-option defaults not clobber the root's value.
+
+    For each action on ``child_parser`` whose ``dest`` is also a field declared
+    on the root (``root_dests``), set the action's default to ``SUPPRESS`` so
+    that, when the flag is absent from the subcommand's argv, argparse leaves the
+    namespace value the root already parsed (from an option given before the
+    subcommand) intact. Only optional (flagged, non-required) actions are
+    touched -- positionals and required options keep their behavior, and the
+    subparsers action itself (``dest="command"``) is never a root field.
+
+    ``value_sources`` / config layering are unaffected: they operate on the root
+    parser's own actions, not these child copies.
+    """
+    for action in child_parser._actions:
+        if action.dest not in root_dests:
+            continue
+        if not action.option_strings:  # positional
+            continue
+        if getattr(action, "required", False):
+            continue
+        action.default = _argparse.SUPPRESS
+
+
 class Args(_argparse.Namespace):
+    def __init__(self, **kwargs):
+        # Namespace.__init__ only setattrs what's passed, so a directly-built
+        # instance (or the self-cloning `type(self)(**self._get_kwargs())`
+        # pattern) would be missing any declared field not supplied -- notably
+        # `store_true` bools, whose default only materializes via argparse.
+        # Seed each declared field to its effective default when absent, so a
+        # direct instance has the same attribute surface as a parsed one. Only
+        # GAPS are filled: passed kwargs (incl. parsed values) always win, and a
+        # required field with no default (NOT_DEFINED) is left unset.
+        super().__init__(**kwargs)
+        for builder in type(self)._getargs_():
+            name = builder.name
+            if name in kwargs or hasattr(self, name):
+                continue
+            default = builder._effective_default_()
+            if default is not NOT_DEFINED:
+                setattr(self, name, default)
+
     @classmethod
     def _getargs_(cls):
         if "_duho_builders_" in vars(cls):
@@ -691,9 +743,15 @@ class Args(_argparse.Namespace):
         name: str = name or getattr(cls, "_parsername_", None) or cls.__name__
         if not getattr(cls, "_parsername_", None):
             setattr(cls, "_parsername_", name)
-        kwargs.setdefault("description", cls.__doc__ or "")
+        # Escape `%` in docstring-derived text: argparse %-expands help strings
+        # (HelpFormatter._expand_help does `help % params`), so a literal `%` in
+        # a class docstring (e.g. an RPM `%files` mention) would otherwise crash
+        # add_parser's _check_help at parser-BUILD time. A caller-supplied
+        # description/help already in kwargs is left untouched by setdefault.
+        _doc = (cls.__doc__ or "").replace("%", "%%")
+        kwargs.setdefault("description", _doc)
         if subparser:
-            docstring = cls.__doc__ or ""
+            docstring = _doc
             kwargs.setdefault("help", docstring.strip().splitlines()[0] if docstring.strip() else "")
             # Subcommand aliases (argparse's add_parser accepts `aliases`; the
             # top-level ArgumentParser does not, so only apply when nested).
@@ -711,8 +769,18 @@ class Args(_argparse.Namespace):
         subcommands = getattr(cls, "_subcommands_", None)
         if subcommands:
             subparsers = parser.add_subparsers(dest="command", required=True)
+            # Dests this (root) class declares itself: an option given BEFORE the
+            # subcommand parses into these on the root namespace. A child that
+            # inherits the same field (via MRO) re-declares it with its own
+            # default and would clobber that value back when the flag is absent
+            # from the child's argv. Suppress the child's default for those
+            # shared, optional dests so the parent's parsed value survives; the
+            # child still accepts the flag AFTER the subcommand (overwrites) and
+            # its own unique args are untouched.
+            root_dests = {b.name for b in cls._getargs_()}
             for sub in subcommands:
-                sub._parser_(subparsers)
+                child = sub._parser_(subparsers)
+                _suppress_inherited_defaults(child, root_dests)
 
         return parser
 
@@ -823,6 +891,17 @@ class Args(_argparse.Namespace):
                 else:
                     group = parser
                 _action = arg.add_to_parser(group)
+
+        # Expose the built mutually-exclusive groups on the parser so a subclass
+        # `_parser_` override can add extra options into a `conflicts=`-built
+        # group (e.g. a short-flag alias that must stay mutually exclusive with a
+        # declared field). Merge rather than overwrite so a parents=[...] parser
+        # that already carries groups keeps them.
+        existing = getattr(parser, "exclusive_groups", None)
+        if existing:
+            existing.update(exclusive_groups)
+        else:
+            parser.exclusive_groups = exclusive_groups
 
         return parser
 

@@ -286,6 +286,7 @@ def app(
     env: object = None,
     config: "str | _Path | None" = None,
     setup_logging: bool = True,
+    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
 ) -> int:
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
@@ -328,7 +329,23 @@ def app(
     this function's return (success -> ``0``, a ``main`` returning ``2`` ->
     ``2``). Discovery is resilient: a single unimportable command drops out with a
     warning and the rest still run.
+
+    **The ``dispatch`` seam.** ``app`` owns discovery, parser build, command
+    registration, config/env thread-down, parsing, and logging setup. The final
+    "run the one selected command" step is the ONE point a consumer can override:
+    pass ``dispatch`` to replace it. The callable receives the resolved
+    :class:`~duho.discovery.Command` (a ``Cmd`` subclass for a class command; the
+    :class:`~duho.discovery.ModuleCommand` for a module command) and the parsed
+    ``instance``, and must return an ``int`` exit code, which becomes ``app``'s
+    return. A dispatch may call :func:`run_command` itself (the default when
+    ``dispatch is None``), fan the command out over targets via
+    :mod:`duho.fanout`, build a per-invocation context threaded ahead of args, or
+    anything else -- everything ``app`` already resolved (the same ``command`` and
+    ``instance`` the default path would run) is reused rather than re-derived. When
+    ``dispatch`` is ``None`` the behavior is byte-identical to calling
+    :func:`run_command` directly, so existing callers are unaffected.
     """
+    run = dispatch if dispatch is not None else run_command
     resolved_commands = _resolve_commands(root, commands, source, env)
 
     parser, base_parser, root_cls = _build_parser(root, name, description)
@@ -402,8 +419,10 @@ def app(
 
     if module_command is not None:
         # run_command owns the full lifecycle (init -> main -> success/finally_).
-        # Don't pre-build the context here or init would run twice.
-        return run_command(module_command, instance)
+        # Don't pre-build the context here or init would run twice. When a custom
+        # `dispatch` was supplied it replaces this final run step (default is
+        # `run_command`); it receives the resolved ModuleCommand and the instance.
+        return run(module_command, instance)
 
     # Class command (or the root itself if it is a runnable Cmd): dispatch the
     # parsed instance directly. It is already the deepest selected Cmd.
@@ -414,4 +433,4 @@ def app(
             f"build one with duho.command(...)) to run it, or register runnable "
             f"commands"
         )
-    return run_command(_ty.cast(_Command, type(instance)), instance)
+    return run(_ty.cast(_Command, type(instance)), instance)

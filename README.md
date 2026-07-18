@@ -921,12 +921,12 @@ duho's full surface (they stub the actual filesystem work — the point is the C
   python examples/dotagents.py install --dry-run
   ```
 
-- [`examples/buildutils.py`](examples/buildutils.py) — an `install(1)`-like file
+- [`examples/fileinstall.py`](examples/fileinstall.py) — an `install(1)`-like file
   installer; exercises positionals, `Union` types, `NS(nargs="?")`, a custom
   `action=UpdateAction`, and `NS(conflicts=...)` mutually-exclusive grouping:
 
   ```python
-  class Install(LoggingArgs):
+  class Install(LoggingArgs, Cmd):
       """Install SOURCE at DESTINATION."""
 
       options: Arg[
@@ -941,11 +941,11 @@ duho's full surface (they stub the actual filesystem work — the point is the C
 
   # ...
   if __name__ == "__main__":
-      sys.exit(duho.main(Buildutils))
+      sys.exit(duho.main(FileInstall))
   ```
 
   ```bash
-  python examples/buildutils.py install --type dir -O k=v src dst
+  python examples/fileinstall.py install --type dir -O k=v src dst
   ```
 
 ## Documentation

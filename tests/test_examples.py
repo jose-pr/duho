@@ -1,8 +1,8 @@
-"""Smoke tests for examples/dotagents.py and examples/buildutils.py.
+"""Smoke tests for examples/dotagents.py and examples/fileinstall.py.
 
 These exercise the example files as acceptance tests for duho's public API
 surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
-(for buildutils) positionals, Union types, NS(nargs="?"), a custom
+(for fileinstall) positionals, Union types, NS(nargs="?"), a custom
 action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping.
 """
 
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 import duho
 
 import dotagents
-import buildutils
+import fileinstall
 
 
 def test_dotagents_install_parses_fields():
@@ -28,28 +28,28 @@ def test_dotagents_main_install_dry_run_returns_0():
     assert duho.main(dotagents.Dotagents, ["install", "--dry-run"]) == 0
 
 
-def test_buildutils_install_positionals_are_path():
-    result = duho.parse(buildutils.Install, ["src", "dst"])
+def test_fileinstall_install_positionals_are_path():
+    result = duho.parse(fileinstall.Install, ["src", "dst"])
     assert isinstance(result.source, Path)
     assert isinstance(result.destination, Path)
     assert result.source == Path("src")
     assert result.destination == Path("dst")
 
 
-def test_buildutils_install_type_flag():
-    result = duho.parse(buildutils.Install, ["--type", "dir", "src", "dst"])
-    assert result.type is buildutils.FileType.dir
+def test_fileinstall_install_type_flag():
+    result = duho.parse(fileinstall.Install, ["--type", "dir", "src", "dst"])
+    assert result.type is fileinstall.FileType.dir
 
 
-def test_buildutils_install_type_flag_str_fallback():
-    result = duho.parse(buildutils.Install, ["--type", "custom", "src", "dst"])
+def test_fileinstall_install_type_flag_str_fallback():
+    result = duho.parse(fileinstall.Install, ["--type", "custom", "src", "dst"])
     assert result.type == "custom"
 
 
-def test_buildutils_install_options_update_action():
-    result = duho.parse(buildutils.Install, ["-O", "a=1", "-O", "b=2", "src", "dst"])
+def test_fileinstall_install_options_update_action():
+    result = duho.parse(fileinstall.Install, ["-O", "a=1", "-O", "b=2", "src", "dst"])
     assert result.options == {"a": "1", "b": "2"}
 
 
-def test_buildutils_main_install_returns_0():
-    assert duho.main(buildutils.Buildutils, ["install", "src", "dst"]) == 0
+def test_fileinstall_main_install_returns_0():
+    assert duho.main(fileinstall.FileInstall, ["install", "src", "dst"]) == 0

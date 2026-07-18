@@ -110,7 +110,7 @@ switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 `argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
 verbosity (for classes mixing in `LoggingArgs`), and runs the command. The class
 must be a `duho.Cmd` (see [Commands: Args vs Cmd](#commands-args-vs-cmd) below) —
-`main` dispatches the parsed instance's `main(self)`:
+`main` dispatches the parsed instance via `__call__`:
 
 ```python
 from duho import Cmd, main
@@ -121,7 +121,7 @@ class Greet(Cmd):
     "Who to greet"
     ("--name",)
 
-    def main(self) -> int | None:
+    def __call__(self) -> int | None:
         print(f"Hello, {self.name}!")
         # returning None counts as a successful exit (code 0)
 
@@ -138,21 +138,21 @@ normally. Dispatching a bare data `Args` (not a `Cmd`) raises a clear
 automatically — no manual subparser plumbing needed. Nested `_subcommands_`
 (a subcommand that itself declares `_subcommands_`) compose naturally into
 multi-level command trees, and `main` always dispatches to the deepest
-selected command's `main`.
+selected command via `__call__`.
 
 ```python
 class Serve(Cmd):
     """Start the development server."""
     port: int = 8000
     ("--port",)
-    def main(self):
+    def __call__(self):
         print(f"serving on {self.port}")
 
 class Build(Cmd):
     """Build the project."""
     output: str = "dist"
     ("--output",)
-    def main(self):
+    def __call__(self):
         print(f"building to {self.output}")
 
 class App(Args):
@@ -314,13 +314,13 @@ class MyApp(LoggingArgs, Cmd):
     "The command to run"
     ("--command",)
 
-    def main(self):
+    def __call__(self):
         logger = self._logger_
         logger.info(f"Running: {self.command}")
 ```
 
-`duho.main()` calls `self._set_loglevels_()` for you before dispatching to
-`main` (pass `setup_logging=False` to opt out). If you drive the parser
+`duho.main()` calls `self._set_loglevels_()` for you before dispatching the
+command (pass `setup_logging=False` to opt out). If you drive the parser
 yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
 you start logging.
 
@@ -402,8 +402,8 @@ args = root.parse_args()
 ## Commands: Args vs Cmd
 
 `Args` classes are **pure data** — a typed namespace of parsed values. To make one
-*runnable*, subclass `duho.Cmd` and implement `main(self)`. A `Cmd` instance stays
-directly callable (`__call__` delegates to `main`), and `duho.main`/`duho.app`
+*runnable*, subclass `duho.Cmd` and implement `__call__(self)`. A `Cmd` instance is
+directly callable (`__call__` runs the command), and `duho.main`/`duho.app`
 dispatch a `Cmd`:
 
 ```python
@@ -414,7 +414,7 @@ class Deploy(duho.Cmd):
     environment: str
     ("--env",)
 
-    def main(self):
+    def __call__(self):
         print(f"deploying to {self.environment}")
         # returning None counts as a successful exit (code 0)
 
@@ -424,13 +424,16 @@ if __name__ == "__main__":
 
 > **Upgrade note (breaking):** earlier releases made *every* `Args` instance
 > callable. `Args` is now data-only; make a command a `Cmd` (or build one with
-> `duho.command(...)`). Dispatching a bare data `Args` raises a clear
-> `NotImplementedError` instead of silently doing nothing. Migrate a
-> `def __call__(self)` command body to `def main(self)` on a `Cmd` subclass.
+> `duho.command(...)`) and implement `__call__(self)`. Dispatching a bare data
+> `Args` raises a clear `NotImplementedError` instead of silently doing nothing.
+> The command entrypoint is `__call__` (not a plain `main` method): a `Cmd`
+> subclass's namespace is user-owned — annotated fields become CLI flags — so a
+> `main` method would collide with a declared `main` field (`--main`), whereas
+> the `__call__` dunder never can.
 
 To attach behavior to an **existing** data `Args` class without rewriting it,
 use `duho.command(args_cls, func, *, name=None)` — it returns a `Cmd` subclass
-whose `main` calls `func(self)` (the parsed instance):
+whose `__call__` calls `func(self)` (the parsed instance):
 
 ```python
 class Greet(duho.Args):
@@ -519,7 +522,7 @@ class Deploy(duho.Cmd):
     """Deploy the application."""
     name: str
     ("--name",)
-    def main(self):
+    def __call__(self):
         print("deployed", self.name)
 ```
 
@@ -614,7 +617,7 @@ of the payload:
 
 ```python
 class Run(duho.Cmd):
-    def main(self):
+    def __call__(self):
         subprocess.run(["pytest", *self._passthrough_])
 
 # myapp Run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]

@@ -116,6 +116,8 @@ class Copy(Args):
 | `typing.Literal["a", "b"]` | `choices=("a", "b")`; mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips |
 | `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`) |
 | `list` / `list[T]` | Accepts both repeated (`--x a --x b`) and space-separated (`--x a b`) forms via `action="extend", nargs="*"`; bare `list` elements are `str`; default is `[]` when no explicit default is given |
+| `set` / `set[T]` | Same repeated + space-separated forms as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
+| `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same forms as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
 | `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
 | `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
 | `Union`/`Optional` containing an `Enum` | The Enum member is matched by **name**, same as a bare `enum.Enum` field — a name match wins before falling through to a later `str` member, so declaration order matters (`Union[Color, str]` with `--c RED` yields `Color.RED`, while `--c other` yields the string `"other"`) |

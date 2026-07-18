@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`set`/`set[T]` and `tuple[T, ...]`/`tuple` collection fields**: annotate a field
+  with `set`, `set[T]`, bare `tuple`, or a variadic homogeneous `tuple[T, ...]` and it
+  parses like a `list` field — both `--x a --x b` (repeated) and `--x a b`
+  (space-separated) forms, per-element type conversion, bare forms use `str` elements —
+  but the final value is a `set` (dedups; iteration order not guaranteed) or `tuple`
+  (order preserved). Defaults are `set()` / `()` when the field has no explicit default.
+  A fixed-length heterogeneous `tuple[A, B]` is not supported and raises a clear error
+  at parser build, naming the field and pointing to `tuple[T, ...]`.
 - **Module `register` hook now accepts a 3-arg `(parser, args, logger)` form** in
   addition to the existing 2-arg `(parser, args)`. `duho.app` inspects the hook's
   signature and, for a 3-arg (or `*args`) hook, passes

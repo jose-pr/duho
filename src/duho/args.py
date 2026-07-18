@@ -59,6 +59,47 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
     return _factory
 
 
+class _CollectionAction(_argparse.Action):
+    """Extend-and-coerce action for ``set``/``tuple`` collection fields.
+
+    argparse's built-in ``extend`` action only extends a *list*; there is no
+    native "extend into a set/tuple". This action gathers elements in
+    insertion order across both invocation forms -- repeated flags
+    (``--x a --x b``) and space-separated (``--x a b``) -- then stores the
+    final field value coerced to the target collection type.
+
+    The running elements are kept in insertion order on a private sidecar
+    attribute (``_duho_items_<dest>``) so a ``tuple`` field's order is stable
+    regardless of how many times the flag appears; ``set`` dedups at coercion.
+    The declared collection type is bound at build time as ``_collection_``
+    (``set`` or ``tuple``).
+    """
+
+    #: Target collection type (``set`` or ``tuple``); bound at construction.
+    _collection_: type = tuple
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        sidecar = "_duho_items_" + self.dest
+        items = getattr(namespace, sidecar, None)
+        if items is None:
+            items = []
+            setattr(namespace, sidecar, items)
+        if isinstance(values, (list, tuple)):
+            items.extend(values)
+        else:  # nargs unset / single value -- defensive, not the normal path
+            items.append(values)
+        setattr(namespace, self.dest, self._collection_(items))
+
+
+def _collection_action(collection: type) -> "_type[_argparse.Action]":
+    """Build a ``_CollectionAction`` subclass bound to a target collection."""
+
+    class _BoundCollectionAction(_CollectionAction):
+        _collection_ = collection
+
+    return _BoundCollectionAction
+
+
 def _resolve_version(cls) -> "str | None":
     """Resolve a class's effective ``--version`` string, or None to skip it.
 
@@ -373,6 +414,37 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 _factory = elem_ty
                 if default is _inspect.NOT_DEFINED:
                     default = []
+
+            elif origin is set or cls is set:
+                # Mirror the list branch, but coerce the gathered elements to a
+                # set at the end (dedups; iteration order is not guaranteed --
+                # documented). Bare `set` -> element type str.
+                elem_ty = args[0] if args else str
+                action = _collection_action(set)
+                nargs = "*"
+                _factory = elem_ty
+                if default is _inspect.NOT_DEFINED:
+                    default = set()
+
+            elif origin is tuple or cls is tuple:
+                # Only variadic homogeneous `tuple[T, ...]` and bare `tuple`
+                # (== `tuple[str, ...]`) are supported. A fixed-length
+                # heterogeneous `tuple[A, B]` needs per-position types, which
+                # this collection path can't express -- raise a clear
+                # build-time error naming the field instead of silently
+                # mis-parsing.
+                if args and not (len(args) == 2 and args[1] is Ellipsis):
+                    raise ValueError(
+                        f"argument {name!r}: fixed-length tuple annotation "
+                        f"{cls!r} is not supported; use tuple[T, ...] for a "
+                        f"variadic homogeneous tuple, or bare tuple"
+                    )
+                elem_ty = args[0] if args else str
+                action = _collection_action(tuple)
+                nargs = "*"
+                _factory = elem_ty
+                if default is _inspect.NOT_DEFINED:
+                    default = ()
 
             elif origin in _compat.UNION_ORIGINS:
                 if _NONETYPE in args:

@@ -43,7 +43,12 @@ import typing as _ty
 from pathlib import Path as _Path
 
 from . import logging as _duho_logging
-from .args import Args as _Args, Cmd as _Cmd
+from .args import (
+    Args as _Args,
+    Cmd as _Cmd,
+    _apply_default_layers_one as _apply_default_layers_one,
+    _load_config as _load_config,
+)
 from .discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
@@ -225,6 +230,51 @@ def _build_parser(
     return parser, base_parser, root_cls
 
 
+def _apply_app_config_layers(
+    parser: "_argparse.ArgumentParser",
+    root_cls: type,
+    subparsers: "_argparse._SubParsersAction",
+    class_command_names: "dict[str, type]",
+    config: "str | _Path | None",
+) -> None:
+    """Thread env/config-file defaults down a ``Cli`` app's command tree.
+
+    ``duho.main``/``duho.parse`` route through ``_apply_default_layers``, which
+    walks a *statically declared* ``_subcommands_`` tree. ``app`` instead
+    registers commands from precedence-resolved sources (``commands`` /
+    ``discover_commands(source)`` / env), so its subcommand parsers are NOT
+    reachable via ``root_cls._subcommands_``. This helper reproduces the same
+    layering against the parsers ``app`` actually built:
+
+    * the root TOML keys (top-level table) apply to ``root_cls``'s own fields on
+      ``parser``;
+    * each **class command**'s ``[<subcommand-name>]`` table applies to that
+      command's fields on its own subparser (looked up in the live
+      ``subparsers.choices``).
+
+    Module commands declare no duho fields, so config tables don't apply to them
+    (a module reads its own settings via ``env``/its ``register`` hook). Config
+    is loaded ONCE. ``config`` (explicit arg) overrides ``root_cls._config_``,
+    mirroring ``duho.main``. Precedence stays CLI > env > config > class default,
+    and a supplied value un-requires its field, exactly as in ``args.py``.
+    """
+    config_path = config if config is not None else getattr(root_cls, "_config_", None)
+    raw_config: dict = _load_config(config_path) if config_path is not None else {}
+
+    # Root fields: top-level keys + root env(NS(env=...)) defaults.
+    _apply_default_layers_one(parser, root_cls, raw_config)
+
+    # Class commands: each gets its own [<name>] table applied to its subparser.
+    choices = subparsers.choices or {}
+    for name, command_cls in class_command_names.items():
+        sub_parser = choices.get(name)
+        if sub_parser is None:
+            continue
+        sub_table = raw_config.get(name)
+        sub_table = sub_table if isinstance(sub_table, dict) else {}
+        _apply_default_layers_one(sub_parser, command_cls, sub_table)
+
+
 def app(
     root: "type | None" = None,
     *,
@@ -234,6 +284,7 @@ def app(
     name: "str | None" = None,
     description: "str | None" = None,
     env: object = None,
+    config: "str | _Path | None" = None,
     setup_logging: bool = True,
 ) -> int:
     """Build a multi-command app, parse ``argv``, and dispatch one command.
@@ -261,6 +312,17 @@ def app(
     parsed instance exposes ``_set_loglevels_`` (``LoggingArgs``), stderr logging
     is initialised (unless the root logger already has handlers) and verbosity
     applied -- identical to ``duho.main``.
+
+    **Config/env thread-down.** Before parsing, env/config-file defaults are
+    layered onto the root and every class command's fields (precedence CLI > env
+    > config > class default): ``config`` (or, if omitted, a ``Cli`` root's
+    ``_config_``) is loaded once; its top-level keys apply to the root and each
+    ``[<subcommand>]`` table to that command. This is app()'s analogue of the
+    ``_apply_default_layers`` call ``duho.main``/``duho.parse`` make -- needed
+    here because commands come from sources not reachable via
+    ``root._subcommands_``. The resolved ``env`` (if any) is attached to the
+    dispatched instance as the sandwich-named ``_env_`` handle, so a command can
+    read app-wide settings via ``self._env_``.
 
     The selected command is dispatched via :func:`run_command`; its int return is
     this function's return (success -> ``0``, a ``main`` returning ``2`` ->
@@ -290,11 +352,14 @@ def app(
     # commands are selected via "#cls" (their own instance); module commands are
     # looked up by the parsed ``command`` dest name.
     module_commands_by_name: "dict[str, _ModuleCommand]" = {}
+    class_commands_by_name: "dict[str, type]" = {}
 
     subparsers = parser.add_subparsers(title="command", dest="command", required=True)
     for command in resolved_commands:
         if _is_class_command(command):
-            _register_class_command(subparsers, _ty.cast(type, command), base_parser)
+            command_cls = _ty.cast(type, command)
+            _register_class_command(subparsers, command_cls, base_parser)
+            class_commands_by_name[_command_name(command_cls)] = command_cls
         elif _is_module_command(command):
             module_command = _ty.cast(_ModuleCommand, command)
             _register_module_command(
@@ -302,7 +367,25 @@ def app(
             )
             module_commands_by_name[module_command._parsername_] = module_command
 
+    # Thread env/config-file defaults down the app's command tree (a Cli root's
+    # `_config_`, or an explicit `config`, plus each command's NS(env=...)
+    # fields). This is app()'s analogue of the `_apply_default_layers` call that
+    # `duho.main`/`duho.parse` make; app() resolves commands from sources that
+    # aren't reachable via `root._subcommands_`, so it layers against the
+    # parsers actually built here. See `_apply_app_config_layers`.
+    _apply_app_config_layers(
+        parser, root_cls, subparsers, class_commands_by_name, config
+    )
+
     instance = parser.parse_args(argv)
+
+    # Make the resolved app-wide `Env` reachable from the dispatched command via
+    # the sandwich-named `_env_` handle (never a user field). A command reads
+    # `self._env_` for app-level settings; None when no env was passed.
+    try:
+        instance._env_ = env  # type: ignore[attr-defined]
+    except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
+        pass
 
     if setup_logging and hasattr(instance, "_set_loglevels_"):
         root_logger = _logging.getLogger()

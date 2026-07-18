@@ -650,6 +650,83 @@ logged with a warning and skipped, so one broken command never takes down the re
 A genuine bug in a command file (e.g. a `SyntaxError`) is *not* swallowed — it
 surfaces so you can fix it.
 
+## RunPath: ordered step commands (opt-in)
+
+`duho.runpath` is an **opt-in** module that turns a directory of numbered `.py`
+files into a single command that runs them **in order**. It plugs into the
+discovery provider hook above and needs no core changes — core `duho` never
+imports it; you activate it explicitly:
+
+```python
+import duho.runpath   # importing it registers the RunPath provider
+```
+
+A **RunPath directory** is a directory (with *no* `__init__.py`) of `NN-name.py`
+*step* files:
+
+```
+release/
+├── 10-build.py
+├── 20-test.py
+└── 30-publish.py
+```
+
+```python
+# 10-build.py — a step's body is its top-level main/run/call (same precedence
+# as module commands). It receives the parsed command instance.
+def main(args):
+    args._logger_.info("building")
+```
+
+Each step is named after the part of the filename after `NN-`; the numeric prefix
+is its ordering key. A step module may override ordering and declare dependencies:
+
+- `PRIORITY: int` — overrides the `NN` prefix for ordering.
+- `REQUIRED: list[str]` — names of steps that must run **before** this one; the
+  runner reorders so present dependencies run first.
+
+Once `duho.runpath` is imported, pointing at the directory yields a run-path
+command:
+
+```python
+import duho, duho.runpath
+from pathlib import Path
+
+cmd = duho.CmdBuilder("release", Path("release")).command
+raise SystemExit(cmd()())   # build → test → publish, in order
+```
+
+### Selecting steps with `--rcopts` (`-O`)
+
+`--rcopts` takes a comma-separated list of [fnmatch] patterns matched against step
+names, with two markers:
+
+- a leading `!` **disables** matching steps — `!*` disables everything, so
+  `--rcopts '!*,test'` means "run only `test`";
+- the token `strict` opts into **strict mode** (see below).
+
+Later patterns win, so `!*,build-*` disables all then re-enables everything
+matching `build-*`.
+
+### Strict vs. resilient
+
+The default is **resilient**, matching duho's discovery philosophy:
+
+- an `--rcopts` pattern that matches no step is a **warning**, not an error;
+- a step whose body raises is **logged and skipped** — the run continues.
+
+Passing `strict` in `--rcopts` (e.g. `--rcopts 'strict'`) flips this: an unmatched
+pattern raises, a `REQUIRED` dependency naming a missing step raises, and the first
+step to fail re-raises and stops the run. So you run resilient by default and ask
+for strict when you want a hard failure.
+
+The module's public API is `duho.runpath.RunPathCmd`, `register()`, and
+`unregister()` (`register`/`unregister` give explicit control over the provider —
+`unregister()` is what tests use to keep provider state from leaking). These are
+deliberately **not** on the top-level `duho.*` surface — RunPath is opt-in.
+
+[fnmatch]: https://docs.python.org/3/library/fnmatch.html
+
 ## Module commands & lifecycle
 
 A **module command** is a plain `.py` file. Its entrypoint is `main` (preferred),

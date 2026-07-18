@@ -167,18 +167,27 @@ class ModuleCommand:
     command) -- ``discover_commands`` treats that as a skippable "not a command"
     signal, so a helpers-only module simply contributes nothing.
 
-    **Hook signatures / logger source.** Hooks receive the parsed args instance
-    as their sole required positional and take their logger from that instance's
-    ``_logger_`` (present on ``LoggingArgs``-based commands) rather than a
-    separately threaded ``logger`` argument -- there is no redundant ``logger``
-    parameter to keep in sync. The resolved logger is available to hook authors
-    as ``args._logger_`` where the args class provides it, else this module's
-    ``"duho"`` logger. The concrete hook calls made by the Phase-5 driver are:
-    ``register(parser, args)``, ``ctx = init(args)``, ``main(args)`` /
-    ``entrypoint(args)``, ``success(ctx, args)``, ``finally_(ctx, args)``; the
-    defaults installed here accept ``*args, **kwargs`` so a module may omit any
-    hook (or define a narrower signature and simply not receive extras it does
-    not declare).
+    **Hook signatures / logger source.** The lifecycle hooks (``init``/``success``/
+    ``finally_``) and the entrypoint receive the parsed args instance and take
+    their logger from that instance's ``_logger_`` (present on
+    ``LoggingArgs``-based commands) rather than a separately threaded ``logger``
+    argument. The resolved logger is available to hook authors as ``args._logger_``
+    where the args class provides it, else this module's ``"duho"`` logger. The
+    concrete hook calls made by the driver are: ``ctx = init(args)``,
+    ``main(args)`` / ``entrypoint(args)``, ``success(ctx, args)``,
+    ``finally_(ctx, args)``; the defaults installed here accept ``*args, **kwargs``
+    so a module may omit any hook (or define a narrower signature and simply not
+    receive extras it does not declare).
+
+    The ``register`` hook is the one exception, and is **arity-tolerant**: it may
+    be written either ``register(parser, args)`` (2-arg) or
+    ``register(parser, args, logger)`` (3-arg). The driver
+    (``runtime._register_module_command``) inspects the hook's signature and, for
+    a 3-arg hook, passes ``logger = getattr(args, "_logger_",
+    logging.getLogger("duho"))``; a 2-arg hook is called unchanged. A ``*args``
+    hook is treated as 3-arg-capable, and a non-introspectable hook falls back to
+    the 2-arg call. Either way the hook adds its own arguments directly on the
+    subcommand's argparse ``parser``.
     """
 
     def __init__(

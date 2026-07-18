@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A literal `%` in a `Cmd` docstring no longer crashes parser build.** Docstring-derived
+  `description`/`help` are escaped (`%` → `%%`) before argparse, which `%`-expands help
+  strings; previously a docstring mentioning e.g. an RPM `%files` list raised
+  `ValueError: badly formed help string` at parser-build time.
+- **A global option given before a subcommand is no longer shadowed.** When a subcommand
+  inherits an option the root also declares, the child's inherited default was clobbering
+  the root's parsed value (so `app --db X sub` lost `--db`). The child's inherited optional
+  defaults are now suppressed for root-declared dests, so the pre-subcommand value survives;
+  passing the flag after the subcommand still overrides, and absent it uses the root default.
+- **Constructing a `Cmd` directly now seeds declared field defaults.** A directly-built or
+  self-cloned instance (`type(self)(**self._get_kwargs())`) previously lacked any field not
+  passed — notably `store_true` bools, whose default only materialized via argparse. `Args`
+  now fills those gaps with each field's effective default; passed/parsed values always win.
+
+### Added
+
+- **`parser.exclusive_groups`** is exposed on a built parser, so a `_parser_` override can
+  add extra options into a `conflicts=`-built mutually-exclusive group.
+
 ## [0.3.1] - 2026-07-18
 
 ### Changed

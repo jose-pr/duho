@@ -80,3 +80,15 @@ class TestCamelCase:
         # snakecase normalizes separators; camelcase re-joins on them. A dotted
         # name survives the pair intact (no interior-uppercase quirk here).
         assert camelcase(snakecase("some.name")) == "SomeName"
+
+    def test_trailing_separator(self):
+        # A trailing separator yields an empty final segment; empty parts must be
+        # skipped, not indexed (part[0] on "" would raise IndexError). This is hit
+        # in practice: pysafe turns a keyword like `global` into `global_`, then
+        # camelcasing that name lands on the trailing `_`.
+        assert camelcase("global_") == "Global"
+        assert camelcase("x_") == "X"
+
+    def test_doubled_and_leading_separator(self):
+        assert camelcase("a__b") == "AB"
+        assert camelcase("_a") == "A"

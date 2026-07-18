@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.parse_globals(cls, argv=None, **parser_kwargs)`**: parse only a root
+  command's global args, ignoring/relaxing the subcommand tree, so a consumer can
+  resolve config-file-driven command search paths (or any other global) *before*
+  building the full subcommand parser. A missing subcommand does not error and an
+  unknown trailing token does not crash the parse; it returns the parsed root
+  instance (globals only). This is the public form of the help-suppressed,
+  subcommand-relaxed prepass `duho.app` already runs internally. Additive.
 - **`duho.fanout` opt-in target fan-out**: an opt-in, stdlib-only module (not on the
   core `duho.*` surface — core never imports it) for running one command against many
   targets concurrently and rolling their exit codes into one.

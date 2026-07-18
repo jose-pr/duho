@@ -1113,6 +1113,50 @@ def parse(
     return parser.parse_args(argv)
 
 
+def parse_globals(cls, argv: "_ty.Sequence[str] | None" = None, **parser_kwargs):
+    """Parse ONLY a root command's global args, ignoring/relaxing subcommands.
+
+    Builds ``cls``'s root parser (``cls._parser_(**parser_kwargs)``) and parses
+    ``argv`` with help suppressed and subcommand validation relaxed, so a
+    consumer can resolve config-file-driven command search paths (or any other
+    global) BEFORE building/committing to the full subcommand parser. This is
+    the documented, public form of the internal prepass ``duho.app`` already
+    runs -- it wraps :func:`duho.parsers.prerun_parse` verbatim rather than
+    reimplementing the ``_HelpAction``/subparser patching (which
+    ``prerun_parse`` performs and restores in a ``finally``).
+
+    Returns the parsed root instance with globals set. Subcommand arguments are
+    NOT validated in this pass: a missing subcommand does not error, and an
+    unknown trailing token does not crash the globals parse (it is simply
+    ignored here). A caller that also wants the leftover argv should call
+    ``parser.parse_known_args`` directly -- ``parse_globals`` deliberately
+    returns a single value (the globals-only instance), mirroring the shape
+    ``prerun_parse`` yields.
+
+    ``**parser_kwargs`` are forwarded to ``cls._parser_`` (e.g. ``add_help=False``),
+    mirroring :func:`duho.parser`.
+    """
+    from .parsers import prerun_parse as _prerun_parse
+
+    parser = cls._parser_(**parser_kwargs)
+    # A globals-only parse must not descend into the subcommand tree. Building
+    # cls._parser_() materializes any ``_subcommands_`` as a real subparsers
+    # action; leaving it in place makes even a globals-only ``prerun_parse``
+    # re-enter the root parser's patched ``parse_known_args`` for any trailing
+    # token (a subcommand name OR an unknown flag after the globals), which
+    # double-pops the internal "#cls" marker and raises KeyError. Dropping the
+    # subparsers action makes trailing tokens plain unrecognized extras (which
+    # ``prerun_parse`` discards) -- the same shape ``duho.app``'s prepass gets by
+    # running before it adds subparsers.
+    for action in list(parser._actions):
+        if isinstance(action, _argparse._SubParsersAction):
+            parser._actions.remove(action)
+            subparsers_group = getattr(parser, "_subparsers", None)
+            if subparsers_group is not None and action in subparsers_group._actions:
+                subparsers_group._actions.remove(action)
+    return _prerun_parse(parser, argv)
+
+
 def value_sources(parsed) -> "dict[str, str]":
     """Report the origin layer ("cli", "env", "config", or "default") of each
     field on a parsed instance produced by `duho.parse`/`duho.main`.
@@ -1169,6 +1213,7 @@ __all__ = [
     "NS",
     "NOT_DEFINED",
     "parse",
+    "parse_globals",
     "print_completion",
     "UpdateAction",
     "value_sources",

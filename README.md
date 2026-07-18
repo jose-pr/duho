@@ -239,6 +239,28 @@ Precedence: **CLI args > instance field values > class defaults**. This also
 means a required field with no class default becomes effectively optional
 for that call if the instance already supplies a value.
 
+### Parsing only the globals (config before commands)
+
+Sometimes you need to read a root/global option *before* you can build the full
+subcommand parser — for example, a `--config` path (or an env-derived setting)
+that decides which command modules to discover and load. `duho.parse_globals`
+parses only the root command's global args and ignores the subcommand tree:
+
+```python
+import duho
+
+# Root is a Cli/Cmd with global flags and a subcommand tree.
+globals_only = duho.parse_globals(Root, ["--config", "prod.toml", "deploy", "..."])
+assert globals_only.config == "prod.toml"   # resolved without validating "deploy"
+```
+
+A missing subcommand does not error, and an unknown trailing token (a not-yet-
+loaded subcommand name and its args) does not crash the parse — it is simply
+ignored in this pass. `parse_globals` returns the parsed root instance (globals
+only); it is the public form of the prepass `duho.app` runs internally. Pass any
+`cls._parser_` keyword through it (e.g. `add_help=False`). If you also want the
+leftover argv, call `parser.parse_known_args` directly instead.
+
 ### Configuration layers
 
 Beyond instance overrides, `duho.parse`/`duho.main` support two more default

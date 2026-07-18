@@ -87,7 +87,12 @@ def camelcase(
         if isinstance(separators, str):
             separators = (separators,)
         for sep in separators:
-            text = "".join([part[0].upper() + part[1:] for part in text.split(sep)])
+            # Skip empty parts: a trailing/doubled/leading separator yields ""
+            # segments (e.g. "x_".split("_") == ["x", ""]), and part[0] on "" would
+            # raise IndexError. Empty segments contribute nothing to CamelCase.
+            text = "".join(
+                [part[0].upper() + part[1:] for part in text.split(sep) if part]
+            )
     return text
 
 

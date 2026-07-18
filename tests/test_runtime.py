@@ -430,3 +430,132 @@ def test_run_command_class_command_direct():
 
     inst = Inline()
     assert run_command(Inline, inst) == 7
+
+
+# --------------------------------------------------------------------------
+# app(dispatch=...) seam
+# --------------------------------------------------------------------------
+
+
+def test_dispatch_seam_invoked_with_command_and_instance(tmp_path):
+    """A custom dispatch is called with (command, instance) and its int propagates."""
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    seen = {}
+
+    def my_dispatch(command, instance):
+        seen["command"] = command
+        seen["instance"] = instance
+        return 42
+
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["Deploy", "--name", "x"],
+        setup_logging=False,
+        dispatch=my_dispatch,
+    )
+    assert rc == 42
+    # For a class command the dispatched command is the Cmd class and the
+    # instance is the parsed command instance (which IS a Cmd).
+    assert isinstance(seen["instance"], duho.Cmd)
+    assert seen["command"] is type(seen["instance"])
+    # The parsed instance really carries the parsed value (proves app did the
+    # full resolve/parse before handing off to dispatch).
+    assert seen["instance"].name == "x"
+
+
+def test_dispatch_seam_receives_module_command(tmp_path):
+    """For a module command, dispatch receives the ModuleCommand + root instance."""
+    _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
+    seen = {}
+
+    def my_dispatch(command, instance):
+        seen["command"] = command
+        seen["instance"] = instance
+        return 3
+
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["backup"],
+        setup_logging=False,
+        dispatch=my_dispatch,
+    )
+    assert rc == 3
+    assert isinstance(seen["command"], ModuleCommand)
+    assert seen["command"]._parsername_ == "backup"
+    # A custom dispatch that does NOT call run_command means the module
+    # lifecycle never runs -- the seam fully owns the run step.
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("backup")
+    ][0]
+    assert discovered.TRACE == []
+
+
+def test_dispatch_none_is_identical_to_default(tmp_path):
+    """dispatch=None behaves exactly as omitting it (default run_command path)."""
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    rc_default = app(
+        Root, source=tmp_path, argv=["Deploy", "--name", "d"], setup_logging=False
+    )
+    rc_none = app(
+        Root,
+        source=tmp_path,
+        argv=["Deploy", "--name", "d"],
+        setup_logging=False,
+        dispatch=None,
+    )
+    assert rc_default == rc_none == "deployed d"
+
+
+def test_dispatch_can_delegate_to_run_command(tmp_path):
+    """A dispatch may call run_command itself (module lifecycle still runs)."""
+    _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
+
+    def my_dispatch(command, instance):
+        return run_command(command, instance)
+
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["backup"],
+        setup_logging=False,
+        dispatch=my_dispatch,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("backup")
+    ][0]
+    order = [s if isinstance(s, str) else s[0] for s in discovered.TRACE]
+    assert order == ["init", "main", "success", "finally"]
+
+
+def test_dispatch_can_fan_out_over_targets(tmp_path):
+    """A dispatch that fans a command out over targets works end-to-end."""
+    import duho.fanout as fanout
+
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    ran = []
+
+    def my_dispatch(command, instance):
+        targets = list(duho.expand("t[1-3]"))
+
+        def run_for(target):
+            ran.append(target)
+            return 0
+
+        return fanout.run_targets(run_for, targets)
+
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["Deploy", "--name", "x"],
+        setup_logging=False,
+        dispatch=my_dispatch,
+    )
+    assert rc == 0
+    assert sorted(ran) == ["t1", "t2", "t3"]

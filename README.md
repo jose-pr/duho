@@ -784,17 +784,32 @@ instance's `_logger_` (present on `LoggingArgs`-based commands), falling back to
 
 ## Customizing a subcommand parser
 
-A module command's optional `register(parser, args)` hook hands you the raw
-argparse subparser so you can add arguments the declarative layer doesn't cover:
+A module command's optional `register` hook hands you the raw argparse subparser
+so you can add arguments the declarative layer doesn't cover. It may be written
+either **2-arg** `register(parser, args)` or **3-arg**
+`register(parser, args, logger)` — duho inspects your hook's signature and calls
+the form you declared:
 
 ```python
-def register(parser, args):
+def register(parser, args):                 # 2-arg form
     parser.add_argument("--force", action="store_true")
 
 def main(args):
     if args.force:
         ...
 ```
+
+```python
+def register(parser, args, logger):         # 3-arg form: logger is supplied
+    logger.debug("registering deploy flags")
+    parser.add_argument("--force", action="store_true")
+```
+
+For the 3-arg form the `logger` passed is the parsed args' own `_logger_` (on a
+`LoggingArgs`-based root) or `logging.getLogger("duho")` — the same logger the
+lifecycle hooks read off `args._logger_`. A `*args` hook is treated as
+3-arg-capable; anything whose signature can't be introspected falls back to the
+2-arg call.
 
 Every subcommand parser is built with **parent-arg inheritance** — the root
 command's global options (verbosity, etc.) appear on each subcommand automatically

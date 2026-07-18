@@ -92,6 +92,22 @@ Bool fields defaulting to `False` (or with no default) get a simple `--flag`
 switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 `argparse.BooleanOptionalAction`) so the default can be explicitly turned back off.
 
+**The docstring is optional.** The flags-tuple alone declares an argument — a
+field needs no docstring. When present, the docstring only sets the argument's
+`help=` text; when absent, `help` defaults to `""`. Add a docstring where the help
+text earns its keep, and skip it where the flag speaks for itself:
+
+```python
+class Copy(Args):
+    # No docstring needed -- the flags-tuple alone declares the argument.
+    source: str
+    ("-s", "--source")
+
+    force: bool = False
+    "Overwrite the destination if it exists."  # help text where it's useful
+    ("-f", "--force")
+```
+
 ### Supported Field Types
 
 | Annotation | Behavior |
@@ -103,6 +119,69 @@ switch. Bool fields defaulting to `True` get `--flag`/`--no-flag` (via
 | `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
 | `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
 | `Union`/`Optional` containing an `Enum` | The Enum member is matched by **name**, same as a bare `enum.Enum` field — a name match wins before falling through to a later `str` member, so declaration order matters (`Union[Color, str]` with `--c RED` yields `Color.RED`, while `--c other` yields the string `"other"`) |
+
+### Positional arguments
+
+A flags-tuple whose single entry does **not** start with `-` declares a
+positional instead of an option. Duho picks the `nargs` for you from the type
+and default:
+
+```python
+class Move(Args):
+    source: str
+    ("source",)                 # required positional
+
+    dest: str = "."
+    ("dest",)                   # optional positional -> nargs="?" (uses the default when omitted)
+
+    extra: list[str]
+    ("extra",)                  # variadic positional -> nargs="*" (a list[str] positional)
+```
+
+```bash
+python move.py a.txt              # source="a.txt", dest=".",   extra=[]
+python move.py a.txt out/         # source="a.txt", dest="out/", extra=[]
+python move.py a.txt out/ x y z   # source="a.txt", dest="out/", extra=["x", "y", "z"]
+```
+
+An optional positional (a real default present, `nargs` unset) automatically
+gets `nargs="?"` — without it argparse would make the positional required and
+ignore the default. A `list`/`list[T]` positional becomes variadic
+(`nargs="*"`), defaulting to `[]`. `required=` is never emitted for positionals.
+
+### Mutually exclusive options
+
+Set `NS(conflicts="group-name")` on the fields that must not be used together.
+Duho builds one `argparse` mutually-exclusive group per distinct `conflicts`
+value, so only one option from the group may appear on the command line:
+
+```python
+from duho import Args, Arg, NS
+
+class Archive(Args):
+    """Create an archive."""
+
+    gzip: Arg[bool, NS(conflicts="compression")] = False
+    "Compress with gzip."
+    ("--gzip",)
+
+    zstd: Arg[bool, NS(conflicts="compression")] = False
+    "Compress with zstd."
+    ("--zstd",)
+
+    none: Arg[bool, NS(conflicts="compression")] = False
+    "Store uncompressed."
+    ("--none",)
+```
+
+```bash
+python archive.py --gzip            # ok
+python archive.py --gzip --zstd     # error: not allowed with argument --gzip
+```
+
+Fields sharing the same `conflicts` string join the same group; use different
+strings for independent exclusive sets. (The `examples/fileinstall.py` `--type`
+field uses `NS(conflicts="type")` this way.)
 
 ### Run your app
 
@@ -167,6 +246,33 @@ if __name__ == "__main__":
 python app.py Serve --port 3000
 python app.py Build --output dist
 ```
+
+**Subcommand aliases**: set `_parseraliases_` on a `Cmd` subclass to register
+short or alternate names for it within a `_subcommands_` tree. An alias dispatches
+to the same `__call__` as the full name:
+
+```python
+class Create(Cmd):
+    """Create a new resource."""
+    _parseraliases_ = ["c", "new"]
+    name: str
+    ("name",)
+    def __call__(self):
+        print(f"creating {self.name}")
+
+class App(Args):
+    _subcommands_ = [Create]
+```
+
+```bash
+python app.py create web   # full name
+python app.py c web        # alias -> same command
+python app.py new web      # alias -> same command
+```
+
+Absence of `_parseraliases_` is the default (no aliases). Aliases apply only to
+nested subcommands (argparse's `add_parser` accepts `aliases`; a top-level parser
+does not).
 
 **Version flag**: set `_version_` on any `Args` subclass to add a `--version`
 flag that prints `"%(prog)s <version>"` and exits 0 (skipped if a `version`-dest

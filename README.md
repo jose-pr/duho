@@ -793,21 +793,69 @@ class Run(duho.Cmd):
 # myapp Run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]
 ```
 
-## Target fan-out is client glue
+## Target fan-out (`duho.fanout`, opt-in)
 
-duho dispatches **one** command per run; it deliberately ships no thread-pool /
-target fan-out helper (a real one is the future `duho-async`). Fanning a command
-out over `expand`ed targets is a short client wrapper around `duho.run_command`:
+duho dispatches **one** command per run by design. When you need to run that one
+command against a list of targets (hosts, environments, datasets) and roll their
+exit codes into one, `import duho.fanout` — an opt-in, stdlib-only helper (core
+never imports it, and it stays off the top-level `duho.*` surface).
+
+`run_targets(func, targets, *, max_workers=None, aggregate=max)` runs `func(target)`
+for each target concurrently on a thread pool and returns an aggregated exit code
+(`None` → `0`, an int as-is, an unhandled exception → logged and treated as `1` so
+one failing target never aborts the rest; codes reduced by `max` — `0` only if all
+succeed). Log lines a target emits while it runs are tagged with a `[<target>]`
+prefix so interleaved concurrent output stays attributable; the prefixing filter is
+installed on your existing stderr handler for the duration and removed afterwards.
 
 ```python
-from concurrent.futures import ThreadPoolExecutor
-import duho
+import duho, duho.fanout
 
 targets = list(duho.expand("web[01-03].example.com"))
-with ThreadPoolExecutor() as pool:
-    codes = pool.map(lambda t: run_for(t), targets)   # your per-target run
-raise SystemExit(max(codes, default=0))
+
+def deploy_to(host):
+    log = duho.logging.getLogger("duho.deploy")
+    log.info("deploying")          # emitted as "[web01.example.com] deploying"
+    return 0                       # your per-target work; int/None exit code
+
+raise SystemExit(duho.fanout.run_targets(deploy_to, targets, max_workers=4))
 ```
+
+```text
+[web01.example.com] deploying
+[web02.example.com] deploying
+[web03.example.com] deploying
+```
+
+`fan_out_command(command, make_instance, targets, ...)` is thin sugar for "run one
+resolved duho command once per target": you supply `make_instance(target)` (a parsed
+instance is app-specific) and each is dispatched via `duho.run_command`. Pass
+`aggregate=any` or a custom reducer to change the exit-code policy. You can still
+hand-roll a `ThreadPoolExecutor` wrapper if you prefer.
+
+### Composing `app()`: the `dispatch=` seam
+
+`duho.app(...)` owns discovery, parser build, registration, config/env thread-down,
+parsing, and logging setup, then runs **one** selected command. To keep all of that
+but override only the final run step — e.g. build a per-invocation context or fan the
+command out over targets — pass `dispatch`:
+
+```python
+import duho, duho.fanout
+
+def dispatch(command, instance):           # (resolved Command, parsed instance)
+    targets = list(duho.expand(instance.targets))
+    return duho.fanout.fan_out_command(
+        command, lambda t: instance_for(t), targets
+    )
+
+raise SystemExit(duho.app(Root, source="commands/", dispatch=dispatch))
+```
+
+The callable receives the resolved command and the parsed instance and returns an
+`int` exit code (which becomes `app()`'s return). With `dispatch=None` (the default)
+`app()` behaves exactly as before, calling `duho.run_command` — existing callers are
+unaffected.
 
 ## Examples
 

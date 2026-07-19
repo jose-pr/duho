@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **M14** Non-string config (TOML) values are now converted to the field type
   (`timeout = 30` for a `float` field -> `30.0`; a `list[Path]` array ->
   `[Path(...), ...]`) instead of being installed unconverted.
+- **C4** `duho.app()` now suppresses the root's inherited option defaults on
+  every registered subcommand parser, so a global given before the subcommand
+  (`myapp -v deploy`) and root env/config values survive to the dispatched
+  command. Required inherited globals are also un-required on the child (the
+  root parser still enforces them).
+- **C5** `app()` loads config once and applies the root layer before its
+  advisory prepass, and degrades to no-prepass on a `SystemExit`, so a required
+  global supplied by config no longer hard-exits with a usage error.
+- **M6** A command name registered by more than one source (e.g. a module and a
+  class command) now logs a warning naming both; the last registration wins and
+  dispatch resolves through the same single registry (previously argparse raised
+  `conflicting subparser`).
 
 ### Changed
 - Internal tidy-up (no behavior change): removed unused imports (`typing` in

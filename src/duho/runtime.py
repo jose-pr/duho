@@ -135,15 +135,24 @@ def _resolve_commands(
         return _discover_commands(source)
 
     if env is not None:
-        paths = []
-        try:
-            paths = env.list("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - env is best-effort here
-            paths = []
         resolved: "list[_Command]" = []
-        for path in paths:
-            if path:
-                resolved.extend(_discover_commands(path))
+        # Only touch CMDS_PATH when it is actually set and non-empty. A missing
+        # value must NOT be split/globbed -- that is what turned an unset var into
+        # "import every .py in the CWD" (C11). `Env.list` now returns [] for a
+        # missing/empty value, and this guard is the belt-and-braces layer.
+        raw = None
+        try:
+            raw = env.get("CMDS_PATH")  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - env is best-effort here
+            raw = None
+        if raw:
+            try:
+                paths = env.list("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover - env is best-effort here
+                paths = []
+            for path in paths:
+                if str(path):
+                    resolved.extend(_discover_commands(path))
         if resolved:
             return resolved
 

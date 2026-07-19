@@ -1329,7 +1329,7 @@ class Args(_argparse.Namespace):
             if "print_completion" not in actions_by_dest_pre2:
                 parser.add_argument(
                     "--print-completion",
-                    choices=("bash", "zsh", "fish"),
+                    choices=("bash", "zsh", "fish", "powershell"),
                     action=_PrintCompletionAction,
                     root_parser=parser,
                     dest="print_completion",
@@ -1687,6 +1687,7 @@ class UpdateAction(_argparse.Action):
 def print_completion(cls, shell: str, file=None) -> None:
     """Print a shell completion script for `cls` to `file` (default sys.stdout).
 
+    ``shell`` is one of ``"bash"``, ``"zsh"``, ``"fish"``, or ``"powershell"``.
     Standalone counterpart to the `--print-completion` flag injected when
     `_completion_ = True` -- builds cls's parser tree fresh (independent of
     whether `_completion_` is set) and delegates to `duho.completion.<shell>`.

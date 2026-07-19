@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   TOML-table config layers are supported. `UpdateAction` now makes a shallow
   per-occurrence copy instead of a `deepcopy`. `duho.Count()` counted flags
   (`-vvv` → `3`) are documented in the README type table.
+- **F2** Required mutually-exclusive groups: `NS(conflicts="grp",
+  conflicts_required=True)` on any member makes the whole group required
+  (argparse requires exactly one). Omitting all members errors; the group's
+  `required` flag is set at build time.
+- **F3** Titled argument groups: `NS(group="Section title")` buckets a field
+  under a named `--help` section (lazily created per title). A field combining
+  `group=` and `conflicts=` nests the mutually-exclusive group inside the titled
+  section.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

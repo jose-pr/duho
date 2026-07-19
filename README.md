@@ -187,6 +187,42 @@ Fields sharing the same `conflicts` string join the same group; use different
 strings for independent exclusive sets. (The `examples/fileinstall.py` `--type`
 field uses `NS(conflicts="type")` this way.)
 
+Add `conflicts_required=True` on **any** member to make the whole group
+required — the user must supply exactly one of its options:
+
+```python
+    push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
+    ("--push",)
+
+    pull: Arg[bool, NS(conflicts="mode")] = False
+    ("--pull",)
+```
+
+```bash
+python app.py            # error: one of --push, --pull is required
+python app.py --push     # ok
+```
+
+### Titled argument groups
+
+Set `NS(group="Section title")` to bucket fields under a named section in
+`--help`. Fields sharing a title join the same section; the rest stay under the
+default `options:`:
+
+```python
+class App(Args):
+    outfile: Arg[str, NS(group="Output options")] = "-"
+    "Where to write."
+    ("--outfile",)
+
+    verbose: Arg[bool, NS(group="Output options")] = False
+    "Verbose output."
+    ("--verbose",)
+```
+
+A field may combine `group=` and `conflicts=`: the mutually-exclusive group is
+nested inside the titled section (still exclusive, and shown under the title).
+
 ### Run your app
 
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses

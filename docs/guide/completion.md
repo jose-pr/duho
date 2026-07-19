@@ -1,13 +1,14 @@
 # Shell completion
 
-duho generates **static** completion scripts for bash, zsh, and fish. Static
-means the script is a plain shell function you install once — there's no runtime
-dependency and, unlike `argcomplete`, your program is not re-invoked on every
-keypress.
+duho generates **static** completion scripts for bash, zsh, fish, and PowerShell.
+Static means the script is a plain shell function you install once — there's no
+runtime dependency and, unlike `argcomplete`, your program is not re-invoked on
+every keypress.
 
 ## Adding the flag
 
-Set `_completion_ = True` to add a `--print-completion {bash,zsh,fish}` option:
+Set `_completion_ = True` to add a `--print-completion {bash,zsh,fish,powershell}`
+option:
 
 ```python
 import duho
@@ -29,6 +30,16 @@ app --print-completion zsh > ~/.zfunc/_app
 # fish
 app --print-completion fish > ~/.config/fish/completions/app.fish
 ```
+
+```powershell
+# PowerShell — emit and evaluate (add to your $PROFILE to persist)
+app --print-completion powershell | Out-String | Invoke-Expression
+```
+
+The PowerShell emitter registers a `Register-ArgumentCompleter -Native` script
+block that resolves the current subcommand path to its flags, subcommand names,
+and choice values; a command taking a free/path value offers nothing, so
+PowerShell's own file completion takes over.
 
 `_completion_` is off by default — the same opt-in precedent as `_version_` —
 so the flag doesn't clutter `--help` for tools that don't want it.

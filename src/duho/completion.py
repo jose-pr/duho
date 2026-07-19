@@ -1,4 +1,4 @@
-"""Shell completion script generation (bash/zsh/fish).
+"""Shell completion script generation (bash/zsh/fish/powershell).
 
 **Decision (do not revisit): STATIC script generation** -- these functions
 emit a self-contained completion script the user installs once, NOT a
@@ -6,8 +6,8 @@ dynamic argcomplete-style hook that re-invokes the program on every Tab.
 Zero runtime dependency, zero per-invocation cost: a core differentiator
 vs. argcomplete.
 
-All three emitters (`bash`, `zsh`, `fish`) share one parser-tree walk
-(`_walk`) that turns a *built* `argparse.ArgumentParser` into a plain,
+All four emitters (`bash`, `zsh`, `fish`, `powershell`) share one parser-tree
+walk (`_walk`) that turns a *built* `argparse.ArgumentParser` into a plain,
 shell-agnostic `CompletionSpec`. Only the emitters know shell syntax.
 
 Completion data is read off the built parser's private attrs
@@ -20,7 +20,15 @@ import dataclasses as _dc
 import pathlib as _pathlib
 import shlex as _shlex
 
-__all__ = ["CompletionOption", "CompletionPositional", "CompletionSpec", "bash", "zsh", "fish"]
+__all__ = [
+    "CompletionOption",
+    "CompletionPositional",
+    "CompletionSpec",
+    "bash",
+    "zsh",
+    "fish",
+    "powershell",
+]
 
 
 def _bashq(value: object) -> str:
@@ -56,6 +64,18 @@ def _sq(value: object) -> str:
     shell code (M2).
     """
     return "'" + str(value).replace("'", "'\\''") + "'"
+
+
+def _psq(value: object) -> str:
+    """Single-quote a value for a PowerShell single-quoted string literal.
+
+    PowerShell escapes an embedded single quote by *doubling* it (``''``), the
+    only metacharacter live inside a single-quoted literal -- so a hostile choice
+    like ``it's`` or ``$(rm)`` cannot break out of the quotes or be expanded
+    (single-quoted PS literals are non-interpolating). Same escaping discipline as
+    the bash/zsh/fish emitters (01-D3).
+    """
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 def _validate_prog(prog: str) -> str:
@@ -478,5 +498,139 @@ def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
                 parts = [f"complete -c {prog_q}"] + cond_args + ["-F"]
                 lines.append(" ".join(parts))
 
+    lines.append("")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# powershell
+# --------------------------------------------------------------------------
+
+
+def _powershell_candidates(spec: CompletionSpec) -> str:
+    """The general candidate list for a spec: flags + subcommand names + choices.
+
+    Rendered as a comma-separated list of PS single-quoted literals for a
+    ``@(...)`` array. Empty when the spec offers nothing (a command that only
+    takes a path/free value) -- the completer then returns nothing and PowerShell
+    falls through to its own (file) completion.
+    """
+    items = sorted({f for opt in spec.options for f in opt.flags})
+    items.extend(sorted(spec.subcommands))
+    for pos in spec.positionals:
+        if pos.choices:
+            items.extend(pos.choices)
+    return ", ".join(_psq(i) for i in items)
+
+
+def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
+    """Emit a PowerShell completion script for `parser`.
+
+    Registers a ``Register-ArgumentCompleter -Native`` script block that walks the
+    same `CompletionSpec` tree the other emitters use: it reconstructs the
+    (sub)command path from the non-flag words on the line (skipping the value that
+    follows a value-taking flag, mirroring the bash walker), then offers that
+    command's flags, subcommand names, and choice values. When the previous token
+    is a choice-bearing value flag, its choices are offered instead. A command
+    that only takes a free/path value offers nothing, so PowerShell's own file
+    completion takes over.
+
+    Every interpolated value (prog, flags, choices, command-path keys) is
+    single-quoted with PS quote-doubling via :func:`_psq` (01-D3), so a hostile
+    choice cannot break out of the generated script or be expanded.
+    """
+    root = _walk(parser, prog=prog)
+    root_prog = _validate_prog(root.prog)
+
+    # Flags that CONSUME a value: their following word is that value, not a
+    # subcommand -- skip it when reconstructing the command path (mirrors bash M8).
+    value_flags = sorted(
+        {
+            f
+            for spec in _all_specs(root)
+            for opt in spec.options
+            if opt.takes_value
+            for f in opt.flags
+        }
+    )
+
+    lines: "list[str]" = []
+    lines.append(f"# PowerShell completion for {root_prog}")
+    lines.append(
+        f"Register-ArgumentCompleter -Native -CommandName {_psq(root_prog)} "
+        f"-ScriptBlock {{"
+    )
+    lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
+    lines.append("")
+    lines.append("    $elements = @($commandAst.CommandElements)")
+    lines.append(
+        "    $valueFlags = @(" + ", ".join(_psq(f) for f in value_flags) + ")"
+    )
+    lines.append("")
+    lines.append("    # Reconstruct the (sub)command path from the non-flag words,")
+    lines.append("    # skipping the value that follows a value-taking flag.")
+    lines.append("    $cmdWords = @()")
+    lines.append("    $skipNext = $false")
+    lines.append("    for ($i = 1; $i -lt $elements.Count; $i++) {")
+    lines.append("        $el = $elements[$i].Extent.Text")
+    lines.append("        if ($el -eq $wordToComplete) { continue }")
+    lines.append("        if ($skipNext) { $skipNext = $false; continue }")
+    lines.append("        if ($el -like '-*') {")
+    lines.append("            if ($valueFlags -contains $el) { $skipNext = $true }")
+    lines.append("            continue")
+    lines.append("        }")
+    lines.append("        $cmdWords += $el")
+    lines.append("    }")
+    lines.append("    $cmdPath = ($cmdWords -join ' ')")
+    lines.append("")
+    lines.append("    # The token immediately before the word under the cursor.")
+    lines.append("    $prev = ''")
+    lines.append("    if ($elements.Count -ge 2) {")
+    lines.append("        $lastText = $elements[$elements.Count - 1].Extent.Text")
+    lines.append("        if ($lastText -eq $wordToComplete) {")
+    lines.append(
+        "            if ($elements.Count -ge 3) "
+        "{ $prev = $elements[$elements.Count - 2].Extent.Text }"
+    )
+    lines.append("        } else {")
+    lines.append("            $prev = $lastText")
+    lines.append("        }")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    $candidates = @()")
+
+    first = True
+    for spec in _all_specs(root):
+        key = spec.prog[len(root_prog):].strip()
+        cond = "if" if first else "elseif"
+        first = False
+        lines.append(f"    {cond} ($cmdPath -eq {_psq(key)}) {{")
+        general = _powershell_candidates(spec)
+        choice_opts = [o for o in spec.options if o.takes_value and o.choices]
+        if choice_opts:
+            lines.append("        switch -Exact ($prev) {")
+            for opt in choice_opts:
+                values = ", ".join(_psq(c) for c in opt.choices)
+                for flag in opt.flags:
+                    lines.append(
+                        f"            {_psq(flag)} {{ $candidates = @({values}); break }}"
+                    )
+            lines.append(f"            default {{ $candidates = @({general}) }}")
+            lines.append("        }")
+        else:
+            lines.append(f"        $candidates = @({general})")
+        lines.append("    }")
+
+    lines.append("")
+    lines.append(
+        '    $candidates | Where-Object { $_ -like "$wordToComplete*" } '
+        "| Sort-Object -Unique | ForEach-Object {"
+    )
+    lines.append(
+        "        [System.Management.Automation.CompletionResult]::new("
+        "$_, $_, 'ParameterValue', $_)"
+    )
+    lines.append("    }")
+    lines.append("}")
     lines.append("")
     return "\n".join(lines)

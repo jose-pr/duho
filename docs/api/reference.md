@@ -17,4 +17,5 @@ Generated from docstrings, organized by area:
   mixin.
 - **[Logging](logging.md)** — colored formatting, custom levels, and stderr
   setup helpers.
-- **[Completion](completion.md)** — bash/zsh/fish completion-script generation.
+- **[Completion](completion.md)** — bash/zsh/fish/PowerShell completion-script
+  generation.

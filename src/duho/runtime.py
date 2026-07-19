@@ -488,7 +488,10 @@ def app(
     # `_apply_app_config_layers` re-applies it (idempotent) alongside each class
     # command's own table after registration.
     config_path = config if config is not None else getattr(root_cls, "_config_", None)
-    raw_config: dict = _load_config(config_path) if config_path is not None else {}
+    config_loader = getattr(root_cls, "_config_loader_", None)
+    raw_config: dict = (
+        _load_config(config_path, config_loader) if config_path is not None else {}
+    )
     _apply_default_layers_one(parser, root_cls, raw_config)
 
     # A prepass parsed root instance is offered to module ``register`` hooks so a

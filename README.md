@@ -495,6 +495,28 @@ duho[config]`) — duho stays zero-runtime-dependency by default, so this
 extra is only needed if you actually use `_config_`/`config=` on an older
 interpreter.
 
+**JSON config**: a config path ending in `.json` is parsed as JSON (stdlib, no
+extra dependency), producing the same nested-dict shape as TOML — top-level keys
+map to the root, a nested object named for a subcommand maps to that subcommand:
+
+```json
+{ "verbose": true, "install": { "target": "prod" } }
+```
+
+**Any other format via `_config_loader_`**: set a class-level
+`_config_loader_ = Callable[[Path], dict]` and duho calls it *instead of* the
+built-in JSON/TOML dispatch. This is the zero-dependency escape hatch for a
+format duho does not ship — e.g. YAML, plugged with your own `yaml.safe_load`,
+without duho ever importing or depending on it:
+
+```python
+import yaml
+
+class Deploy(duho.Cli):
+    _config_ = "./deploy.yaml"
+    _config_loader_ = staticmethod(lambda path: yaml.safe_load(path.read_text()) or {})
+```
+
 **Env/config value conversion.** Layered values are converted to match what CLI
 parsing of the same field yields. A `bool` field reads `1/true/yes/on/y/t` as
 `True` and `0/false/no/off/n/f`/empty as `False` (an unknown string is an error).

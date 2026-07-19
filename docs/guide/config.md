@@ -78,6 +78,46 @@ use `_config_` / `config=` on an older interpreter. If neither backend is
 available, duho raises a clear error telling you to install it, rather than
 failing obscurely.
 
+### JSON support
+
+A config path ending in `.json` is parsed as JSON using the standard library —
+no extra dependency. JSON produces the same nested-dict shape as TOML, so
+top-level keys map to the root and a nested object named for a subcommand maps to
+that subcommand's fields:
+
+```json
+{
+  "token": "abc123",
+  "verbose": true,
+  "install": { "target": "prod" }
+}
+```
+
+`json` is imported lazily (only when a `.json` config is actually loaded), and a
+malformed file raises a clear error naming the file.
+
+### Any other format: `_config_loader_`
+
+To read a format duho does not ship (YAML, INI, …) **without adding a
+dependency**, set a class-level `_config_loader_` — a `Callable[[Path], dict]`
+that duho calls *instead of* the built-in JSON/TOML dispatch. You bring the
+parser; duho never imports it:
+
+```python
+import yaml  # your dependency, not duho's
+
+class Deploy(duho.Cli):
+    _config_ = "./deploy.yaml"
+    _config_loader_ = staticmethod(
+        lambda path: yaml.safe_load(path.read_text()) or {}
+    )
+```
+
+The hook receives the expanded `Path` and must return the config `dict`; the
+layering, precedence, and subcommand-table rules are identical to the built-in
+loaders. This keeps duho's zero-runtime-dependency contract while supporting any
+config format you like.
+
 ## Where did this value come from?
 
 `duho.value_sources(parsed)` reports which layer won for each field:

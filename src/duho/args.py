@@ -1210,20 +1210,60 @@ class Args(_argparse.Namespace):
                     help="Print a shell completion script for the given shell and exit.",
                 )
 
+        # F2: a mutually-exclusive group is *required* when ANY of its members
+        # declares NS(conflicts_required=True). Groups are created lazily on the
+        # first member, so pre-compute requiredness across all members here and
+        # pass it at creation (argparse fixes `required` at group-build time).
+        required_by_conflicts: "dict[str, bool]" = {}
+        for arg in cls._getargs_():
+            conflicts = getattr(arg, "conflicts", None)
+            if conflicts:
+                required_by_conflicts[conflicts] = required_by_conflicts.get(
+                    conflicts, False
+                ) or bool(getattr(arg, "conflicts_required", False))
+
+        # F3: titled argument groups (NS(group="...")), created lazily per title.
+        # Persisted on the parser so a parents=[...] merge / subclass override can
+        # reuse them, mirroring `exclusive_groups`.
+        titled_groups: "dict[str, object]" = getattr(
+            parser, "_duho_titled_groups_", None
+        ) or {}
+
         actions_by_dest = {action.dest: action for action in parser._actions}
         for arg in cls._getargs_():
             _action = actions_by_dest.get(arg.name)
-            if not _action:
-                conflicts = getattr(arg, "conflicts", None)
-                if conflicts:
-                    if conflicts not in exclusive_groups:
-                        exclusive_groups[conflicts] = (
-                            parser.add_mutually_exclusive_group()
-                        )
-                    group = exclusive_groups[conflicts]
-                else:
-                    group = parser
-                _action = arg.add_to_parser(group)
+            if _action:
+                continue
+            conflicts = getattr(arg, "conflicts", None)
+            group_title = getattr(arg, "group", None)
+
+            # The container the field's argument is added to: a titled group
+            # (F3) when NS(group=...) is set, else the parser itself.
+            if group_title is not None:
+                if group_title not in titled_groups:
+                    titled_groups[group_title] = parser.add_argument_group(
+                        group_title
+                    )
+                container = titled_groups[group_title]
+            else:
+                container = parser
+
+            if conflicts:
+                # A conflicts= member lives in a mutually-exclusive group. When
+                # it ALSO declares group=, nest the exclusive group inside the
+                # titled group (argparse supports it), keyed by (group,
+                # conflicts); otherwise it's a top-level group keyed by conflicts
+                # (so `parser.exclusive_groups["type"]` keeps working).
+                key = (group_title, conflicts) if group_title is not None else conflicts
+                if key not in exclusive_groups:
+                    exclusive_groups[key] = container.add_mutually_exclusive_group(
+                        required=required_by_conflicts.get(conflicts, False)
+                    )
+                group = exclusive_groups[key]
+            else:
+                group = container
+
+            _action = arg.add_to_parser(group)
 
         # Expose the built mutually-exclusive groups on the parser so a subclass
         # `_parser_` override can add extra options into a `conflicts=`-built
@@ -1235,6 +1275,7 @@ class Args(_argparse.Namespace):
             existing.update(exclusive_groups)
         else:
             parser.exclusive_groups = exclusive_groups
+        parser._duho_titled_groups_ = titled_groups  # type:ignore[attr-defined]
 
         return parser
 

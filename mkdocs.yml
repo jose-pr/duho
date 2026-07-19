@@ -35,9 +35,11 @@ nav:
       - Configuration layers: guide/config.md
       - Logging: guide/logging.md
       - Shell completion: guide/completion.md
+      - Plugins via entry points: guide/plugins.md
   - API Reference:
       - Overview: api/reference.md
       - Args: api/args.md
+      - Discovery: api/discovery.md
       - Presets: api/presets.md
       - Logging: api/logging.md
       - Completion: api/completion.md

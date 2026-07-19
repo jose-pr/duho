@@ -33,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (an `NS(...)` typo silently vanishes); only the fields you set are merged.
   `NS` keeps working. PEP-727 `Doc` duck-typing (a metadata object with a str
   `.documentation` attr contributes help) is documented.
+- **F6** Entry-points plugin discovery: `duho.app(root, entry_points="group")`
+  loads commands advertised by installed distributions' entry points in `group`,
+  coercing each to a command (a `Cmd` subclass → class command; a module →
+  module command) through the same path as every other source. Loading is
+  resilient — a plugin that fails to import or does not resolve to a command
+  warns and is skipped. New public `duho.discover_entry_points(group)`.
+  `importlib.metadata` stays lazily imported (only entry-point discovery loads
+  it). Sits in `app`'s source precedence after `source=` and before the
+  `CMDS_PATH` env layer.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
@@ -69,6 +78,12 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
   pay). All benchmark tooling is stdlib-only and stays excluded from the sdist.
 
 ### Fixed
+- Building a parser for a bare framework base class used directly as a root
+  (`duho.app(root=None)` builds `Args._parser_()`) no longer persists
+  `_parsername_` onto the shared `Args`/`Cmd`/`Cli` base. Previously that name
+  leaked via inheritance to every subclass, so a later `app(root=None, ...)`
+  mis-derived subcommand names (`invalid choice: 'Deploy' (choose from 'Args')`).
+  Surfaced by F6's plugin-only apps, which commonly run with no explicit root.
 - **C1** `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
   map to `False` (previously `bool("false")` was `True`); an unknown string is
   a clear error naming the field and source.

@@ -24,4 +24,28 @@ def get_level_names_mapping() -> dict[str, int]:
     return _logging._nameToLevel.copy()
 
 
-__all__ = ["UNION_ORIGINS", "get_level_names_mapping"]
+def iter_entry_points(group: str) -> "list":
+    """Return the installed-distribution entry points in ``group`` (F6).
+
+    Bridges the two ``importlib.metadata.entry_points`` shapes:
+
+    * **3.10+** -- ``entry_points(group=...)`` accepts a ``group`` keyword and
+      returns a selectable view of the matching entry points.
+    * **3.9** -- ``entry_points()`` takes no arguments and returns a ``dict``
+      keyed by group name; select ``group`` out of it.
+
+    ``importlib.metadata`` is imported lazily *inside* this helper (never at
+    module top) so a plain ``import duho`` never pays its import cost -- only an
+    app that actually opts into ``entry_points=`` discovery triggers the load
+    (startup budget, plan 02 P1).
+    """
+    import importlib.metadata as _md
+
+    try:
+        return list(_md.entry_points(group=group))
+    except TypeError:
+        # Python 3.9: entry_points() takes no kwargs and returns {group: [...]}.
+        return list(_md.entry_points().get(group, []))
+
+
+__all__ = ["UNION_ORIGINS", "get_level_names_mapping", "iter_entry_points"]

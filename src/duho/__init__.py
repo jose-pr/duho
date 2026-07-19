@@ -33,6 +33,7 @@ from .discovery import (
     Command,
     ModuleCommand,
     discover_commands,
+    discover_entry_points,
     register_command_provider,
 )
 from .env import Env
@@ -77,6 +78,7 @@ __all__ = [
     "Const",
     "Count",
     "discover_commands",
+    "discover_entry_points",
     "Env",
     "expand",
     "Extend",

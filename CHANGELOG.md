@@ -96,6 +96,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **M22** A module command's `success` hook runs only on a successful exit (not
   for a non-zero exit code), and a raising `finally_` no longer masks the original
   exception.
+- **C12** The zsh emitter emits valid multi-flag optspecs
+  (`'(-v --verbose)'{-v,--verbose}'[option]'`), rebuilds the command path from
+  non-option words, and drops the dead `_describe` call.
+- **M2** Completion scripts escape every interpolated value: bash word lists
+  neutralise command substitution (a hostile choice like `$(...)` no longer runs
+  at Tab-press), zsh/fish single-quoted contexts escape embedded quotes, and a
+  program name with whitespace/metacharacters is rejected.
+- **M8** The bash emitter skips the value following a value-taking flag when
+  reconstructing the command path (`myapp --env prod deploy <TAB>` now completes).
+- **fish** Single-dash multi-char flags are emitted with `-o` (old-style) rather
+  than `-s`, and a subcommand's `-d` description is its one-line help.
 
 ### Changed
 - **C11 (breaking-ish)** `duho.Env.list` returns `[]` for a missing or empty

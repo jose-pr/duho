@@ -14,6 +14,14 @@ from pathlib import Path as _Path
 # their source entirely (stops re-parsing e.g. argparse.py for Namespace).
 _SKIP_MODULES = frozenset({"argparse", "builtins", "typing"})
 
+# ``try/except*`` (PEP 654, 3.11+) carries the same statement-body fields as a
+# plain ``Try``; reference it via ``getattr`` so the isinstance check is a no-op
+# on 3.9/3.10 where the node type does not exist. Together with ``ast.Try`` this
+# lets the P3 statement-only walk descend both try forms.
+_TRY_TYPES = tuple(
+    t for t in (_ast.Try, getattr(_ast, "TryStar", None)) if t is not None
+)
+
 
 @_functools.lru_cache(maxsize=None)
 def _module_index(filename: str) -> "dict[str, _ast.ClassDef]":
@@ -31,18 +39,44 @@ def _module_index(filename: str) -> "dict[str, _ast.ClassDef]":
     src = _Path(filename).read_text(encoding="utf-8")
     tree = _ast.parse(src)
 
-    def walk(node, prefix: str):
-        for child in _ast.iter_child_nodes(node):
+    def walk(body, prefix: str):
+        # Recurse only into STATEMENT containers, not `ast.iter_child_nodes` on
+        # every node (P3). A ClassDef/FunctionDef can only appear as a statement
+        # in some enclosing statement's body -- never inside an expression -- so
+        # walking only the statement-carrying fields (`body`/`orelse`/`finalbody`
+        # and each except handler's `body`) reaches every class while skipping the
+        # deep expression/argument/decorator subtrees `iter_child_nodes` descends.
+        # Qualname reconstruction is preserved exactly: a ClassDef appends
+        # "Name.", a Function/AsyncFunctionDef appends "name.<locals>.".
+        for child in body:
             if isinstance(child, _ast.ClassDef):
                 qualname = prefix + child.name
                 index[qualname] = child
-                walk(child, qualname + ".")
+                walk(child.body, qualname + ".")
             elif isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-                walk(child, prefix + child.name + ".<locals>.")
-            else:
-                walk(child, prefix)
+                walk(child.body, prefix + child.name + ".<locals>.")
+            elif isinstance(child, _ast.If):
+                walk(child.body, prefix)
+                walk(child.orelse, prefix)
+            elif isinstance(child, (_ast.For, _ast.AsyncFor, _ast.While)):
+                walk(child.body, prefix)
+                walk(child.orelse, prefix)
+            elif isinstance(child, (_ast.With, _ast.AsyncWith)):
+                walk(child.body, prefix)
+            elif isinstance(child, _TRY_TYPES):
+                walk(child.body, prefix)
+                for handler in child.handlers:
+                    walk(handler.body, prefix)
+                walk(child.orelse, prefix)
+                walk(child.finalbody, prefix)
+            elif isinstance(child, getattr(_ast, "Match", ())):
+                # Structural pattern matching (PEP 634, 3.10+): a class can be
+                # defined inside a case body. ``getattr(..., ())`` makes the
+                # isinstance check a no-op on 3.9 where ``ast.Match`` is absent.
+                for case in child.cases:
+                    walk(case.body, prefix)
 
-    walk(tree, "")
+    walk(tree.body, "")
     return index
 
 

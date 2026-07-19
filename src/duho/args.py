@@ -912,6 +912,19 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
 
 
 class Args(_argparse.Namespace):
+    #: Pre-seeded empty class-body-constants cache (P2). ``_class_constants``
+    #: (``_introspect``) short-circuits on ``"_duho_constants_" in vars(cls)``,
+    #: so seeding it here means building ANY user parser never AST-parses
+    #: duho's own ``args.py`` to scan these framework base classes for
+    #: class-body flag/env/docstring metadata -- they declare none. This is
+    #: safe ONLY because ``Args``/``Cmd``/``Cli`` carry no real CLI-field
+    #: declarations in their bodies. A subclass that DOES declare fields gets
+    #: its OWN ``vars(cls)`` entry populated by the normal scan (the seed is
+    #: per-class in ``vars``, never inherited into the MRO walk), and
+    #: ``presets.LoggingArgs`` deliberately is NOT seeded because its class body
+    #: declares real fields whose flags-tuples must still be scanned.
+    _duho_constants_: dict = {}
+
     def __init__(self, **kwargs):
         # Namespace.__init__ only setattrs what's passed, so a directly-built
         # instance (or the self-cloning `type(self)(**self._get_kwargs())`
@@ -1191,6 +1204,11 @@ class Cmd(Args):
     order reads "add logging to a command".
     """
 
+    #: Own empty class-body-constants cache (P2): ``Cmd``'s body declares no
+    #: real CLI fields (only ``_passthrough_`` and ``__call__``), so seeding
+    #: this skips AST-parsing ``args.py`` for it. See ``Args._duho_constants_``.
+    _duho_constants_: dict = {}
+
     #: argv captured after the first literal ``--`` separator (parse-time);
     #: an empty list when no ``--`` was present. Populated on the parsed
     #: instance by ``_initparser_``'s patched ``parse_known_args``.
@@ -1244,6 +1262,12 @@ class Cli(Cmd):
     field namespace stays 100% user-owned (annotated non-underscore attrs
     still become CLI fields).
     """
+
+    #: Own empty class-body-constants cache (P2): every field ``Cli`` declares
+    #: is sandwich-named (``_version_``, ``_completion_``, ...) and gets filtered
+    #: out by ``get_clsargs`` anyway, so seeding this skips AST-parsing
+    #: ``args.py`` for ``Cli``. See ``Args._duho_constants_``.
+    _duho_constants_: dict = {}
 
     #: ``--version`` string, the ``AUTO`` sentinel (resolve via
     #: ``importlib.metadata``), or ``None`` for no ``--version`` flag. Read by

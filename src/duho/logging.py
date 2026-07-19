@@ -8,16 +8,35 @@ from ._compat import get_level_names_mapping
 if _ty.TYPE_CHECKING:
     from logging import *  # type:ignore
 
-    import colorama as __coloroma #type:ignore
+    import colorama as _colorama  # type:ignore
 
     TRACE: int
 
-try:
-    import colorama as _color  # type: ignore
+#: Cached colorama module (or ``None`` when unavailable / not yet resolved).
+#: ``import colorama`` costs ~3-5 ms and is only ever needed to translate a
+#: NAMED color spec ("red", "red+white") into an ANSI sequence -- the built-in
+#: level colors are hard-coded ANSI (see ``DefaultFormatter.COLORS``), so a
+#: plain ``import duho`` must not pay it. Resolved lazily on first use in
+#: ``_getcolor`` and memoized here (``False`` = "tried, absent") (P4).
+_color: "object | bool | None" = False
 
-except ImportError:
 
-    _color = _ty.cast("__coloroma", None)
+def _resolve_colorama():
+    """Return the imported ``colorama`` module, or ``None`` if unavailable.
+
+    Imports ``colorama`` on first call and caches the result (the module or
+    ``None``) on the module-global ``_color``, so the potentially-missing
+    dependency is probed exactly once and only when a named color is actually
+    requested (P4). The sentinel ``False`` means "not yet probed".
+    """
+    global _color
+    if _color is False:
+        try:
+            import colorama as _colorama  # type:ignore
+        except ImportError:
+            _colorama = None  # type:ignore
+        _color = _colorama
+    return _color
 
 
 def __getattr__(name: str):
@@ -41,11 +60,12 @@ def _getcolor(color: str):
     # old ``color.isalpha()`` check rejected the documented "fore+back" form
     # (the "+" is not alpha), so the compound spec was returned verbatim (M9).
     if color.replace("+", "").isalpha():
-        if not _color:
+        colorama = _resolve_colorama()
+        if not colorama:
             return ""
         fore, back, *_ = color.split("+") + ["", ""]
-        fore = (getattr(_color.Fore, fore.upper(), "") or "") if fore else ""
-        back = (getattr(_color.Back, back.upper(), "") or "") if back else ""
+        fore = (getattr(colorama.Fore, fore.upper(), "") or "") if fore else ""
+        back = (getattr(colorama.Back, back.upper(), "") or "") if back else ""
         return fore + back
 
     return color

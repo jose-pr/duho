@@ -5,121 +5,97 @@ Produces a comparable JSON result plus a human summary. Save a run to the
 history with --save; results land in benchmarks/results/<name>.json where
 <name> defaults to duho-<version>-py<major><minor>.
 
-    python benchmarks/run.py            # print summary only
-    python benchmarks/run.py --save     # also write benchmarks/results/<name>.json
+    python benchmarks/run.py            # print summary (warm metrics)
+    python benchmarks/run.py --cold     # also run the cold (per-invocation) set
+    python benchmarks/run.py --save     # write benchmarks/results/<name>.json
+    python benchmarks/run.py --json PATH # write the metrics JSON to PATH
     python benchmarks/run.py --name foo # custom result name
 
 Each metric is sampled `repeat` times (each sample is `inner` iterations) and
 reported as min/median/max ms-per-call, so run-to-run timing noise is visible
 rather than averaged away. Counts are fixed so numbers stay comparable across
 runs and commits. Requires duho importable (PYTHONPATH=src, or installed).
+
+Warm metrics (caches populated) are the ones CI regression-gates -- see
+check_baseline.py. Cold metrics reproduce the real per-invocation cost and are
+reported for insight, not gated (they are dominated by ast.parse noise).
 """
 import argparse
 import json
 import platform
-import statistics
 import sys
-import timeit
-import typing as ty
 from datetime import datetime, timezone
 from pathlib import Path
 
-import duho
-from duho import Args
+# benchmarks/ is not a package; make the sibling _bench importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-BUILD_INNER = 200
-PARSE_INNER = 2000
-REPEAT = 5
-
-
-class SimpleArgs(Args):
-    """Simple argument set."""
-    name: str
-    ("--name",)
-    count: int = 1
-    ("--count",)
+import duho  # noqa: E402
+import _bench  # noqa: E402
 
 
-class ComplexArgs(Args):
-    """Complex argument set with many fields."""
-    name: str
-    ("--name",)
-    version: str = "1.0.0"
-    ("--version",)
-    output: str = "output.txt"
-    ("--output",)
-    verbose: bool = False
-    ("--verbose",)
-    dry_run: bool = False
-    ("--dry-run",)
-    config: ty.Optional[str] = None
-    ("--config",)
-    workers: int = 4
-    ("--workers",)
-
-
-def sample(fn, inner, repeat=REPEAT):
-    """Return ms-per-call as min/median/max over `repeat` samples."""
-    fn()  # warmup
-    per_call = [timeit.timeit(fn, number=inner) / inner * 1000 for _ in range(repeat)]
-    return {
-        "median_ms": round(statistics.median(per_call), 4),
-        "min_ms": round(min(per_call), 4),
-        "max_ms": round(max(per_call), 4),
-    }
-
-
-def measure():
-    simple = duho.parser(SimpleArgs)
-    complex_ = duho.parser(ComplexArgs)
-    return {
-        "build.simple": sample(lambda: duho.parser(SimpleArgs), BUILD_INNER),
-        "build.complex": sample(lambda: duho.parser(ComplexArgs), BUILD_INNER),
-        "parse.simple": sample(
-            lambda: simple.parse_args(["--name", "test", "--count", "5"]), PARSE_INNER
-        ),
-        "parse.complex": sample(
-            lambda: complex_.parse_args(
-                ["--name", "app", "--version", "2.0.0", "--output", "out.txt",
-                 "--verbose", "--config", "app.yml", "--workers", "8"]
-            ),
-            PARSE_INNER,
-        ),
-    }
+def _print_table(title, metrics):
+    print(title)
+    print(f"{'metric':22s} {'median':>10s} {'min':>10s} {'max':>10s}   (ms/call)")
+    for key, m in metrics.items():
+        print(
+            f"{key:22s} {m['median_ms']:10.4f} {m['min_ms']:10.4f} "
+            f"{m['max_ms']:10.4f}"
+        )
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Run duho benchmarks")
-    ap.add_argument("--save", action="store_true", help="write result to benchmarks/results/")
-    ap.add_argument("--name", default=None, help="result name (default duho-<ver>-py<ver>)")
+    ap.add_argument(
+        "--save", action="store_true", help="write result to benchmarks/results/"
+    )
+    ap.add_argument(
+        "--name", default=None, help="result name (default duho-<ver>-py<ver>)"
+    )
+    ap.add_argument(
+        "--cold", action="store_true", help="also run the cold (per-invocation) set"
+    )
+    ap.add_argument("--json", default=None, help="write the metrics JSON to PATH")
     args = ap.parse_args(argv)
 
     pyver = f"py{sys.version_info.major}{sys.version_info.minor}"
     name = args.name or f"duho-{duho.__version__}-{pyver}"
-    metrics = measure()
+
+    warm = _bench.warm_metrics()
+    cold = _bench.cold_metrics() if args.cold else {}
+    metrics = {**warm, **cold}
+
     result = {
         "name": name,
         "duho_version": duho.__version__,
         "python": platform.python_version(),
+        "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
         "platform": platform.platform(),
         "processor": platform.processor() or platform.machine(),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "iterations": {"build_inner": BUILD_INNER, "parse_inner": PARSE_INNER, "repeat": REPEAT},
+        "iterations": {
+            "build_inner": _bench.BUILD_INNER,
+            "parse_inner": _bench.PARSE_INNER,
+            "repeat": _bench.REPEAT,
+        },
         "metrics": metrics,
     }
 
     print("=== Duho Benchmark ===")
     print(f"{name}  ({result['python']} on {result['processor']})")
-    print(f"{'metric':16s} {'median':>10s} {'min':>10s} {'max':>10s}   (ms/call)")
-    for key, m in metrics.items():
-        print(f"{key:16s} {m['median_ms']:10.4f} {m['min_ms']:10.4f} {m['max_ms']:10.4f}")
+    _print_table("\n-- warm (cached; gated) --", warm)
+    if cold:
+        _print_table("\n-- cold (per-invocation; informational) --", cold)
 
     if args.save:
         dest = Path(__file__).resolve().parent / "results"
         dest.mkdir(parents=True, exist_ok=True)
         out = dest / f"{name}.json"
         out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-        print(f"saved: {out}")
+        print(f"\nsaved: {out}")
+    if args.json:
+        Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        print(f"json: {args.json}")
     return 0
 
 

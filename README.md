@@ -124,6 +124,11 @@ class Copy(Args):
 | `Union`/`Optional` containing an `Enum` | The Enum member is matched by **name**, same as a bare `enum.Enum` field — a name match wins before falling through to a later `str` member, so declaration order matters (`Union[Color, str]` with `--c RED` yields `Color.RED`, while `--c other` yields the string `"other"`) |
 | `Arg[int, duho.Count()]` | A repeatable counted flag (`-vvv` → `3`), via argparse `action="count"`. The value is the number of occurrences; pair a short flag like `("-v",)` with it. `LoggingArgs` uses this for `-v`/`-q` |
 
+**Negative numbers** work as values out of the box — `--temp -5` and a positional
+`int` accepting `-3` both parse correctly (argparse's `_negative_number_matcher`
+handles them as long as no option is itself declared to look like `-1`). If you
+truly need a `-1`-style flag, use the `NS(kwargs=...)` escape hatch.
+
 ### Positional arguments
 
 A flags-tuple whose single entry does **not** start with `-` declares a

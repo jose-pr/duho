@@ -1,0 +1,102 @@
+{
+  "3.10": {
+    "measured": "2026-07-19T17:44:32+00:00",
+    "startup": {
+      "e2e_delta": 40.57,
+      "import_duho_delta": 36.59
+    },
+    "warm": {
+      "build.complex": 0.2043,
+      "build.enum": 0.0948,
+      "build.list": 0.0957,
+      "build.literal": 0.1018,
+      "build.set": 0.094,
+      "build.simple": 0.1102,
+      "build.tuple": 0.0919,
+      "build.union": 0.0914,
+      "parse.complex": 0.0487,
+      "parse.simple": 0.0222,
+      "tree.build.1": 0.2333,
+      "tree.build.10": 1.4856,
+      "tree.build.50": 6.9583,
+      "tree.parse.1": 0.0481,
+      "tree.parse.10": 0.0485,
+      "tree.parse.50": 0.0488
+    }
+  },
+  "3.11": {
+    "measured": "2026-07-19T17:44:39+00:00",
+    "startup": {
+      "e2e_delta": 40.75,
+      "import_duho_delta": 39.4
+    },
+    "warm": {
+      "build.complex": 0.1786,
+      "build.enum": 0.0795,
+      "build.list": 0.0797,
+      "build.literal": 0.0839,
+      "build.set": 0.0792,
+      "build.simple": 0.0954,
+      "build.tuple": 0.0785,
+      "build.union": 0.0793,
+      "parse.complex": 0.0379,
+      "parse.simple": 0.017,
+      "tree.build.1": 0.1944,
+      "tree.build.10": 1.2763,
+      "tree.build.50": 6.1462,
+      "tree.parse.1": 0.042,
+      "tree.parse.10": 0.0414,
+      "tree.parse.50": 0.0419
+    }
+  },
+  "3.12": {
+    "measured": "2026-07-19T17:44:45+00:00",
+    "startup": {
+      "e2e_delta": 50.38,
+      "import_duho_delta": 44.44
+    },
+    "warm": {
+      "build.complex": 0.1872,
+      "build.enum": 0.0793,
+      "build.list": 0.0863,
+      "build.literal": 0.0789,
+      "build.set": 0.0837,
+      "build.simple": 0.1052,
+      "build.tuple": 0.0802,
+      "build.union": 0.0785,
+      "parse.complex": 0.0385,
+      "parse.simple": 0.0173,
+      "tree.build.1": 0.2001,
+      "tree.build.10": 1.3555,
+      "tree.build.50": 6.2215,
+      "tree.parse.1": 0.041,
+      "tree.parse.10": 0.0409,
+      "tree.parse.50": 0.0401
+    }
+  },
+  "3.13": {
+    "measured": "2026-07-19T17:44:52+00:00",
+    "startup": {
+      "e2e_delta": 46.43,
+      "import_duho_delta": 41.87
+    },
+    "warm": {
+      "build.complex": 0.1752,
+      "build.enum": 0.0736,
+      "build.list": 0.0757,
+      "build.literal": 0.0763,
+      "build.set": 0.0763,
+      "build.simple": 0.0955,
+      "build.tuple": 0.0761,
+      "build.union": 0.073,
+      "parse.complex": 0.0362,
+      "parse.simple": 0.0161,
+      "tree.build.1": 0.197,
+      "tree.build.10": 1.2597,
+      "tree.build.50": 5.64,
+      "tree.parse.1": 0.0396,
+      "tree.parse.10": 0.0387,
+      "tree.parse.50": 0.0382
+    }
+  }
+}

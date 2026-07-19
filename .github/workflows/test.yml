@@ -87,10 +87,21 @@ jobs:
       - name: Install package
         run: python -m pip install -e ".[dev,colorama,config]"
       - name: Run benchmarks
-        run: python benchmarks/run.py --save --name "duho-ci-py${{ matrix.python-version }}"
-      - name: Compare cached vs uncached parser construction
+        run: python benchmarks/run.py --cold --save --json benchmarks/results/warm-py${{ matrix.python-version }}.json --name "duho-ci-py${{ matrix.python-version }}"
+      - name: Fresh-process startup benchmarks
+        run: python benchmarks/bench_startup.py -n 12 --json benchmarks/results/startup-py${{ matrix.python-version }}.json
+      - name: Discovery benchmark
+        run: python benchmarks/bench_discovery.py -n 5
+      - name: Compare cold vs warm parser construction
         run: python benchmarks/compare_cache.py
+      - name: Regression gate (vs committed baseline)
+        # Fails only on a structural regression: >1.5x on warm-metric medians,
+        # >1.3x on the startup deltas (which normalize out runner speed). A
+        # Python version without a committed baseline entry is skipped, not
+        # failed -- regenerate baselines with benchmarks/update_baseline.py.
+        run: python benchmarks/check_baseline.py -n 12
       - name: Upload benchmark result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-py${{ matrix.python-version }}

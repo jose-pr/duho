@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""A/B benchmark: parser construction with and without duho's AST caches.
+"""A/B benchmark: parser construction COLD (per-invocation) vs WARM (cached).
 
-The pre-0.1.0 prototype re-read the class's source file and re-ran ast.parse()
-on every build_parser() call, for every class in the MRO. 0.1.0 caches the
-module AST index and the per-class argument declarations.
+duho caches the module AST index and the per-class argument declarations
+(`_duho_constants_`, `_duho_clsargs_`, `_duho_builders_`). Those caches persist
+for the life of a process but die with it -- so the COLD path (caches dropped,
+class source re-read and `ast.parse`-d for every class in the MRO) is exactly
+what a real, run-once CLI *invocation* pays, while the WARM path is what a
+long-lived process or a repeated in-process build pays.
 
 This script measures both paths in the SAME process on the SAME machine, so the
 two numbers are directly comparable -- unlike comparing a historical local run
-against a current one. Run it in CI for numbers worth quoting.
+against a current one. The COLD number is the one that matters for CLI startup;
+the ratio shows how much the caches save a warm caller.
 
     python benchmarks/compare_cache.py
 """
@@ -79,7 +83,7 @@ def build_uncached(cls):
 
 
 def main():
-    print("=== duho: parser build, uncached (prototype path) vs cached (0.1.0) ===")
+    print("=== duho: parser build, COLD (per-invocation) vs WARM (cached) ===")
     print(f"python {sys.version.split()[0]}")
     print(f"{'case':22s} {'median':>10s} {'min':>10s} {'max':>10s}   (ms/call)")
 
@@ -90,16 +94,17 @@ def main():
         ca = sample(lambda c=cls: duho.parser(c), CACHED_INNER)
         results[label] = (un, ca)
 
-        print(f"{label + ' uncached':22s} {un['median_ms']:10.4f} "
+        print(f"{label + ' cold':22s} {un['median_ms']:10.4f} "
               f"{un['min_ms']:10.4f} {un['max_ms']:10.4f}")
-        print(f"{label + ' cached':22s} {ca['median_ms']:10.4f} "
+        print(f"{label + ' warm':22s} {ca['median_ms']:10.4f} "
               f"{ca['min_ms']:10.4f} {ca['max_ms']:10.4f}")
 
     print()
     for label, (un, ca) in results.items():
         if ca["median_ms"]:
-            print(f"{label}: {un['median_ms'] / ca['median_ms']:.0f}x faster "
-                  f"({un['median_ms']:.2f} ms -> {ca['median_ms']:.3f} ms, median)")
+            print(f"{label}: warm is {un['median_ms'] / ca['median_ms']:.0f}x the "
+                  f"cold build ({un['median_ms']:.2f} ms cold -> {ca['median_ms']:.3f} "
+                  f"ms warm, median)")
     return 0
 
 

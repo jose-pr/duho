@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   class), skipping a redundant `inspect.getsource` re-parse that would fail
   anyway. The REPL/`exec` no-module-file case still uses the fallback.
 
+Combined, P1-P5 cut fresh-process `import duho` from ~75 ms to ~51 ms and
+end-to-end import+build+parse from ~90 ms to ~55 ms, and the cold 10-subcommand
+tree build from ~41 ms to ~10 ms (min, reference machine).
+
+### Changed
+- **P6** Benchmark harness upgraded so the wins stay visible: fresh-process
+  startup deltas (`benchmarks/bench_startup.py`), subcommand-tree scaling and a
+  field-type matrix (`benchmarks/run.py`), a command-discovery benchmark
+  (`benchmarks/bench_discovery.py`), a committed `benchmarks/baseline.json` with
+  `update_baseline.py`/`check_baseline.py`, and a CI regression gate (fails at
+  >1.5x on warm-metric medians / >1.3x on startup deltas). `compare_cache.py`
+  output is re-labelled cold-vs-warm (the cold path is what real invocations
+  pay). All benchmark tooling is stdlib-only and stays excluded from the sdist.
+
 ### Fixed
 - **C1** `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
   map to `False` (previously `bool("false")` was `True`); an unknown string is

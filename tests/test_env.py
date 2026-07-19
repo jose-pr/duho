@@ -120,6 +120,55 @@ class TestSetDelItem:
         assert "KEY" not in e._env
 
 
+class TestMappingProtocol:
+    """MutableMapping surface: pop / popitem / iteration after seeding (T6)."""
+
+    def test_pop_stored_key(self):
+        e = Env("ma", KEY="v")
+        assert e.pop("KEY") == "v"
+        assert "KEY" not in e
+
+    def test_pop_missing_returns_default(self):
+        e = Env("ma")
+        assert e.pop("NOPE", "fallback") == "fallback"
+
+    def test_pop_environ_backed_key_is_read_only(self, monkeypatch):
+        """environ is a read-only underlay: pop of an environ-only key raises.
+
+        ``__delitem__`` only removes from the local store, so
+        ``MutableMapping.pop`` (which reads then deletes) reads the environ value
+        successfully but the delete raises ``KeyError`` -- the environ layer is
+        not mutable through ``Env``. This documents the 01-D2 decision: only keys
+        set locally (kwargs / ``__setitem__``) are pop-able.
+        """
+        monkeypatch.setenv("MA_HOST", "example.com")
+        e = Env("ma")
+        assert e["HOST"] == "example.com"  # readable
+        with pytest.raises(KeyError):
+            e.pop("HOST", "dflt")  # but not deletable/poppable
+
+    def test_popitem_removes_a_seeded_pair(self):
+        e = Env("ma", ONLY="one")
+        key, value = e.popitem()
+        assert (key, value) == ("ONLY", "one")
+        assert "ONLY" not in e
+
+    def test_iteration_after_seeding_dedupes(self, monkeypatch):
+        monkeypatch.setenv("MA_FROM_ENVIRON", "1")
+        e = Env("ma", FROM_KWARG="2", FROM_ENVIRON="override")
+        keys = set(e)
+        assert "FROM_KWARG" in keys
+        assert "FROM_ENVIRON" in keys
+        # The seeded value wins and the key is not yielded twice.
+        assert list(e).count("FROM_ENVIRON") == 1
+        assert e["FROM_ENVIRON"] == "override"
+
+    def test_update_then_iterate(self):
+        e = Env("ma")
+        e.update({"A": 1, "B": 2})
+        assert dict(e) == {"A": "1", "B": "2"}  # values str-coerced via __setitem__
+
+
 class TestCompanionModuleAutoload:
     def test_autoload_from_companion_module(self, monkeypatch, tmp_path):
         # An app can ship "<prefix-lower>env.py" of defaults; prove it loads.

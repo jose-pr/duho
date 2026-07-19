@@ -3,7 +3,6 @@ import collections as _collections
 import copy as _copy
 import datetime as _datetime
 import enum as _enum
-import importlib.metadata as _importlib_metadata
 import logging as _logging_module
 import os as _os
 import pathlib as _pathlib
@@ -274,6 +273,12 @@ def _resolve_version(cls) -> "str | None":
     if isinstance(raw, str):
         return raw
     if raw is AUTO:
+        # Imported lazily (not at module top) so a plain `import duho` never pays
+        # importlib.metadata's ~30 ms cost -- only a class that actually opts into
+        # `_version_ = duho.AUTO` triggers the load, and only at parser-build time
+        # (P1). The exception classes are referenced only inside this branch.
+        import importlib.metadata as _importlib_metadata
+
         dist = getattr(cls, "_distribution_", None) or cls.__module__.split(".")[0]
         try:
             return _importlib_metadata.version(dist)

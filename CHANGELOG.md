@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Performance
+- **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
+  `_version_ = duho.AUTO` branch, instead of at module top. A plain
+  `import duho` no longer pays its ~20-30 ms cost; only a class that opts into
+  `AUTO` triggers the load, at parser-build time.
+- **P4** `colorama` is now imported lazily on first use (a named color spec such
+  as `"red"`/`"red+white"`), not at `duho.logging` import. `import duho` no
+  longer pays colorama's ~3-5 ms when it is installed; built-in level colors are
+  hard-coded ANSI and never need it.
+- **P2** duho no longer AST-parses its own `args.py` on every parser build:
+  `Args`/`Cmd`/`Cli` seed an empty `_duho_constants_` class attribute so the
+  class-body scan short-circuits for framework base classes.
+- **P3** The qualname walk in `_introspect._module_index` now recurses only into
+  statement containers (class/function bodies, `if`/`for`/`while`/`with`/`try`
+  clauses) instead of every AST node, cutting the per-file walk time ~30x.
+- **P5** `getclsdef` returns `None` immediately when a file's module index was
+  built successfully but the class qualname is absent (a dynamically-created
+  class), skipping a redundant `inspect.getsource` re-parse that would fail
+  anyway. The REPL/`exec` no-module-file case still uses the fallback.
+
 ### Fixed
 - **C1** `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
   map to `False` (previously `bool("false")` was `True`); an unknown string is

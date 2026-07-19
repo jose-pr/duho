@@ -87,9 +87,19 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
         file = getattr(module, "__file__", None)
         if file:
             qualname = getattr(cls, "__qualname__", cls.__name__)
-            found = _module_index(file).get(qualname)
+            index = _module_index(file)
+            found = index.get(qualname)
             if found is not None:
                 return found
+            # The module file WAS indexed successfully but this qualname is
+            # absent -- the class was created dynamically (``type(...)`` /
+            # ``duho.command(...)``) and has no literal ``ClassDef`` in the
+            # source. ``inspect.getsource`` re-parses the exact same file and
+            # fails the identical lookup, only slower (up to ~23 ms per class in
+            # a large dynamically-built tree, P5). Give up now. The getsource
+            # fallback below is reserved for the no-module-file case
+            # (REPL/``exec``), where there is no file to index.
+            return None
 
         src = _inspect.getsource(cls)
         src = _textwrap.dedent(src)

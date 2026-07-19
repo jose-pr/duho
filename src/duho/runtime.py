@@ -50,6 +50,7 @@ from .args import (
     Cmd as _Cmd,
     _apply_default_layers_one as _apply_default_layers_one,
     _load_config as _load_config,
+    _maybe_await as _maybe_await,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from .discovery import (
@@ -122,7 +123,10 @@ def run_command(
         return 0 if result is None else result
 
     # Class command: the parsed instance is the command; run it via __call__.
-    result = instance()  # type: ignore[operator]
+    # An ``async def __call__`` returns a coroutine; drive it to completion with
+    # its own ``asyncio.run`` per call (F4) -- so a fan-out worker dispatching
+    # the command per target gets an independent loop each time.
+    result = _maybe_await(instance())  # type: ignore[operator]
     return 0 if result is None else result
 
 

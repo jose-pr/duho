@@ -1558,6 +1558,27 @@ def print_completion(cls, shell: str, file=None) -> None:
     file.write(emitter(parser))
 
 
+def _maybe_await(result):
+    """Drive a coroutine result to completion, returning its value (F4).
+
+    A ``Cmd.__call__`` (or a ``duho.main`` target) may be ``async def``; its
+    invocation returns a coroutine. This runs it with ``asyncio.run`` at the
+    call site so the awaited value becomes the command's result/exit code, and
+    passes any non-coroutine result through unchanged.
+
+    ``asyncio`` is imported lazily here (not at module top) so a plain
+    ``import duho`` never pays its import cost -- only a command that actually
+    returns a coroutine triggers the load (startup budget, plan 02).
+    """
+    import inspect as _stdlib_inspect
+
+    if _stdlib_inspect.iscoroutine(result):
+        import asyncio as _asyncio
+
+        return _asyncio.run(result)
+    return result
+
+
 def main(
     cls,
     argv: "_ty.Sequence[str] | None" = None,
@@ -1598,7 +1619,7 @@ def main(
             f"build one with duho.command(...)) to run it"
         )
 
-    result = run()
+    result = _maybe_await(run())
     return 0 if result is None else result
 
 

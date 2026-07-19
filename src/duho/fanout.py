@@ -146,13 +146,23 @@ def _run_one(
     """
     token = current_target.set(target)
     try:
-        result = func(target)
-    except Exception:
-        logger.exception("duho.fanout: target %r failed", target)
-        return 1
+        try:
+            result = func(target)
+        except Exception:
+            logger.exception("duho.fanout: target %r failed", target)
+            return 1
+        # Normalise inside the isolation boundary: a target returning a non-int,
+        # non-None value must not abort the whole fan-out via an escaping
+        # ValueError/TypeError from int() -- it is that one target's failure (M5).
+        try:
+            return 0 if result is None else int(result)
+        except (TypeError, ValueError):
+            logger.exception(
+                "duho.fanout: target %r returned non-int %r", target, result
+            )
+            return 1
     finally:
         current_target.reset(token)
-    return 0 if result is None else int(result)
 
 
 def run_targets(

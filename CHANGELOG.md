@@ -52,6 +52,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of a crash / nondeterministic flag order.
 - **M17** `argparse.SUPPRESS` in `Annotated` metadata hides the field wherever it
   appears, not only as the first metadata item.
+- **C11** A missing `<PREFIX>_CMDS_PATH` no longer glob-imports every `.py` in the
+  current working directory (`Env.list` returns `[]` and `app()` guards on a
+  non-empty value).
+- **M3** `Env` companion-module autoload seeds only upper-case, non-underscore
+  variables through `str()` coercion, and accepts `Env(prefix, autoload=False)`
+  to disable the `sys.path`/CWD import.
+- **M5** A fan-out target returning a non-int, non-None value is logged and
+  isolated (counts as exit code 1) instead of aborting the whole fan-out.
+- **M4** A RunPath step whose import raises `ImportError`/`NotImplementedError`
+  is skipped with a warning (resilient) or re-raised (strict); an enabled step
+  whose `REQUIRED` names a disabled step warns/raises; a `REQUIRED` cycle raises
+  under strict. Non-environmental errors (e.g. `SyntaxError`) still surface.
+
+### Changed
+- **C11 (breaking-ish)** `duho.Env.list` returns `[]` for a missing or empty
+  value instead of the previous `[ty("")]` single-empty-element contract.
 
 ### Changed
 - Internal tidy-up (no behavior change): removed unused imports (`typing` in

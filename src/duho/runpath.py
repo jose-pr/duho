@@ -161,7 +161,12 @@ def is_runpath_dir(path: "_Path") -> bool:
     return False
 
 
-def _load_steps(directory: "_Path", qualname: str) -> "list[_Step]":
+def _load_steps(
+    directory: "_Path",
+    qualname: str,
+    strict: bool = False,
+    logger: "_logging.Logger" = _LOGGER,
+) -> "list[_Step]":
     """Import every step file and build ordered :class:`_Step` objects.
 
     Each file is imported under a synthesized-unique ``sys.modules`` key (reusing
@@ -170,6 +175,12 @@ def _load_steps(directory: "_Path", qualname: str) -> "list[_Step]":
     module's ``PRIORITY`` if set, else the ``NN`` prefix; ``REQUIRED`` is read as
     the dep list. A file with no entrypoint (``main``/``run``/``call``) is not a
     runnable step -- skipped with a debug line.
+
+    A step whose **import** fails with an ``ImportError``/``NotImplementedError``
+    (an *environmental* failure: a missing optional dependency, a not-yet-provided
+    integration) is skipped with a warning in the resilient default and re-raised
+    under ``strict``. Non-environmental body errors (``SyntaxError``, ``NameError``,
+    ...) always surface -- they are bugs, not environment.
 
     The returned list is ordered by ``(priority, name)`` and then reordered so
     every step runs after the present steps it ``REQUIRED`` (see
@@ -180,7 +191,15 @@ def _load_steps(directory: "_Path", qualname: str) -> "list[_Step]":
         mod_key = _discovery._unique_module_name(
             "duho._runpath." + qualname.replace(".", "_") + "." + name
         )
-        module = _discovery._import_from_path(mod_key, path)
+        try:
+            module = _discovery._import_from_path(mod_key, path)
+        except (ImportError, NotImplementedError) as exc:
+            if strict:
+                raise
+            logger.warning(
+                "duho.runpath: step %s failed to import; skipping: %s", name, exc
+            )
+            continue
         entrypoint = _discovery._module_entrypoint(module)
         if entrypoint is None:
             _LOGGER.debug(
@@ -194,10 +213,14 @@ def _load_steps(directory: "_Path", qualname: str) -> "list[_Step]":
             priority = nn
         required = getattr(module, "REQUIRED", None) or []
         steps.append(_Step(name, int(priority), required, entrypoint, module))
-    return _order_steps(steps)
+    return _order_steps(steps, strict=strict, logger=logger)
 
 
-def _order_steps(steps: "_ty.Sequence[_Step]") -> "list[_Step]":
+def _order_steps(
+    steps: "_ty.Sequence[_Step]",
+    strict: bool = False,
+    logger: "_logging.Logger" = _LOGGER,
+) -> "list[_Step]":
     """Order steps by ``(priority, name)``, then topologically honor ``REQUIRED``.
 
     Starts from the priority/name order (the stable default) and does a
@@ -232,13 +255,16 @@ def _order_steps(steps: "_ty.Sequence[_Step]") -> "list[_Step]":
                 progressed = True
         remaining = blocked
         if not progressed:
-            # A cycle (or steps mutually blocked): emit the rest in priority
-            # order so ordering is deterministic and always terminates.
-            _LOGGER.warning(
-                "duho.runpath: unresolved REQUIRED cycle among %s; "
-                "emitting in priority order",
-                ", ".join(s.name for s in remaining),
+            # A cycle (or steps mutually blocked). Under strict this is an error;
+            # in the resilient default emit the rest in priority order so ordering
+            # is deterministic and always terminates.
+            message = (
+                "duho.runpath: unresolved REQUIRED cycle among %s"
+                % ", ".join(s.name for s in remaining)
             )
+            if strict:
+                raise ValueError(message)
+            logger.warning("%s; emitting in priority order", message)
             emitted.extend(remaining)
             break
     return emitted
@@ -370,7 +396,9 @@ class RunPathCmd(_Cmd):
             )
         logger = self._runpath_logger_()
         selection = _Selection.parse(getattr(self, "rcopts", None) or [])
-        steps = _load_steps(_Path(directory), self._parsername_)
+        steps = _load_steps(
+            _Path(directory), self._parsername_, selection.strict, logger
+        )
         names = [s.name for s in steps]
 
         unmatched = selection.unmatched_patterns(names)
@@ -384,6 +412,7 @@ class RunPathCmd(_Cmd):
 
         # Warn (or error, under strict) on REQUIRED naming a missing step.
         present = set(names)
+        enabled = {name for name in names if selection.decide(name)}
         for step in steps:
             missing = [dep for dep in step.required if dep not in present]
             if missing:
@@ -394,6 +423,24 @@ class RunPathCmd(_Cmd):
                 if selection.strict:
                     raise ValueError(message)
                 logger.warning(message)
+
+            # A present-but-DISABLED required dep is a different hazard: the dep
+            # exists but the current --rcopts selection turned it off, so an
+            # enabled step will run without a prerequisite it declared (M4).
+            if step.name in enabled:
+                disabled_deps = [
+                    dep
+                    for dep in step.required
+                    if dep in present and dep not in enabled
+                ]
+                if disabled_deps:
+                    message = (
+                        "duho.runpath: enabled step %r REQUIRED disabled step(s): %s"
+                        % (step.name, ", ".join(disabled_deps))
+                    )
+                    if selection.strict:
+                        raise ValueError(message)
+                    logger.warning(message)
 
         for step in steps:
             if not selection.decide(step.name):

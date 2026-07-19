@@ -1,6 +1,7 @@
 import argparse as _argparse
 import collections as _collections
 import copy as _copy
+import dataclasses as _dataclasses
 import datetime as _datetime
 import enum as _enum
 import logging as _logging_module
@@ -39,6 +40,62 @@ class _AutoVersion:
 
 
 AUTO = _AutoVersion()
+
+
+class _MetaUnset:
+    """Sentinel for a :class:`Meta` field left unset (never merged)."""
+
+    def __repr__(self) -> str:
+        return "duho.Meta.UNSET"
+
+
+_META_UNSET = _MetaUnset()
+
+
+@_dataclasses.dataclass
+class Meta:
+    """Typed, typo-safe alternative to ``NS(...)`` for field metadata (F5).
+
+    ``NS(...)`` is an untyped ``argparse.Namespace``: a misspelled key
+    (``NS(hlep="oops")``) is silently dropped. ``Meta`` declares the known
+    metadata fields as a dataclass, so an unknown keyword is a ``TypeError`` at
+    class-definition time -- the whole point. Only the fields you set are merged
+    (each defaults to a private sentinel); everything ``NS`` accepts, ``Meta``
+    accepts, and ``NS`` keeps working forever.
+
+    Use it exactly where ``NS`` goes::
+
+        level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
+        ("--level",)
+
+    Recommended over ``NS`` precisely because a typo fails loud instead of
+    vanishing. The ``kwargs`` field is the same raw ``add_argument`` escape hatch
+    ``NS(kwargs=...)`` provides.
+    """
+
+    help: "_ty.Any" = _META_UNSET
+    env: "_ty.Any" = _META_UNSET
+    conflicts: "_ty.Any" = _META_UNSET
+    conflicts_required: "_ty.Any" = _META_UNSET
+    group: "_ty.Any" = _META_UNSET
+    action: "_ty.Any" = _META_UNSET
+    nargs: "_ty.Any" = _META_UNSET
+    const: "_ty.Any" = _META_UNSET
+    choices: "_ty.Any" = _META_UNSET
+    metavar: "_ty.Any" = _META_UNSET
+    required: "_ty.Any" = _META_UNSET
+    type: "_ty.Any" = _META_UNSET
+    version: "_ty.Any" = _META_UNSET
+    dest: "_ty.Any" = _META_UNSET
+    kwargs: "_ty.Any" = _META_UNSET
+
+    def _duho_options_(self) -> "dict[str, object]":
+        """The explicitly-set metadata as a plain dict (unset fields omitted).
+
+        Consumed by ``Args._getargs_`` in place of ``vars(self)`` so a
+        sentinel-valued (never-set) field never overrides a type-derived kwarg.
+        """
+        return {k: v for k, v in vars(self).items() if v is not _META_UNSET}
 
 
 def _enum_name_factory(enum_cls: type) -> "Factory":
@@ -1026,7 +1083,12 @@ class Args(_argparse.Namespace):
                     # help text. Any other metadata (a bare `Annotated[int, "doc"]`
                     # string, an int, ...) is ignored silently, as Annotated's
                     # own semantics require (C8).
-                    if isinstance(opts, _ty.Mapping):
+                    if isinstance(opts, Meta):
+                        # Typed metadata: merge only the explicitly-set fields so
+                        # an unset (sentinel) field never overrides a type-derived
+                        # kwarg (F5).
+                        options.update(opts._duho_options_())
+                    elif isinstance(opts, _ty.Mapping):
                         options.update(opts)
                     elif isinstance(getattr(opts, "documentation", None), str):
                         options.setdefault("help", opts.documentation)
@@ -1775,6 +1837,7 @@ __all__ = [
     "Extend",
     "Factory",
     "main",
+    "Meta",
     "NS",
     "NOT_DEFINED",
     "parse",

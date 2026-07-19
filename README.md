@@ -153,6 +153,27 @@ gets `nargs="?"` — without it argparse would make the positional required and
 ignore the default. A `list`/`list[T]` positional becomes variadic
 (`nargs="*"`), defaulting to `[]`. `required=` is never emitted for positionals.
 
+### Field metadata: `NS` or `Meta`
+
+Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `NS(...)`
+(an `argparse.Namespace`) is the untyped form; `duho.Meta` is the typed,
+typo-safe form — a dataclass whose unknown keyword is a `TypeError` at
+class-definition time (`NS(hlep=...)` would silently vanish):
+
+```python
+from duho import Args, Arg, Meta
+
+class App(Args):
+    level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
+    ("--level",)
+```
+
+`Meta` accepts everything `NS` does (`help`, `env`, `conflicts`,
+`conflicts_required`, `group`, `action`, `nargs`, `const`, `choices`, `metavar`,
+`required`, `type`, `version`, `dest`, `kwargs`) and only merges the fields you
+set. `NS` keeps working forever. Any metadata object exposing a str
+`.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
+
 ### Mutually exclusive options
 
 Set `NS(conflicts="group-name")` on the fields that must not be used together.

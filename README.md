@@ -890,7 +890,7 @@ def init(args):                # optional: build a shared context
 def main(args):                # required entrypoint (or run/call)
     print("restoring", args)
 
-def success(ctx, args):        # optional: ran only if main() didn't raise
+def success(ctx, args):        # optional: runs only on a successful exit
     ctx["db"].commit()
 
 def finally_(ctx, args):       # optional: always runs (cleanup)
@@ -902,8 +902,11 @@ def register(parser, args):    # optional: add args directly on argparse
 
 The driver runs the lifecycle `init → main → success / finally_`: `ctx =
 init(args)` builds a shared context (default: `None`), `main(args)` runs the
-command, `success(ctx, args)` runs only on a clean return, and `finally_(ctx,
-args)` always runs. Note the entrypoint receives **only** the args instance
+command, `success(ctx, args)` runs only on a **successful** exit (`main` returned
+`None` or `0`, and did not raise — a non-zero exit code skips `success`), and
+`finally_(ctx, args)` always runs. A `finally_` that itself raises is logged and
+swallowed so it never masks `main`'s original exception or exit code. Note the
+entrypoint receives **only** the args instance
 (`main(args)`) — the context is threaded to `success`/`finally_`, not to `main`.
 There is **no separate `logger` parameter**: hooks read the logger from the args
 instance's `_logger_` (present on `LoggingArgs`-based commands), falling back to

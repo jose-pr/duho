@@ -472,6 +472,18 @@ def _apply_default_layers(
 
     def _walk(parser_, cls_, table: dict):
         _apply_default_layers_one(parser_, cls_, table)
+        # Merge each child parser's provenance up into the ROOT parser (keyed by
+        # dest, last-wins so the deepest selection lands last -- matching dispatch
+        # semantics). `value_sources` reads the root parser via
+        # `_duho_last_parser_`, so without this a config value on a SUBcommand
+        # field is invisible there and gets mislabeled "cli" (C14).
+        if parser_ is not parser:
+            parser._duho_value_sources_.update(  # type:ignore[attr-defined]
+                parser_._duho_value_sources_  # type:ignore[attr-defined]
+            )
+            parser._duho_merged_defaults_.update(  # type:ignore[attr-defined]
+                parser_._duho_merged_defaults_  # type:ignore[attr-defined]
+            )
         subcommands = getattr(cls_, "_subcommands_", None)
         if not subcommands:
             return
@@ -857,7 +869,7 @@ class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
         raise NotImplementedError()
 
 
-def _suppress_inherited_defaults(child_parser, root_dests):
+def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
     """Make a subcommand's inherited-option defaults not clobber the root's value.
 
     For each action on ``child_parser`` whose ``dest`` is also a field declared
@@ -868,15 +880,28 @@ def _suppress_inherited_defaults(child_parser, root_dests):
     touched -- positionals and required options keep their behavior, and the
     subparsers action itself (``dest="command"``) is never a root field.
 
+    ``root_defaults`` (optional ``{dest: effective_default}``) lets the caller
+    skip suppression for a dest the child DELIBERATELY re-declares with a default
+    differing from the root's: that override is intentional and must win, so the
+    child keeps its own default rather than deferring to the root (M16).
+
     ``value_sources`` / config layering are unaffected: they operate on the root
     parser's own actions, not these child copies.
     """
+    root_defaults = root_defaults or {}
     for action in child_parser._actions:
         if action.dest not in root_dests:
             continue
         if not action.option_strings:  # positional
             continue
         if getattr(action, "required", False):
+            continue
+        if (
+            action.dest in root_defaults
+            and action.default != root_defaults[action.dest]
+        ):
+            # The child re-declares this field with a different default -- a
+            # deliberate override; keep it (M16).
             continue
         action.default = _argparse.SUPPRESS
 
@@ -950,8 +975,14 @@ class Args(_argparse.Namespace):
         else:
             method = _argparse.ArgumentParser
 
+        # Persist the derived name onto the class ONLY when the caller did not
+        # supply one: a `_parser_(name="alias")` alias is a one-off (e.g. building
+        # a parser under a different prog) and must not permanently rewrite the
+        # class's `_parsername_`, which later builds and config-table lookups key
+        # off (M10).
+        caller_supplied_name = name is not None
         name: str = name or getattr(cls, "_parsername_", None) or cls.__name__
-        if not getattr(cls, "_parsername_", None):
+        if not caller_supplied_name and not getattr(cls, "_parsername_", None):
             setattr(cls, "_parsername_", name)
         # Escape `%` in docstring-derived text: argparse %-expands help strings
         # (HelpFormatter._expand_help does `help % params`), so a literal `%` in
@@ -987,10 +1018,14 @@ class Args(_argparse.Namespace):
             # shared, optional dests so the parent's parsed value survives; the
             # child still accepts the flag AFTER the subcommand (overwrites) and
             # its own unique args are untouched.
-            root_dests = {b.name for b in cls._getargs_()}
+            root_builders = {b.name: b for b in cls._getargs_()}
+            root_dests = set(root_builders)
+            root_defaults = {
+                n: b._effective_default_() for n, b in root_builders.items()
+            }
             for sub in subcommands:
                 child = sub._parser_(subparsers)
-                _suppress_inherited_defaults(child, root_dests)
+                _suppress_inherited_defaults(child, root_dests, root_defaults)
 
         return parser
 
@@ -1048,6 +1083,13 @@ class Args(_argparse.Namespace):
 
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
             parser._duho_selected_cls_ = _cls  # type:ignore
+            # Drop the `_CollectionAction` sidecar (`_duho_items_<dest>`) before
+            # constructing the instance so this internal bookkeeping never leaks
+            # into vars(instance) or the documented clone pattern (M12).
+            for _sidecar in [
+                k for k in parsed.__dict__ if k.startswith("_duho_items_")
+            ]:
+                del parsed.__dict__[_sidecar]
             instance = _cls(**parsed.__dict__)
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []
@@ -1549,7 +1591,10 @@ def value_sources(parsed) -> "dict[str, str]":
             effective_default = merged[name]
             layer = sources.get(name, "default")
         else:
-            effective_default = builder.default
+            # Use the builder's EFFECTIVE default (e.g. False for an undeclared
+            # store_true bool), not the raw declared default (NOT_DEFINED), or a
+            # field left at its argparse default is mislabeled "cli" (C14).
+            effective_default = builder._effective_default_()
             layer = "default"
         result[name] = layer if value == effective_default else "cli"
     return result

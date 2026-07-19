@@ -105,9 +105,20 @@ def run_command(
         ctx = context if context is not None else module_command.init(instance)
         try:
             result = module_command.main(instance)
-            module_command.success(ctx, instance)
+            # `success` is the SUCCESS hook: run it only when main reported
+            # success (None or exit code 0), not for a non-zero exit code (M22).
+            if result is None or result == 0:
+                module_command.success(ctx, instance)
         finally:
-            module_command.finally_(ctx, instance)
+            # A raising `finally_` must not mask the original exception (if main
+            # raised) nor the real exit code: log and swallow its error (M22).
+            try:
+                module_command.finally_(ctx, instance)
+            except Exception:
+                _LOGGER.exception(
+                    "duho: finally_ hook for command %r raised; ignoring",
+                    _command_name(command),
+                )
         return 0 if result is None else result
 
     # Class command: the parsed instance is the command; run it via __call__.
@@ -364,6 +375,15 @@ def _apply_app_config_layers(
         sub_table = raw_config.get(name)
         sub_table = sub_table if isinstance(sub_table, dict) else {}
         _apply_default_layers_one(sub_parser, command_cls, sub_table)
+        # Merge the class command's provenance up into the root parser so
+        # `value_sources` (which reads the root via `_duho_last_parser_`) sees a
+        # config value on a subcommand field instead of mislabeling it (C14).
+        parser._duho_value_sources_.update(  # type:ignore[attr-defined]
+            getattr(sub_parser, "_duho_value_sources_", {})
+        )
+        parser._duho_merged_defaults_.update(  # type:ignore[attr-defined]
+            getattr(sub_parser, "_duho_merged_defaults_", {})
+        )
 
 
 def app(

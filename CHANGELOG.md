@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `importlib.metadata` stays lazily imported (only entry-point discovery loads
   it). Sits in `app`'s source precedence after `source=` and before the
   `CMDS_PATH` env layer.
+- **F7** JSON config files + a pluggable loader. A `_config_`/`config=` path
+  ending in `.json` is parsed as JSON (stdlib `json`, imported lazily; a malformed
+  file raises a clear error naming it); any other suffix stays TOML. JSON yields
+  the same nested-dict shape as TOML, so subcommand tables layer identically. A
+  new class-level `_config_loader_` (`Callable[[Path], dict]`, declared on `Cli`)
+  is used *instead of* the built-in dispatch when set, letting users plug any
+  format (e.g. YAML) without duho depending on it — the zero-runtime-deps
+  contract holds.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

@@ -458,14 +458,46 @@ def _resolve_env_defaults(cls) -> "dict[str, object]":
     return resolved
 
 
-def _load_config(path: "str | _pathlib.Path") -> dict:
-    """Read a TOML config file into a plain dict.
+def _load_config(
+    path: "str | _pathlib.Path",
+    loader: "_ty.Callable[[_pathlib.Path], dict] | None" = None,
+) -> dict:
+    """Read a config file into a plain dict, dispatching on shape (F7).
 
-    Uses stdlib `tomllib` (3.11+) when available, else falls back to the
-    third-party `tomli` package IFF it's installed. Neither is a hard
-    dependency (duho stays zero-runtime-deps) -- if neither is importable,
-    raises a clear RuntimeError telling the user to `pip install tomli`.
+    Resolution order:
+
+    * **``loader`` hook** (``Cli._config_loader_``, if declared) -- when given, it
+      is called with the expanded ``Path`` and its result used verbatim. This is
+      the zero-dependency escape hatch: a user who wants YAML plugs their own
+      ``yaml.safe_load`` here without duho ever importing (or depending on) it.
+    * **``.json`` suffix** -- parsed with the stdlib ``json`` module (imported
+      lazily, so a non-JSON config never pays its import cost). A parse error is
+      re-raised as a ``ValueError`` naming the file.
+    * **``.toml`` / anything else** -- parsed with stdlib ``tomllib`` (3.11+) or
+      the third-party ``tomli`` IFF installed. Neither is a hard dependency (duho
+      stays zero-runtime-deps); if neither is importable a clear ``RuntimeError``
+      tells the user to ``pip install tomli``.
+
+    Both JSON and TOML yield the same nested-dict shape (top-level keys -> root
+    fields; a nested table/object named for a subcommand -> that subcommand's
+    fields), so the layering walk is format-agnostic.
     """
+    p = _pathlib.Path(path).expanduser()
+
+    if loader is not None:
+        return loader(p)
+
+    if p.suffix.lower() == ".json":
+        import json as _json  # lazy: only a JSON config pays json's import cost
+
+        with p.open("rb") as f:
+            try:
+                return _json.load(f)
+            except ValueError as exc:  # JSONDecodeError is a ValueError subclass
+                raise ValueError(
+                    f"duho: invalid JSON in config file {_os.fspath(p)}: {exc}"
+                ) from exc
+
     try:
         import tomllib as _toml  # type:ignore[import-not-found]
     except ImportError:
@@ -479,7 +511,6 @@ def _load_config(path: "str | _pathlib.Path") -> dict:
                 "(e.g. `pip install tomli` or `pip install duho[config]`)."
             ) from None
 
-    p = _pathlib.Path(path).expanduser()
     with p.open("rb") as f:
         return _toml.load(f)
 
@@ -580,7 +611,10 @@ def _apply_default_layers(
     own (sub)parser. Shared by both `duho.parse` and `duho.main`.
     """
     config_path = config if config is not None else getattr(cls, "_config_", None)
-    raw_config: dict = _load_config(config_path) if config_path is not None else {}
+    loader = getattr(cls, "_config_loader_", None)
+    raw_config: dict = (
+        _load_config(config_path, loader) if config_path is not None else {}
+    )
 
     def _walk(parser_, cls_, table: dict):
         _apply_default_layers_one(parser_, cls_, table)
@@ -1469,10 +1503,19 @@ class Cli(Cmd):
     #: top-level parser. Read by ``_initparser_`` (``args.py``); defaults off.
     _completion_: bool = False
 
-    #: Path to a TOML config file whose values become layered defaults
-    #: (precedence CLI > env > config > class default). ``None`` disables it.
-    #: Read by ``_apply_default_layers`` (``args.py``) and ``duho.main``.
+    #: Path to a config file whose values become layered defaults (precedence
+    #: CLI > env > config > class default). ``None`` disables it. A ``.json`` file
+    #: is parsed as JSON, any other suffix (``.toml``/unspecified) as TOML. Read
+    #: by ``_apply_default_layers`` (``args.py``) and ``duho.main``.
     _config_: "_ty.Optional[_ty.Union[str, _pathlib.Path]]" = None
+
+    #: Optional custom config loader ``Callable[[Path], dict]`` (F7). When set it
+    #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
+    #: format duho does not ship (e.g. YAML via their own ``yaml.safe_load``)
+    #: WITHOUT duho depending on it -- keeping the zero-runtime-deps contract.
+    #: Read by ``_load_config`` (``args.py``) via ``_apply_default_layers`` /
+    #: ``duho.app``.
+    _config_loader_: "_ty.Optional[_ty.Callable[[_pathlib.Path], dict]]" = None
 
     #: The static subcommand tree. ``None`` (the default) means "no declared
     #: subcommands"; self-registration lazily materializes a per-class list.

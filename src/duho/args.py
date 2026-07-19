@@ -1182,6 +1182,13 @@ class Args(_argparse.Namespace):
         # description/help already in kwargs is left untouched by setdefault.
         _doc = (cls.__doc__ or "").replace("%", "%%")
         kwargs.setdefault("description", _doc)
+        # F8: opt-in help formatter (``_help_formatter_`` class attr, e.g.
+        # ``duho.DefaultsFormatter``/``duho.ColorHelpFormatter``) plumbed into
+        # argparse's ``formatter_class``. ``setdefault`` so a caller-supplied
+        # ``formatter_class=`` still wins; unset means argparse's plain default.
+        help_formatter = getattr(cls, "_help_formatter_", None)
+        if help_formatter is not None:
+            kwargs.setdefault("formatter_class", help_formatter)
         if subparser:
             docstring = _doc
             kwargs.setdefault("help", docstring.strip().splitlines()[0] if docstring.strip() else "")
@@ -1217,6 +1224,15 @@ class Args(_argparse.Namespace):
             for sub in subcommands:
                 child = sub._parser_(subparsers)
                 _suppress_inherited_defaults(child, root_dests, root_defaults)
+                # F8: propagate the root's opt-in help formatter down to a child
+                # that declares none of its own, so a single ``_help_formatter_``
+                # on the app root styles the whole subcommand tree consistently.
+                # A child with its OWN ``_help_formatter_`` (already applied by its
+                # ``_parser_``) is left untouched.
+                if help_formatter is not None and getattr(
+                    sub, "_help_formatter_", None
+                ) is None:
+                    child.formatter_class = help_formatter
 
         return parser
 
@@ -1516,6 +1532,13 @@ class Cli(Cmd):
     #: Read by ``_load_config`` (``args.py``) via ``_apply_default_layers`` /
     #: ``duho.app``.
     _config_loader_: "_ty.Optional[_ty.Callable[[_pathlib.Path], dict]]" = None
+
+    #: Opt-in argparse help ``formatter_class`` (F8). ``None`` (default) uses
+    #: argparse's plain formatter; set it to ``duho.DefaultsFormatter``,
+    #: ``duho.ColorHelpFormatter``, ``duho.ColorDefaultsFormatter``, or any
+    #: ``HelpFormatter`` subclass. Plumbed into ``formatter_class`` by
+    #: ``Args._parser_`` (and inherited onto every subcommand parser).
+    _help_formatter_: "_ty.Optional[type]" = None
 
     #: The static subcommand tree. ``None`` (the default) means "no declared
     #: subcommands"; self-registration lazily materializes a per-class list.

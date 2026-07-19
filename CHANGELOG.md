@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is used *instead of* the built-in dispatch when set, letting users plug any
   format (e.g. YAML) without duho depending on it — the zero-runtime-deps
   contract holds.
+- **F8** Opt-in help formatters via a class-level `_help_formatter_`
+  (plumbed into argparse's `formatter_class`, and propagated across a
+  `_subcommands_` tree). New public `duho.DefaultsFormatter` (append
+  `(default: X)`, skipping `None`/`""`/`False`), `duho.ColorHelpFormatter` (ANSI
+  section headings + flags, gated on TTY/`NO_COLOR`/`FORCE_COLOR` — byte-identical
+  to plain when off), and `duho.ColorDefaultsFormatter` (both composed). All ANSI
+  reuses the logging color codes (no `colorama` import). Off by default; plain
+  help is unchanged.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

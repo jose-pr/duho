@@ -37,6 +37,11 @@ from .discovery import (
     register_command_provider,
 )
 from .env import Env
+from .formatters import (
+    ColorDefaultsFormatter,
+    ColorHelpFormatter,
+    DefaultsFormatter,
+)
 from .logging import (
     DefaultFormatter,
     add_logging_level,
@@ -72,11 +77,14 @@ __all__ = [
     "Cli",
     "Cmd",
     "CmdBuilder",
+    "ColorDefaultsFormatter",
+    "ColorHelpFormatter",
     "command",
     "Command",
     "completion",
     "Const",
     "Count",
+    "DefaultsFormatter",
     "discover_commands",
     "discover_entry_points",
     "Env",

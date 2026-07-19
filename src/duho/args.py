@@ -101,6 +101,40 @@ def _collection_action(collection: type) -> "_type[_argparse.Action]":
     return _BoundCollectionAction
 
 
+def _split_kv(text: str, name: str) -> "tuple[str, str]":
+    """Split a ``KEY=VALUE`` token on its first ``=``.
+
+    Raises ``ValueError`` naming the field when no ``=`` is present, so a
+    ``dict`` field's ``--opt noequals`` fails with a clear argparse error
+    rather than a traceback.
+    """
+    if "=" not in text:
+        raise ValueError(
+            f"argument {name!r}: expected KEY=VALUE, got {text!r} (no '=' found)"
+        )
+    key, value = text.split("=", 1)
+    return key, value
+
+
+class _KVFactory:
+    """CLI-text factory for a ``dict[str, V]`` field (F1).
+
+    Converts one ``KEY=VALUE`` token into a one-pair dict, applying the value
+    factory ``V`` to the value half; :class:`UpdateAction` merges successive
+    pairs. The value factory is exposed as ``value_factory`` so the env/config
+    layer (:meth:`ArgumentBuilder.convert_layered`) can convert a TOML *table*'s
+    values the same way a CLI ``KEY=VALUE`` token would.
+    """
+
+    def __init__(self, name: str, value_factory: "Factory"):
+        self.name = name
+        self.value_factory = value_factory
+
+    def __call__(self, text: str) -> dict:
+        key, value = _split_kv(text, self.name)
+        return {key: self.value_factory(value)}
+
+
 #: Stdlib types whose constructor does NOT accept an ISO string; each maps to
 #: its ``fromisoformat`` classmethod so a CLI/date field converts cleanly (C15).
 _ISOFORMAT_FACTORIES = {
@@ -239,6 +273,22 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
         elem_ty = args[0] if args else str
         return _FieldSpec(
             elem_ty, None, None, _collection_action(tuple), "*", (), tuple
+        )
+
+    if origin is dict or tp is dict:
+        # ``dict[K, V]`` -- ``KEY=VALUE`` tokens merged via ``UpdateAction``.
+        # Bare ``dict`` == ``dict[str, str]``. Only ``str`` keys are supported
+        # (a CLI token's key half is always text); reject anything else loudly
+        # at build time.
+        key_ty = args[0] if args else str
+        val_ty = args[1] if len(args) > 1 else str
+        if key_ty is not str:
+            raise ValueError(
+                f"argument {name!r}: dict key type must be str, got {key_ty!r} "
+                f"(a CLI KEY=VALUE token's key is always text)"
+            )
+        return _FieldSpec(
+            _KVFactory(name, val_ty), None, "KEY=VALUE", UpdateAction, None, {}, dict
         )
 
     if tp in _ISOFORMAT_FACTORIES:
@@ -738,6 +788,19 @@ class ArgumentBuilder(_argparse.Namespace):
                     f"(expected one of {sorted(self._BOOL_TRUE | self._BOOL_FALSE)})"
                 )
             raise ValueError(f"cannot interpret {raw!r} ({source}) as a boolean")
+
+        if self.collection is dict:
+            # A dict field: a *string* raw ("k=v") runs the KV factory (one-pair
+            # dict); a TOML *table* (Mapping) converts each value through the
+            # value factory (strings only; already-typed TOML values pass
+            # through, matching :meth:`_convert_single`).
+            if isinstance(raw, _ty.Mapping):
+                value_factory = getattr(self.type, "value_factory", str)
+                result: dict = {}
+                for k, v in raw.items():
+                    result[str(k)] = value_factory(v) if isinstance(v, str) else v
+                return result
+            return self._convert_single(raw)
 
         if self.collection is not None:
             if isinstance(raw, (list, tuple, set)):
@@ -1427,8 +1490,13 @@ class UpdateAction(_argparse.Action):
     def __call__(  # type:ignore
         self, parser, namespace, values: dict, option_string=None
     ):
-        items: dict = getattr(namespace, self.dest, {})
-        items = _copy.deepcopy(items)
+        items = getattr(namespace, self.dest, None)
+        # Shallow copy per occurrence: the default/prior value must not be
+        # mutated in place (it may be a shared seeded default), but a deep copy
+        # is wasteful and surprising -- callers want the merged mapping, not
+        # clones of the values (F1). A ``None`` starting value (an explicit
+        # ``= None`` default) is treated as an empty mapping.
+        items = dict(items) if items else {}
         items.update(values or {})
         setattr(namespace, self.dest, items)
 

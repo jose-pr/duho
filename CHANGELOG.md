@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **F1** First-class `dict[str, V]` fields. A `dict`-annotated field collects
+  `KEY=VALUE` tokens; repeated flags merge into one dict via `UpdateAction`, and
+  the value half is converted with `V` (bare `dict` == `dict[str, str]`). Only
+  the first `=` splits; a token with no `=` is a clear argparse error; a non-`str`
+  key type is a build-time error. Default `{}`. Env (`k=v` → one-pair dict) and
+  TOML-table config layers are supported. `UpdateAction` now makes a shallow
+  per-occurrence copy instead of a `deepcopy`. `duho.Count()` counted flags
+  (`-vvv` → `3`) are documented in the README type table.
+
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
   `_version_ = duho.AUTO` branch, instead of at module top. A plain

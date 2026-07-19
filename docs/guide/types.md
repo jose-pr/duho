@@ -92,6 +92,28 @@ $ app --tag a --tag b     # -> ["a", "b"]
 $ app --tag a b           # -> ["a", "b"]
 ```
 
+## Dicts
+
+A `dict[str, V]` field collects `KEY=VALUE` tokens; repeated flags merge into
+one dict, and the value half is converted with `V`:
+
+```python
+class App(Args):
+    define: dict[str, int] = {}
+    ("--define", "-D")
+```
+
+```bash
+$ app -D width=80 -D height=24     # -> {"width": 80, "height": 24}
+```
+
+Only the first `=` splits, so a value may itself contain `=`
+(`-D url=a=b` → `{"url": "a=b"}`). A token with no `=` is a clear argparse
+error. Keys are always strings — a non-`str` key type (`dict[int, str]`) is a
+build-time error. A bare `dict` means `dict[str, str]`. The default is `{}`
+when none is declared. Under the env/config layers, an env string `k=v` becomes
+a one-pair dict and a TOML table converts each value through `V`.
+
 ## Unions
 
 Members are tried in order, so put the most specific type first:

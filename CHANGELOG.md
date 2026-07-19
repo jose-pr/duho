@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whose `REQUIRED` names a disabled step warns/raises; a `REQUIRED` cycle raises
   under strict. Non-environmental errors (e.g. `SyntaxError`) still surface.
 
+- **M1** `prerun_parse` no longer patches `argparse._SubParsersAction.__call__`
+  / `_HelpAction.__call__` process-globally; it swaps the specific action
+  instances' classes (restored in `finally`), so it is thread-safe and reentrant.
+- **M20** `pop_action` also removes the action from its argument group's
+  `_group_actions`, so a popped flag no longer lingers in `format_help()`.
+
 ### Changed
 - **C11 (breaking-ish)** `duho.Env.list` returns `[]` for a missing or empty
   value instead of the previous `[ty("")]` single-empty-element contract.

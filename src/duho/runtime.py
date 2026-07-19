@@ -50,6 +50,7 @@ from .args import (
     Cmd as _Cmd,
     _apply_default_layers_one as _apply_default_layers_one,
     _load_config as _load_config,
+    _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from .discovery import (
     Command as _Command,
@@ -293,12 +294,30 @@ def _build_parser(
     return parser, base_parser, root_cls
 
 
+def _deregister_subparser(
+    subparsers: "_argparse._SubParsersAction", name: str
+) -> None:
+    """Remove a previously-registered subparser ``name`` from ``subparsers``.
+
+    argparse's ``add_parser`` raises ``ArgumentError('conflicting subparser')``
+    on a duplicate name, so a later registration under the same name cannot
+    simply overwrite an earlier one. This drops the earlier registration from
+    the name->parser map and the help pseudo-actions so the later command can
+    register cleanly and win (see the collision handling in :func:`app`, M6).
+    """
+    subparsers._name_parser_map.pop(name, None)  # type: ignore[attr-defined]
+    subparsers._choices_actions = [  # type: ignore[attr-defined]
+        a for a in subparsers._choices_actions  # type: ignore[attr-defined]
+        if getattr(a, "dest", None) != name
+    ]
+
+
 def _apply_app_config_layers(
     parser: "_argparse.ArgumentParser",
     root_cls: type,
     subparsers: "_argparse._SubParsersAction",
     class_command_names: "dict[str, type]",
-    config: "str | _Path | None",
+    raw_config: dict,
 ) -> None:
     """Thread env/config-file defaults down a ``Cli`` app's command tree.
 
@@ -320,10 +339,10 @@ def _apply_app_config_layers(
     is loaded ONCE. ``config`` (explicit arg) overrides ``root_cls._config_``,
     mirroring ``duho.main``. Precedence stays CLI > env > config > class default,
     and a supplied value un-requires its field, exactly as in ``args.py``.
-    """
-    config_path = config if config is not None else getattr(root_cls, "_config_", None)
-    raw_config: dict = _load_config(config_path) if config_path is not None else {}
 
+    ``raw_config`` is the already-loaded TOML table (``app`` loads it once so the
+    root layering can also run before the advisory prepass -- see C5).
+    """
     # Root fields: top-level keys + root env(NS(env=...)) defaults.
     _apply_default_layers_one(parser, root_cls, raw_config)
 
@@ -413,6 +432,15 @@ def app(
 
     parser, base_parser, root_cls = _build_parser(root, name, description)
 
+    # Load the config table ONCE and apply the root-level layers up front, BEFORE
+    # the advisory prepass. This lets a required global supplied by config/env
+    # reach the prepass parse so it does not hard-exit with a usage error (C5);
+    # `_apply_app_config_layers` re-applies it (idempotent) alongside each class
+    # command's own table after registration.
+    config_path = config if config is not None else getattr(root_cls, "_config_", None)
+    raw_config: dict = _load_config(config_path) if config_path is not None else {}
+    _apply_default_layers_one(parser, root_cls, raw_config)
+
     # A prepass parsed root instance is offered to module ``register`` hooks so a
     # hook that wants the already-parsed globals can read them. It is a
     # best-effort, help-suppressed prepass (nested-help gotcha handled by the
@@ -424,28 +452,78 @@ def app(
 
             prepass_args = _prerun_parse(parser, argv)
         except SystemExit:
-            raise
+            # The prepass is advisory (help is disabled inside prerun_parse, so a
+            # SystemExit here is never a user-requested --help). A required- or
+            # unknown-arg exit must not abort the whole app: degrade to no prepass
+            # and let the real parse below report errors authoritatively (C5).
+            prepass_args = None
         except Exception:  # pragma: no cover - prepass is advisory only
             prepass_args = None
 
-    # Map each subcommand name back to its command object for dispatch. Class
-    # commands are selected via "#cls" (their own instance); module commands are
-    # looked up by the parsed ``command`` dest name.
-    module_commands_by_name: "dict[str, _ModuleCommand]" = {}
-    class_commands_by_name: "dict[str, type]" = {}
+    # Map each subcommand name to (kind, command) in ONE registry so registration
+    # and dispatch agree. A name registered twice (e.g. a module command and a
+    # class command sharing a name) warns naming both; the LAST registration wins
+    # -- the earlier subparser is deregistered so argparse does not raise
+    # `conflicting subparser`, and dispatch resolves via this same registry (M6).
+    registry: "dict[str, tuple[str, object]]" = {}
 
     subparsers = parser.add_subparsers(title="command", dest="command", required=True)
     for command in resolved_commands:
         if _is_class_command(command):
+            cmd_name = _command_name(command)
+            kind: str = "class"
+        elif _is_module_command(command):
+            cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
+            kind = "module"
+        else:  # pragma: no cover - resolver only yields the two kinds
+            continue
+
+        if cmd_name in registry:
+            prev_kind, prev_obj = registry[cmd_name]
+            _LOGGER.warning(
+                "duho.app: command name %r registered by more than one source "
+                "(%s %r, then %s %r); the last registration wins.",
+                cmd_name,
+                prev_kind,
+                getattr(prev_obj, "__name__", prev_obj),
+                kind,
+                getattr(command, "__name__", command),
+            )
+            _deregister_subparser(subparsers, cmd_name)
+
+        if kind == "class":
             command_cls = _ty.cast(type, command)
             _register_class_command(subparsers, command_cls, base_parser)
-            class_commands_by_name[_command_name(command_cls)] = command_cls
-        elif _is_module_command(command):
-            module_command = _ty.cast(_ModuleCommand, command)
+        else:
             _register_module_command(
-                subparsers, module_command, base_parser, prepass_args
+                subparsers, _ty.cast(_ModuleCommand, command), base_parser, prepass_args
             )
-            module_commands_by_name[module_command._parsername_] = module_command
+        registry[cmd_name] = (kind, command)
+
+    # Suppress the root's own optional dests on every registered subparser so an
+    # option given BEFORE the subcommand (or supplied by the root env/config
+    # layer) is not clobbered by the child's inherited default (C4). This is the
+    # `app()` analogue of the suppression `Args._parser_` performs for a static
+    # `_subcommands_` tree.
+    root_dests = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+    for sub_parser in (subparsers.choices or {}).values():
+        _suppress_inherited_defaults(sub_parser, root_dests)
+        # `parents=[base_parser]` copies EVERY root option onto each subparser,
+        # including *required* globals. `_suppress_inherited_defaults` skips
+        # required actions (correct for the static tree, whose children don't
+        # inherit root options as their own actions). Here the root parser owns
+        # and enforces the required global; a child must not independently
+        # re-require it (which would error even when it was given before the
+        # subcommand or supplied by a config/env layer). Suppress + un-require
+        # the child's inherited copy so the root's value flows through (C5/C4).
+        for action in sub_parser._actions:
+            if (
+                action.dest in root_dests
+                and action.option_strings
+                and getattr(action, "required", False)
+            ):
+                action.required = False
+                action.default = _argparse.SUPPRESS
 
     # Thread env/config-file defaults down the app's command tree (a Cli root's
     # `_config_`, or an explicit `config`, plus each command's NS(env=...)
@@ -453,8 +531,11 @@ def app(
     # `duho.main`/`duho.parse` make; app() resolves commands from sources that
     # aren't reachable via `root._subcommands_`, so it layers against the
     # parsers actually built here. See `_apply_app_config_layers`.
+    class_commands_by_name = {
+        n: _ty.cast(type, obj) for n, (k, obj) in registry.items() if k == "class"
+    }
     _apply_app_config_layers(
-        parser, root_cls, subparsers, class_commands_by_name, config
+        parser, root_cls, subparsers, class_commands_by_name, raw_config
     )
 
     instance = parser.parse_args(argv)
@@ -478,7 +559,12 @@ def app(
     # selection leaves ``instance`` as the root instance and names the module via
     # the ``command`` dest.
     selected_name = getattr(instance, "command", None)
-    module_command = module_commands_by_name.get(selected_name) if selected_name else None
+    entry = registry.get(selected_name) if selected_name else None
+    module_command = (
+        _ty.cast(_ModuleCommand, entry[1])
+        if entry is not None and entry[0] == "module"
+        else None
+    )
 
     if module_command is not None:
         # run_command owns the full lifecycle (init -> main -> success/finally_).

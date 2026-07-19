@@ -235,7 +235,7 @@ class AutoVersionDistArgs(Args):
 def test_auto_version_resolves(monkeypatch, capsys):
     """AUTO resolves via importlib.metadata.version and adds --version."""
     monkeypatch.setattr(
-        "duho.args._importlib_metadata.version", lambda dist: "9.9.9"
+        "importlib.metadata.version", lambda dist: "9.9.9"
     )
     parser = AutoVersionArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
@@ -255,7 +255,7 @@ def test_auto_version_uses_distribution_override(monkeypatch):
         calls.append(dist)
         return "1.0.0"
 
-    monkeypatch.setattr("duho.args._importlib_metadata.version", fake_version)
+    monkeypatch.setattr("importlib.metadata.version", fake_version)
     AutoVersionDistArgs._parser_()
     assert calls == ["some-other-package"]
 
@@ -263,10 +263,12 @@ def test_auto_version_uses_distribution_override(monkeypatch):
 def test_auto_version_not_found_skips_flag(monkeypatch):
     """AUTO that can't be resolved (PackageNotFoundError) skips --version silently."""
 
-    def raise_not_found(dist):
-        raise duho.args._importlib_metadata.PackageNotFoundError(dist)
+    import importlib.metadata as _importlib_metadata
 
-    monkeypatch.setattr("duho.args._importlib_metadata.version", raise_not_found)
+    def raise_not_found(dist):
+        raise _importlib_metadata.PackageNotFoundError(dist)
+
+    monkeypatch.setattr("importlib.metadata.version", raise_not_found)
     parser = AutoVersionArgs._parser_()  # must not raise
 
     assert "version" not in {action.dest for action in parser._actions}

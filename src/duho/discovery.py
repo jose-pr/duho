@@ -40,6 +40,7 @@ import typing as _ty
 from pathlib import Path as _Path
 from types import ModuleType as _ModuleType
 
+from . import _compat as _compat
 from .args import Args as _Args, Cmd as _Cmd
 from .qualname import PythonName as _PythonName
 
@@ -49,6 +50,7 @@ __all__ = [
     "CmdBuilder",
     "register_command_provider",
     "discover_commands",
+    "discover_entry_points",
     "is_class_command",
     "is_module_command",
 ]
@@ -611,3 +613,79 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
             )
             continue
     return commands
+
+
+# --------------------------------------------------------------------------
+# Entry-point discovery (F6)
+# --------------------------------------------------------------------------
+
+
+def _coerce_entry_point_command(obj: object, name: "str | None") -> "Command | None":
+    """Coerce an ``EntryPoint.load()`` result to a :class:`Command`, or None.
+
+    An entry point may resolve to any of the command shapes the other sources
+    accept, run through the same coercion:
+
+    * a :class:`~duho.Cmd` **subclass** or an already-:class:`Command` object --
+      used as-is (a class command names itself via ``_parsername_``/class name);
+    * a **module** (a plugin whose top-level ``main``/``run``/``call`` is the
+      entrypoint) -- wrapped in a :class:`ModuleCommand`, taking the entry
+      point's own ``name`` as the subcommand name when the module declares none.
+
+    Anything else (e.g. a bare function or a helpers-only module with no
+    entrypoint) yields ``None`` so the caller logs and skips it. A module with no
+    entrypoint surfaces as ``ModuleCommand``'s ``NotImplementedError``, caught by
+    the caller.
+    """
+    if is_class_command(obj) or is_module_command(obj):
+        return _ty.cast(Command, obj)
+    if isinstance(obj, _ModuleType):
+        resolved = _resolved_module_name(obj) if name is None else name
+        return _ty.cast(Command, ModuleCommand(obj, name=resolved))
+    return None
+
+
+def discover_entry_points(group: str) -> "list[Command]":
+    """Discover commands from installed-distribution entry points in ``group``.
+
+    This is the plugin-discovery source behind ``duho.app(root,
+    entry_points="myapp.commands")``: every entry point advertised in ``group``
+    by an installed distribution is loaded (``EntryPoint.load()``) and coerced to
+    a :class:`Command` via :func:`_coerce_entry_point_command` -- a ``Cmd``
+    subclass becomes a class command, a module becomes a module command.
+
+    **Resilience** mirrors :func:`discover_commands`: an entry point that fails to
+    load (a broken/renamed target, a missing optional dependency) or that does
+    not resolve to a command is logged at ``WARNING`` and skipped, so one bad
+    plugin never takes the app down -- the rest still load.
+
+    ``importlib.metadata`` is imported lazily (inside :func:`_compat.iter_entry_points`)
+    so a plain ``import duho`` never pays its cost -- only calling this triggers
+    the load (plan 02 P1). The result is sorted by resolved subcommand name for
+    deterministic ``--help`` output.
+    """
+    commands: "list[Command]" = []
+    for entry_point in _compat.iter_entry_points(group):
+        ep_name = getattr(entry_point, "name", None)
+        try:
+            loaded = entry_point.load()
+            command = _coerce_entry_point_command(loaded, ep_name)
+        except Exception as exc:  # noqa: BLE001 - a bad plugin must not abort the app
+            _LOGGER.warning(
+                "duho: skipping entry point %r in group %r: failed to load (%s)",
+                ep_name if ep_name is not None else entry_point,
+                group,
+                exc,
+            )
+            continue
+        if command is None:
+            _LOGGER.warning(
+                "duho: skipping entry point %r in group %r: %r is not a command "
+                "(expected a Cmd subclass, a command module, or a Command)",
+                ep_name if ep_name is not None else entry_point,
+                group,
+                loaded,
+            )
+            continue
+        commands.append(command)
+    return sorted(commands, key=_command_name)

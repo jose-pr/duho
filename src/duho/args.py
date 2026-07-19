@@ -1125,7 +1125,21 @@ class Args(_argparse.Namespace):
         # off (M10).
         caller_supplied_name = name is not None
         name: str = name or getattr(cls, "_parsername_", None) or cls.__name__
-        if not caller_supplied_name and not getattr(cls, "_parsername_", None):
+        # Never persist onto a bare framework base (``Args``/``Cmd``/``Cli``) used
+        # directly as a root -- e.g. ``duho.app(root=None)`` builds
+        # ``Args._parser_()``. ``setattr`` lands on that base's own ``__dict__``
+        # and then LEAKS via inheritance to every user subclass, so a later
+        # ``getattr(Deploy, "_parsername_")`` returns the base's ``"Args"`` and
+        # mis-names the subcommand ("invalid choice: 'Deploy' (choose from
+        # 'Args')"). A real user root/subcommand class persists normally.
+        _is_framework_base = (
+            cls.__module__ == __name__ and cls.__name__ in ("Args", "Cmd", "Cli")
+        )
+        if (
+            not caller_supplied_name
+            and not getattr(cls, "_parsername_", None)
+            and not _is_framework_base
+        ):
             setattr(cls, "_parsername_", name)
         # Escape `%` in docstring-derived text: argparse %-expands help strings
         # (HelpFormatter._expand_help does `help % params`), so a literal `%` in

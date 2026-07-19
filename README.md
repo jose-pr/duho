@@ -863,6 +863,33 @@ logged with a warning and skipped, so one broken command never takes down the re
 A genuine bug in a command file (e.g. a `SyntaxError`) is *not* swallowed — it
 surfaces so you can fix it.
 
+### Plugins via entry points
+
+For commands that ship in **separately-installed packages**, point `duho.app` at
+an entry-point **group** instead of a local package. Every entry point advertised
+in that group by any installed distribution becomes a subcommand — so a third-party
+plugin can extend your app without your app importing it directly:
+
+```python
+# your app
+raise SystemExit(duho.app(CLI, entry_points="myapp.commands"))
+```
+
+```toml
+# a plugin package's pyproject.toml
+[project.entry-points."myapp.commands"]
+hello = "myapp_hello.plugin:HelloCmd"   # a Cmd subclass -> class command
+bye   = "myapp_hello.bye"               # a module with main() -> module command
+```
+
+An entry point may resolve to a `Cmd` subclass (class command) or a command module
+(module command); it is coerced through the same path as every other source. Loading
+is **resilient** in the same spirit — a plugin that fails to import or does not resolve
+to a command is logged and skipped, so one bad plugin never takes the app down.
+`importlib.metadata` is imported **lazily**, so an app that does not use
+`entry_points=` never pays its import cost. Call `duho.discover_entry_points(group)`
+directly to get the `list[Command]`.
+
 ## RunPath: ordered step commands (opt-in)
 
 `duho.runpath` is an **opt-in** module that turns a directory of numbered `.py`

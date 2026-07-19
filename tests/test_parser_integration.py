@@ -1,4 +1,10 @@
-"""Integration tests for duho."""
+"""In-process parser-composition tests for duho.
+
+These exercise ``_parser_`` composition (fields, subcommands, help text, type
+conversion) entirely in-process -- they are NOT integration/e2e tests (the real
+child-process ``sys.argv`` path lives in ``test_e2e.py``). Renamed from the
+misleading ``test_integration.py`` (Plan 03 T2).
+"""
 
 import argparse
 import io

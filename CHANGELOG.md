@@ -32,6 +32,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   class command) now logs a warning naming both; the last registration wins and
   dispatch resolves through the same single registry (previously argparse raised
   `conflicting subparser`).
+- **C6** Union members now recurse through the full type ladder:
+  `Optional[list[int]]` gets element conversion + the extend action (no more
+  char-splitting), `Optional[Literal[...]]` gets choices, and a multi-member
+  union with a collection member is a clear build-time error.
+- **C7** Collection defaults (`list`/`set`/`dict`) are copied per parse/build, so
+  mutating one parsed instance's list no longer leaks into the next parse or a
+  directly-constructed instance.
+- **C8** Foreign `Annotated` metadata (a bare `Annotated[int, "doc"]` string, or
+  any non-namespace object) no longer crashes `_getargs_`; a PEP-727-style object
+  with a str `.documentation` contributes help text, everything else is ignored.
+- **C9** `ClassVar[...]` and `Final[...]` annotations are skipped instead of
+  becoming broken CLI flags.
+- **C10** `Literal[True, False]` builds and parses (goes through `type=`+`choices=`)
+  instead of raising an argparse `TypeError` at build.
+- **C15** `datetime.date`/`datetime.datetime`/`datetime.time` fields parse via
+  `fromisoformat` (a bad value is a clean argparse error, not a traceback).
+- **M15** A `set` used as a flags container is now a clear build-time error
+  instead of a crash / nondeterministic flag order.
+- **M17** `argparse.SUPPRESS` in `Annotated` metadata hides the field wherever it
+  appears, not only as the first metadata item.
 
 ### Changed
 - Internal tidy-up (no behavior change): removed unused imports (`typing` in

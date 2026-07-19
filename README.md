@@ -431,6 +431,14 @@ duho[config]`) — duho stays zero-runtime-dependency by default, so this
 extra is only needed if you actually use `_config_`/`config=` on an older
 interpreter.
 
+**Env/config value conversion.** Layered values are converted to match what CLI
+parsing of the same field yields. A `bool` field reads `1/true/yes/on/y/t` as
+`True` and `0/false/no/off/n/f`/empty as `False` (an unknown string is an error).
+A **collection** field (`list`/`set`/`tuple`) treats an env var or a TOML
+*string* as a **single element** (`FILES=a.txt` → `["a.txt"]`, matching one CLI
+occurrence), while a TOML **array** converts element-wise. Non-string TOML scalars
+are coerced to the field type (`timeout = 30` for a `float` field → `30.0`).
+
 **Debugging where a value came from**: `duho.value_sources(parsed)` returns
 `{field_name: "cli" | "env" | "config" | "default"}` for the instance
 returned by `duho.parse`/`duho.main`.
@@ -698,12 +706,15 @@ paths = env.list("CMDS_PATH", ty=Path)   # MY_APP_CMDS_PATH split on ":" into Pa
 
 `Env` is a `MutableMapping`, so `env["KEY"]`, `env.get(...)`, `in`, and iteration
 all work. `.bool(key)` treats a missing key as `False`; `.list(key, sep=":",
-ty=str)` splits on `sep` and applies `ty` to each part (a missing/empty value
-yields `[ty("")]` — a single empty-string element, not an empty list). On
-construction `Env` also autoloads an optional companion `<prefix>env` module of
-defaults an app may ship (e.g. `my_app_env`); a missing one is ignored. This is
-distinct from the per-field `NS(env="VAR")` default layer above — that resolves one
-argparse field; `Env` is the app-level accessor a driver reads settings through.
+ty=str)` splits on `sep` and applies `ty` to each part (a missing or empty value
+yields `[]` — an empty list). On construction `Env` also autoloads an optional
+companion `<prefix>env` module of defaults an app may ship (e.g. `my_app_env`),
+seeding its **upper-case, non-underscore** variables (all `str()`-coerced); a
+missing one is ignored. Pass `Env(prefix, autoload=False)` to disable the import
+— autoload imports `<prefix>env` from anywhere on `sys.path` (including the CWD),
+so disable it if the prefix is not fully under your control. This is distinct from
+the per-field `NS(env="VAR")` default layer above — that resolves one argparse
+field; `Env` is the app-level accessor a driver reads settings through.
 
 ## String/target expansion
 

@@ -260,6 +260,11 @@ if __name__ == "__main__":
 normally. Dispatching a bare data `Args` (not a `Cmd`) raises a clear
 `NotImplementedError` naming the class.
 
+`__call__` may be `async def` — when it returns a coroutine, `main` (and
+`run_command`) run it to completion via `asyncio.run` at the call site (imported
+lazily, so a synchronous app never pays for it), and the awaited value becomes
+the exit code. Module-command lifecycle hooks stay synchronous.
+
 **Subcommands**: set `_subcommands_` to a sequence of `Cmd` subclasses and
 `main`/`_parser_` wires up `add_subparsers(dest="command", required=True)`
 automatically — no manual subparser plumbing needed. Nested `_subcommands_`

@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   under a named `--help` section (lazily created per title). A field combining
   `group=` and `conflicts=` nests the mutually-exclusive group inside the titled
   section.
+- **F4** Async `__call__` support: a `Cmd` whose `__call__` is `async def` is
+  driven to completion via `asyncio.run` at the call site (`duho.main` and
+  `duho.run_command`), so the awaited value is the exit code. `asyncio` is
+  imported lazily. Module-command lifecycle hooks stay synchronous.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

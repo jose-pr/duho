@@ -185,7 +185,7 @@ def _resolve_env_defaults(cls) -> "dict[str, object]":
         if raw is None:
             continue
         try:
-            resolved[builder.name] = builder.type(raw)
+            resolved[builder.name] = builder.convert_layered(raw, source="env")
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"environment variable {builder.env!r} for field {builder.name!r}: "
@@ -239,7 +239,7 @@ def _config_values_for(cls, config: dict) -> "dict[str, object]":
             )
             continue
         try:
-            resolved[key] = builder.type(raw) if isinstance(raw, str) else raw
+            resolved[key] = builder.convert_layered(raw, source="config")
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"config value for field {key!r} on {cls.__name__}: "
@@ -277,6 +277,20 @@ def _apply_default_layers_one(
     for name, value in _resolve_env_defaults(cls).items():
         merged[name] = value
         sources[name] = "env"
+
+    # Drop any dest whose action is SUPPRESS-suppressed on this parser: that dest
+    # is a root field inherited by a child parser, suppressed precisely so the
+    # value the root already parsed (from an option given BEFORE the subcommand)
+    # survives. Re-installing a default here via set_defaults would overwrite the
+    # SUPPRESS marker and clobber that parsed value (C3). The root parser's own
+    # layering already applies the env/config value to the real (root) field.
+    if merged:
+        actions_by_dest = {action.dest: action for action in parser._actions}
+        for name in list(merged):
+            action = actions_by_dest.get(name)
+            if action is not None and action.default is _argparse.SUPPRESS:
+                del merged[name]
+                sources.pop(name, None)
 
     if merged:
         parser.set_defaults(**merged)
@@ -362,6 +376,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         metavar = None
         action = None
         nargs = None
+        collection = None
         default = decl.default
         ty = decl.type
         if ty is _inspect.NOT_DEFINED:
@@ -412,6 +427,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 action = "extend"
                 nargs = "*"
                 _factory = elem_ty
+                collection = list
                 if default is _inspect.NOT_DEFINED:
                     default = []
 
@@ -423,6 +439,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 action = _collection_action(set)
                 nargs = "*"
                 _factory = elem_ty
+                collection = set
                 if default is _inspect.NOT_DEFINED:
                     default = set()
 
@@ -443,6 +460,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 action = _collection_action(tuple)
                 nargs = "*"
                 _factory = elem_ty
+                collection = tuple
                 if default is _inspect.NOT_DEFINED:
                     default = ()
 
@@ -487,6 +505,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             metavar=metavar,
             action=action,
             nargs=nargs,
+            collection=collection,
         )
 
     @classmethod
@@ -542,6 +561,90 @@ class ArgumentBuilder(_argparse.Namespace):
     const: "object | _inspect.NotDefined" = NOT_DEFINED
     version: "str | None" = None
     env: "str | None" = None
+    #: For a collection field (``list``/``set``/``tuple``) the target collection
+    #: type; ``None`` for a scalar field. Recorded at build time so a layered
+    #: (env/config) value converts to the SAME collection a CLI occurrence would
+    #: produce (see :meth:`convert_layered`). ``self.type`` is then the *element*
+    #: factory, not the collection factory.
+    collection: "_type | None" = None
+
+    #: Truthy strings a layered bool value maps to True / False (case-insensitive,
+    #: whitespace-stripped). Mirrors ``duho.env.Env.bool``'s truthy set; unlike
+    #: ``Env.bool`` (which treats unknown strings as False) the layered converter
+    #: is STRICT -- an explicit config/env value that parses to neither is a user
+    #: error, not a silent False.
+    _BOOL_TRUE = frozenset({"1", "true", "yes", "on", "y", "t"})
+    _BOOL_FALSE = frozenset({"0", "false", "no", "off", "n", "f", ""})
+
+    def _convert_single(self, raw):
+        """Convert one raw scalar (env string / TOML-typed value) to the field type.
+
+        A string always runs through ``self.type`` (the CLI text factory), so a
+        bad value raises exactly the error argparse would. A non-string raw
+        (TOML int/float/bool/date/list-element) is kept as-is when it is already
+        an instance of the factory's type; otherwise it is passed through the
+        factory (``timeout: float`` receiving TOML int ``30`` -> ``30.0``). A
+        factory that cannot accept a non-string (e.g. ``date.fromisoformat``,
+        which only takes ``str``) raises ``TypeError`` for an already-typed TOML
+        value -- that value is then kept unchanged.
+        """
+        factory = self.type
+        if isinstance(raw, str):
+            return factory(raw)
+        if isinstance(factory, type) and isinstance(raw, factory):
+            return raw
+        try:
+            return factory(raw)
+        except TypeError:
+            return raw
+
+    def convert_layered(self, raw, *, source: str):
+        """Convert a raw env/config *layer* value to this field's Python value.
+
+        The env/config layers feed ``parser.set_defaults`` directly, bypassing
+        argparse's own ``type=``/``action=`` handling -- so a layered value must
+        be converted here to match what CLI parsing of the same field yields.
+        Three field shapes are handled:
+
+        * **bool** (``self.type is bool`` or a store_true/BooleanOptionalAction
+          effective action): real bools pass through; strings map via the
+          strict :data:`_BOOL_TRUE`/:data:`_BOOL_FALSE` sets (unknown -> error).
+        * **collection** (``self.collection`` set): a *string* raw becomes a
+          single element wrapped in the collection (``FILES=a.txt`` ->
+          ``["a.txt"]``, matching one CLI occurrence); a *list/tuple/set* raw
+          (a TOML array) converts element-wise then coerces to the collection.
+        * **scalar**: via :meth:`_convert_single`.
+
+        ``source`` names the layer ("env"/"config") for error messages; the
+        calling resolver wraps any ``ValueError``/``TypeError`` with the field
+        and variable name.
+        """
+        is_bool = (
+            self.type is bool
+            or self.action in ("store_true", "store_false")
+            or self.action is _argparse.BooleanOptionalAction
+        )
+        if is_bool:
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str):
+                low = raw.strip().lower()
+                if low in self._BOOL_TRUE:
+                    return True
+                if low in self._BOOL_FALSE:
+                    return False
+                raise ValueError(
+                    f"{raw!r} is not a valid boolean "
+                    f"(expected one of {sorted(self._BOOL_TRUE | self._BOOL_FALSE)})"
+                )
+            raise ValueError(f"cannot interpret {raw!r} ({source}) as a boolean")
+
+        if self.collection is not None:
+            if isinstance(raw, (list, tuple, set)):
+                return self.collection(self._convert_single(e) for e in raw)
+            return self.collection([self._convert_single(raw)])
+
+        return self._convert_single(raw)
 
     def _kwargs(self):
         # NS(kwargs={...}) is the raw escape-hatch override: it must win over

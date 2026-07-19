@@ -65,8 +65,38 @@ jobs:
         # Install every extra that has tests depending on it, or those tests
         # silently skip (pytest.importorskip) instead of actually running.
         run: python -m pip install -e ".[dev,colorama,config]"
+      - name: Install shells for completion tests (Linux)
+        # zsh/fish drive the T3 completion syntax-check tests; without them the
+        # tests skipif-out instead of exercising the generated scripts. Linux
+        # only -- the Windows/macOS legs skip these (shells not preinstalled).
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests
         run: python -m pytest -q
+
+  coverage:
+    # Coverage gate on a single controlled Linux runner where the shell-driven
+    # completion tests actually run (zsh/fish installed), so completion.py
+    # coverage is real rather than skipped.
+    name: Coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package with all extras
+        run: python -m pip install -e ".[dev,colorama,config]"
+      - name: Install shells for completion tests
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
+      - name: Run tests with coverage gate
+        # Plan 03 target is >=92% overall; measured 93.66% after T1-T7, so the
+        # gate is pinned at floor(measured)-1 = 92 (== the plan's post-T target;
+        # raise as coverage grows). This is the correctness/coverage gate; the
+        # benchmark job below is the separate Plan 02 perf gate -- don't conflate.
+        run: python -m pytest -q --cov=duho --cov-fail-under=92
 
   benchmark:
     # Perf numbers for release notes come from here, not from a developer laptop.

@@ -37,11 +37,20 @@ except ImportError:  # pragma: no cover - gettext is always present in CPython
 
 
 def snakecase(name: str) -> str:
-    """Coerce ``name`` to ``snake_case``."""
+    """Coerce ``name`` to ``snake_case``.
+
+    Separators (``-``, whitespace, ``_``) collapse to a single ``_``; a leading
+    digit and any other non-word character are underscored; an interior
+    upper-case letter is lower-cased and prefixed with ``_`` (``CamelCaseName`` ->
+    ``camel_case_name``). An acronym run is lowered as individual letters
+    (``HTTPServer`` -> ``h_t_t_p_server``). An empty string returns ``""``.
+    """
+    if not name:
+        return ""
     std = _re.sub(r"[-\s_]+", "_", name)
     std = _re.sub(r"\W|^(?=\d)", "_", std)
-    std = std[0].lower() + _re.sub("[A-Z]", lambda m: m.group(0)[1:].lower(), std[1:])
-    return std
+    std = std[0].lower() + std[1:]
+    return _re.sub(r"(?<!^)[A-Z]", lambda m: "_" + m.group(0).lower(), std)
 
 
 #: Symbol -> word replacements applied by :func:`pysafe`.

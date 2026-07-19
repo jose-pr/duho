@@ -1,10 +1,13 @@
 import ast as _ast
 import functools as _functools
 import inspect as _inspect
+import logging as _logging
 import sys as _sys
 import textwrap as _textwrap
 import typing as _ty
 from dataclasses import dataclass as _data
+
+_LOGGER = _logging.getLogger("duho")
 from pathlib import Path as _Path
 
 # Classes from these modules are never user-defined Args mixins; skip scanning
@@ -22,7 +25,10 @@ def _module_index(filename: str) -> "dict[str, _ast.ClassDef]":
     __qualname__ exactly, so nested and function-local classes resolve.
     """
     index: "dict[str, _ast.ClassDef]" = {}
-    src = _Path(filename).read_text()
+    # Always decode as UTF-8 (Python source's default), not the locale encoding:
+    # a non-ASCII source under a cp1252 locale otherwise raised UnicodeDecodeError
+    # (M11).
+    src = _Path(filename).read_text(encoding="utf-8")
     tree = _ast.parse(src)
 
     def walk(node, prefix: str):
@@ -57,7 +63,10 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
             if isinstance(node, _ast.ClassDef) and node.name == cls.__name__:
                 return node
         return None
-    except (OSError, TypeError, SyntaxError):
+    except (OSError, TypeError, SyntaxError, ValueError):
+        # ValueError covers UnicodeDecodeError from the getsource fallback (which
+        # reads with the locale encoding) as well as other malformed-source cases
+        # (M11/M18).
         return None
 
 
@@ -93,6 +102,17 @@ def _class_constants(cls: type) -> "dict[str, list]":
     else:
         result = {}
         clsdef = getclsdef(cls)
+        if clsdef is None and getattr(cls, "__annotations__", None):
+            # A class with annotated fields whose source we could not locate
+            # (REPL/exec/zipapp) silently loses its flags/env/docstrings. Leave a
+            # one-time diagnostic (this runs once per class -- the result is cached
+            # below) so the loss is at least discoverable (M18).
+            _LOGGER.debug(
+                "duho: no source ClassDef found for %s.%s; class-body flags, "
+                "env, and attribute docstrings will be unavailable",
+                getattr(cls, "__module__", "?"),
+                getattr(cls, "__qualname__", getattr(cls, "__name__", cls)),
+            )
         if clsdef is not None:
             argument = None
             for node in clsdef.body:
@@ -109,7 +129,11 @@ def _class_constants(cls: type) -> "dict[str, list]":
                 elif isinstance(node, _ast.Expr) and argument:
                     try:
                         value = _ast.literal_eval(node.value)
-                    except ValueError:
+                    except (ValueError, TypeError, SyntaxError):
+                        # A non-literal expression (a call, a name) ends the
+                        # current field's metadata run: reset attribution so a
+                        # LATER literal/docstring is not misattributed to it (M18).
+                        argument = None
                         continue
                     props = result.setdefault(argument, [])
                     props.append(value)

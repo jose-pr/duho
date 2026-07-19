@@ -29,16 +29,25 @@ def _asicode(*codes):
 
 
 def _getcolor(color: str):
-    if color.isalpha() and _color:
-        fore, back, *_ = color.split("+") + ["", ""]
-        if fore:
-            fore: str = getattr(_color.Fore, fore.upper(), "") or ""
-        if back:
-            back: str = getattr(_color.Back, back.upper(), "") or ""
-        color = fore + back
+    """Resolve a color spec to an ANSI escape sequence.
 
-    if color.isalpha():
-        return ""
+    A named spec is ``"fore"`` or ``"fore+back"`` (e.g. ``"red"``, ``"red+white"``);
+    it is resolved via colorama's ``Fore``/``Back``. When colorama is absent or a
+    name does not resolve, an empty string is returned (never the raw name/compound
+    string). Anything that is not a bare name (already an ANSI escape like
+    ``"\\033[31m"``) is passed through unchanged.
+    """
+    # A named color spec is letters plus an optional single "+" separator; the
+    # old ``color.isalpha()`` check rejected the documented "fore+back" form
+    # (the "+" is not alpha), so the compound spec was returned verbatim (M9).
+    if color.replace("+", "").isalpha():
+        if not _color:
+            return ""
+        fore, back, *_ = color.split("+") + ["", ""]
+        fore = (getattr(_color.Fore, fore.upper(), "") or "") if fore else ""
+        back = (getattr(_color.Back, back.upper(), "") or "") if back else ""
+        return fore + back
+
     return color
 
 

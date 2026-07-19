@@ -43,11 +43,6 @@ class TestPysafe:
 
 
 class TestSnakeCase:
-    # snakecase's uppercase handler is a known WIP quirk. It
-    # replaces each [A-Z] match with match[1:].lower() — for a
-    # single-char match that is the empty string, so an interior uppercase letter
-    # is DROPPED rather than lowercased-with-underscore. These assertions pin the
-    # ported behavior exactly (quirks included), not an idealized snake_case.
     def test_separators_normalized_to_underscore(self):
         assert snakecase("some name-here") == "some_name_here"
 
@@ -57,10 +52,16 @@ class TestSnakeCase:
     def test_leading_digit_prefixed_with_underscore(self):
         assert snakecase("1abc") == "_1abc"
 
-    def test_interior_uppercase_is_dropped(self):
-        # Documents the WIP quirk: "CamelCase" -> "camelase" (the 'C' of "Case"
-        # is consumed, no underscore inserted).
-        assert snakecase("CamelCase") == "camelase"
+    def test_interior_uppercase_lowered_with_underscore(self):
+        # C13 fix: an interior uppercase letter is lowercased WITH an underscore,
+        # not dropped. "CamelCase" -> "camel_case".
+        assert snakecase("CamelCase") == "camel_case"
+
+    def test_empty_returns_empty(self):
+        assert snakecase("") == ""
+
+    def test_camel_snake_roundtrip(self):
+        assert camelcase(snakecase("CamelCaseName")) == "CamelCaseName"
 
 
 class TestCamelCase:

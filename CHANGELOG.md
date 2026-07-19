@@ -70,6 +70,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instances' classes (restored in `finally`), so it is thread-safe and reentrant.
 - **M20** `pop_action` also removes the action from its argument group's
   `_group_actions`, so a popped flag no longer lingers in `format_help()`.
+- **C13** `duho.snakecase` lower-cases interior upper-case letters with an
+  underscore (`CamelCaseName` -> `camel_case_name`) instead of dropping them, and
+  returns `""` for empty input.
+- **C14** `duho.value_sources` compares against each field's *effective* default
+  (so an undeclared-default `store_true` left off the CLI is `"default"`, not
+  `"cli"`) and merges subcommand parsers' provenance up to the root, so a
+  config-supplied subcommand field is labeled `"config"`.
+- **M9** `logging._getcolor` resolves the documented `"fore+back"` syntax and
+  returns `""` (never the raw compound string) when colorama is absent or a name
+  does not resolve.
+- **M10** `_parser_(name="alias")` no longer permanently writes `_parsername_`
+  onto the class; the alias is a one-off.
+- **M11** Source is read as UTF-8, and `UnicodeDecodeError`/`ValueError` are
+  caught so non-ASCII source under a non-UTF-8 locale no longer crashes.
+- **M12** The `_CollectionAction` sidecar (`_duho_items_<dest>`) is dropped before
+  instance construction, so it no longer leaks into `vars(instance)`.
+- **M16** `_suppress_inherited_defaults` keeps a child's deliberately overridden
+  default (a re-declared field with a different default) instead of discarding it.
+- **M18** A non-literal class-body expression resets docstring attribution (no
+  misattribution to the previous field), and a class whose source can't be located
+  emits a one-time debug diagnostic.
+- **M19** `QualName.relative_to` with an empty base returns the name unchanged
+  instead of dropping the first part.
+- **M22** A module command's `success` hook runs only on a successful exit (not
+  for a non-zero exit code), and a raising `finally_` no longer masks the original
+  exception.
 
 ### Changed
 - **C11 (breaking-ish)** `duho.Env.list` returns `[]` for a missing or empty

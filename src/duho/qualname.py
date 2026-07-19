@@ -74,18 +74,19 @@ class QualName:
 
     def relative_to(self, name: "QualName") -> "QualName":
         parts = [*self.parts]
-        other = name.parts
+        other = list(name.parts)
 
         if len(other) > len(parts):
             raise ValueError(other)
-
-        idx = 0
 
         for idx, part in enumerate(other):
             if parts[idx] != part:
                 raise ValueError(other, idx)
 
-        return self.qualjoin(*parts[idx + 1 :])
+        # Slice by the length of the (validated) prefix, NOT ``idx + 1``: an empty
+        # base leaves the loop unentered, and ``idx + 1`` then dropped the first
+        # part instead of returning self unchanged (M19).
+        return self.qualjoin(*parts[len(other):])
 
     def camelcase(
         self,

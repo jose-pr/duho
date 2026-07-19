@@ -58,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   to plain when off), and `duho.ColorDefaultsFormatter` (both composed). All ANSI
   reuses the logging color codes (no `colorama` import). Off by default; plain
   help is unchanged.
+- **F9** PowerShell completion: a new `duho.completion.powershell(parser)` emitter
+  walks the same `CompletionSpec` tree and emits a `Register-ArgumentCompleter
+  -Native` script block resolving the subcommand path to flags/subcommands/choices
+  (file completion falls through to PowerShell's defaults). `"powershell"` is
+  added to the `--print-completion` choices and to `duho.print_completion`. A new
+  `_psq` helper applies PowerShell single-quote doubling so a hostile choice can
+  neither break out of the script nor be expanded.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

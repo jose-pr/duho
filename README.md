@@ -599,9 +599,9 @@ wrapping or erroring.
 
 ### Shell completion
 
-Generate a self-contained bash/zsh/fish completion script from your parser —
-**static** generation (no runtime dependency, no per-keystroke re-invocation
-of your program, unlike argcomplete):
+Generate a self-contained bash/zsh/fish/PowerShell completion script from your
+parser — **static** generation (no runtime dependency, no per-keystroke
+re-invocation of your program, unlike argcomplete):
 
 ```python
 import duho
@@ -617,9 +617,14 @@ python app.py --print-completion zsh  > _myapp   # place on your $fpath
 python app.py --print-completion fish > myapp.fish && source myapp.fish
 ```
 
+```powershell
+# PowerShell: emit and dot-source (add to your $PROFILE to persist)
+python app.py --print-completion powershell | Out-String | Invoke-Expression
+```
+
 `_completion_` is off by default (matches the `_version_` opt-in precedent) —
-set it to add the `--print-completion {bash,zsh,fish}` flag. You can also
-generate a script without adding the flag at all, via the standalone
+set it to add the `--print-completion {bash,zsh,fish,powershell}` flag. You can
+also generate a script without adding the flag at all, via the standalone
 function:
 
 ```python
@@ -632,7 +637,9 @@ duho.print_completion(MyApp, "bash", file=sys.stdout)
 Both paths walk the built parser tree, including nested `_subcommands_`:
 `Literal`/`Enum` fields offer their choices as completion candidates, and
 `pathlib.Path`-typed fields get the shell's native file/directory
-completion.
+completion. The PowerShell emitter registers a `Register-ArgumentCompleter
+-Native` script block resolving the subcommand path to its flags/choices, with
+file completion falling through to PowerShell's defaults.
 
 ### Manual subparsers
 

@@ -57,6 +57,7 @@ from .discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
     discover_commands as _discover_commands,
+    discover_entry_points as _discover_entry_points,
     is_class_command as _is_class_command,
     is_module_command as _is_module_command,
 )
@@ -135,19 +136,25 @@ def _resolve_commands(
     commands: "_ty.Sequence[_Command] | None",
     source: "str | _Path | None",
     env: object,
+    entry_points: "str | None" = None,
 ) -> "list[_Command]":
     """Resolve the command set for :func:`app` by precedence.
 
     Order: an explicit ``commands`` list > ``discover_commands(source)`` >
+    ``discover_entry_points(entry_points)`` (installed-distribution plugins) >
     an ``env``-derived list of paths (``env.list("CMDS_PATH", ty=Path)``) >
     ``root._subcommands_``. Discovery is resilient (a bad command drops out with
-    a warning -- see :func:`duho.discovery.discover_commands`).
+    a warning -- see :func:`duho.discovery.discover_commands` /
+    :func:`duho.discovery.discover_entry_points`).
     """
     if commands is not None:
         return list(commands)
 
     if source is not None:
         return _discover_commands(source)
+
+    if entry_points is not None:
+        return _discover_entry_points(entry_points)
 
     if env is not None:
         resolved: "list[_Command]" = []
@@ -395,6 +402,7 @@ def app(
     *,
     commands: "_ty.Sequence[_Command] | None" = None,
     source: "str | _Path | None" = None,
+    entry_points: "str | None" = None,
     argv: "_ty.Sequence[str] | None" = None,
     name: "str | None" = None,
     description: "str | None" = None,
@@ -409,7 +417,16 @@ def app(
     global options (``None`` -> a bare data root, for an app whose commands all
     come from discovery). The command set is resolved by precedence
     (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
-    ``env.list("CMDS_PATH", ty=Path)`` > ``root._subcommands_``.
+    ``discover_entry_points(entry_points)`` > ``env.list("CMDS_PATH", ty=Path)`` >
+    ``root._subcommands_``.
+
+    ``entry_points`` is an installed-distribution entry-point **group** name
+    (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
+    installed distribution is loaded and registered as a subcommand, so a
+    separately-installed plugin package can contribute commands without the app
+    knowing about it. Loading is resilient -- a broken plugin warns and is
+    skipped, the rest still load. ``importlib.metadata`` is imported lazily, so
+    an app that does not use ``entry_points=`` never pays its import cost.
 
     Each command is registered under a ``title="command"`` subparsers action:
 
@@ -461,7 +478,7 @@ def app(
     :func:`run_command` directly, so existing callers are unaffected.
     """
     run = dispatch if dispatch is not None else run_command
-    resolved_commands = _resolve_commands(root, commands, source, env)
+    resolved_commands = _resolve_commands(root, commands, source, env, entry_points)
 
     parser, base_parser, root_cls = _build_parser(root, name, description)
 

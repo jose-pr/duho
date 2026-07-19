@@ -7,6 +7,9 @@ Generated from docstrings, organized by area:
   factories (`Count`, `Append`, `Const`, `Choice`, `Extend`), `UpdateAction`,
   and the module-level entry points (`parser`, `parse`, `main`,
   `value_sources`).
+- **[Discovery](discovery.md)** — `discover_commands`, `discover_entry_points`
+  (installed-distribution plugins), `CmdBuilder`, `ModuleCommand`, and the
+  `register_command_provider` extension seam.
 - **[Presets](presets.md)** — `LoggingArgs`, the ready-made verbosity/log-level
   mixin.
 - **[Logging](logging.md)** — colored formatting, custom levels, and stderr

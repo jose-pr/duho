@@ -111,6 +111,27 @@ class Run(Args):
 pass straight through. Anything duho doesn't model explicitly can go through
 `NS(kwargs={...})`, which is merged last.
 
+### Typed metadata with `Meta`
+
+`NS(...)` is an untyped `argparse.Namespace`, so a misspelled key
+(`NS(hlep="oops")`) is silently dropped. `duho.Meta` is a dataclass with the
+same known fields — an unknown keyword is a `TypeError` at class-definition
+time, and only the fields you set are merged:
+
+```python
+from duho import Args, Arg, Meta
+
+class Run(Args):
+    level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
+    ("--level",)
+```
+
+`Meta` is the recommended, typo-safe form; `NS` keeps working. `Meta.kwargs` is
+the same raw `add_argument` escape hatch as `NS(kwargs=...)`.
+
+Any metadata object exposing a str `.documentation` attribute (a PEP-727-style
+`Doc`) contributes help text, so `Arg[int, Doc("how many")]` works too.
+
 ### Mutually exclusive groups
 
 `NS(conflicts="<group-name>")` puts fields into the same mutually exclusive group:

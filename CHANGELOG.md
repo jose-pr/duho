@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   driven to completion via `asyncio.run` at the call site (`duho.main` and
   `duho.run_command`), so the awaited value is the exit code. `asyncio` is
   imported lazily. Module-command lifecycle hooks stay synchronous.
+- **F5** `duho.Meta`: a typed, typo-safe dataclass alternative to `NS(...)` for
+  field metadata. An unknown keyword is a `TypeError` at class-definition time
+  (an `NS(...)` typo silently vanishes); only the fields you set are merged.
+  `NS` keeps working. PEP-727 `Doc` duck-typing (a metadata object with a str
+  `.documentation` attr contributes help) is documented.
 
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s

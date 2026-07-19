@@ -31,6 +31,30 @@ if __name__ == "__main__":
 argparse (bad arguments, `--help`, `--version`) propagates normally. If the
 selected class has no `__call__`, `main` raises `NotImplementedError` naming it.
 
+### Exit codes as an `IntEnum`
+
+Because the return value is mapped with `0 if result is None else result`, any
+`int` works as an exit code — including an `enum.IntEnum` member, which *is* an
+`int`. This is a clean, self-documenting way to name your exit codes without a
+dedicated feature:
+
+```python
+import enum
+import duho
+
+class Exit(enum.IntEnum):
+    OK = 0
+    CONFIG_ERROR = 78   # name your codes; each member is a real int
+
+class Deploy(duho.Cmd):
+    def __call__(self) -> Exit:
+        if not self.config_ok():
+            return Exit.CONFIG_ERROR   # propagates as process exit code 78
+        return Exit.OK
+
+raise SystemExit(duho.main(Deploy))
+```
+
 ### Async commands
 
 `__call__` may be `async def`. When it returns a coroutine, `duho.main` (and

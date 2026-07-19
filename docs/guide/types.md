@@ -15,6 +15,18 @@ The annotation decides how duho converts the string argparse hands it.
 
 PEP 604 unions (`int | str`) require Python 3.10+. On 3.9, use `typing.Union`.
 
+## Negative numbers
+
+Negative numeric values work out of the box — both as option values
+(`--temp -5`) and as positionals (a positional `int` accepts `-3`). This is
+argparse's own `_negative_number_matcher` at work: when your parser declares no
+option that itself *looks* like a negative number (e.g. a literal `-1` flag),
+argparse treats `-5`/`-2.5` as values, not unknown options. No special support is
+needed.
+
+If you genuinely need a `-1`-style *flag* (rare and ambiguous), reach for the
+`NS(kwargs=...)` escape hatch to pass raw `add_argument` keywords.
+
 ## Booleans
 
 ```python

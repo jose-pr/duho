@@ -66,6 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `_psq` helper applies PowerShell single-quote doubling so a hostile choice can
   neither break out of the script nor be expanded.
 
+### Documentation
+- Documented that **negative numbers** work as values out of the box (option
+  values and positionals) via argparse's `_negative_number_matcher`, with the
+  `NS(kwargs=...)` escape hatch for the rare `-1`-style flag; added a regression
+  test. (Plan 04 rejected "negative-number handling" as a feature.)
+- Documented using an **`enum.IntEnum` as exit codes** — an `IntEnum` return from
+  `__call__` propagates as the process exit code unchanged (it is an `int`); added
+  a test. (Plan 04 rejected "exit-code enum" as a feature.)
+
 ### Performance
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
   `_version_ = duho.AUTO` branch, instead of at module top. A plain

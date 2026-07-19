@@ -31,6 +31,27 @@ if __name__ == "__main__":
 argparse (bad arguments, `--help`, `--version`) propagates normally. If the
 selected class has no `__call__`, `main` raises `NotImplementedError` naming it.
 
+### Async commands
+
+`__call__` may be `async def`. When it returns a coroutine, `duho.main` (and
+`duho.run_command`) drive it to completion with `asyncio.run` at the call site,
+so the awaited value becomes the exit code:
+
+```python
+class Fetch(Cmd):
+    """Fetch a URL."""
+
+    async def __call__(self) -> int:
+        await do_async_work()
+        return 0
+```
+
+`asyncio` is imported lazily, only when a command actually returns a coroutine —
+a synchronous app never pays its import cost. A command dispatched once per
+target via [`duho.fanout`](../../README.md) gets its own `asyncio.run` per call.
+**Module-command lifecycle hooks (`init`/`main`/`success`/`finally_`) stay
+synchronous** — async support is class-command `__call__` only.
+
 ## Building the parser yourself
 
 If you'd rather drive argparse directly:

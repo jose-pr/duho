@@ -126,6 +126,31 @@ class Output(Args):
 
 Passing both `--json` and `--yaml` is now an error.
 
+Add `conflicts_required=True` on any member to require exactly one:
+
+```python
+    push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
+    ("--push",)
+
+    pull: Arg[bool, NS(conflicts="mode")] = False
+    ("--pull",)
+```
+
+Omitting both `--push` and `--pull` is now an error.
+
+### Titled argument groups
+
+`NS(group="<title>")` buckets fields under a named `--help` section:
+
+```python
+class App(Args):
+    outfile: Arg[str, NS(group="Output options")] = "-"
+    ("--outfile",)
+```
+
+A field combining `group=` and `conflicts=` nests the mutually-exclusive group
+inside the titled section.
+
 ### Helpers
 
 Common `NS(...)` combinations have shorthands:

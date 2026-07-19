@@ -148,6 +148,15 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
         if name.startswith("_"):
             continue
 
+        # ClassVar/Final are declarations, not CLI fields: a `count: ClassVar[int]`
+        # or `MAX: Final[int]` must never become a `--count`/`--max` flag (C9).
+        # `get_origin(ClassVar[int]) is ClassVar` on 3.9+; a bare `ClassVar`/
+        # `Final` (unsubscripted) is caught by the identity check.
+        if type is _ty.ClassVar or type is _ty.Final:
+            continue
+        if _ty.get_origin(type) in (_ty.ClassVar, _ty.Final):
+            continue
+
         annotations = []
         if hasattr(type, "__metadata__"):
             annotations.extend(type.__metadata__)

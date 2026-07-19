@@ -1,5 +1,7 @@
 import argparse as _argparse
+import collections as _collections
 import copy as _copy
+import datetime as _datetime
 import enum as _enum
 import importlib.metadata as _importlib_metadata
 import logging as _logging_module
@@ -98,6 +100,156 @@ def _collection_action(collection: type) -> "_type[_argparse.Action]":
         _collection_ = collection
 
     return _BoundCollectionAction
+
+
+#: Stdlib types whose constructor does NOT accept an ISO string; each maps to
+#: its ``fromisoformat`` classmethod so a CLI/date field converts cleanly (C15).
+_ISOFORMAT_FACTORIES = {
+    _datetime.date: _datetime.date.fromisoformat,
+    _datetime.datetime: _datetime.datetime.fromisoformat,
+    _datetime.time: _datetime.time.fromisoformat,
+}
+
+
+#: The per-type spec the branch ladder resolves. ``factory=None`` means "no
+#: special factory -- keep the caller's seeded factory (a plain/custom type)".
+#: ``default`` is :data:`NOT_DEFINED` when the branch imposes no default.
+_FieldSpec = _collections.namedtuple(
+    "_FieldSpec",
+    "factory choices metavar action nargs default collection",
+)
+
+
+def _scalar_spec(factory=None) -> "_FieldSpec":
+    return _FieldSpec(factory, None, None, None, None, NOT_DEFINED, None)
+
+
+def _literal_spec(args: tuple) -> "_FieldSpec":
+    """Spec for a ``Literal[...]`` annotation: choices + a round-trip factory."""
+    literal_types: list = []
+    for lit in args:
+        lit_ty = type(lit)
+        if lit_ty not in literal_types:
+            literal_types.append(lit_ty)
+    if len(literal_types) == 1:
+        factory: "Factory" = literal_types[0]
+    else:
+        # Mixed-type Literal: try each declared literal's own type, but only
+        # accept a conversion that round-trips to one of the declared values (a
+        # naive "first type that doesn't raise" would let str('1') shadow int(1)).
+        def factory(text: str, /, _literals=tuple(args)):  # type:ignore[misc]
+            for lit in _literals:
+                try:
+                    candidate = type(lit)(text)
+                except (TypeError, ValueError):
+                    continue
+                if candidate == lit:
+                    return candidate
+            raise ValueError(
+                f"could not convert {text!r} using any of {_literals}"
+            )
+
+    return _FieldSpec(factory, tuple(args), None, None, None, NOT_DEFINED, None)
+
+
+def _union_spec(members: "list", name: str) -> "_FieldSpec":
+    """Spec for a Union of ``members`` (``None`` already stripped).
+
+    Each member is resolved through :func:`_factory_for` so a member like
+    ``list[int]`` or ``Literal[...]`` gets its full spec (C6). A single remaining
+    member (an ``Optional[T]``) adopts T's ENTIRE spec -- element conversion,
+    action, choices, default. A multi-member union composes the member factories
+    in declaration order (the enum-by-name rule preserved), but rejects any
+    member that needs a special ``action`` (a collection): argparse cannot switch
+    actions per value within one option.
+    """
+    member_specs = [_factory_for(m, name) for m in members]
+    resolved_factories = [
+        spec.factory if spec.factory is not None else member
+        for member, spec in zip(members, member_specs)
+    ]
+
+    if len(member_specs) == 1:
+        spec = member_specs[0]
+        return spec._replace(factory=resolved_factories[0])
+
+    for member, spec in zip(members, member_specs):
+        if spec.action is not None:
+            raise ValueError(
+                f"argument {name!r}: union member {member!r} needs a special "
+                f"parsing action (a collection); argparse cannot switch actions "
+                f"per value inside a multi-member union"
+            )
+
+    factories = tuple(resolved_factories)
+
+    def factory(text: str, /, _factories=factories):
+        for f in _factories:
+            try:
+                return f(text)
+            except (TypeError, ValueError):
+                pass
+        raise ValueError(
+            f"could not convert {text!r} using any of {_factories}"
+        )
+
+    return _scalar_spec(factory)
+
+
+def _factory_for(tp, name: str) -> "_FieldSpec":
+    """Resolve a single annotation type to its :class:`_FieldSpec`.
+
+    The one dispatch ladder shared by the top-level field and every Union member
+    (C6). Ordering matches the historical branch order (Literal, Enum, list, set,
+    tuple, iso-date, Union, fallthrough). A plain/custom type returns
+    ``factory=None`` so the caller keeps whatever factory it seeded (e.g. a
+    ``duho.Argument.from_type`` custom factory).
+    """
+    origin = _ty.get_origin(tp)
+    args = _ty.get_args(tp)
+
+    if origin is _ty.Literal:
+        return _literal_spec(args)
+
+    if isinstance(tp, type) and issubclass(tp, _enum.Enum):
+        names = tuple(member.name for member in tp)
+        metavar = "{" + ",".join(names) + "}"
+        return _FieldSpec(
+            _enum_name_factory(tp), None, metavar, None, None, NOT_DEFINED, None
+        )
+
+    if origin is list or tp is list:
+        elem_ty = args[0] if args else str
+        return _FieldSpec(elem_ty, None, None, "extend", "*", [], list)
+
+    if origin is set or tp is set:
+        elem_ty = args[0] if args else str
+        return _FieldSpec(
+            elem_ty, None, None, _collection_action(set), "*", set(), set
+        )
+
+    if origin is tuple or tp is tuple:
+        # Only variadic homogeneous ``tuple[T, ...]`` and bare ``tuple``
+        # (== ``tuple[str, ...]``) are supported.
+        if args and not (len(args) == 2 and args[1] is Ellipsis):
+            raise ValueError(
+                f"argument {name!r}: fixed-length tuple annotation "
+                f"{tp!r} is not supported; use tuple[T, ...] for a "
+                f"variadic homogeneous tuple, or bare tuple"
+            )
+        elem_ty = args[0] if args else str
+        return _FieldSpec(
+            elem_ty, None, None, _collection_action(tuple), "*", (), tuple
+        )
+
+    if tp in _ISOFORMAT_FACTORIES:
+        return _scalar_spec(_ISOFORMAT_FACTORIES[tp])
+
+    if origin in _compat.UNION_ORIGINS:
+        non_none = [a for a in args if a is not _NONETYPE]
+        return _union_spec(non_none, name)
+
+    return _scalar_spec(None)
 
 
 def _resolve_version(cls) -> "str | None":
@@ -367,9 +519,20 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         factory: "Factory | None" = None,
     ):
         help = decl.docstring or ""
-        flags = next(
+        flags_expr = next(
             filter(lambda x: isinstance(x, (list, tuple, set)), decl.exprs),
-            ("--" + name.replace("_", "-"),),
+            None,
+        )
+        if isinstance(flags_expr, set):
+            # A set has no defined iteration order, so `flags[0]` (positional
+            # detection) is nondeterministic and previously crashed. Reject it
+            # with a clear build-time error naming the field (M15).
+            raise ValueError(
+                f"argument {name!r}: flags must be given as a list or tuple, "
+                f"not a set {flags_expr!r} (a set has no guaranteed order)"
+            )
+        flags = flags_expr if flags_expr is not None else (
+            "--" + name.replace("_", "-"),
         )
         required = None
         choices = None
@@ -391,108 +554,28 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         if cls is not None and cls is not Argument:
             origin = _ty.get_origin(cls)
             args = _ty.get_args(cls)
-            if origin is _ty.Literal:
-                choices = args
-                literal_types = []
-                for lit in args:
-                    lit_ty = type(lit)
-                    if lit_ty not in literal_types:
-                        literal_types.append(lit_ty)
-                if len(literal_types) == 1:
-                    _factory = literal_types[0]
-                else:
-                    # Mixed-type Literal: try each declared literal's own type,
-                    # but only accept a conversion that round-trips to one of
-                    # the declared values (a naive "first type that doesn't
-                    # raise" would let e.g. str('1') shadow int(1)).
-                    def _factory(text: str, /, _literals=tuple(args)):
-                        for lit in _literals:
-                            try:
-                                candidate = type(lit)(text)
-                            except (TypeError, ValueError):
-                                continue
-                            if candidate == lit:
-                                return candidate
-                        raise ValueError(
-                            f"could not convert {text!r} using any of {_literals}"
-                        )
+            # An Optional[...] (Union carrying None) is not required.
+            if origin in _compat.UNION_ORIGINS and _NONETYPE in args:
+                required = False
 
-            elif isinstance(cls, type) and issubclass(cls, _enum.Enum):
-                names = tuple(member.name for member in cls)
-                metavar = "{" + ",".join(names) + "}"
-                _factory = _enum_name_factory(cls)
-
-            elif origin is list or cls is list:
-                elem_ty = args[0] if args else str
-                action = "extend"
-                nargs = "*"
-                _factory = elem_ty
-                collection = list
-                if default is _inspect.NOT_DEFINED:
-                    default = []
-
-            elif origin is set or cls is set:
-                # Mirror the list branch, but coerce the gathered elements to a
-                # set at the end (dedups; iteration order is not guaranteed --
-                # documented). Bare `set` -> element type str.
-                elem_ty = args[0] if args else str
-                action = _collection_action(set)
-                nargs = "*"
-                _factory = elem_ty
-                collection = set
-                if default is _inspect.NOT_DEFINED:
-                    default = set()
-
-            elif origin is tuple or cls is tuple:
-                # Only variadic homogeneous `tuple[T, ...]` and bare `tuple`
-                # (== `tuple[str, ...]`) are supported. A fixed-length
-                # heterogeneous `tuple[A, B]` needs per-position types, which
-                # this collection path can't express -- raise a clear
-                # build-time error naming the field instead of silently
-                # mis-parsing.
-                if args and not (len(args) == 2 and args[1] is Ellipsis):
-                    raise ValueError(
-                        f"argument {name!r}: fixed-length tuple annotation "
-                        f"{cls!r} is not supported; use tuple[T, ...] for a "
-                        f"variadic homogeneous tuple, or bare tuple"
-                    )
-                elem_ty = args[0] if args else str
-                action = _collection_action(tuple)
-                nargs = "*"
-                _factory = elem_ty
-                collection = tuple
-                if default is _inspect.NOT_DEFINED:
-                    default = ()
-
-            elif origin in _compat.UNION_ORIGINS:
-                if _NONETYPE in args:
-                    args = [a for a in args if a is not _NONETYPE]
-                    required = False
-
-                # Specialized per-member factories, preserving declaration
-                # order: Enum members resolve by NAME (consistent with the
-                # bare-enum branch), others use the type itself.
-                specialized = tuple(
-                    _enum_name_factory(a)
-                    if isinstance(a, type) and issubclass(a, _enum.Enum)
-                    else a
-                    for a in args
-                )
-
-                if len(specialized) == 1:
-                    _factory = specialized[0]
-
-                if len(specialized) > 1:
-
-                    def _factory(text: str, /, _factories=specialized):
-                        for f in _factories:
-                            try:
-                                return f(text)
-                            except (TypeError, ValueError):
-                                pass
-                        raise ValueError(
-                            f"could not convert {text!r} using any of {_factories}"
-                        )
+            # One dispatch ladder, shared by the top level and every Union member
+            # (C6). A plain/custom type yields factory=None -- keep the seeded
+            # `_factory` (e.g. a `from_type` custom factory) for that case.
+            spec = _factory_for(cls, name)
+            if spec.factory is not None:
+                _factory = spec.factory
+            if spec.choices is not None:
+                choices = spec.choices
+            if spec.metavar is not None:
+                metavar = spec.metavar
+            if spec.action is not None:
+                action = spec.action
+            if spec.nargs is not None:
+                nargs = spec.nargs
+            if spec.collection is not None:
+                collection = spec.collection
+            if spec.default is not _inspect.NOT_DEFINED and default is _inspect.NOT_DEFINED:
+                default = spec.default
 
         return ArgumentBuilder(
             name=name,
@@ -666,7 +749,11 @@ class ArgumentBuilder(_argparse.Namespace):
         if self.default is not _inspect.NOT_DEFINED:
             kwargs["default"] = self.default
 
-        if self.type is bool and not self.action:
+        if self.type is bool and not self.action and self.choices is None:
+            # A bare bool becomes a store_true/BooleanOptionalAction flag. But a
+            # `Literal[True, False]` carries choices -- it must go through
+            # type=+choices= like any other Literal, since argparse forbids
+            # choices= on a store_true action (C10).
             if self.default is True:
                 kwargs["action"] = _argparse.BooleanOptionalAction
             else:
@@ -727,6 +814,16 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["required"] = "default" not in kwargs
 
         kwargs.update(overrides)
+
+        # Copy a mutable default so each parser build (and each parse) gets its
+        # OWN list/set/dict. The builder is cached on the class, so without this
+        # every parse would share -- and mutate -- the same object (C7). Covers
+        # both the collection-branch default ([]/set()) and an override default
+        # (e.g. duho.Extend's kwargs `default=[]`). Tuples are immutable.
+        default_value = kwargs.get("default")
+        if isinstance(default_value, (list, set, dict)):
+            kwargs["default"] = _copy.copy(default_value)
+
         return kwargs
 
     def add_to_parser(self, parser: _argparse.ArgumentParser):
@@ -812,13 +909,23 @@ class Args(_argparse.Namespace):
         args: list[ArgumentBuilder] = []
         for name, decl in clsargs.items():
             if decl.annotations:
-                if decl.annotations[0] is _argparse.SUPPRESS:
+                # SUPPRESS anywhere in the metadata hides the field (M17).
+                if _argparse.SUPPRESS in decl.annotations:
                     continue
-                options = {}
+                options: dict = {}
                 for opts in decl.annotations:
-                    options.update(
-                        opts if isinstance(opts, _ty.Mapping) else opts.__dict__
-                    )
+                    # Only configuration-shaped metadata is consumed: a Mapping
+                    # or a namespace-like object (has __dict__, e.g. NS(...)). A
+                    # PEP-727-style object with a str `.documentation` contributes
+                    # help text. Any other metadata (a bare `Annotated[int, "doc"]`
+                    # string, an int, ...) is ignored silently, as Annotated's
+                    # own semantics require (C8).
+                    if isinstance(opts, _ty.Mapping):
+                        options.update(opts)
+                    elif isinstance(getattr(opts, "documentation", None), str):
+                        options.setdefault("help", opts.documentation)
+                    elif hasattr(opts, "__dict__"):
+                        options.update(vars(opts))
                 builder = Argument.from_type(decl.type, **options)._argbuilder_
             elif isinstance(decl.type, Argument):
                 builder = decl.type._argbuilder_

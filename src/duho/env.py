@@ -30,29 +30,45 @@ class Env(_abc.MutableMapping):
     environment (the prefix is uppercased, ``-`` -> ``_``, and a trailing ``_``
     is ensured). An empty prefix reads bare environment keys.
 
-    On construction the accessor tries to import a companion ``<prefix-lower>env``
-    module (e.g. ``my_app_env``) and seeds its ``__dict__`` as defaults; a missing
-    module is the common case and is silently ignored. ``**env`` keyword arguments
-    override those defaults. Explicitly stored values (``_env``) always take
-    precedence over the live environment.
+    On construction, when ``autoload`` is true (the default), the accessor tries
+    to import a companion ``<prefix-lower>env`` module (e.g. ``my_app_env``) and
+    seeds its **upper-case, non-underscore** module variables as defaults; a
+    missing module is the common case and is silently ignored. ``**env`` keyword
+    arguments override those defaults. All seeded values -- module and kwargs --
+    are ``str()``-coerced (they go through ``__setitem__``), so ``env.bool``/
+    ``env.list`` never see a raw non-string.
+
+    SECURITY: autoloading imports ``<prefix-lower>env`` from anywhere on
+    ``sys.path`` (which normally includes the current working directory), so a
+    hostile ``<prefix>env.py`` in the CWD would run its module body. Pass
+    ``autoload=False`` to disable the import entirely if the prefix is not fully
+    under your control.
     """
 
-    def __init__(self, prefix: str, **env: object) -> None:
+    def __init__(self, prefix: str, autoload: bool = True, **env: object) -> None:
         prefix = prefix.upper().replace("-", "_")
         if prefix and not prefix.endswith("_"):
             prefix += "_"
         self.prefix = prefix
 
         self._env: "dict[str, object]" = {}
-        try:
-            module = _importlib.import_module(f"{prefix.lower()}env")
-        except ImportError:
-            # A missing companion module is normal, not an error: an app may or
-            # may not ship a "<prefix>env.py" of defaults.
-            pass
-        else:
-            self._env.update(vars(module))
-        self._env.update(env)
+        if autoload:
+            try:
+                module = _importlib.import_module(f"{prefix.lower()}env")
+            except ImportError:
+                # A missing companion module is normal, not an error: an app may
+                # or may not ship a "<prefix>env.py" of defaults.
+                pass
+            else:
+                for key, value in vars(module).items():
+                    # Only real settings: skip dunders/private and lower-case
+                    # helpers/imports (``__builtins__``, ``os``, a ``_helper``),
+                    # matching the UPPER_CASE env-var convention. Route through
+                    # __setitem__ so the str() coercion holds.
+                    if key.isupper() and not key.startswith("_"):
+                        self[key] = value
+        for key, value in env.items():
+            self[key] = value
 
     # -- MutableMapping protocol ------------------------------------------
 
@@ -94,8 +110,12 @@ class Env(_abc.MutableMapping):
     ) -> "list[_T]":
         """Return ``key`` split on ``sep`` with ``ty`` applied to each part.
 
-        A missing or empty value yields ``[ty("")]`` -- a single empty-string
-        element, not an empty list -- because ``"".split(sep) == [""]``. This
-        split contract is intentional; callers rely on it.
+        A missing or empty value yields ``[]`` -- an empty list, NOT ``[ty("")]``.
+        The old single-empty-string contract turned a missing ``<PREFIX>_CMDS_PATH``
+        into ``[Path("")] == [Path(".")]`` and glob-imported the whole CWD (C11);
+        ``[""]`` as "one empty path" has no legitimate use.
         """
-        return [ty(part) for part in self.get(key, "").split(sep)]
+        raw = self.get(key, "")
+        if not raw:
+            return []
+        return [ty(part) for part in raw.split(sep)]

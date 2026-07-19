@@ -244,6 +244,31 @@ class App(Args):
 A field may combine `group=` and `conflicts=`: the mutually-exclusive group is
 nested inside the titled section (still exclusive, and shown under the title).
 
+### Prettier help: defaults & color
+
+Set a class-level `_help_formatter_` to opt into a richer `--help`. duho ships
+three `argparse.HelpFormatter` subclasses (all off by default, so plain help is
+unchanged unless you ask):
+
+| Formatter | Effect |
+| --- | --- |
+| `duho.DefaultsFormatter` | Appends `(default: X)` to each option's help — but skips the noise of `None`/`""`/`False` defaults (unlike argparse's own `ArgumentDefaultsHelpFormatter`) |
+| `duho.ColorHelpFormatter` | ANSI-colors section headings and option flags, **gated** on a TTY (honors `NO_COLOR`; `FORCE_COLOR` forces it on). When color is off the output is byte-identical to the default, so piping stays clean |
+| `duho.ColorDefaultsFormatter` | Both composed |
+
+```python
+class App(duho.Cli):
+    _help_formatter_ = duho.ColorDefaultsFormatter
+    region: str = "us-east"
+    "Target region"
+    ("--region",)
+```
+
+A root's `_help_formatter_` propagates to its `_subcommands_` tree, so one setting
+styles the whole app. You can also point it at any custom `HelpFormatter`
+subclass. (Note: argparse only renders defaults for options that *have* help text,
+so give a field a docstring to see its `(default: …)`.)
+
 ### Run your app
 
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses

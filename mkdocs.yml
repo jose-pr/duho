@@ -40,6 +40,7 @@ nav:
       - Overview: api/reference.md
       - Args: api/args.md
       - Discovery: api/discovery.md
+      - Formatters: api/formatters.md
       - Presets: api/presets.md
       - Logging: api/logging.md
       - Completion: api/completion.md

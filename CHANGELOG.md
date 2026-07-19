@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.3.3] - 2026-07-18
+### Fixed
+- **C1** `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
+  map to `False` (previously `bool("false")` was `True`); an unknown string is
+  a clear error naming the field and source.
+- **C2** An env var / TOML string on a `list`/`set`/`tuple` field now becomes a
+  single-element collection (`FILES=a.txt` -> `["a.txt"]`), matching one CLI
+  occurrence, instead of running the element factory over the whole string.
+- **C3** A subcommand's `set_defaults` no longer clobbers a root option's value
+  given before the subcommand: layered defaults skip dests suppressed on the
+  child parser.
+- **M14** Non-string config (TOML) values are now converted to the field type
+  (`timeout = 30` for a `float` field -> `30.0`; a `list[Path]` array ->
+  `[Path(...), ...]`) instead of being installed unconverted.
 
 ### Changed
 - Internal tidy-up (no behavior change): removed unused imports (`typing` in

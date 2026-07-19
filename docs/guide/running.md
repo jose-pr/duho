@@ -191,3 +191,38 @@ class App(duho.Args):
 name to the class's top-level import package. If the distribution isn't installed
 (a source checkout, say), duho adds **no** `--version` flag at all and logs a
 debug message — rather than printing a bogus version or crashing.
+
+## Prettier help: defaults & color
+
+Opt into a richer `--help` by setting a class-level `_help_formatter_`. duho ships
+three `argparse.HelpFormatter` subclasses (all **off by default** — plain help is
+unchanged unless you set the attribute):
+
+- **`duho.DefaultsFormatter`** — appends `(default: X)` to each option's help,
+  skipping `None`/`""`/`False` defaults (an unset optional, a `store_true` flag)
+  that argparse's own `ArgumentDefaultsHelpFormatter` would render as noise.
+- **`duho.ColorHelpFormatter`** — ANSI-colors section headings and option flags.
+  Color is **gated**: it is emitted only to a TTY, `NO_COLOR` disables it, and
+  `FORCE_COLOR` forces it on. When color is off the output is byte-identical to
+  the plain formatter, so piped/redirected help stays clean and aligned.
+- **`duho.ColorDefaultsFormatter`** — both, composed.
+
+```python
+import duho
+
+class App(duho.Cli):
+    _help_formatter_ = duho.ColorDefaultsFormatter
+
+    region: str = "us-east"
+    "Target region"
+    ("--region",)
+```
+
+A root's `_help_formatter_` propagates to its `_subcommands_` tree, so a single
+setting styles the whole app; a subcommand that sets its own `_help_formatter_`
+keeps it. You may also point `_help_formatter_` at any custom `HelpFormatter`
+subclass of your own.
+
+!!! note
+    argparse renders a default only for options that already have help text, so
+    give a field a docstring to see its `(default: …)` suffix.

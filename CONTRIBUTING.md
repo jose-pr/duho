@@ -31,9 +31,55 @@ pytest --cov=src/duho tests/
 
 ## Running Benchmarks
 
+The `benchmarks/` directory (excluded from the sdist; stdlib + duho only, no
+extra deps) measures the costs that matter for a CLI: interpreter startup +
+`import duho` + one cold build/parse, plus warm build/parse, subcommand-tree
+scaling, the field-type matrix, and command discovery.
+
 ```bash
+# Warm build/parse/tree/field metrics (add --cold for the per-invocation set)
+python benchmarks/run.py --cold
+
+# Fresh-process startup deltas (duho's cost over bare python)
+python benchmarks/bench_startup.py
+
+# Cold vs warm parser construction (shows what the caches save)
+python benchmarks/compare_cache.py
+
+# Discovery + dispatch of a generated 25-command directory
+python benchmarks/bench_discovery.py
+
+# The single-file parse/build micro-bench
 python -m benchmarks.bench_parsing
 ```
+
+### Benchmark regression gate
+
+CI (the `benchmark` job in `.github/workflows/test.yml`) runs
+`benchmarks/check_baseline.py`, which compares a fresh run against
+`benchmarks/baseline.json` and **fails the build** on a structural regression:
+
+- **warm metrics** (build/parse/tree/field-matrix medians): more than **1.5x**
+  the baseline median;
+- **startup deltas** (duho's added cost over bare python): more than **1.3x**
+  the baseline. The delta normalizes out runner speed, so the bound is tighter.
+
+Thresholds are intentionally generous because CI runner timing is noisy; a trip
+means a real regression, not jitter. The baseline is keyed by Python
+`major.minor`; a version with no committed entry is skipped (not failed).
+
+**Updating the baseline (only after an intentional, understood perf change).**
+Run on a quiet machine, once per Python version you can run locally, then commit
+`benchmarks/baseline.json`:
+
+```bash
+python benchmarks/update_baseline.py        # merges the current interpreter's entry
+```
+
+Each invocation updates only the entry for the interpreter that runs it and
+leaves the other versions untouched, so regenerate under each version you have.
+Never regenerate the baseline just to make a red gate pass -- investigate the
+regression first.
 
 ## Code Style
 

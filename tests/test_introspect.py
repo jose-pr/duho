@@ -186,3 +186,39 @@ def test_logging_args_preset_still_scanned():
     # so its flags/docstrings still come through.
     constants = _introspect.get_clsargs_constants(duho.LoggingArgs)
     assert constants, "LoggingArgs class-body metadata must still be scanned"
+
+
+# --- P5: guard the getsource fallback for dynamically-created classes --------
+
+
+class _DynArgs(duho.Args):
+    """A plain data Args used as a base for command(...)-generated classes."""
+
+    port: int = 8000
+    ("--port",)
+
+
+def test_dynamic_class_build_skips_getsource(monkeypatch):
+    # A duho.command(...)-generated class has no literal ClassDef in any source
+    # file. _module_index of its (module) file succeeds but the qualname is
+    # absent; getclsdef must return None WITHOUT re-parsing via inspect.getsource
+    # (which would fail the same lookup, only slower -- P5).
+    calls = []
+    real_getsource = _introspect._inspect.getsource
+
+    def counting_getsource(obj):
+        calls.append(obj)
+        return real_getsource(obj)
+
+    monkeypatch.setattr(_introspect._inspect, "getsource", counting_getsource)
+
+    # Build a small tree of generated command classes and their parsers.
+    for i in range(5):
+        generated = duho.command(_DynArgs, lambda self: None, name="gen%d" % i)
+        _introspect._module_index.cache_clear()
+        # get_clsargs -> get_clsargs_constants -> _class_constants -> getclsdef
+        args = _introspect.get_clsargs(generated)
+        assert "port" in args  # inherited field still resolves via the base
+        generated._parser_()
+
+    assert calls == [], "getsource must not be called for dynamic classes (P5)"

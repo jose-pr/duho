@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **MCP tool surface** (`duho.mcp`, opt-in) A zero-dependency stdio JSON-RPC 2.0
+  server that exposes a duho CLI's `Cmd`/`Cli` classes as MCP (Model Context
+  Protocol) tools, with zero redeclaration: `input_schema_for_command(cls)` /
+  `json_schema_for_field(decl, builder)` map each field's declared type
+  (`str`/`int`/`float`/`bool`, `Literal`/`Enum`, `list`/`set`/`tuple`/`dict`,
+  `Optional`/`Union`, `pathlib.Path`) to a JSON Schema fragment, reusing
+  `duho._introspect.get_clsargs` + `cls._getargs_()` (the same per-field data
+  `duho.agenthelp` collects, per Decision 2 -- `agenthelp` itself is
+  untouched). `describe_tools(root_cls)` walks the built parser tree (reusing
+  `duho.agenthelp.describe_parser`'s alias-dedup-by-identity) so every `Cmd` in
+  a `_subcommands_` tree -- root included -- becomes one tool, namespaced
+  `parent.child` when nested. `call_tool(root_cls, name, arguments)`
+  synthesizes an argv from the JSON `arguments` (a repeatable field becomes a
+  repeated flag; a `dict` field becomes repeated `KEY=VALUE` tokens; a
+  positional a bare token, in declared order) and reuses the target class's own
+  `_parser_()` + `duho.run_command` to dispatch, capturing stdout. Return
+  convention: `None`/`0` -> success (captured stdout as one `text` block); a
+  non-zero int -> `isError: true` (stdout + a trailing `exit code: N` line); a
+  JSON-serialisable object/list return -> passed through as one `text` block
+  holding its JSON dump. `python -m duho.mcp <app>` (`<app>` a dotted
+  `module:ClassName` or `module.ClassName` qualname, resolved via the stdlib
+  `pkgutil.resolve_name`) runs the stdio server against real stdin/stdout.
+  Like `duho.runpath`/`duho.fanout`/`duho.scaffold`, this is a **standalone
+  opt-in submodule** -- core `duho` never imports it, and it is not on the
+  top-level `duho.*` surface; `json`/`importlib.metadata` stay lazily imported
+  so `import duho.mcp` alone never pays their cost. v1 limitations (documented,
+  not silently wrong): a custom `action=`/`type=` field with no registered
+  override is passed through as a plain string; `NS(conflicts=...)` exclusive
+  groups are noted in the tool description text only (no `oneOf`/`not`
+  encoding yet); a module command (no duho class behind it) can be listed but
+  not called; one request maps to exactly one result (no streaming/long-running
+  commands).
 - **Agent help** A detailed, machine-readable (JSON) description of a CLI, built
   for AI agents, on top of duho's existing introspection (`get_clsargs` /
   `ClsArgDeclaration` + per-field `ArgumentBuilder`). Two triggers: the always-on

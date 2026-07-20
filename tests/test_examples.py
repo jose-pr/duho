@@ -1,9 +1,11 @@
-"""Smoke tests for examples/dotagents.py and examples/fileinstall.py.
+"""Smoke tests for examples/dotagents.py, examples/fileinstall.py, examples/mcp_app.py.
 
 These exercise the example files as acceptance tests for duho's public API
 surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
 (for fileinstall) positionals, Union types, NS(nargs="?"), a custom
-action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping.
+action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping. The
+mcp_app tests exercise duho.mcp's describe_tools/call_tool against a real,
+unmodified duho CLI (fileinstall.FileInstall), the point of that example.
 """
 
 import os
@@ -13,9 +15,11 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 
 import duho
+import duho.mcp
 
 import dotagents
 import fileinstall
+import mcp_app
 
 
 def test_dotagents_install_parses_fields():
@@ -53,3 +57,21 @@ def test_fileinstall_install_options_update_action():
 
 def test_fileinstall_main_install_returns_0():
     assert duho.main(fileinstall.FileInstall, ["install", "src", "dst"]) == 0
+
+
+def test_mcp_app_describes_fileinstall_as_tools():
+    tools = duho.mcp.describe_tools(mcp_app.FileInstall)
+    names = {t["name"] for t in tools}
+    assert names == {"FileInstall", "FileInstall.install"}
+    install = next(t for t in tools if t["name"] == "FileInstall.install")
+    assert "source" in install["inputSchema"]["properties"]
+    assert "destination" in install["inputSchema"]["properties"]
+
+
+def test_mcp_app_call_tool_dispatches_install():
+    result = duho.mcp.call_tool(
+        mcp_app.FileInstall,
+        "FileInstall.install",
+        {"source": "a.txt", "destination": "b.txt"},
+    )
+    assert result.get("isError") is not True

@@ -1272,6 +1272,64 @@ paths = generate_launchers("myapp", ".", libdir="src")   # -> [Path("bin/myapp")
 The CLI dogfoods duho itself — `duho.scaffold.ScaffoldCmd` is an ordinary `duho.Cli`
 command.
 
+## MCP tool surface (`duho.mcp`, opt-in)
+
+Expose the *same* `Cmd`/`Cli` classes that back a duho CLI as **MCP tools** (the
+[Model Context Protocol](https://modelcontextprotocol.io)) — zero redeclaration.
+Like `duho.runpath`/`duho.fanout`/`duho.scaffold`, this is an **opt-in, standalone**
+module: core `duho` never imports it, it's not on the top-level `duho.*` surface, and
+it stays **zero-dependency** — a stdlib JSON-RPC-over-stdio server, no MCP SDK.
+
+```console
+$ python -m duho.mcp mypackage.cli:MyApp
+```
+
+`<app>` is a dotted qualname to your `Cmd`/`Cli` root class — either
+`module.sub:ClassName` (colon syntax, the same convention this project's own
+entry-point plugins use) or the legacy dotted `module.sub.ClassName` form; both are
+resolved via the stdlib `pkgutil.resolve_name`. The process then speaks
+newline-delimited JSON-RPC 2.0 over stdin/stdout — wire it into any MCP client as a
+stdio server.
+
+Every `Cmd` reachable from your root — the root itself, and every `_subcommands_`
+node, recursively — becomes one tool, named after its own `_parsername_`/class name
+(`parent.child` when nested, e.g. `MyApp.Deploy`). A tool's `inputSchema` is a real
+JSON Schema built from the same field declarations that already drive your `--help`:
+
+```python
+from duho.mcp import describe_tools, call_tool
+
+tools = describe_tools(MyApp)   # -> [{"name", "description", "inputSchema"}, ...]
+result = call_tool(MyApp, "MyApp.Deploy", {"environment": "prod", "replicas": 3})
+```
+
+`str`/`int`/`float`/`bool` map to `string`/`integer`/`number`/`boolean`;
+`Literal[...]`/`Enum` become a schema `enum` (an `Enum` by member **name**, duho's
+standing convention); `list[T]`/`set[T]`/`tuple[T, ...]` become an `array` (a `set`
+additionally gets `uniqueItems: true`); `dict[str, V]` becomes an `object` with
+`additionalProperties`; `Optional[T]`/`Union[...]` drop out of `required` (a single
+non-`None` member unwraps directly, several become `anyOf`); `pathlib.Path` is a
+plain `string`.
+
+**Calling a tool** synthesizes an argv from the JSON `arguments` — a repeatable field
+becomes a repeated flag, a `dict` field becomes repeated `KEY=VALUE` tokens, a
+positional a bare token — and reuses your class's own parser + `duho.run_command` to
+dispatch, so every bit of argparse coercion/validation you already rely on runs
+unchanged. **Return convention** (the one new contract this module adds): a command
+returning `None`/`0` is a success result with your captured stdout as one `text`
+content block; a non-zero return is `isError: true` (stdout + a trailing
+`exit code: N` line); a JSON-serialisable object/list return is passed through as one
+`text` block holding its JSON dump — this is additive, existing int/`None` commands
+keep working exactly as before.
+
+**v1 limitations** (documented, not silently wrong): a custom `action=`/`type=`
+field with no registered override is passed through as a plain string; an
+`NS(conflicts=...)` exclusive group is noted in the tool's description text only (no
+`oneOf`/`not` JSON Schema encoding yet); a *module* command (no duho class behind its
+subparser) can be listed but not called; it's strictly one request → one result, no
+streaming/long-running commands. See [`examples/mcp_app.py`](examples/mcp_app.py) for
+a runnable app plus a note on wiring it into an MCP client.
+
 ## Examples
 
 Two self-contained example CLIs under [`examples/`](examples/) each build a small

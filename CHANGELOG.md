@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Agent help** A detailed, machine-readable (JSON) description of a CLI, built
+  for AI agents, on top of duho's existing introspection (`get_clsargs` /
+  `ClsArgDeclaration` + per-field `ArgumentBuilder`). Two triggers: the always-on
+  `AGENT_HELP` environment variable flips `-h`/`--help` into agent mode (human
+  help is byte-identical when it is unset; the var name is overridable via
+  `_agent_help_env_`), and the opt-in `_agent_help_ = True` adds a discoverable
+  `--help-agents` flag. The document (schema `duho/agent-help@1`) covers every
+  subcommand (with aliases), each option's type/default/required/repeatable/
+  choices, positionals, per-field env-var bindings, mutually-exclusive conflict
+  groups, examples (author-declared `_examples_` or a synthesized minimal
+  invocation), and exit codes (`_exit_codes_` overrides). New module
+  `duho.agenthelp` (parser-tree walk, mirrors `duho.completion`), plus
+  `duho.print_agent_help(cls)`. `json` stays lazily imported.
 - **F1** First-class `dict[str, V]` fields. A `dict`-annotated field collects
   `KEY=VALUE` tokens; repeated flags merge into one dict via `UpdateAction`, and
   the value half is converted with `V` (bare `dict` == `dict[str, str]`). Only

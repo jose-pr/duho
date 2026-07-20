@@ -123,6 +123,12 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
   pay). All benchmark tooling is stdlib-only and stays excluded from the sdist.
 
 ### Fixed
+- `CMDS_PATH` command-search-path resolution now splits on the platform path
+  separator (`os.pathsep` — `;` on Windows, `:` on POSIX; overridable via a
+  `PATHSEP` env var) via the new `Env.paths()`. Previously it split on a
+  hard-coded `:`, so on Windows an absolute path's drive-letter colon (`C:\…`)
+  was mis-split into a bogus `C` entry (`ImportError: not a directory: C`).
+  `Env.list()`'s generic `:` default is unchanged.
 - Building a parser for a bare framework base class used directly as a root
   (`duho.app(root=None)` builds `Args._parser_()`) no longer persists
   `_parsername_` onto the shared `Args`/`Cmd`/`Cli` base. Previously that name

@@ -28,7 +28,6 @@ from .args import (
     UpdateAction,
     value_sources,
 )
-from . import agenthelp
 from . import completion
 from .discovery import (
     CmdBuilder,
@@ -64,6 +63,25 @@ def parser(cls, *args, **kwargs):
     Public module-level entry point (delegates to cls._parser_).
     """
     return cls._parser_(*args, **kwargs)
+
+
+def __getattr__(name):
+    """Lazily import the ``agenthelp`` submodule on first attribute access (PEP 562).
+
+    ``duho.agenthelp`` is a feature module only touched when agent help actually
+    fires (the ``AGENT_HELP`` trigger / ``--help-agents`` flag / ``print_agent_help``
+    -- all of which import it lazily at call time). Keeping it OUT of ``import
+    duho`` means a plain import resolves no extra submodule and pays no extra
+    import cost, while ``duho.agenthelp`` (and ``import duho.agenthelp``) still
+    work on demand.
+    """
+    if name == "agenthelp":
+        import importlib
+
+        module = importlib.import_module("." + name, __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

@@ -142,7 +142,7 @@ def _resolve_commands(
 
     Order: an explicit ``commands`` list > ``discover_commands(source)`` >
     ``discover_entry_points(entry_points)`` (installed-distribution plugins) >
-    an ``env``-derived list of paths (``env.list("CMDS_PATH", ty=Path)``) >
+    an ``env``-derived list of paths (``env.paths("CMDS_PATH", ty=Path)``) >
     ``root._subcommands_``. Discovery is resilient (a bad command drops out with
     a warning -- see :func:`duho.discovery.discover_commands` /
     :func:`duho.discovery.discover_entry_points`).
@@ -169,7 +169,10 @@ def _resolve_commands(
             raw = None
         if raw:
             try:
-                paths = env.list("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+                # Split on the OS path separator (os.pathsep; PATHSEP overrides),
+                # NOT a hard-coded ":" -- otherwise a Windows "C:\..." drive letter
+                # is mis-split into a bogus "C" path. See `Env.paths`.
+                paths = env.paths("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
             except Exception:  # pragma: no cover - env is best-effort here
                 paths = []
             for path in paths:
@@ -417,7 +420,7 @@ def app(
     global options (``None`` -> a bare data root, for an app whose commands all
     come from discovery). The command set is resolved by precedence
     (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
-    ``discover_entry_points(entry_points)`` > ``env.list("CMDS_PATH", ty=Path)`` >
+    ``discover_entry_points(entry_points)`` > ``env.paths("CMDS_PATH", ty=Path)`` >
     ``root._subcommands_``.
 
     ``entry_points`` is an installed-distribution entry-point **group** name

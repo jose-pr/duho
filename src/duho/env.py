@@ -119,3 +119,20 @@ class Env(_abc.MutableMapping):
         if not raw:
             return []
         return [ty(part) for part in raw.split(sep)]
+
+    def paths(
+        self, key: str, ty: "_ty.Callable[[str], _T]" = str
+    ) -> "list[_T]":
+        """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
+
+        Unlike :meth:`list` (whose ``sep`` defaults to ``":"`` for generic lists
+        like ``HOSTS``), this splits on the **platform path-list separator** --
+        ``os.pathsep`` (``";"`` on Windows, ``":"`` on POSIX) -- so an absolute
+        Windows path's drive-letter colon (``C:\\...``) is never mis-split into a
+        bogus ``C`` entry. A ``PATHSEP`` environment variable overrides the
+        separator when set (``sep = os.environ.get("PATHSEP") or os.pathsep``),
+        so a caller can force a separator regardless of platform. Missing/empty
+        yields ``[]``, exactly like :meth:`list`.
+        """
+        sep = _os.environ.get("PATHSEP") or _os.pathsep
+        return self.list(key, sep=sep, ty=ty)

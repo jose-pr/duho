@@ -646,6 +646,56 @@ completion. The PowerShell emitter registers a `Register-ArgumentCompleter
 -Native` script block resolving the subcommand path to its flags/choices, with
 file completion falling through to PowerShell's defaults.
 
+### Agent help (machine-readable `--help`)
+
+Alongside the compact, human-facing `--help`, duho can emit a **complete,
+machine-readable JSON description** of your CLI — enough for an AI agent (or any
+tool) to understand the whole command surface in one shot: every subcommand,
+each option's type/default/required/repeatable/choices, positionals, per-field
+env-var bindings, mutually-exclusive conflict groups, examples, and exit codes.
+It is built entirely on duho's existing introspection — no second declaration.
+
+Two triggers:
+
+```bash
+# 1) Always on, zero-config: set AGENT_HELP and --help emits the agent document.
+#    Human --help is byte-identical when AGENT_HELP is unset.
+AGENT_HELP=1 python app.py --help
+AGENT_HELP=1 python app.py deploy --help    # scoped to the subcommand
+
+# 2) Opt-in discoverable flag (set _agent_help_ = True on the root):
+python app.py --help-agents
+```
+
+```python
+import duho
+
+class MyApp(duho.Cli):
+    """My app."""
+    _version_ = "1.2.3"
+    _agent_help_ = True                       # adds --help-agents (opt-in)
+    _agent_help_env_ = "AGENT_HELP"           # env trigger name (default shown)
+    _examples_ = [("myapp deploy --env prod", "Deploy to prod")]
+    _exit_codes_ = {3: "Partial failure."}    # merged over duho's 0/1/2 defaults
+```
+
+The document is tagged with a `schema` (`duho/agent-help@1`) so consumers can
+detect and pin the shape. Each option carries `type`, `default`, `required`,
+`repeatable`, `choices`, `metavar`, and — when declared — its `env` binding and
+`conflicts` group; subcommands nest recursively with their `aliases`. You can
+also produce it directly, independent of either trigger:
+
+```python
+import duho
+
+duho.print_agent_help(MyApp)                  # JSON to stdout
+spec = duho.agenthelp.describe(MyApp)         # the document as a dict
+```
+
+The `AGENT_HELP` env trigger is safe to leave always-on: it changes `--help`
+behavior only when the variable is deliberately set, so nothing changes for
+ordinary human use. Set `_agent_help_env_` to rename the trigger per-app.
+
 ### Manual subparsers
 
 `_subcommands_` (above) is the recommended way to build command trees. If you

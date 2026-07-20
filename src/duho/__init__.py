@@ -23,10 +23,12 @@ from .args import (
     NS,
     parse,
     parse_globals,
+    print_agent_help,
     print_completion,
     UpdateAction,
     value_sources,
 )
+from . import agenthelp
 from . import completion
 from .discovery import (
     CmdBuilder,
@@ -65,6 +67,7 @@ def parser(cls, *args, **kwargs):
 
 
 __all__ = [
+    "agenthelp",
     "Append",
     "app",
     "Args",
@@ -99,6 +102,7 @@ __all__ = [
     "parse",
     "parse_globals",
     "parser",
+    "print_agent_help",
     "print_completion",
     "pysafe",
     "PythonName",

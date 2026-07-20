@@ -433,6 +433,99 @@ class _PrintCompletionAction(_argparse.Action):
         parser.exit()
 
 
+class _AgentHelpAction(_argparse._HelpAction):
+    """``-h``/``--help`` action that emits agent help when the env trigger is set.
+
+    Installed by :meth:`Args._initparser_` via a per-instance ``__class__`` swap
+    of argparse's own ``_HelpAction`` -- the same blessed idiom ``parsers.py``
+    uses (``_NoOpHelpAction``/``_RelaxedSubParsersAction``): argparse's classes
+    are never mutated, so the surgery stays thread-safe and reentrant. When the
+    trigger env var (``_duho_agent_env`` or the ``AGENT_HELP`` default) is set
+    truthy, it prints the machine-readable agent document for THIS parser and
+    exits 0; otherwise it defers to the normal human ``_HelpAction``.
+    """
+
+    #: The duho class behind this parser (for version/exit-code/example lookup);
+    #: the trigger env-var name (``None`` -> the ``AGENT_HELP`` default). Both are
+    #: set as instance attrs right after the ``__class__`` swap.
+    _duho_agent_cls = None
+    _duho_agent_env = None
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from . import agenthelp as _agenthelp
+
+        if _agenthelp.agent_help_requested(self._duho_agent_env):
+            spec = _agenthelp.describe_parser(
+                parser, root=True, root_cls=self._duho_agent_cls
+            )
+            parser._print_message(_agenthelp.render(spec), _sys.stdout)
+            parser.exit()
+        super().__call__(parser, namespace, values, option_string)
+
+
+class _AgentHelpFlagAction(_argparse.Action):
+    """The opt-in ``--help-agents`` flag: always emit agent help, then exit 0.
+
+    Mirrors :class:`_PrintCompletionAction`: ``root_parser`` is captured at
+    injection time (in ``_initparser_``, before subparsers are attached) but the
+    same parser object carries the full tree by the time the flag fires at parse
+    time, so the emitted document covers every subcommand.
+    """
+
+    def __init__(self, option_strings, dest, root_parser=None, root_cls=None, **kwargs):
+        kwargs.setdefault("nargs", 0)
+        kwargs.setdefault("default", _argparse.SUPPRESS)
+        super().__init__(option_strings, dest, **kwargs)
+        self.root_parser = root_parser
+        self.root_cls = root_cls
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from . import agenthelp as _agenthelp
+
+        root = self.root_parser if self.root_parser is not None else parser
+        spec = _agenthelp.describe_parser(root, root=True, root_cls=self.root_cls)
+        parser._print_message(_agenthelp.render(spec), _sys.stdout)
+        parser.exit()
+
+
+def _install_agent_help(parser, cls, is_subcommand):
+    """Wire up both agent-help triggers on a freshly built parser.
+
+    1. Stash ``cls`` on the parser as ``_duho_cls_`` so the emitter can enrich
+       each command with duho's field metadata (env bindings, conflicts, declared
+       types) -- see :mod:`duho.agenthelp`.
+    2. Swap every ``_HelpAction`` on this parser to :class:`_AgentHelpAction` so
+       ``--help`` becomes agent-aware (env-triggered). Always on: it only changes
+       ``--help`` behavior when the trigger env var is deliberately set, so
+       normal human help is unchanged.
+    3. On the top-level parser only, when ``_agent_help_ = True``, add the opt-in
+       ``--help-agents`` flag (guarded against a duplicate dest).
+    """
+    parser._duho_cls_ = cls  # type:ignore[attr-defined]
+
+    env_name = getattr(cls, "_agent_help_env_", None)
+    for action in parser._actions:
+        if isinstance(action, _argparse._HelpAction) and not isinstance(
+            action, _AgentHelpAction
+        ):
+            action.__class__ = _AgentHelpAction
+            action._duho_agent_cls = cls  # type:ignore[attr-defined]
+            action._duho_agent_env = env_name  # type:ignore[attr-defined]
+
+    if not is_subcommand and getattr(cls, "_agent_help_", False):
+        existing_dests = {action.dest for action in parser._actions}
+        if "help_agents" not in existing_dests:
+            parser.add_argument(
+                "--help-agents",
+                dest="help_agents",
+                action=_AgentHelpFlagAction,
+                root_parser=parser,
+                root_cls=cls,
+                help="Show a detailed machine-readable description of this CLI "
+                "(for AI agents) and exit.",
+            )
+
+
 def _resolve_env_defaults(cls) -> "dict[str, object]":
     """Build {field_name: converted_value} for fields whose NS(env=...) var is set.
 
@@ -1403,6 +1496,10 @@ class Args(_argparse.Namespace):
             parser.exclusive_groups = exclusive_groups
         parser._duho_titled_groups_ = titled_groups  # type:ignore[attr-defined]
 
+        # Agent help: stash the class for the emitter, make --help env-aware, and
+        # add the opt-in --help-agents flag. See `_install_agent_help`.
+        _install_agent_help(parser, cls, is_subcommand)
+
         return parser
 
 
@@ -1545,6 +1642,28 @@ class Cli(Cmd):
     #: Read via ``getattr(cls, "_subcommands_", None)`` (``args.py`` +
     #: ``runtime.py``) -- declaring it here does NOT change that contract.
     _subcommands_: "_ty.Optional[_ty.Sequence[_ty.Type[Cmd]]]" = None
+
+    #: When ``True``, add the opt-in ``--help-agents`` flag (a detailed,
+    #: machine-readable description of the whole CLI for AI agents). Read by
+    #: ``_install_agent_help`` (``args.py``); defaults off. Independent of the
+    #: always-on ``AGENT_HELP`` env-var trigger, which needs no opt-in.
+    _agent_help_: bool = False
+
+    #: Environment variable whose truthy value flips ``--help`` into agent mode.
+    #: ``None`` (default) uses :data:`duho.agenthelp.DEFAULT_ENV` (``AGENT_HELP``).
+    #: Read by ``_AgentHelpAction`` (``args.py``) via ``agent_help_requested``.
+    _agent_help_env_: "_ty.Optional[str]" = None
+
+    #: Optional examples surfaced in the agent-help document. A sequence of
+    #: command strings, or of ``(command, description)`` pairs. ``None`` (default)
+    #: lets duho synthesize a minimal invocation line. Read by
+    #: ``duho.agenthelp`` when building the document.
+    _examples_: "_ty.Optional[_ty.Sequence[_ty.Any]]" = None
+
+    #: Optional exit-code overrides/additions for the agent-help document, as a
+    #: ``{code: meaning}`` mapping merged over duho's defaults (0/1/2). ``None``
+    #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
+    _exit_codes_: "_ty.Optional[_ty.Mapping[_ty.Any, str]]" = None
 
     @classmethod
     def _register_subcmd_(cls, child: "type[Cmd]") -> "type[Cmd]":
@@ -1699,6 +1818,20 @@ def print_completion(cls, shell: str, file=None) -> None:
     parser = cls._parser_()
     emitter = getattr(_completion, shell)
     file.write(emitter(parser))
+
+
+def print_agent_help(cls, file=None) -> None:
+    """Print a detailed, machine-readable (JSON) agent-help document for `cls`.
+
+    Standalone counterpart to the ``--help-agents`` flag / the ``AGENT_HELP``
+    env-var trigger: builds ``cls``'s parser tree fresh and describes it
+    (independent of whether either trigger is wired up), then writes the JSON to
+    ``file`` (default ``sys.stdout``). Delegates to
+    :func:`duho.agenthelp.print_agent_help`.
+    """
+    from . import agenthelp as _agenthelp
+
+    _agenthelp.print_agent_help(cls, file=file)
 
 
 def _maybe_await(result):
@@ -1923,6 +2056,7 @@ __all__ = [
     "NOT_DEFINED",
     "parse",
     "parse_globals",
+    "print_agent_help",
     "print_completion",
     "UpdateAction",
     "value_sources",

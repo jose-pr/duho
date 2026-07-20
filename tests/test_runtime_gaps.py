@@ -95,7 +95,13 @@ class PlainRoot(Cmd):
 
 
 def test_resolve_commands_from_cmds_path_env(tmp_path, monkeypatch):
-    """env.list('CMDS_PATH', ty=Path) with a real dir resolves its commands."""
+    """env.paths('CMDS_PATH', ty=Path) with a real dir resolves its commands.
+
+    The single-dir value is an absolute path -- on Windows it carries a
+    drive-letter colon (``C:\\...``), which must NOT be split (see
+    ``Env.paths`` / ``os.pathsep``).
+    """
+    monkeypatch.delenv("PATHSEP", raising=False)
     cmd_dir = tmp_path / "cmds"
     cmd_dir.mkdir()
     _write(cmd_dir, "deploy.py", _CLASS_CMD)
@@ -105,6 +111,27 @@ def test_resolve_commands_from_cmds_path_env(tmp_path, monkeypatch):
     resolved = _resolve_commands(Root, None, None, env, None)
     names = {getattr(c, "__name__", "") for c in resolved}
     assert "Deploy" in names
+
+
+def test_resolve_commands_from_multi_cmds_path_env(tmp_path, monkeypatch):
+    """Two dirs joined by the OS path separator both resolve."""
+    import os
+
+    monkeypatch.delenv("PATHSEP", raising=False)
+    dir_a = tmp_path / "a"
+    dir_a.mkdir()
+    _write(dir_a, "deploy.py", _CLASS_CMD)
+    dir_b = tmp_path / "b"
+    dir_b.mkdir()
+    _write(dir_b, "release.py", _CLASS_CMD.replace("Deploy", "Release"))
+    monkeypatch.setenv(
+        "MYAPP_CMDS_PATH", os.pathsep.join([str(dir_a), str(dir_b)])
+    )
+    env = Env("myapp")
+
+    resolved = _resolve_commands(Root, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert {"Deploy", "Release"} <= names
 
 
 def test_app_dispatches_command_from_cmds_path_env(tmp_path, monkeypatch):

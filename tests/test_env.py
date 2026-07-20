@@ -1,5 +1,7 @@
 """Tests for duho.env.Env (prefixed environment accessor)."""
 
+import pathlib
+
 import pytest
 
 from duho.env import Env
@@ -77,6 +79,52 @@ class TestList:
     def test_empty_value_yields_empty_list(self, monkeypatch):
         monkeypatch.setenv("MA_EMPTY", "")
         assert Env("ma").list("EMPTY") == []
+
+
+class TestPaths:
+    """``Env.paths`` splits on the OS path separator (``os.pathsep``), overridable
+    by ``PATHSEP`` -- so a Windows ``C:\\...`` drive letter is never mis-split."""
+
+    def test_splits_on_os_pathsep(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_CMDS_PATH", os.pathsep.join(["/a/b", "/c/d"]))
+        assert Env("ma").paths("CMDS_PATH") == ["/a/b", "/c/d"]
+
+    def test_windows_drive_letter_not_split(self, monkeypatch):
+        # The regression: a single absolute path with a drive-letter colon must
+        # come back as ONE entry, never split into a bogus "C" (only reproduces
+        # the mis-split on Windows where os.pathsep is ";", but the assertion is
+        # correct on every platform).
+        import os
+
+        monkeypatch.delenv("PATHSEP", raising=False)
+        drive_path = "C:\\Users\\me\\cmds"
+        monkeypatch.setenv("MA_CMDS_PATH", drive_path)
+        result = Env("ma").paths("CMDS_PATH")
+        if os.pathsep == ";":  # Windows
+            assert result == [drive_path]
+
+    def test_pathsep_override(self, monkeypatch):
+        # PATHSEP forces the separator regardless of platform.
+        monkeypatch.setenv("PATHSEP", "|")
+        monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
+        assert Env("ma").paths("CMDS_PATH") == ["x", "y", "z"]
+
+    def test_custom_type(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_CMDS_PATH", os.pathsep.join(["/a", "/b"]))
+        assert Env("ma").paths("CMDS_PATH", ty=pathlib.Path) == [
+            pathlib.Path("/a"),
+            pathlib.Path("/b"),
+        ]
+
+    def test_missing_yields_empty(self, monkeypatch):
+        monkeypatch.delenv("MA_CMDS_PATH", raising=False)
+        assert Env("ma").paths("CMDS_PATH") == []
 
 
 class TestIterAndLen:

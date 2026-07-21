@@ -132,6 +132,7 @@ Thumbs.db
 
 # Project-specific
 .agents
+*.local.md
 .claude/
 CLAUDE*
 

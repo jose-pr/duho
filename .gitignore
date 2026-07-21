@@ -131,7 +131,7 @@ dmypy.json
 Thumbs.db
 
 # Project-specific
-.agents/
+.agents
 .claude/
 CLAUDE*
 

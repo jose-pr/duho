@@ -297,7 +297,7 @@ def test_logging_args_cli_mro_resolves_all_members():
 
 
 # --------------------------------------------------------------------------
-# Phase 2: env/config-file thread-down through app()
+# env/config-file thread-down through app()
 # --------------------------------------------------------------------------
 
 

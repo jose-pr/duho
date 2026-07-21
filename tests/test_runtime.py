@@ -697,3 +697,74 @@ def test_dispatch_can_fan_out_over_targets(tmp_path):
     )
     assert rc == 0
     assert sorted(ran) == ["t1", "t2", "t3"]
+
+
+# --------------------------------------------------------------------------
+# CMDS_PATH extends _subcommands_ (it does not replace them)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_GREET = '''\
+"""A discovered command."""
+
+
+def main(args=None):
+    return "greeted"
+'''
+
+_MODULE_CMD_HELLO_OVERRIDE = '''\
+"""Shadows the built-in hello."""
+
+
+def main(args=None):
+    return "overridden"
+'''
+
+
+class _Hello(duho.LoggingArgs, duho.Cmd):
+    """A built-in subcommand carried on the root class."""
+
+    _parsername_ = "hello"
+
+    def __call__(self):
+        return "built-in"
+
+
+class RootWithBuiltins(duho.LoggingArgs, duho.Cli):
+    """A root that ships its own _subcommands_."""
+
+    _subcommands_ = [_Hello]
+
+    def __call__(self):  # pragma: no cover - root is not dispatched here
+        return 0
+
+
+def test_cmds_path_extends_builtin_subcommands(tmp_path, monkeypatch):
+    """A CMDS_PATH command is ADDED to _subcommands_, not swapped in for them.
+
+    Replacing them would make every invocation depend on the env var being
+    right; the usual reason to point at a command dir is "a few extras".
+    """
+    _write(tmp_path, "greet.py", _MODULE_CMD_GREET)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    assert app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
+    # The built-in still works -- this is the half that regressed before.
+    assert app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False) == "built-in"
+
+
+def test_cmds_path_command_overrides_same_named_builtin(tmp_path, monkeypatch):
+    """A discovered command wins over a built-in of the same name."""
+    _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+
+    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
+             setup_logging=False)
+    assert rc == "overridden"
+
+
+def test_builtin_subcommands_survive_without_cmds_path():
+    """No CMDS_PATH set -> the root's own _subcommands_ are the command set."""
+    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
+             setup_logging=False)
+    assert rc == "built-in"

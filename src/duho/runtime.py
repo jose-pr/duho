@@ -142,9 +142,18 @@ def _resolve_commands(
 
     Order: an explicit ``commands`` list > ``discover_commands(source)`` >
     ``discover_entry_points(entry_points)`` (installed-distribution plugins) >
-    an ``env``-derived list of paths (``env.paths("CMDS_PATH", ty=Path)``) >
-    ``root._subcommands_``. Discovery is resilient (a bad command drops out with
-    a warning -- see :func:`duho.discovery.discover_commands` /
+    ``env``-derived paths (``CMDS_PATH``) **extending** ``root._subcommands_``.
+
+    ``CMDS_PATH`` is additive: an app's built-in subcommands stay available and
+    the discovered ones are added alongside. Setting it to drop the built-ins
+    would make every invocation depend on the variable being right, which is a
+    footgun for a *supplementary* command directory -- the usual reason to point
+    at one is "I have a few extra commands", not "replace this CLI". A discovered
+    command whose name collides with a built-in **wins** (that is the override
+    story), and the shadowing is logged so it is never silent.
+
+    Discovery is resilient (a bad command drops out with a warning -- see
+    :func:`duho.discovery.discover_commands` /
     :func:`duho.discovery.discover_entry_points`).
     """
     if commands is not None:
@@ -156,8 +165,12 @@ def _resolve_commands(
     if entry_points is not None:
         return _discover_entry_points(entry_points)
 
+    builtin: "list[_Command]" = (
+        list(getattr(root, "_subcommands_", []) or []) if root is not None else []
+    )
+
+    discovered: "list[_Command]" = []
     if env is not None:
-        resolved: "list[_Command]" = []
         # Only touch CMDS_PATH when it is actually set and non-empty. A missing
         # value must NOT be split/globbed -- that is what turned an unset var into
         # "import every .py in the CWD" (C11). `Env.list` now returns [] for a
@@ -177,13 +190,22 @@ def _resolve_commands(
                 paths = []
             for path in paths:
                 if str(path):
-                    resolved.extend(_discover_commands(path))
-        if resolved:
-            return resolved
+                    discovered.extend(_discover_commands(path))
 
-    if root is not None:
-        return list(getattr(root, "_subcommands_", []) or [])
-    return []
+    if not discovered:
+        return builtin
+
+    # Discovered wins on a name clash; keep built-in order, then the new ones.
+    override = {_command_name(c) for c in discovered if _command_name(c)}
+    merged = []
+    for cmd in builtin:
+        name = _command_name(cmd)
+        if name and name in override:
+            _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
+            continue
+        merged.append(cmd)
+    merged.extend(discovered)
+    return merged
 
 
 def _register_class_command(
@@ -325,7 +347,41 @@ def _build_parser(
         parser_kwargs["description"] = description
     parser = root_cls._parser_(**parser_kwargs)  # type: ignore[attr-defined]
     base_parser = root_cls._parser_(add_help=False)  # type: ignore[attr-defined]
+    # base_parser exists only to donate the root's *options* to each subcommand
+    # via `parents=`. When the root carries `_subcommands_`, `_parser_` also gave
+    # it a subparsers action -- inheriting that would nest the whole command tree
+    # under every subcommand and make its `command` argument required again
+    # ("Root greet ... {hello} ... error: the following arguments are required:
+    # command"). Drop it; only optionals should flow downward.
+    _strip_subparsers(base_parser)
     return parser, base_parser, root_cls
+
+
+def _strip_subparsers(parser: "_argparse.ArgumentParser") -> None:
+    """Remove any subparsers action from ``parser`` (used for parent donors)."""
+    subs = [
+        a for a in parser._actions  # type: ignore[attr-defined]
+        if isinstance(a, _argparse._SubParsersAction)  # type: ignore[attr-defined]
+    ]
+    for action in subs:
+        parser._actions.remove(action)  # type: ignore[attr-defined]
+        for group in parser._action_groups:  # type: ignore[attr-defined]
+            if action in group._group_actions:  # type: ignore[attr-defined]
+                group._group_actions.remove(action)  # type: ignore[attr-defined]
+
+
+def _existing_subparsers(
+    parser: "_argparse.ArgumentParser",
+) -> "_argparse._SubParsersAction | None":
+    """The parser's already-registered subparsers action, if it has one.
+
+    A root class carrying ``_subcommands_`` gets one from its own ``_parser_``;
+    argparse permits only a single subparsers action per parser, so callers must
+    reuse it instead of adding another."""
+    for action in parser._actions:  # type: ignore[attr-defined]
+        if isinstance(action, _argparse._SubParsersAction):  # type: ignore[attr-defined]
+            return action
+    return None
 
 
 def _deregister_subparser(
@@ -420,8 +476,10 @@ def app(
     global options (``None`` -> a bare data root, for an app whose commands all
     come from discovery). The command set is resolved by precedence
     (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
-    ``discover_entry_points(entry_points)`` > ``env.paths("CMDS_PATH", ty=Path)`` >
-    ``root._subcommands_``.
+    ``discover_entry_points(entry_points)`` > ``env.paths("CMDS_PATH", ty=Path)``
+    **plus** ``root._subcommands_`` -- ``CMDS_PATH`` extends the built-ins rather
+    than replacing them, with a discovered command overriding a same-named
+    built-in (logged, never silent).
 
     ``entry_points`` is an installed-distribution entry-point **group** name
     (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
@@ -523,7 +581,36 @@ def app(
     # `conflicting subparser`, and dispatch resolves via this same registry (M6).
     registry: "dict[str, tuple[str, object]]" = {}
 
-    subparsers = parser.add_subparsers(title="command", dest="command", required=True)
+    # A root class with `_subcommands_` already had them registered by its own
+    # `_parser_`, which created a subparsers action. argparse allows only one per
+    # parser ("cannot have multiple subparser arguments"), so reuse that action
+    # rather than adding a second -- otherwise a root with built-ins could not
+    # also take discovered commands (CMDS_PATH being additive depends on this).
+    # Re-registering a name is safe: `_deregister_subparser` drops the earlier
+    # entry so the later one wins.
+    subparsers = _existing_subparsers(parser)
+    if subparsers is None:
+        subparsers = parser.add_subparsers(
+            title="command", dest="command", required=True
+        )
+    else:
+        # Names the root's own `_parser_` already wired up. Re-registering one
+        # here would drop its `"#cls"` selection hook and break dispatch, so skip
+        # any resolved command that is already present and identical -- only a
+        # genuinely different command (a CMDS_PATH override) re-registers.
+        preregistered = set(subparsers._name_parser_map)  # type: ignore[attr-defined]
+        builtin_by_name = {
+            _command_name(c): c
+            for c in (getattr(root, "_subcommands_", []) or [])
+            if _command_name(c)
+        }
+        resolved_commands = [
+            c for c in resolved_commands
+            if not (
+                _command_name(c) in preregistered
+                and builtin_by_name.get(_command_name(c)) is c
+            )
+        ]
     for command in resolved_commands:
         if _is_class_command(command):
             cmd_name = _command_name(command)

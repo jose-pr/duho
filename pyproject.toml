@@ -40,6 +40,15 @@ Documentation = "https://jose-pr.github.io/duho/"
 Issues = "https://github.com/jose-pr/duho/issues"
 Repository = "https://github.com/jose-pr/duho"
 
+
+# Ship the consumer-facing docs inside the installed package, so they are
+# readable from site-packages via importlib.resources without the repo.
+# src/duho/AGENTS.md is included automatically by living in the package
+# dir; the repo-root AGENTS.md is development-only and deliberately not
+# shipped.
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "duho/README.md"
+
 [tool.hatch.build.targets.sdist]
 exclude = ["/.*", "/benchmarks"]
 

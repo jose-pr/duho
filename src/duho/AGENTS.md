@@ -3,7 +3,7 @@
 Header-file-style reference for the `duho` package: every `__all__` export with its
 signature, arguments, contract, and gotchas, so this module can be consumed without
 reading its source. Kept current with the public API. For the framework overview and the
-class-declaration form, see the repo-root `AGENTS.md`.
+class-declaration form, see <https://github.com/jose-pr/duho>.
 
 `import duho` never eagerly imports `json` or `importlib.metadata` (a tested contract);
 keep any addition here that would break that lazy.

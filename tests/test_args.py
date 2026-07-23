@@ -5,7 +5,7 @@ import enum
 import sys
 import typing as ty
 import pytest
-from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, NS, parser as duho_parser
+from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, Extend, NS, parser as duho_parser
 from duho.parsers import prerun_parse
 
 
@@ -687,6 +687,30 @@ def test_append_helper():
     parser = AppendArgs._parser_()
     args = parser.parse_args(["--tags", "a", "--tags", "b"])
     assert args.tags == ["a", "b"]
+
+
+class ExtendArgs(Args):
+    """opts: Arg[list, Extend(',')] splits each occurrence on `,` and flattens."""
+    opts: Arg[list, Extend(",")] = []
+    "Options"
+    ("--opts",)
+
+
+def test_extend_helper_splits_and_flattens_single_occurrence():
+    # Regression: nargs="*" (the list[str] default) plus a type that SPLITS
+    # one token into several used to double-collect -- a single occurrence's
+    # split result (itself a list) was appended as ONE nested element instead
+    # of being flattened. Extend() now overrides nargs=None so a single
+    # occurrence's split result becomes the flat list directly.
+    parser = ExtendArgs._parser_()
+    args = parser.parse_args(["--opts", "a,b"])
+    assert args.opts == ["a", "b"]
+
+
+def test_extend_helper_flattens_across_repeated_occurrences():
+    parser = ExtendArgs._parser_()
+    args = parser.parse_args(["--opts", "a,b", "--opts", "c"])
+    assert args.opts == ["a", "b", "c"]
 
 
 class ConstHelperArgs(Args):

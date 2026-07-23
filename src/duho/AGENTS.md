@@ -127,8 +127,14 @@ empty when absent).
   logger=None) -> int` (ThreadPool per-target, exit-code reduced by `aggregate`),
   `fan_out_command`, `target_logging`, `TargetPrefixFilter`, `current_target`.
 - **`duho.runpath`** — ordered `NN-name.py` step-runner over a dir with no `__init__.py`.
-  `import duho.runpath` auto-registers its provider; `register()`/`unregister()` for
-  explicit control. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
+  `import duho.runpath` auto-registers its provider; `register(base=None)`/`unregister()`
+  for explicit control. `register`'s `base` (default keeps the current `_BASE`, initially
+  `LoggingArgs`) is the class every provider-built `RunPathCmd` subclass ALSO inherits
+  from — `app()`'s `parents=` only copies a root's DATA fields onto a class command's
+  parsed instance, never its METHODS, so `_logger_`/`_set_loglevels_` need real class
+  inheritance to work; defaulting to `LoggingArgs` makes `-v`/logging work with zero
+  config, and `register(base=MyAppRoot)` lets a custom root's own methods reach every
+  RunPath command too. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,
   cmd, logger)` (once, unconditionally) — a step entrypoint written `(cmd, ctx)`

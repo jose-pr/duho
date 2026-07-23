@@ -27,6 +27,25 @@ A **RunPath** is a directory whose ``NN-name.py`` files are *steps* run in order
 selected steps, logging through ``self._logger_``. Its one CLI field is
 ``--rcopts`` (``-O``), a comma-separated list of fnmatch selection patterns.
 
+Inheriting your app's shared root (``register(base=...)``)
+------------------------------------------------------------
+
+An app built with ``duho.app(root=MyLoggingArgsSubclass, commands=[...])``
+threads the root's DATA fields onto every subcommand's parsed instance
+(argparse's own ``parents=`` mechanism), but that is namespace-copying, not
+class inheritance -- a METHOD declared on the root (like ``LoggingArgs``'s
+own ``_logger_``/``_set_loglevels_``) is NOT callable on a class command's
+instance unless the built class itself actually derives from that root.
+
+By default every RunPath command this module builds ALSO inherits
+``duho.LoggingArgs`` (alongside ``RunPathCmd``), so ``-v``/``_logger_``/
+``_set_loglevels_`` work out of the box with zero configuration -- ``-v``
+activates DEBUG-level colored stderr logging for a RunPath command exactly
+like it does for any other ``LoggingArgs``-based command. Call
+``register(base=MyAppRoot)`` once, early (before any RunPath command is
+built), if your app's shared root is a custom subclass whose OWN methods you
+want every RunPath command to inherit too -- not just its data fields.
+
 The optional ``__main__.py`` lifecycle
 ------------------------------------
 
@@ -160,6 +179,7 @@ from pathlib import Path as _Path
 
 from .args import Arg as _Arg, Cmd as _Cmd, Extend as _Extend
 from . import discovery as _discovery
+from . import presets as _presets
 
 __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
 
@@ -953,12 +973,34 @@ class RunPathCmd(_Cmd):
 # --------------------------------------------------------------------------
 
 
+#: The base class every provider-built RunPathCmd subclass ALSO inherits from
+#: (alongside RunPathCmd itself), so an app's LoggingArgs-based root's
+#: METHODS (``_logger_``, ``_set_loglevels_``) -- not just its data fields --
+#: reach the parsed instance. ``app()``'s ``parents=`` mechanism already
+#: copies a root's data fields onto ANY subcommand's parsed namespace, but
+#: that is namespace-copying, not class inheritance -- a method exists only
+#: if the built class itself derives from it. Defaulting to ``LoggingArgs``
+#: matches this module's own long-documented "the usual app shape" (see
+#: ``_runpath_logger_``): with no configuration at all, ``-v``/``_logger_``/
+#: ``_set_loglevels_`` now work out of the box for every RunPath command.
+#: Configurable via :func:`register`'s ``base=`` so an app using a DIFFERENT
+#: shared root class (its own ``LoggingArgs`` subclass, or something else
+#: entirely) gets that inherited too -- set once per process/app, not
+#: per-directory (every RunPath command in one app shares one base).
+_BASE: "type" = _presets.LoggingArgs
+
+
 def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
     """Provider builder: make a per-directory :class:`RunPathCmd` subclass.
 
     Binds the resolved directory and a subcommand name (the directory's basename,
     ``_``->``-`` normalized, matching module-command naming) onto a fresh subclass
     so ``CmdBuilder``/``discover_commands`` gets a ready-to-register command.
+    Also inherits :data:`_BASE` (default ``LoggingArgs``, configurable via
+    ``register(base=...)``) ALONGSIDE ``RunPathCmd``, so the built class
+    actually has ``_logger_``/``_set_loglevels_`` as real inherited methods,
+    not just data fields copied onto its namespace by ``app()``'s
+    ``parents=`` mechanism.
     """
     directory = _Path(path)
     name = directory.name.replace("_", "-")
@@ -967,7 +1009,10 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
         "_parsername_": name,
         "__doc__": "Run the %s step directory." % name,
     }
-    return _ty.cast("type[RunPathCmd]", type("RunPathCmd_" + name.replace("-", "_"), (RunPathCmd,), namespace))
+    return _ty.cast(
+        "type[RunPathCmd]",
+        type("RunPathCmd_" + name.replace("-", "_"), (_BASE, RunPathCmd), namespace),
+    )
 
 
 #: Records the exact (predicate, builder) pair this module registered, so
@@ -975,7 +1020,7 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
 _REGISTERED: "_ty.Optional[_ty.Tuple[_ty.Callable, _ty.Callable]]" = None
 
 
-def register() -> None:
+def register(base: "_ty.Optional[type]" = None) -> None:
     """Register the RunPath command provider (idempotent).
 
     After this, ``duho.discover_commands``/``CmdBuilder`` resolve a step
@@ -983,8 +1028,21 @@ def register() -> None:
     :class:`RunPathCmd`. Called automatically when ``duho.runpath`` is imported;
     call it explicitly if you prefer no import side effects (import the module
     then... it's already registered -- see :func:`unregister` to opt back out).
+
+    ``base`` (default ``None`` -> keeps the CURRENT :data:`_BASE`, which is
+    ``LoggingArgs`` until changed) sets the class every subsequently-built
+    RunPathCmd subclass ALSO inherits from, alongside ``RunPathCmd`` itself --
+    call ``register(base=MyAppRoot)`` once, early, if your app's shared root
+    is a custom ``LoggingArgs`` subclass (or something else entirely) so its
+    methods (not just its data fields) are real, inherited members of every
+    RunPath command your app builds. Re-registering with a different ``base``
+    on an ALREADY-active provider updates :data:`_BASE` for commands built
+    from then on (existing built classes are unaffected -- they were already
+    constructed).
     """
-    global _REGISTERED
+    global _REGISTERED, _BASE
+    if base is not None:
+        _BASE = base
     if _REGISTERED is not None:
         return
     pair = (is_runpath_dir, _build_runpath_command)

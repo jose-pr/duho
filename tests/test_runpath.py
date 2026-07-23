@@ -35,15 +35,20 @@ def _restore_providers():
 
     Also resets ``runpath``'s own ``_REGISTERED`` bookkeeping so ``register()``/
     ``unregister()`` start each test from a known state, then restores it. This is
-    what stops provider state from leaking between tests.
+    what stops provider state from leaking between tests. ``_BASE`` (the class
+    every provider-built RunPathCmd subclass ALSO inherits from, set via
+    ``register(base=...)``) is module-global the same way -- snapshot/restore it
+    too so a test that changes it never leaks into the next.
     """
     saved = list(_discovery._PROVIDERS)
     saved_registered = runpath._REGISTERED
+    saved_base = runpath._BASE
     try:
         yield
     finally:
         _discovery._PROVIDERS[:] = saved
         runpath._REGISTERED = saved_registered
+        runpath._BASE = saved_base
 
 
 def _write_step(directory, filename, body):
@@ -837,3 +842,45 @@ def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
     assert set(ran) == {"x", "y"}
+
+
+# --------------------------------------------------------------------------
+# register(base=...): the built RunPathCmd subclass inherits a custom base
+# --------------------------------------------------------------------------
+
+
+def test_default_base_is_loggingargs_gives_real_logger_and_set_loglevels(tmp_path):
+    # Regression: a bare RunPathCmd built via the provider used to have NO
+    # _logger_/_set_loglevels_ as real inherited methods (only data fields
+    # propagate via app()'s parents= namespace-copying, not class
+    # inheritance) -- so -v/stderr logging setup never activated for any
+    # RunPath command. The default base is now LoggingArgs.
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a.py", "def main(cmd): pass\n")
+
+    cmd = _build_command(steps)
+    instance = cmd()
+    assert hasattr(instance, "_logger_")
+    assert hasattr(instance, "_set_loglevels_")
+
+
+def test_register_base_lets_a_custom_root_class_be_inherited(tmp_path):
+    from duho import LoggingArgs
+
+    class MyRoot(LoggingArgs):
+        label: str = "custom"
+        ("--label",)
+
+        def greet(self):
+            return "hi " + self.label
+
+    unregister()
+    register(base=MyRoot)
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a.py", "def main(cmd): pass\n")
+
+    cmd = _build_command(steps)
+    instance = cmd()
+    assert isinstance(instance, MyRoot)
+    assert instance.greet() == "hi custom"

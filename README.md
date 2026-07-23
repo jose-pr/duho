@@ -1027,6 +1027,27 @@ def main(args):
     args._logger_.info("building")
 ```
 
+### Inheriting your app's shared root (`register(base=...)`)
+
+`args._logger_` above works out of the box: by default every RunPath command
+this module builds ALSO inherits `duho.LoggingArgs` (alongside `RunPathCmd`
+itself), so `-v`/`_logger_`/`_set_loglevels_` are real inherited methods —
+not just data fields copied onto the parsed instance by `app()`'s `parents=`
+mechanism (which only ever copies *data*, never *methods*). If your app's
+shared root is a custom `LoggingArgs` subclass carrying its own methods, call
+`register(base=MyAppRoot)` once, early, so every RunPath command your app
+builds inherits those methods too:
+
+```python
+import duho.runpath
+
+class MyAppRoot(duho.LoggingArgs):
+    def greet(self):
+        return f"hi, {self.label}"
+
+duho.runpath.register(base=MyAppRoot)   # before building/running any RunPath command
+```
+
 Each step is named after the part of the filename after `NN-`; the numeric prefix
 is its ordering key. A step module may override ordering and declare dependencies:
 

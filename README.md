@@ -1111,8 +1111,8 @@ leading `!` and `:`/`;`-separated option tokens (both stripped first, so
     `!strict` opts that ONE step OUT of strict — `03-cleanup;!strict.py` logs
     and continues past a failure in `cleanup` even while every other
     plain-named step is fatal;
-  - `enabled` / `!enabled` — an explicit alternative to the leading `!`:
-    `!step1.py` and `step1;!enabled.py` disable the same step. If BOTH the
+  - `enable` / `!enable` — an explicit alternative to the leading `!`:
+    `!step1.py` and `step1;!enable.py` disable the same step. If BOTH the
     leading `!` and an explicit token are present, the **token wins** (more
     specific than the whole-name shorthand).
   - any other token is collected for forward compatibility (not yet consumed
@@ -1133,7 +1133,7 @@ directory entry's own name, never the target file's content.
 ```
 01-step1.py                       # enabled, strict (defaults)
 !02-step2.py                      # disabled by default
-02-step2;!enabled.py              # same as above, explicit-token spelling
+02-step2;!enable.py              # same as above, explicit-token spelling
 03-cleanup;!strict.py             # enabled, non-strict for this ONE step
 04-report;key=daily;!strict.py    # extra key=value token, also non-strict
 ```
@@ -1153,11 +1153,11 @@ raise SystemExit(cmd()())   # build → test → publish, in order
 
 `--rcopts` takes a comma-separated list of entries, each an [fnmatch] pattern
 matched against step names, optionally followed by `:`/`;`-separated option
-tokens — the exact same grammar (and `strict`/`enabled` special tokens) a
+tokens — the exact same grammar (and `strict`/`enable` special tokens) a
 step's own filename uses, above:
 
 - a leading `!` **disables** matching steps — `!*` disables everything, so
-  `--rcopts '!*,test'` means "run only `test`"; `test:!enabled` is an
+  `--rcopts '!*,test'` means "run only `test`"; `test:!enable` is an
   equivalent, more explicit spelling of `!test`;
 - a bare entry that is exactly `strict`/`!strict` (no pattern) opts into
   **run-wide strict mode** (see below);
@@ -1170,7 +1170,7 @@ all then re-enables everything matching `build-*`.
 
 ```
 --rcopts '!*,test'                 # run only test
---rcopts 'test:!enabled'           # same effect as --rcopts '!test'
+--rcopts 'test:!enable'           # same effect as --rcopts '!test'
 --rcopts 'build:!strict'           # build's own failure is resilient;
                                     #   every other step's strict handling
                                     #   is untouched

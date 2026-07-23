@@ -665,17 +665,17 @@ def test_file_modifiers_enabled_token_equivalent_to_bang_prefix():
     from duho.runpath import _parse_file_modifiers
 
     clean1, opts1 = _parse_file_modifiers("!provision")
-    clean2, opts2 = _parse_file_modifiers("provision:!enabled")
+    clean2, opts2 = _parse_file_modifiers("provision:!enable")
     assert clean1 == clean2 == "provision"
     assert opts1.enabled is opts2.enabled is False
 
 
 def test_file_modifiers_explicit_enabled_token_wins_over_bang_prefix():
-    # More specific wins: an explicit `enabled`/`!enabled` token overrides a
+    # More specific wins: an explicit `enable`/`!enable` token overrides a
     # leading `!` when both are somehow present on the same filename.
     from duho.runpath import _parse_file_modifiers
 
-    clean, opts = _parse_file_modifiers("!provision:enabled")
+    clean, opts = _parse_file_modifiers("!provision:enable")
     assert clean == "provision"
     assert opts.enabled is True
 
@@ -684,14 +684,14 @@ def test_rcopts_bang_prefix_equivalent_to_enabled_token():
     from duho.runpath import _Selection
 
     sel_bang = _Selection.parse(["!step1"])
-    sel_token = _Selection.parse(["step1:!enabled"])
+    sel_token = _Selection.parse(["step1:!enable"])
     assert sel_bang.decide("step1") is sel_token.decide("step1") is False
 
 
 def test_rcopts_explicit_enabled_token_wins_over_bang_prefix():
     from duho.runpath import _Selection
 
-    sel = _Selection.parse(["!step1:enabled"])
+    sel = _Selection.parse(["!step1:enable"])
     assert sel.decide("step1") is True
 
 

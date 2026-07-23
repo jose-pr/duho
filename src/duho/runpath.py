@@ -91,8 +91,8 @@ leading ``!`` and ``:``/``;``-separated option tokens (both stripped first, so
   * ``strict``/``!strict`` -- a step's own default (absent this token) is
     **strict**; ``!strict`` opts that ONE step OUT of strict (its failure is
     logged and resilient even when nothing else changes);
-  * ``enabled``/``!enabled`` -- an explicit alternative to the leading ``!``;
-    ``!step1`` and ``step1:!enabled`` disable the same step. If BOTH the
+  * ``enable``/``!enable`` -- an explicit alternative to the leading ``!``;
+    ``!step1`` and ``step1:!enable`` disable the same step. If BOTH the
     leading ``!`` and an explicit token are somehow present, the TOKEN wins
     (more specific than the whole-name shorthand).
 
@@ -135,11 +135,11 @@ filename modifiers and from the run-wide ``--rcopts strict`` flag.
 
 ``--rcopts`` is a comma-separated list of entries, each an fnmatch pattern
 matched against step *names*, optionally followed by ``:``/``;``-separated
-option tokens -- the SAME grammar (and the same ``strict``/``enabled`` special
+option tokens -- the SAME grammar (and the same ``strict``/``enable`` special
 tokens) a step's own filename uses, see above:
 
 * a leading ``!`` **disables** matching steps (``!*`` disables everything;
-  ``!*,build`` disables all then re-enables ``build``); ``pattern:!enabled`` is
+  ``!*,build`` disables all then re-enables ``build``); ``pattern:!enable`` is
   an equivalent, more-explicit spelling of ``!pattern`` (wins if both are
   somehow present on one entry);
 * a BARE entry that is exactly ``strict``/``!strict`` (no pattern, no other
@@ -273,28 +273,32 @@ def _split_tokens(text: str) -> "_ty.List[str]":
     return _re.split("[" + _TOKEN_SEPARATORS + "]", text)
 
 
-#: The token key that toggles a matcher's own enabled state (``enabled``/
-#: ``!enabled``) -- the tokenized alternative to a leading ``!`` on the
-#: matcher itself (``!step1`` and ``step1:!enabled`` are equivalent). Only
-#: recognized as a bare boolean token (``enabled``/``!enabled``), never
-#: ``enabled=...``, mirroring ``_STRICT_TOKEN``.
-_ENABLED_TOKEN = "enabled"
+#: The token key that toggles a matcher's own enabled state (``enable``/
+#: ``!enable``) -- the tokenized alternative to a leading ``!`` on the
+#: matcher itself (``!step1`` and ``step1:!enable`` are equivalent). Only
+#: recognized as a bare boolean token (``enable``/``!enable``), never
+#: ``enable=...``, mirroring ``_STRICT_TOKEN``. Matches the private
+#: predecessor's own token spelling (``RcOptions.from_matchstring`` encoded
+#: its leading-``!`` as a trailing ``:!enable`` token).
+_ENABLED_TOKEN = "enable"
 
 
 class _Opts:
-    """A parsed matcher's option tokens: ``strict``/``enabled`` plus extras.
+    """A parsed matcher's option tokens: ``strict``/``enable`` plus extras.
 
     Shared by both :meth:`_Selection.parse` (a ``--rcopts`` comma-entry) and
     :func:`_parse_file_modifiers` (a step's own filename) -- ONE token
     grammar, not two. Each token after the matcher is ``key`` (``True``),
-    ``!key`` (``False``), or ``key=value`` (a string value). Two keys are
-    recognized specially: ``strict`` (per-matcher strict-override, default
-    ``True`` absent a ``strict``/``!strict`` token) and ``enabled`` (an
-    explicit alternative to a leading ``!`` on the matcher -- ``!step1`` and
-    ``step1:!enabled`` mean the same thing; ``enabled`` is ``None`` unless a
-    token actually set it, so a caller can tell "not specified" from
-    "explicitly enabled"). Everything else lands in ``extra`` for forward
-    compatibility (not yet consumed by anything).
+    ``!key`` (``False``), or ``key=value`` (a string value). Two token KEYS
+    are recognized specially: ``strict`` (per-matcher strict-override,
+    default ``True`` absent a ``strict``/``!strict`` token) and ``enable``
+    (an explicit alternative to a leading ``!`` on the matcher -- ``!step1``
+    and ``step1:!enable`` mean the same thing). The parsed result exposes
+    these as the ``.strict``/``.enabled`` ATTRIBUTES (``.enabled`` is
+    ``None`` unless an ``enable``/``!enable`` token actually set it, so a
+    caller can tell "not specified" from "explicitly enabled"). Everything
+    else lands in ``extra`` for forward compatibility (not yet consumed by
+    anything).
     """
 
     __slots__ = ("strict", "enabled", "extra")
@@ -323,7 +327,7 @@ class _Opts:
                 key, _, value = token.partition("=")
                 key = key.strip()
                 if key:
-                    # `strict=...`/`enabled=...` aren't recognized spellings
+                    # `strict=...`/`enable=...` aren't recognized spellings
                     # (both are boolean-only, via `key`/`!key`); treat
                     # literally as an extra token like any other key=value.
                     extra[key] = value
@@ -346,7 +350,7 @@ class _FileOpts:
 
     A leading ``!`` on the whole stem disables the step by default (mirrors
     ``--rcopts``'s own ``!pattern`` shorthand exactly -- one disable
-    convention, not two); an explicit ``enabled``/``!enabled`` TOKEN wins over
+    convention, not two); an explicit ``enable``/``!enable`` TOKEN wins over
     the leading ``!`` if both are somehow present (the token is the more
     specific spelling). Everything after that is tokenized by
     :meth:`_Opts.parse` (``key``/``!key``/``key=value``, ``:``/``;``
@@ -389,7 +393,7 @@ def _parse_file_modifiers(stem: str) -> "_ty.Tuple[str, _FileOpts]":
         text = text[1:]
     name, *raw_tokens = _split_tokens(text)
     opts = _Opts.parse(raw_tokens)
-    # A leading `!` and an `enabled`/`!enabled` token are two spellings of
+    # A leading `!` and an `enable`/`!enable` token are two spellings of
     # the same thing; an EXPLICIT token wins when both are somehow present,
     # since it's the more specific spelling (targets exactly `enabled`,
     # whereas the leading `!` is a whole-matcher shorthand) -- absent a
@@ -645,9 +649,9 @@ class _Selection:
         option tokens (``key``/``!key``/``key=value`` -- see :class:`_Opts`),
         the SAME grammar a step's own filename uses
         (:func:`_parse_file_modifiers`): a leading ``!`` disables steps
-        matching ``pattern`` -- exactly equivalent to a ``pattern:!enabled``
-        token (``!step1`` and ``step1:!enabled`` disable the same steps); if
-        both are somehow present the EXPLICIT ``enabled``/``!enabled`` token
+        matching ``pattern`` -- exactly equivalent to a ``pattern:!enable``
+        token (``!step1`` and ``step1:!enable`` disable the same steps); if
+        both are somehow present the EXPLICIT ``enable``/``!enable`` token
         wins (more specific than the whole-entry ``!`` shorthand), same
         precedence as the filename side. A BARE entry that is exactly
         ``strict``/``!strict`` (no pattern, no other tokens) toggles the
@@ -674,7 +678,7 @@ class _Selection:
                 strict_explicit = True
                 continue
             pattern_opts = _Opts.parse(raw_tokens)
-            # An explicit `enabled`/`!enabled` token wins over the leading
+            # An explicit `enable`/`!enable` token wins over the leading
             # `!` when both are present (the token is more specific); absent
             # a token, the leading `!` alone decides.
             enabled = (not bang_disabled) if pattern_opts.enabled is None else pattern_opts.enabled

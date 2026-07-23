@@ -190,6 +190,33 @@ mode flag is translated, so flags belonging to the selected command are left
 alone. Use `_parseraliases_` instead when the alternate spelling is itself a
 positional command (for example, `create` and `c`).
 
+## Discovering commands from files
+
+Instead of declaring `_subcommands_` by hand, point `duho.app` at a directory
+(or dotted package) of loose command files with `source=`, or call
+`duho.discover_commands(source)` directly to get the resolved list:
+
+```python
+import duho
+
+if __name__ == "__main__":
+    raise SystemExit(duho.app(source="cmds", name="myapp"))
+```
+
+Each `.py` file under `cmds/` contributes a **module command** (a plain
+`main`/`register` pair, plus optional `init`/`success`/`finally_` hooks) and/or
+any `Cmd` subclass it defines (a **class command**). Discovery is resilient:
+a file that fails to import (missing optional
+dependency) is logged and skipped, so one broken command never blocks the
+rest — see `examples/discovery_app.py` and `examples/discovery_cmds/` for a
+complete, runnable version of this pattern (a module command with
+`register`/`main`, one with a full `init`/`success`/`finally_` lifecycle, and
+a class command, all in one loose directory with no `__init__.py`).
+
+A directory with **no** `__init__.py` whose files are instead named
+`NN-name.py` (numbered steps) is a different, opt-in shape entirely — see
+[RunPath: ordered step directories](runpath.md).
+
 ## Version flag
 
 Set `_version_` and duho adds a `--version` flag that prints

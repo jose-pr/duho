@@ -1747,8 +1747,25 @@ def command(
 
 
 def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
-    """Create an extend-action argument with optional string splitting."""
+    """Create an extend-action argument with optional string splitting.
+
+    ``list[str]``'s own default builder sets ``nargs="*"`` (so a plain list
+    field accepts both ``--x a --x b`` and ``--x a b``); combined with a
+    ``type`` that SPLITS one token into several (as this factory's ``ty``
+    does), that combination double-collects: argparse gathers ``nargs="*"``
+    tokens first and applies ``type`` to EACH ONE individually, so a token's
+    split result (itself a list, e.g. ``"a,b"`` -> ``["a", "b"]``) is appended
+    to the destination as ONE nested element instead of being flattened --
+    ``--rcopts '!*,build'`` became ``[['!*', 'build']]``, not ``['!*',
+    'build']``. Explicitly overriding ``nargs=None`` here (a single string per
+    flag occurrence, argparse's own default) avoids the double-collection:
+    ``type`` splits that one occurrence into its own list, and argparse's
+    built-in ``extend`` action flattens a list-valued single occurrence into
+    the destination correctly (verified: repeated ``--x a,b --x c`` and a
+    single ``--x a,b`` both produce a flat list, no nested sub-lists).
+    """
     kwargs.setdefault("default", [])
+    kwargs.setdefault("nargs", None)
     if isinstance(split, str):
         ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type:ignore
     else:

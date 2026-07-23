@@ -1,4 +1,5 @@
-"""Smoke tests for examples/dotagents.py, examples/fileinstall.py, examples/mcp_app.py.
+"""Smoke tests for examples/dotagents.py, examples/fileinstall.py, examples/mcp_app.py,
+examples/discovery_app.py, examples/runpath_app.py.
 
 These exercise the example files as acceptance tests for duho's public API
 surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
@@ -6,6 +7,9 @@ surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
 action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping. The
 mcp_app tests exercise duho.mcp's describe_tools/call_tool against a real,
 unmodified duho CLI (fileinstall.FileInstall), the point of that example.
+discovery_app/runpath_app exercise duho.discover_commands / duho.runpath end
+to end against real files on disk (examples/discovery_cmds/, examples/rc/),
+not synthetic tmp_path fixtures.
 """
 
 import os
@@ -16,10 +20,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 
 import duho
 import duho.mcp
+import duho.runpath
+from duho.discovery import CmdBuilder, discover_commands
 
 import dotagents
 import fileinstall
 import mcp_app
+
+_EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 
 def test_dotagents_install_parses_fields():
@@ -75,3 +83,59 @@ def test_mcp_app_call_tool_dispatches_install():
         {"source": "a.txt", "destination": "b.txt"},
     )
     assert result.get("isError") is not True
+
+
+def test_discovery_app_finds_module_and_class_commands():
+    commands = discover_commands(_EXAMPLES_DIR / "discovery_cmds")
+    names = set()
+    for command in commands:
+        names.add(getattr(command, "_parsername_", None))
+    assert names >= {"greet", "status", "whoami"}
+
+
+def test_discovery_app_greet_module_command_runs(capsys):
+    exit_code = duho.app(
+        commands=discover_commands(_EXAMPLES_DIR / "discovery_cmds"),
+        name="discovery-app",
+        argv=["greet", "World", "--shout"],
+    )
+    assert exit_code == 0
+    assert "HELLO, WORLD!" in capsys.readouterr().out
+
+
+def test_discovery_app_whoami_class_command_runs(capsys):
+    exit_code = duho.app(
+        commands=discover_commands(_EXAMPLES_DIR / "discovery_cmds"),
+        name="discovery-app",
+        argv=["whoami"],
+    )
+    assert exit_code == 0
+    assert "discovery-app" in capsys.readouterr().out
+
+
+def test_runpath_app_rc_resolves_via_cmdbuilder():
+    command = CmdBuilder("rc", _EXAMPLES_DIR / "rc").command
+    assert command._parsername_ == "rc"
+
+
+def test_runpath_app_rc_runs_all_steps_in_order(capsys):
+    command = CmdBuilder("rc", _EXAMPLES_DIR / "rc").command
+    exit_code = duho.app(commands=[command], name="runpath-app", argv=["rc"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "checking prerequisites" in out
+    assert "provisioning" in out
+    assert "emailing a status report" in out
+
+
+def test_runpath_app_rcopts_selects_one_step(capsys):
+    command = CmdBuilder("rc", _EXAMPLES_DIR / "rc").command
+    exit_code = duho.app(
+        commands=[command],
+        name="runpath-app",
+        argv=["rc", "--rcopts", "!*,provision"],
+    )
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "provisioning" in out
+    assert "checking prerequisites" not in out

@@ -36,6 +36,7 @@ nav:
       - Logging: guide/logging.md
       - Shell completion: guide/completion.md
       - Plugins via entry points: guide/plugins.md
+      - RunPath step directories: guide/runpath.md
   - API Reference:
       - Overview: api/reference.md
       - Args: api/args.md

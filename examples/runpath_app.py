@@ -38,10 +38,31 @@ the original ordered-steps runner:
   ``;!strict`` token means only THAT step is resilient on failure; every
   other step in this same directory is strict-by-default (no token needed).
 
+**A shared global-options root** (``RunpathAppArgs``, the same idea as
+``discovery_app.py``'s ``DiscoveryAppArgs``): its DATA fields (``label``,
+``dry_run``) reach ``rc``'s parsed instance via ``duho.app``'s parent-arg
+inheritance (every subcommand parser is built with ``parents=[root
+parser]``), so ``examples/rc/__main__.py`` and its steps read
+``cmd.label``/``cmd.dry_run`` directly off the SAME ``RunPathCmd`` instance
+duho built -- no redeclaring those fields per step.
+
+**A real limitation, not silently worked around**: unlike a plain module
+command (whose ``args`` parameter genuinely IS an instance of whatever root
+class you pass), the RunPath provider builds its OWN ``RunPathCmd`` subclass
+per directory (see ``duho.runpath._build_runpath_command``) -- it does not
+multiply-inherit a custom root class, so a METHOD declared on
+``RunpathAppArgs`` would NOT be callable on the parsed ``rc`` instance (only
+its DATA fields propagate, via argparse's namespace, not real class
+inheritance). Any shared BEHAVIOR here is therefore a plain module-level
+helper function (``format_tag_line(cmd, message)``) taking the instance as
+its first argument, rather than a bound method -- verified empirically
+against this exact combination before writing it this way.
+
 Run it (needs ``import duho.runpath`` to activate the RunPath provider,
 already done below)::
 
     python examples/runpath_app.py rc
+    python examples/runpath_app.py --label prod rc
     python examples/runpath_app.py rc --rcopts '!*,provision'
     python examples/runpath_app.py rc --rcopts 'strict'
 """
@@ -50,10 +71,40 @@ from pathlib import Path
 
 import duho
 import duho.runpath  # noqa: F401 -- import activates the RunPath provider
+from duho import LoggingArgs
 from duho.discovery import CmdBuilder
+from duho.runpath import RunPathCmd
 
 _RC_DIR = Path(__file__).parent / "rc"
 
+
+class RunpathAppArgs(LoggingArgs):
+    """Global options shared by every runpath_app command.
+
+    Same shape as ``discovery_app.py``'s ``DiscoveryAppArgs`` -- a data
+    mixin passed as ``duho.app``'s ``root``. See the module docstring for
+    why this example uses a plain function, not a method, for shared
+    behavior.
+    """
+
+    label: str = "runpath-app"
+    "A label steps can read off the shared root (e.g. for a log-line tag)."
+    ("--label",)
+
+    dry_run: bool = False
+    "Steps may check this and skip side effects (none of these example steps have real ones)."
+    ("--dry-run",)
+
+
+def format_tag_line(cmd: RunPathCmd, message: str) -> str:
+    """Format ``message`` tagged with ``cmd.label`` -- a plain function, not
+    a method, since ``cmd`` (a provider-built ``RunPathCmd`` subclass) does
+    NOT inherit ``RunpathAppArgs``'s methods, only its DATA fields (see the
+    module docstring's "real limitation" note)."""
+    label = getattr(cmd, "label", "runpath-app")
+    return f"[{label}] {message}"
+
+
 if __name__ == "__main__":
     rc_command = CmdBuilder("rc", _RC_DIR).command
-    sys.exit(duho.app(commands=[rc_command], name="runpath-app"))
+    sys.exit(duho.app(RunpathAppArgs, commands=[rc_command], name="runpath-app"))

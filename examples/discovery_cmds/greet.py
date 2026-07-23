@@ -2,13 +2,18 @@
 
 import argparse
 
+from discovery_app import DiscoveryAppArgs
 
-def register(parser: argparse.ArgumentParser, args: object) -> None:
+
+def register(parser: argparse.ArgumentParser, args: DiscoveryAppArgs) -> None:
     parser.add_argument("name", help="Who to greet.")
     parser.add_argument("--shout", action="store_true", help="Upper-case the greeting.")
 
 
-def main(args: argparse.Namespace) -> int:
+def main(args: DiscoveryAppArgs) -> int:
     text = f"Hello, {args.name}!"
-    print(text.upper() if args.shout else text)
+    if args.shout:
+        text = text.upper()
+    args._logger_.debug("retries configured: %d", args.retries)
+    print(args._tag_line_(text))
     return 0

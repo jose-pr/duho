@@ -144,7 +144,7 @@ empty when absent).
   OS-conditional split — `;` is the Windows-authorable spelling since `:` is an
   invalid Windows filename character). Two tokens are special: `strict`/`!strict`
   (default strict, absent the token; `!strict` opts that ONE step out) and
-  `enabled`/`!enabled` (explicit alternative to the leading `!`; wins if both are
+  `enable`/`!enable` (explicit alternative to the leading `!`; wins if both are
   present — more specific). Same grammar reused verbatim by `--rcopts` per
   comma-entry (`_Opts.parse`/`_split_tokens`, shared, not duplicated). Precedence for
   a step's strict setting: filename default -> a per-pattern `--rcopts` `!strict`

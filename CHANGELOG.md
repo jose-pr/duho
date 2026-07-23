@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   OS-conditional split -- so a Windows-authored filename can use `;` instead,
   since `:` is an invalid Windows filename character). Two tokens are
   special: `strict`/`!strict` (a step's own default, absent the token, is
-  strict-on-failure; `!strict` opts that ONE step out) and `enabled`/
-  `!enabled` (an explicit, more-specific alternative to the leading `!`; wins
+  strict-on-failure; `!strict` opts that ONE step out) and `enable`/
+  `!enable` (an explicit, more-specific alternative to the leading `!`; wins
   if both are somehow present). This is the SAME token grammar `--rcopts` now
   uses per comma-entry -- one shared parser, including a new per-pattern
   `--rcopts` strict override (e.g. `build:!strict`) scoped to matching steps

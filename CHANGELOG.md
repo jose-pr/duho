@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **RunPath `__main__.py` lifecycle, filename-encoded per-step options, and
+  `BEFORE`/`AFTER` soft ordering** (`duho.runpath`, opt-in). A RunPath
+  directory may now define an optional `__main__.py` with up to three callables --
+  `init(cmd, logger) -> ctx` (once, before any step; raising is always fatal,
+  regardless of `--rcopts strict`, since every step depends on `ctx`),
+  `success(ctx, cmd, logger)` (once, after a clean run), `finally_(ctx, cmd,
+  logger)` (once, unconditionally) -- and a step entrypoint written `(cmd,
+  ctx)` (arity-detected) receives that `ctx`; a `(cmd)` step is unaffected, so
+  every existing step file keeps working unchanged. Step filenames now also
+  accept a leading `!` (disables the step by default, stripped before the
+  `NN-name` split) plus `:`/`;`-separated option tokens (`key`/`!key`/
+  `key=value`; `:` and `;` are fully interchangeable everywhere -- NOT an
+  OS-conditional split -- so a Windows-authored filename can use `;` instead,
+  since `:` is an invalid Windows filename character). Two tokens are
+  special: `strict`/`!strict` (a step's own default, absent the token, is
+  strict-on-failure; `!strict` opts that ONE step out) and `enabled`/
+  `!enabled` (an explicit, more-specific alternative to the leading `!`; wins
+  if both are somehow present). This is the SAME token grammar `--rcopts` now
+  uses per comma-entry -- one shared parser, including a new per-pattern
+  `--rcopts` strict override (e.g. `build:!strict`) scoped to matching steps
+  only, distinct from the pre-existing bare `strict`/`!strict` run-wide
+  toggle. Precedence for a step's strict setting: filename default -> a
+  matching per-pattern `--rcopts` token -> an explicit bare `--rcopts strict`/
+  `!strict` (run-wide, wins last). Step modules may set `BEFORE: list[str]` /
+  `AFTER: list[str]` (soft ordering only -- a missing or disabled name is
+  silently a no-op, unlike the existing hard `REQUIRED`, whose
+  missing/disabled-dep warning is unchanged) alongside the existing
+  `REQUIRED: list[str]`, resolved together in one merged predecessor graph
+  before `_order_steps`'s existing topological pass.
 - **MCP tool surface** (`duho.mcp`, opt-in) A zero-dependency stdio JSON-RPC 2.0
   server that exposes a duho CLI's `Cmd`/`Cli` classes as MCP (Model Context
   Protocol) tools, with zero redeclaration: `input_schema_for_command(cls)` /

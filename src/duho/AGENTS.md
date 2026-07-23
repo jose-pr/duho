@@ -128,7 +128,25 @@ empty when absent).
   `fan_out_command`, `target_logging`, `TargetPrefixFilter`, `current_target`.
 - **`duho.runpath`** — ordered `NN-name.py` step-runner over a dir with no `__init__.py`.
   `import duho.runpath` auto-registers its provider; `register()`/`unregister()` for
-  explicit control. `RunPathCmd`, `--rcopts/-O` selection.
+  explicit control. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
+  `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
+  always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,
+  cmd, logger)` (once, unconditionally) — a step entrypoint written `(cmd, ctx)`
+  (arity-detected) receives `ctx`; `(cmd)` steps are unaffected. Step filenames accept
+  a leading `!` (disable, stripped before the `NN-name` split) plus `:`/`;`-separated
+  option tokens (`key`/`!key`/`key=value`; `:` and `;` both work everywhere, NOT an
+  OS-conditional split — `;` is the Windows-authorable spelling since `:` is an
+  invalid Windows filename character). Two tokens are special: `strict`/`!strict`
+  (default strict, absent the token; `!strict` opts that ONE step out) and
+  `enabled`/`!enabled` (explicit alternative to the leading `!`; wins if both are
+  present — more specific). Same grammar reused verbatim by `--rcopts` per
+  comma-entry (`_Opts.parse`/`_split_tokens`, shared, not duplicated). Precedence for
+  a step's strict setting: filename default -> a per-pattern `--rcopts` `!strict`
+  token matching it -> an EXPLICIT bare `--rcopts strict`/`!strict` (run-wide, wins
+  last). Step modules may also set `BEFORE: list[str]` / `AFTER:
+  list[str]` (soft ordering, no existence/success requirement — silently a no-op if
+  the named step is missing or disabled) alongside the existing hard `REQUIRED:
+  list[str]` (missing/disabled dep still warns, or errors under strict).
 - **`duho.scaffold`** — `generate_launchers(app, root, *, libdir="lib", python=None,
   overwrite=False) -> list[Path]` writes a `bin/<app>` + `bin/<app>.cmd` launcher pair.
   CLI: `python -m duho.scaffold <app>`.

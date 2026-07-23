@@ -1031,8 +1031,91 @@ Each step is named after the part of the filename after `NN-`; the numeric prefi
 is its ordering key. A step module may override ordering and declare dependencies:
 
 - `PRIORITY: int` — overrides the `NN` prefix for ordering.
-- `REQUIRED: list[str]` — names of steps that must run **before** this one; the
-  runner reorders so present dependencies run first.
+- `REQUIRED: list[str]` — a **hard** dependency: names of steps that must run and
+  succeed **before** this one. A missing or disabled `REQUIRED` name is a warning
+  (or, under strict, an error) — see "Strict vs. resilient" below.
+- `BEFORE: list[str]` / `AFTER: list[str]` — **soft** ordering only (no
+  existence/success requirement), styled after systemd's `Before=`/`After=`:
+  `BEFORE = ["x"]` on a step means "I run before `x`, if `x` is present and
+  enabled"; `AFTER = ["x"]` means "I run after `x`, if `x` runs" — the mirror
+  direction. A `BEFORE`/`AFTER` name that's missing, or present but disabled, is
+  silently a no-op for ordering (never a warning — contrast with `REQUIRED`
+  above). `REQUIRED`'s hardness is independent of `BEFORE`/`AFTER` and of a
+  step's own filename modifiers (below): all three are separate axes.
+
+### The optional `__main__.py` lifecycle
+
+A RunPath directory may define a `__main__.py` file — the same dunder Python
+already uses for "this directory's entrypoint" (as in `python -m package`), no
+new naming convention invented. Its own leading `_` already excludes it from
+step discovery. It defines up to three optional callables:
+
+```python
+# __main__.py — runs once per invocation, before any step
+def init(cmd, logger):
+    return connect_once()          # ctx handed to every 2-arg step
+
+def success(ctx, cmd, logger):
+    logger.info("all steps completed cleanly")
+
+def finally_(ctx, cmd, logger):
+    ctx.close()                    # always runs, success or failure
+```
+
+```python
+# 20-provision.py — a step opting into ctx just adds a 2nd parameter
+def main(cmd, ctx):
+    ctx.provision()
+```
+
+A step written `(cmd)` (the original shape) is unaffected — arity is detected
+automatically, so old and new steps coexist in the same directory. `init`
+raising is **always fatal**, regardless of `--rcopts strict` — every step
+depends on `ctx`, so there is no meaningful partial/resilient init. A directory
+with no `__main__.py` behaves exactly as before this lifecycle existed.
+
+### Filename-encoded per-step options
+
+Before a step file's `NN-name` prefix is parsed, its stem is checked for a
+leading `!` and `:`/`;`-separated option tokens (both stripped first, so
+`!02-provision:key.py` still yields prefix `02`, name `provision`):
+
+- a leading `!` **disables** the step by default — `!02-provision.py`;
+- everything after that is a list of `key` / `!key` / `key=value` tokens,
+  separated by `:` **or** `;` interchangeably — both work identically
+  everywhere (not an OS-conditional split), so a Windows-authored filename can
+  use `;` (`:` is invalid in a Windows filename; `;` is valid on both Windows
+  and POSIX). Two tokens are recognized specially:
+  - `strict` / `!strict` — a step's own default (no token) is **strict**;
+    `!strict` opts that ONE step OUT of strict — `03-cleanup;!strict.py` logs
+    and continues past a failure in `cleanup` even while every other
+    plain-named step is fatal;
+  - `enabled` / `!enabled` — an explicit alternative to the leading `!`:
+    `!step1.py` and `step1;!enabled.py` disable the same step. If BOTH the
+    leading `!` and an explicit token are present, the **token wins** (more
+    specific than the whole-name shorthand).
+  - any other token is collected for forward compatibility (not yet consumed
+    by anything).
+
+This is the exact same token grammar `--rcopts` uses per comma-entry (below) —
+one parser, not two.
+
+Precedence for a step's effective strict setting: the step's own filename
+default (strict, absent `!strict`), then a per-pattern `--rcopts` `!strict`
+token matching that step, then an EXPLICIT bare `--rcopts strict`/`!strict`
+(no pattern attached — the run-wide toggle), which wins last of all. This is
+symlink-transparent by construction: two symlinks (or copies) pointing at the
+same physical step file, named differently in two RunPath directories, get
+different effective enabled/strict defaults, because the parse reads the
+directory entry's own name, never the target file's content.
+
+```
+01-step1.py                       # enabled, strict (defaults)
+!02-step2.py                      # disabled by default
+02-step2;!enabled.py              # same as above, explicit-token spelling
+03-cleanup;!strict.py             # enabled, non-strict for this ONE step
+04-report;key=daily;!strict.py    # extra key=value token, also non-strict
+```
 
 Once `duho.runpath` is imported, pointing at the directory yields a run-path
 command:
@@ -1047,15 +1130,32 @@ raise SystemExit(cmd()())   # build → test → publish, in order
 
 ### Selecting steps with `--rcopts` (`-O`)
 
-`--rcopts` takes a comma-separated list of [fnmatch] patterns matched against step
-names, with two markers:
+`--rcopts` takes a comma-separated list of entries, each an [fnmatch] pattern
+matched against step names, optionally followed by `:`/`;`-separated option
+tokens — the exact same grammar (and `strict`/`enabled` special tokens) a
+step's own filename uses, above:
 
 - a leading `!` **disables** matching steps — `!*` disables everything, so
-  `--rcopts '!*,test'` means "run only `test`";
-- the token `strict` opts into **strict mode** (see below).
+  `--rcopts '!*,test'` means "run only `test`"; `test:!enabled` is an
+  equivalent, more explicit spelling of `!test`;
+- a bare entry that is exactly `strict`/`!strict` (no pattern) opts into
+  **run-wide strict mode** (see below);
+- an entry with a pattern AND a `strict`/`!strict` token (e.g.
+  `build:!strict`) scopes that override to steps matching `build` only,
+  without touching the run-wide flag or any other step.
 
-Later patterns win, so `!*,build-*` disables all then re-enables everything
-matching `build-*`.
+Later entries win when several match the same step, so `!*,build-*` disables
+all then re-enables everything matching `build-*`.
+
+```
+--rcopts '!*,test'                 # run only test
+--rcopts 'test:!enabled'           # same effect as --rcopts '!test'
+--rcopts 'build:!strict'           # build's own failure is resilient;
+                                    #   every other step's strict handling
+                                    #   is untouched
+--rcopts 'strict'                  # run-wide: overrides every step's own
+                                    #   filename-derived strict setting
+```
 
 ### Strict vs. resilient
 
@@ -1064,10 +1164,17 @@ The default is **resilient**, matching duho's discovery philosophy:
 - an `--rcopts` pattern that matches no step is a **warning**, not an error;
 - a step whose body raises is **logged and skipped** — the run continues.
 
-Passing `strict` in `--rcopts` (e.g. `--rcopts 'strict'`) flips this: an unmatched
-pattern raises, a `REQUIRED` dependency naming a missing step raises, and the first
-step to fail re-raises and stops the run. So you run resilient by default and ask
-for strict when you want a hard failure.
+Passing a bare `strict`/`!strict` in `--rcopts` (e.g. `--rcopts 'strict'`) flips
+this **run-wide**: an unmatched pattern raises, a `REQUIRED` dependency naming a
+missing step raises, and — because it's the EXPLICIT run-wide token — it
+overrides every step's own filename-derived (or per-pattern `--rcopts`)
+strict setting too, uniformly. So you run resilient by default and ask for
+strict when you want a hard failure; independently, a plain step **filename**
+is fatal-on-failure by its own default even without any `--rcopts strict` at
+all, and a `!strict`-tokened one (by filename or by a matching `--rcopts`
+entry) stays resilient even in an otherwise-strict run, for exactly that one
+step (see "Filename-encoded per-step options" above) — unless the bare
+run-wide `strict`/`!strict` is passed, which wins last of all.
 
 The module's public API is `duho.runpath.RunPathCmd`, `register()`, and
 `unregister()` (`register`/`unregister` give explicit control over the provider —

@@ -1,14 +1,18 @@
 """RunPath lifecycle: runs once before any step, hands `ctx` to steps that want it."""
 
+import logging
 
-def init(cmd, logger):
+from duho.runpath import RunPathCmd
+
+
+def init(cmd: RunPathCmd, logger: logging.Logger) -> dict:
     logger.info("connecting once for this run...")
     return {"connection": "fake-handle"}
 
 
-def success(ctx, cmd, logger):
+def success(ctx: dict, cmd: RunPathCmd, logger: logging.Logger) -> None:
     logger.info("all enabled steps completed cleanly")
 
 
-def finally_(ctx, cmd, logger):
+def finally_(ctx: dict, cmd: RunPathCmd, logger: logging.Logger) -> None:
     logger.info("tearing down %s", ctx["connection"])

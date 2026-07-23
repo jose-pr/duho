@@ -5,8 +5,10 @@ step's entrypoint raises, the run stops (even without a run-wide
 `--rcopts strict`). Contrast with `30-optional-report;!strict.py`.
 """
 
+from duho.runpath import RunPathCmd
+
 REQUIRED = ["check"]
 
 
-def main(cmd):
+def main(cmd: RunPathCmd) -> None:
     print("provisioning...")

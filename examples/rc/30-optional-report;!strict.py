@@ -6,8 +6,10 @@ is strict in the very same run. `;` (not `:`) is used here so this filename is
 authorable on Windows too -- both separators parse identically.
 """
 
+from duho.runpath import RunPathCmd
+
 AFTER = ["provision"]
 
 
-def main(cmd):
+def main(cmd: RunPathCmd) -> None:
     print("emailing a status report (best-effort)")

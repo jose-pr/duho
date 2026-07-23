@@ -611,6 +611,18 @@ def app(
                 and builtin_by_name.get(_command_name(c)) is c
             )
         ]
+        # Seed `registry` with the root's own pre-registered builtins so the
+        # collision-check loop below (keyed on `cmd_name in registry`) also
+        # catches a genuinely DIFFERENT command overriding one of THESE names
+        # -- not just a collision between two commands both resolved in the
+        # loop itself. Without this, a CMDS_PATH override of a preregistered
+        # builtin skips `_deregister_subparser` entirely (registry looked
+        # empty for that name) and argparse's own `add_parser` raises
+        # `conflicting subparser` when the loop tries to register the
+        # override under the same, still-occupied name.
+        for name, builtin_command in builtin_by_name.items():
+            if name in preregistered:
+                registry[name] = ("class", builtin_command)
     for command in resolved_commands:
         if _is_class_command(command):
             cmd_name = _command_name(command)

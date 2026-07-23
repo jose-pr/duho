@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-23
+
 ### Added
 - **RunPath `__main__.py` lifecycle, filename-encoded per-step options, and
   `BEFORE`/`AFTER` soft ordering** (`duho.runpath`, opt-in). A RunPath
@@ -603,7 +605,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jose-pr/duho/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/jose-pr/duho/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/jose-pr/duho/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jose-pr/duho/compare/v0.3.0...v0.3.1

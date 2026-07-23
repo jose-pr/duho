@@ -54,7 +54,7 @@ from .qualname import PythonName, QualName
 from .runtime import app, run_command
 from .text import camelcase, expand, gettext, pysafe, snakecase
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 
 
 def parser(cls, *args, **kwargs):

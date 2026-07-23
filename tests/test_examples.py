@@ -23,6 +23,7 @@ import duho.mcp
 import duho.runpath
 from duho.discovery import CmdBuilder, discover_commands
 
+import discovery_app
 import dotagents
 import fileinstall
 import mcp_app
@@ -94,7 +95,14 @@ def test_discovery_app_finds_module_and_class_commands():
 
 
 def test_discovery_app_greet_module_command_runs(capsys):
+    # Passing DiscoveryAppArgs as root is REQUIRED here: without it args is a
+    # bare Args with no _logger_ (greet.py's module command calls
+    # args._logger_.debug(...), which only resolves because the parsed
+    # instance actually IS a DiscoveryAppArgs -- data AND methods, since a
+    # module command's `args` parameter is the parsed root instance itself,
+    # unlike a provider-built RunPathCmd (see duho.runpath.register(base=...)).
     exit_code = duho.app(
+        discovery_app.DiscoveryAppArgs,
         commands=discover_commands(_EXAMPLES_DIR / "discovery_cmds"),
         name="discovery-app",
         argv=["greet", "World", "--shout"],
@@ -105,6 +113,7 @@ def test_discovery_app_greet_module_command_runs(capsys):
 
 def test_discovery_app_whoami_class_command_runs(capsys):
     exit_code = duho.app(
+        discovery_app.DiscoveryAppArgs,
         commands=discover_commands(_EXAMPLES_DIR / "discovery_cmds"),
         name="discovery-app",
         argv=["whoami"],
@@ -139,3 +148,26 @@ def test_runpath_app_rcopts_selects_one_step(capsys):
     out = capsys.readouterr().out
     assert "provisioning" in out
     assert "checking prerequisites" not in out
+
+
+def test_runpath_app_logger_and_shared_root_label_work(caplog):
+    # Regression: a bare provider-built RunPathCmd used to have no real
+    # _logger_/_set_loglevels_ (see duho.runpath.register(base=...)) -- -v
+    # never activated logging and every logger.info() in __main__.py/steps
+    # silently vanished. RunpathAppArgs (LoggingArgs-based) is passed as
+    # root here, and __main__.py logs via format_tag_line(cmd, ...), which
+    # reads cmd.label -- both the logging AND the shared-root-field wiring
+    # are exercised by this one assertion.
+    import runpath_app
+
+    command = CmdBuilder("rc", _EXAMPLES_DIR / "rc").command
+    with caplog.at_level("INFO", logger="rc"):
+        exit_code = duho.app(
+            runpath_app.RunpathAppArgs,
+            commands=[command],
+            name="runpath-app",
+            argv=["--label", "test-label", "rc"],
+        )
+    assert exit_code == 0
+    messages = [rec.message for rec in caplog.records]
+    assert any("[test-label]" in message for message in messages)

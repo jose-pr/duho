@@ -72,7 +72,7 @@ class Fetch(Cmd):
 
 `asyncio` is imported lazily, only when a command actually returns a coroutine —
 a synchronous app never pays its import cost. A command dispatched once per
-target via [`duho.fanout`](../../README.md) gets its own `asyncio.run` per call.
+target via [`duho.fanout`](https://github.com/jose-pr/duho/#target-fan-out-duhofanout-opt-in) gets its own `asyncio.run` per call.
 **Module-command lifecycle hooks (`init`/`main`/`success`/`finally_`) stay
 synchronous** — async support is class-command `__call__` only.
 

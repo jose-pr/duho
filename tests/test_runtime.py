@@ -508,7 +508,15 @@ def test_module_args_class_adds_declared_fields(tmp_path):
     rc = app(
         Root,
         source=tmp_path,
-        argv=["callit", "--method", "system.info", "--params", "a", "b"],
+        argv=[
+            "callit",
+            "--method",
+            "system.info",
+            "--params",
+            "a",
+            "--params",
+            "b",
+        ],
         setup_logging=False,
     )
     assert rc == 0

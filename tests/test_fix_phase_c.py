@@ -27,7 +27,10 @@ class _OptListInt(Args):
 
 
 def test_optional_list_int_multi(monkeypatch):
-    r = duho.parse(_OptListInt, ["--nums", "1", "2"])
+    # A list-as-option field takes ONE value per occurrence -- repeat the
+    # flag for more (`--nums 1 --nums 2`), not space-separated in one
+    # occurrence (which is now reserved for the POSITIONAL case).
+    r = duho.parse(_OptListInt, ["--nums", "1", "--nums", "2"])
     assert r.nums == [1, 2]
 
 

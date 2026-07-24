@@ -132,6 +132,61 @@ def run_command(
     return 0 if result is None else result
 
 
+def _cmds_path_commands(env: object) -> "list[_Command]":
+    """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
+
+    Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
+    ``env`` doesn't support the expected interface -- all best-effort, never
+    raises. Only touches ``CMDS_PATH`` when it is actually set and non-empty:
+    a missing value must NOT be split/globbed -- that is what turned an unset
+    var into "import every ``.py`` in the CWD" (C11). Splits on the OS path
+    separator (``os.pathsep``; ``PATHSEP`` overrides), NOT a hard-coded
+    ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter is mis-split
+    into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+    """
+    if env is None:
+        return []
+    raw = None
+    try:
+        raw = env.get("CMDS_PATH")  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - env is best-effort here
+        raw = None
+    if not raw:
+        return []
+    try:
+        paths = env.paths("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - env is best-effort here
+        paths = []
+    discovered: "list[_Command]" = []
+    for path in paths:
+        if str(path):
+            discovered.extend(_discover_commands(path))
+    return discovered
+
+
+def _merge_discovered(
+    base: "list[_Command]", discovered: "list[_Command]"
+) -> "list[_Command]":
+    """Merge ``discovered`` on top of ``base``: discovered wins on a name clash.
+
+    Keeps ``base``'s order for everything NOT overridden, then appends every
+    discovered command; a name collision drops the ``base`` entry and logs the
+    shadowing at INFO (the override story is intentional, but never silent).
+    """
+    if not discovered:
+        return base
+    override = {_command_name(c) for c in discovered if _command_name(c)}
+    merged = []
+    for cmd in base:
+        name = _command_name(cmd)
+        if name and name in override:
+            _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
+            continue
+        merged.append(cmd)
+    merged.extend(discovered)
+    return merged
+
+
 def _resolve_commands(
     root: "type | None",
     commands: "_ty.Sequence[_Command] | None",
@@ -141,72 +196,37 @@ def _resolve_commands(
 ) -> "list[_Command]":
     """Resolve the command set for :func:`app` by precedence.
 
-    Order: an explicit ``commands`` list > ``discover_commands(source)`` >
-    ``discover_entry_points(entry_points)`` (installed-distribution plugins) >
-    ``env``-derived paths (``CMDS_PATH``) **extending** ``root._subcommands_``.
+    Base-source order: an explicit ``commands`` list > ``discover_commands
+    (source)`` > ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
+    ``env``-derived paths (``CMDS_PATH``) then ALWAYS merge on top of whichever
+    base source produced the list -- a LAYER, not a branch reachable only when
+    no other source was given. (Before this fix, passing an explicit
+    ``commands=``/``source=``/``entry_points=`` silently disabled ``CMDS_PATH``
+    entirely, even when ``env=`` was also passed -- the operator's exported
+    variable did nothing, with no warning.)
 
-    ``CMDS_PATH`` is additive: an app's built-in subcommands stay available and
-    the discovered ones are added alongside. Setting it to drop the built-ins
+    ``CMDS_PATH`` is additive: an app's base commands stay available and the
+    discovered ones are added alongside. Setting it to drop the base commands
     would make every invocation depend on the variable being right, which is a
     footgun for a *supplementary* command directory -- the usual reason to point
     at one is "I have a few extra commands", not "replace this CLI". A discovered
-    command whose name collides with a built-in **wins** (that is the override
-    story), and the shadowing is logged so it is never silent.
+    command whose name collides with a base command **wins** (that is the
+    override story), and the shadowing is logged so it is never silent.
 
     Discovery is resilient (a bad command drops out with a warning -- see
     :func:`duho.discovery.discover_commands` /
     :func:`duho.discovery.discover_entry_points`).
     """
     if commands is not None:
-        return list(commands)
+        base = list(commands)
+    elif source is not None:
+        base = _discover_commands(source)
+    elif entry_points is not None:
+        base = _discover_entry_points(entry_points)
+    else:
+        base = list(getattr(root, "_subcommands_", []) or []) if root is not None else []
 
-    if source is not None:
-        return _discover_commands(source)
-
-    if entry_points is not None:
-        return _discover_entry_points(entry_points)
-
-    builtin: "list[_Command]" = (
-        list(getattr(root, "_subcommands_", []) or []) if root is not None else []
-    )
-
-    discovered: "list[_Command]" = []
-    if env is not None:
-        # Only touch CMDS_PATH when it is actually set and non-empty. A missing
-        # value must NOT be split/globbed -- that is what turned an unset var into
-        # "import every .py in the CWD" (C11). `Env.list` now returns [] for a
-        # missing/empty value, and this guard is the belt-and-braces layer.
-        raw = None
-        try:
-            raw = env.get("CMDS_PATH")  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - env is best-effort here
-            raw = None
-        if raw:
-            try:
-                # Split on the OS path separator (os.pathsep; PATHSEP overrides),
-                # NOT a hard-coded ":" -- otherwise a Windows "C:\..." drive letter
-                # is mis-split into a bogus "C" path. See `Env.paths`.
-                paths = env.paths("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover - env is best-effort here
-                paths = []
-            for path in paths:
-                if str(path):
-                    discovered.extend(_discover_commands(path))
-
-    if not discovered:
-        return builtin
-
-    # Discovered wins on a name clash; keep built-in order, then the new ones.
-    override = {_command_name(c) for c in discovered if _command_name(c)}
-    merged = []
-    for cmd in builtin:
-        name = _command_name(cmd)
-        if name and name in override:
-            _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
-            continue
-        merged.append(cmd)
-    merged.extend(discovered)
-    return merged
+    return _merge_discovered(base, _cmds_path_commands(env))
 
 
 def _register_class_command(
@@ -490,12 +510,13 @@ def app(
 
     ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
     global options (``None`` -> a bare data root, for an app whose commands all
-    come from discovery). The command set is resolved by precedence
+    come from discovery). The BASE command set is resolved by precedence
     (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
-    ``discover_entry_points(entry_points)`` > ``env.paths("CMDS_PATH", ty=Path)``
-    **plus** ``root._subcommands_`` -- ``CMDS_PATH`` extends the built-ins rather
-    than replacing them, with a discovered command overriding a same-named
-    built-in (logged, never silent).
+    ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
+    ``env.paths("CMDS_PATH", ty=Path)`` then ALWAYS merges on top of whichever
+    base was used -- a layer, not a branch reachable only when no other source
+    is given -- extending the base rather than replacing it, with a discovered
+    command overriding a same-named base command (logged, never silent).
 
     ``entry_points`` is an installed-distribution entry-point **group** name
     (e.g. ``"myapp.commands"``): every entry point advertised in that group by an

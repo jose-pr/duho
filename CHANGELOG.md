@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **`CMDS_PATH` (`env=`) is now a layer, not a mutually-exclusive branch.**
+  `app`'s command-set resolution used to return early for an explicit
+  `commands=`/`source=`/`entry_points=`, so `CMDS_PATH` was only ever
+  consulted in the fallback `root._subcommands_` branch — passing any other
+  source silently disabled `CMDS_PATH` entirely, even with `env=` also
+  given, with no warning. `env`-discovered commands now always merge on top
+  of whichever base source produced the list (a discovered command still
+  wins on a name clash, still logged, never silent).
 - **A wrapped `command.register` on a module command is no longer silently
   skipped.** `app()`'s module-command registration gated and introspected
   arity on a fresh `getattr(module, "register", ...)` re-fetch instead of

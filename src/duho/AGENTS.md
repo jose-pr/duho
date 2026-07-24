@@ -51,10 +51,16 @@ merge). **`AUTO`** — sentinel for `_version_ = duho.AUTO` (resolve version via
   Dispatching a bare data `Args` (no `__call__`) raises `NotImplementedError`.
 - **`app(root=None, *, commands=None, source=None, argv=None, name=None, description=None,
   env=None, config=None, setup_logging=True, dispatch=None) -> int`** — multi-command
-  runner. Command-set precedence: `commands` > `discover_commands(source)` >
-  `env.list("CMDS_PATH", ty=Path)` > `root._subcommands_`. Layers env/config defaults onto
-  root + each class command (`CLI > env > config > class default`); attaches the resolved
-  `Env` as `_env_`. `dispatch(command, instance) -> int` replaces only the final run step.
+  runner. Base command-set precedence: `commands` > `discover_commands(source)` >
+  `discover_entry_points(entry_points)` > `root._subcommands_`. `env`'s
+  `env.paths("CMDS_PATH", ty=Path)` (splits on `os.pathsep`, NOT `.list`'s `":"`
+  default — a Windows drive letter would otherwise mis-split) then ALWAYS MERGES on
+  top of whichever base source was used (fixed 2026-07-24 — an explicit `commands=`/
+  `source=`/`entry_points=` used to silently disable `CMDS_PATH` entirely, even with
+  `env=` also passed); a `CMDS_PATH` command wins on a name clash with the base
+  (logged, never silent). Layers env/config defaults onto root + each class command
+  (`CLI > env > config > class default`); attaches the resolved `Env` as `_env_`.
+  `dispatch(command, instance) -> int` replaces only the final run step.
 - **`run_command(command, instance, *, context=None) -> int`** — dispatch one resolved
   command. Class command → `instance()`. Module command → `init → main → success /
   finally_` lifecycle (`finally_` always runs; `main` exception propagates after it).

@@ -798,3 +798,50 @@ def test_builtin_subcommands_survive_without_cmds_path():
     rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
              setup_logging=False)
     assert rc == "built-in"
+
+
+def test_cmds_path_layers_on_top_of_explicit_commands(tmp_path, monkeypatch):
+    """Regression: an explicit `commands=` list used to silently DISABLE
+    CMDS_PATH entirely (an early-return branch, not a layer), even with
+    `env=` also passed -- the operator's exported variable did nothing, with
+    no warning. CMDS_PATH must now merge on top of `commands=` too."""
+    _write(tmp_path, "greet.py", _MODULE_CMD_GREET)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    rc = app(
+        RootWithBuiltins,
+        commands=[_Hello],
+        env=env,
+        argv=["greet"],
+        setup_logging=False,
+    )
+    assert rc == "greeted"
+    # The explicitly-passed command still works alongside it.
+    rc = app(
+        RootWithBuiltins,
+        commands=[_Hello],
+        env=env,
+        argv=["hello"],
+        setup_logging=False,
+    )
+    assert rc == "built-in"
+
+
+def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
+    """Same regression, for `source=` instead of `commands=`."""
+    builtins_dir = tmp_path / "builtins"
+    extra_dir = tmp_path / "extra"
+    builtins_dir.mkdir()
+    extra_dir.mkdir()
+    _write(builtins_dir, "hello.py", "def main(args=None): return 'from-source'\n")
+    _write(extra_dir, "greet.py", _MODULE_CMD_GREET)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(extra_dir))
+    env = duho.env.Env("DUHO")
+
+    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["greet"],
+             setup_logging=False)
+    assert rc == "greeted"
+    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["hello"],
+             setup_logging=False)
+    assert rc == "from-source"

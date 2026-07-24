@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-24
+
 ### Changed
 - **BREAKING: `list`/`set`/`tuple` fields used as an OPTION no longer accept
   space-separated multi-value in one occurrence.** `--x a b` used to
@@ -676,7 +678,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jose-pr/duho/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/jose-pr/duho/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jose-pr/duho/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/jose-pr/duho/compare/v0.3.2...v0.3.3

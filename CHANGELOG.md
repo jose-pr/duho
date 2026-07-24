@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Module commands can declare their own `Args` class.** Previously a
+  module command's fields could only be added imperatively via `register()`
+  — a module-level `Args` class was silently ignored. A module may now
+  define `class Args: ...` (or `class Args(SomeSharedRoot): ...`, the
+  common convention) with annotated fields; they're added to the
+  subparser declaratively, BEFORE `register()` runs (so a `register`-added
+  positional still lands last, e.g. a shared trailing-positional helper).
+  If the module's `Args` doesn't already subclass the app's root class, it's
+  mixed with it on the fly so the module's own fields work AND the parsed
+  instance still carries the root's shared fields/methods. Does not (yet)
+  support `NS(conflicts=...)`/`NS(group=...)` for these declared fields —
+  use `register()` for those.
+
 ### Fixed
 - **`CMDS_PATH` (`env=`) is now a layer, not a mutually-exclusive branch.**
   `app`'s command-set resolution used to return early for an explicit

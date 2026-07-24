@@ -434,6 +434,139 @@ def test_register_hook_2arg_still_works(tmp_path):
     assert discovered.SEEN["flag"] == "two"
 
 
+# --------------------------------------------------------------------------
+# Module commands can declare their own Args class (declarative fields)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_ARGS_CLASS = '''\
+"""A module command declaring its own Args class instead of register()."""
+
+import duho
+
+SEEN = {}
+
+
+class Args(duho.LoggingArgs):
+    """Subclasses the app's LoggingArgs-based root shape."""
+
+    method: str
+    "The method to call."
+
+    params: "list[str]" = []
+    "Extra params."
+    ("--params",)
+
+
+def main(args):
+    SEEN["method"] = args.method
+    SEEN["params"] = args.params
+    return None
+'''
+
+_MODULE_CMD_PLAIN_ARGS_CLASS = '''\
+"""A module command whose Args does NOT subclass anything duho-related."""
+
+SEEN = {}
+
+
+class Args:
+    """A plain class -- no import of duho.Args, no subclassing the app root."""
+
+    method: str
+
+
+def main(args):
+    SEEN["method"] = args.method
+    SEEN["has_verbose"] = hasattr(args, "verbose")
+    return None
+'''
+
+_MODULE_CMD_ARGS_CLASS_PLUS_REGISTER = '''\
+"""Args declares `method`; register() adds a positional AFTER it."""
+
+SEEN = {}
+
+
+class Args:
+    method: str
+
+
+def register(parser, args):
+    parser.add_argument("extra")
+
+
+def main(args):
+    SEEN["method"] = args.method
+    SEEN["extra"] = args.extra
+    return None
+'''
+
+
+def test_module_args_class_adds_declared_fields(tmp_path):
+    """A module's own `Args` class fields are added declaratively."""
+    _write(tmp_path, "callit.py", _MODULE_CMD_ARGS_CLASS)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["callit", "--method", "system.info", "--params", "a", "b"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("callit")
+    ][0]
+    assert discovered.SEEN["method"] == "system.info"
+    assert discovered.SEEN["params"] == ["a", "b"]
+
+
+def test_module_plain_args_class_mixed_with_root(tmp_path):
+    """A module's plain (non-Args) `Args` class is mixed with the app root.
+
+    Its own annotated field (`method`) works as a declared CLI field, AND the
+    parsed instance still carries the root's own fields (`verbose`, from
+    `Root`'s `LoggingArgs`) -- confirming the synthesized mixin actually
+    combines both, not just the module's bare class alone.
+    """
+    _write(tmp_path, "plainargs.py", _MODULE_CMD_PLAIN_ARGS_CLASS)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["plainargs", "--method", "system.info"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("plainargs")
+    ][0]
+    assert discovered.SEEN["method"] == "system.info"
+    assert discovered.SEEN["has_verbose"] is True
+
+
+def test_module_args_class_fields_precede_register_added_ones(tmp_path):
+    """Declared Args fields are added BEFORE register() runs (declared first,
+    register-added positionals last -- matching the existing convention of
+    calling a shared trailing-positional helper LAST inside register())."""
+    _write(tmp_path, "ordered.py", _MODULE_CMD_ARGS_CLASS_PLUS_REGISTER)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["ordered", "--method", "system.info", "trailing-value"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("ordered")
+    ][0]
+    assert discovered.SEEN["method"] == "system.info"
+    assert discovered.SEEN["extra"] == "trailing-value"
+
+
 def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path):
     """Wrapping `command.register` on a module with NO register of its own still fires.
 

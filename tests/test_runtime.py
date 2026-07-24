@@ -434,6 +434,36 @@ def test_register_hook_2arg_still_works(tmp_path):
     assert discovered.SEEN["flag"] == "two"
 
 
+def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path):
+    """Wrapping `command.register` on a module with NO register of its own still fires.
+
+    Regression: the gating/arity check used to re-derive from
+    `getattr(module, "register", ...)` instead of the SAME object being
+    called (`command.register`). A module defining no `register` hook has
+    `module.register` -> None -> not callable, so a caller's wrapper
+    assigned directly to `command.register` was silently skipped for
+    exactly this shape (a real consumer scenario: wrapping `command.register`
+    app-wide to add a shared positional every command needs).
+    """
+    from duho.discovery import discover_commands
+
+    _write(tmp_path, "norereg.py", _MODULE_CMD_RC2)
+    commands = discover_commands(tmp_path)
+    command = commands[0]
+
+    calls = []
+
+    def wrapper(parser, args):
+        calls.append(True)
+        parser.add_argument("--wrapped", default=None)
+
+    command.register = wrapper
+
+    rc = app(Root, commands=[command], argv=["norereg", "--wrapped", "x"], setup_logging=False)
+    assert rc == 2
+    assert calls == [True]
+
+
 # --------------------------------------------------------------------------
 # _passthrough_ reaches the dispatched command
 # --------------------------------------------------------------------------

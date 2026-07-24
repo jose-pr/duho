@@ -115,9 +115,9 @@ class Copy(Args):
 | `str`, `int`, `float`, `bool` | Direct conversion; `bool` gets `store_true` or `--flag`/`--no-flag` (see above) |
 | `typing.Literal["a", "b"]` | `choices=("a", "b")`; mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips |
 | `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`) |
-| `list` / `list[T]` | Accepts both repeated (`--x a --x b`) and space-separated (`--x a b`) forms via `action="extend", nargs="*"`; bare `list` elements are `str`; default is `[]` when no explicit default is given |
-| `set` / `set[T]` | Same repeated + space-separated forms as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
-| `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same forms as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
+| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — via `action="extend", nargs=None`. As a POSITIONAL: variadic (`nargs="*"`, space-separated: `a b c`). Bare `list` elements are `str`; default is `[]` when no explicit default is given. Pass an explicit `NS(nargs="*")` to opt an OPTION back into space-separated multi-value |
+| `set` / `set[T]` | Same option-vs-positional split as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
+| `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same option-vs-positional split as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
 | `dict` / `dict[str, V]` | Each occurrence is one `KEY=VALUE` token; repeated flags merge into one dict (`--opt k=1 --opt j=2` → `{"k": ..., "j": ...}`) via `UpdateAction`; the value half is converted with `V` (bare `dict` == `dict[str, str]`); only **`str` keys** are supported (a non-`str` key type is a clear build-time error); default is `{}` when no explicit default is given |
 | `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
 | `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
@@ -157,6 +157,37 @@ An optional positional (a real default present, `nargs` unset) automatically
 gets `nargs="?"` — without it argparse would make the positional required and
 ignore the default. A `list`/`list[T]` positional becomes variadic
 (`nargs="*"`), defaulting to `[]`. `required=` is never emitted for positionals.
+
+### An option between two positionals just works
+
+argparse's own greedy positional matching normally breaks when an option is
+placed BETWEEN a fixed positional and a variadic one after it (a well-known
+argparse limitation, [bpo-15112](https://bugs.python.org/issue15112)) — the
+classic `<command> <name> [TARGET ...]` shape a per-target/fan-out app wants:
+
+```python
+class Query(Args):
+    namespace: str
+    ("namespace",)
+
+    targets: list[str] = []
+    ("targets",)
+
+    filters: list[str] = []
+    ("-f",)
+```
+
+```bash
+python query.py user -f username=root nas1   # used to fail: "unrecognized arguments: nas1"
+```
+
+Duho detects this shape (a variable-arity positional alongside another
+positional in the same parser) and transparently reorders recognized flags
+ahead of the positional run before the real parse — all four orderings
+(flag before/after/between the positionals, or no flag at all) now parse
+identically. A genuinely unrecognized/misspelled flag still raises argparse's
+own honest "unrecognized arguments" error; the fix never silently absorbs a
+typo as a phantom positional value.
 
 ### Field metadata: `NS` or `Meta`
 

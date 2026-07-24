@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING: `list`/`set`/`tuple` fields used as an OPTION no longer accept
+  space-separated multi-value in one occurrence.** `--x a b` used to
+  accumulate `["a", "b"]` in one flag occurrence (`nargs="*"`); an option
+  field now defaults to ONE value per occurrence (`nargs=None`) — repeat the
+  flag for more (`--x a --x b`), matching how `dict` fields already work.
+  The POSITIONAL case is unaffected (still `nargs="*"`, space-separated —
+  that's the whole point of a trailing variadic positional). Pass an
+  explicit `NS(nargs="*")` on a specific option field to restore the old
+  space-separated behavior.
+
+### Fixed
+- **A flag placed between two positionals no longer breaks a trailing
+  variadic positional.** argparse's own greedy positional-run matching
+  (bpo-15112) settles a run containing a fixed positional followed by a
+  variadic one against the argv slice before the NEXT optional token — so
+  `<command> <name> -f value <targets...>` used to fail with "unrecognized
+  arguments" pointing at the targets, even though `<command> <name>
+  <targets...> -f value` and `<command> -f value <name> <targets...>` both
+  worked. Duho now detects this shape at parser-build time and transparently
+  reorders recognized flags ahead of the positional run before the real
+  parse; a genuinely unrecognized/misspelled flag still raises argparse's
+  own honest error, never silently absorbed as a phantom positional value.
+  (This fix is what makes the `list`/`set`/`tuple`-as-option default change
+  above safe and necessary: `nargs="*"` on an interspersed option is itself
+  ambiguous even in ALREADY-correctly-ordered argv — confirmed against bare
+  stdlib argparse — so the reorder fix could not have covered that case
+  regardless; downgrading the option default to `nargs=None` removes the
+  ambiguity at its source instead.)
+
 ## [0.4.1] - 2026-07-24
 
 ### Added

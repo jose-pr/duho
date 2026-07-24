@@ -823,6 +823,35 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 action = spec.action
             if spec.nargs is not None:
                 nargs = spec.nargs
+                # `_factory_for`'s `list`/`set`/`tuple` branch hardcodes
+                # `nargs="*"`, correct for a POSITIONAL (a trailing variadic
+                # positional is exactly the point of that shape) but not for
+                # an OPTION: a repeatable flag defaults to ONE value per
+                # occurrence (`-f a -f b`), not space-separated multi-value
+                # in one occurrence (`-f a b`) -- downgraded here to
+                # `nargs=None` for the option case ONLY. An EXPLICIT
+                # `NS(nargs=...)` still wins regardless -- that override is
+                # applied AFTER this method returns (see `Argument.from_type`
+                # 's `setattr(builder, k, v)` loop).
+                is_positional = len(flags) == 1 and not flags[0].startswith("-")
+                if nargs == "*" and not is_positional:
+                    nargs = None
+                    if action == "extend":
+                        # stdlib's `_ExtendAction.__call__` does
+                        # `items.extend(values)` UNCONDITIONALLY -- it
+                        # requires `values` to already be a list (i.e.
+                        # requires `nargs` in `"*"`/`"+"`/an int); with
+                        # `nargs=None` argparse hands it a bare scalar,
+                        # which crashes (`TypeError: 'int' object is not
+                        # iterable`, verified this session). `"append"`
+                        # (stdlib `_AppendAction`) natively handles a single
+                        # scalar per occurrence -- switch to it for exactly
+                        # this downgrade. The `_CollectionAction` used for
+                        # set/tuple is NOT stdlib's extend -- it already has
+                        # its own single-value branch (`_CollectionAction
+                        # .__call__`'s `else: items.append(values)`) and
+                        # needs no action change here.
+                        action = "append"
             if spec.collection is not None:
                 collection = spec.collection
             if spec.default is not _inspect.NOT_DEFINED and default is _inspect.NOT_DEFINED:
@@ -1121,6 +1150,167 @@ class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
         raise NotImplementedError()
 
 
+#: `nargs` values that make a positional variable-arity -- the shape that
+#: triggers argparse's greedy positional-run-matching papercut (bpo-15112)
+#: when ANOTHER positional sits in the same parser. Verified this session
+#: (bare stdlib, no duho): `"*"` and `"?"` fail identically for a flag placed
+#: between the two positionals; `"+"` fails too, just at a different arg
+#: count (2+ trailing values instead of 1) -- all three are the trigger set.
+_VARIADIC_NARGS = ("*", "+", "?")
+
+
+def _has_variadic_and_sibling_positional(parser: "_argparse.ArgumentParser") -> bool:
+    """True if ``parser`` has a variable-arity positional AND another positional.
+
+    This is the exact shape that breaks under argparse's greedy
+    positional-run matching when an optional flag is placed BETWEEN the two
+    positional groups (verified this session, bare stdlib): the run
+    containing the fixed positional and the variadic one is settled against
+    the argv slice before the NEXT optional token, so the variadic one can
+    close out empty/short and never reopen. A single variadic positional
+    ALONE (no sibling) is unaffected -- verified.
+
+    The subparsers action itself (``dest="command"``, added by
+    ``add_subparsers``) is NOT option-string-bearing either, but it is not a
+    user-declared positional field -- excluded explicitly so a root class
+    with subcommands and no OTHER declared positional doesn't false-trigger.
+    argparse itself forbids declaring two variable-arity positionals in one
+    parser (raises at ``add_argument`` time), so there is nothing to detect
+    for that combination; it cannot exist.
+    """
+    positionals = [
+        action
+        for action in parser._actions  # type: ignore[attr-defined]
+        if not action.option_strings
+        and not isinstance(action, _argparse._SubParsersAction)  # type: ignore[attr-defined]
+    ]
+    if len(positionals) < 2:
+        return False
+    return any(action.nargs in _VARIADIC_NARGS for action in positionals)
+
+
+def _reorder_argv_for_variadic_positional(
+    parser: "_argparse.ArgumentParser", argv: "list[str]"
+) -> "list[str]":
+    """Hoist recognized flags (+ their values) before the positional run.
+
+    Preprocessing ONLY -- never decides an input is invalid. Scans ``argv``
+    against ``parser``'s OWN, already-built ``_option_string_actions``
+    registry; a token recognized there (bare, or via its ``key`` half of a
+    ``--flag=value`` form) is hoisted, along with the value(s) its action's
+    ``nargs``/type says it consumes, into a leading ``flags`` run. Everything
+    else stays in a trailing ``positionals`` run, in original relative order.
+    Concatenating ``flags + positionals`` gives argparse a slice where the
+    positional run is contiguous and never interrupted by a flag, sidestepping
+    the greedy-matching papercut this function exists for.
+
+    **Bails (returns ``argv`` UNCHANGED) on anything it isn't certain about**
+    -- a `-`-prefixed token NOT in the registry (and not a negative-number
+    value the parser itself would accept, per its own
+    ``_negative_number_matcher``/``_has_negative_number_optionals``), or a
+    flag needing a value with none left in ``argv``. This is deliberate: a
+    genuine typo (``--filtr`` for ``--filter``) must still surface argparse's
+    own honest "unrecognized arguments" error through the UNMODIFIED real
+    parse, never get silently absorbed as a phantom positional value. This
+    function only ever makes a VALID input parse correctly, or gets out of
+    the way entirely.
+    """
+    known = parser._option_string_actions  # type: ignore[attr-defined]
+    negative_number_matcher = getattr(parser, "_negative_number_matcher", None)
+    has_negative_number_optionals = bool(
+        getattr(parser, "_has_negative_number_optionals", [])
+    )
+
+    flags: "list[str]" = []
+    positionals: "list[str]" = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        token = argv[i]
+        if token == "--":
+            # A literal `--` separator is never part of THIS parser's own
+            # flag/positional grammar (duho's `_passthrough_` handling
+            # already splits argv on the FIRST `--` before this function
+            # ever sees it -- see `_initparser_`'s patched
+            # `parse_known_args` -- so reaching one here means a SECOND
+            # `--`, which is itself part of the payload). Stop reordering;
+            # everything from here on is left exactly as-is.
+            positionals.extend(argv[i:])
+            break
+
+        action = known.get(token)
+        if action is None and "=" in token:
+            action = known.get(token.split("=", 1)[0])
+            if action is not None:
+                # `--flag=value` is a single self-contained token; no
+                # separate value token to hoist alongside it.
+                flags.append(token)
+                i += 1
+                continue
+
+        if action is not None:
+            zero_value_action = action.nargs == 0 or isinstance(
+                action,
+                (
+                    _argparse._StoreTrueAction,
+                    _argparse._StoreFalseAction,
+                    _argparse._CountAction,
+                    _argparse._HelpAction,
+                ),
+            )
+            if zero_value_action:
+                flags.append(token)
+                i += 1
+                continue
+            if action.nargs is not None:
+                # The flag's OWN nargs is variable (`"*"`/`"+"`/`"?"`) or an
+                # explicit fixed count -- e.g. a `list[T]` field's default
+                # `action="extend", nargs="*"` builder. Confirmed this
+                # session (bare stdlib): a variadic-nargs FLAG placed
+                # directly before positional values, with no separator, is
+                # AMBIGUOUS FOR ARGPARSE ITSELF -- even correctly-ordered
+                # argv silently misparses (extra tokens get absorbed into
+                # the flag's own value list instead of the positional they
+                # belonged to; see `docs/guide/arguments.md` /
+                # `AGENTS.md`'s note on this shape). Reordering cannot
+                # resolve an ambiguity the REAL parser cannot resolve either
+                # -- bail unreordered rather than guess and risk swallowing
+                # a token that belonged to a positional.
+                return argv
+            if i + 1 >= n:
+                # A flag needing exactly one value, with none left in argv --
+                # malformed input. Bail: let the REAL parse produce its own
+                # error rather than guessing here.
+                return argv
+            flags.append(token)
+            flags.append(argv[i + 1])
+            i += 2
+            continue
+
+        if token.startswith("-") and len(token) > 1:
+            looks_negative_number = bool(
+                negative_number_matcher and negative_number_matcher.match(token)
+            )
+            if looks_negative_number and not has_negative_number_optionals:
+                # A negative-number-shaped token this parser has no
+                # negative-number-shaped OPTIONAL to collide with -- treat
+                # as a genuine positional value (mirrors argparse's own
+                # `_negative_number_matcher` logic for the same decision).
+                positionals.append(token)
+                i += 1
+                continue
+            # An unrecognized `-`-prefixed token. Could be a real typo, or a
+            # flag this reorder pass doesn't understand -- either way, NOT
+            # confident enough to reorder. Bail unchanged; the real parse
+            # surfaces its own honest error.
+            return argv
+
+        positionals.append(token)
+        i += 1
+
+    return flags + positionals
+
+
 def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
     """Make a subcommand's inherited-option defaults not clobber the root's value.
 
@@ -1364,6 +1554,20 @@ class Args(_argparse.Namespace):
                     passthrough = argv[idx + 1 :]
                     argv = argv[:idx]
                 args = argv
+
+            # A flag placed BETWEEN two positional groups (one of them
+            # variable-arity) breaks under argparse's own greedy
+            # positional-run matching (bpo-15112) -- reorder recognized
+            # flags to the front of the slice THIS parser will actually see
+            # so the positional run stays contiguous. Scoped to parsers with
+            # the risky shape only (cheap check, no cost/behavior change
+            # otherwise); never touches anything after the `--` split above
+            # (that's `passthrough`, already carved out); bails unreordered
+            # on anything it isn't certain about, so a genuine typo still
+            # surfaces argparse's own honest error through the real,
+            # UNMODIFIED parse below.
+            if args is not None and _has_variadic_and_sibling_positional(parser):
+                args = _reorder_argv_for_variadic_positional(parser, list(args))
 
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace

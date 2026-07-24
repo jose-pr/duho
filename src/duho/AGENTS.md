@@ -15,6 +15,19 @@ keep any addition here that would break that lazy.
   set (`("--env","-e")`; omit → positional named after the field). Not runnable on its own.
   Classmethods: `_parser_(subparsers=None, *, parents=None, **kw) -> ArgumentParser`,
   `_getargs_() -> list[ArgumentBuilder]`, `_initparser_(parser)`.
+  A `list[T]`/`set[T]`/`tuple[T, ...]` field used as a POSITIONAL keeps `nargs="*"`
+  (unchanged); used as an OPTION it defaults to `nargs=None` — ONE value per flag
+  occurrence, repeat the flag for more (`-f a -f b`), not space-separated in one
+  occurrence (`-f a b`) (changed 2026-07-24; pass an explicit `NS(nargs="*")` to
+  restore the old space-separated behavior on a specific field). This also fixes a
+  real argparse papercut (`_initparser_`'s patched `parse_known_args` now
+  transparently reorders recognized flags ahead of the positional run when a
+  parser has a variable-arity positional alongside another positional — see
+  `_has_variadic_and_sibling_positional`/`_reorder_argv_for_variadic_positional`):
+  an option placed BETWEEN two positionals (one variadic) used to break under
+  argparse's own greedy positional-run matching (bpo-15112); a genuinely
+  unrecognized flag still raises argparse's own honest error, never silently
+  swallowed as a phantom positional value.
 - **`Cmd(Args)`** — executable `Args`. Override **`__call__(self) -> int | None`** (the
   entrypoint; `None` → exit 0). Base `__call__` raises `NotImplementedError` naming the class.
 - **`Cli(Cmd)`** — application-root mixin. Declares (as typed sandwich attrs) `_version_`,

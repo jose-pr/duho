@@ -87,19 +87,32 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
         file = getattr(module, "__file__", None)
         if file:
             qualname = getattr(cls, "__qualname__", cls.__name__)
-            index = _module_index(file)
-            found = index.get(qualname)
-            if found is not None:
-                return found
-            # The module file WAS indexed successfully but this qualname is
-            # absent -- the class was created dynamically (``type(...)`` /
-            # ``duho.command(...)``) and has no literal ``ClassDef`` in the
-            # source. ``inspect.getsource`` re-parses the exact same file and
-            # fails the identical lookup, only slower (up to ~23 ms per class in
-            # a large dynamically-built tree, P5). Give up now. The getsource
-            # fallback below is reserved for the no-module-file case
-            # (REPL/``exec``), where there is no file to index.
-            return None
+            # `_module_index` does `Path(filename).read_text()`, which raises
+            # `OSError` when `file` isn't a real filesystem path -- e.g. a
+            # zipapp's `module.__file__` is a zip-internal path
+            # (`.../app.pyz/pkg/mod.py`) that doesn't exist on disk. Caught
+            # HERE, narrowly, so that failure falls through to the
+            # `inspect.getsource` fallback below (which reads zipimport
+            # modules via the loader's `get_source` and DOES work) instead of
+            # propagating to the outer `except OSError`, which used to return
+            # None before ever trying the fallback.
+            try:
+                index = _module_index(file)
+            except OSError:
+                index = None
+            if index is not None:
+                found = index.get(qualname)
+                if found is not None:
+                    return found
+                # The module file WAS indexed successfully but this qualname is
+                # absent -- the class was created dynamically (``type(...)`` /
+                # ``duho.command(...)``) and has no literal ``ClassDef`` in the
+                # source. ``inspect.getsource`` re-parses the exact same file and
+                # fails the identical lookup, only slower (up to ~23 ms per class in
+                # a large dynamically-built tree, P5). Give up now. The getsource
+                # fallback below is reserved for the no-module-file case
+                # (REPL/``exec``) or the unreadable-file case (zipapp) above.
+                return None
 
         src = _inspect.getsource(cls)
         src = _textwrap.dedent(src)

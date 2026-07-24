@@ -205,6 +205,44 @@ def _is_routine_or_descriptor(value) -> bool:
     return hasattr(type(value), "__get__")
 
 
+def _looks_like_a_resolved_type(value: object) -> bool:
+    """True if ``value`` is a plausible resolved type-hint (a type, or a
+    typing construct), False if it's some OTHER kind of object entirely.
+
+    Guards against a specific, unfixable-at-the-annotation-level Python
+    footgun: a field whose NAME is identical to its own annotation (e.g.
+    ``bool: bool = False``) executes the annotated assignment's VALUE-store
+    BEFORE the annotation expression is evaluated (confirmed via bytecode:
+    ``STORE_NAME bool`` precedes ``LOAD_NAME bool`` for that one statement),
+    so the name immediately shadows itself WITHIN THE SAME STATEMENT and the
+    class's own raw ``__annotations__`` entry is already wrong -- ``False``,
+    not the builtin ``bool`` -- before ``typing.get_type_hints`` (or any
+    other introspection) ever sees it. There is no way to recover the
+    intended type from here; the best we can do is detect the symptom (a
+    "type" that plainly isn't one) and raise a CLEAR, actionable error
+    instead of the confusing `argparse` internals crash this used to produce
+    when it later chose an action based on this bogus, non-type "type".
+    """
+    if isinstance(value, type):
+        return True
+    if isinstance(value, str):
+        # An unresolved forward-ref string is a legitimate (if unusual at
+        # this point) intermediate value, not the shadow symptom.
+        return True
+    # A typing construct (Optional[int], list[str], Literal[...], ...) has
+    # __origin__ or lives under the `typing` module's machinery -- accept
+    # anything that isn't a plain, mundane instance of a builtin scalar type
+    # a class body could plausibly have assigned as an accidental value.
+    if _ty.get_origin(value) is not None:
+        return True
+    if type(value).__module__ in ("typing", "types"):
+        return True
+    # The actual symptom: a bare bool/int/float/str/bytes/NoneType instance
+    # sitting where a type was expected -- exactly what `name: name = <that
+    # same value>` self-shadowing produces.
+    return not isinstance(value, (bool, int, float, str, bytes, type(None)))
+
+
 def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
     if "_duho_clsargs_" in vars(cls):
         return cls._duho_clsargs_  # type:ignore
@@ -215,6 +253,20 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
     for name, type in typehints.items():
         if name.startswith("_"):
             continue
+
+        if not _looks_like_a_resolved_type(type):
+            raise TypeError(
+                f"argument {name!r} on {cls.__name__!r}: its resolved "
+                f"annotation is {type!r}, not a type -- this happens when a "
+                f"field's NAME is the same as its own annotation (e.g. "
+                f"`{name}: {name} = ...`), which makes Python's class-body "
+                f"execution shadow the annotation with the field's own "
+                f"value before it's ever read (the assignment happens "
+                f"before the annotation is evaluated, within the same "
+                f"statement -- not a duho bug, a fundamental Python "
+                f"scoping order). Rename the field so it no longer matches "
+                f"its own declared type."
+            )
 
         # ClassVar/Final are declarations, not CLI fields: a `count: ClassVar[int]`
         # or `MAX: Final[int]` must never become a `--count`/`--max` flag (C9).

@@ -99,6 +99,11 @@ _safe_value = st.text(
 _RESERVED_NAMES = {
     "ty", "enum", "duho", "args", "path", "color", "conf", "field",
     "help", "h",  # would produce --help/--h flags colliding with argparse
+    # Field names identical to their own annotation self-shadow (Python
+    # stores the class-body value before the annotation is ever read, e.g.
+    # `bool: bool = False`) -- a duho-detected, unfixable-by-duho error, not
+    # a case this round-trip test should generate.
+    "str", "int", "float", "bool", "list", "set", "tuple",
 }
 
 _identifiers = st.text(
@@ -144,16 +149,18 @@ def _field_case(draw):
         ann = "ty.Literal[%s]" % ", ".join(repr(v) for v in values)
         return name, ann, repr(values[0]), ["--%s" % name, chosen], chosen
     if kind == "list":
+        # An option field takes ONE value per occurrence -- repeat the flag
+        # for each value, not space-separated in one occurrence.
         values = draw(st.lists(st.integers(min_value=0, max_value=1000), max_size=4))
-        argv = ["--%s" % name] + [str(v) for v in values]
+        argv = [tok for v in values for tok in ("--%s" % name, str(v))]
         return name, "ty.List[int]", "[]", argv, values
     if kind == "set":
         values = draw(st.lists(_safe_value, max_size=4))
-        argv = ["--%s" % name] + values
+        argv = [tok for v in values for tok in ("--%s" % name, v)]
         return name, "ty.Set[str]", "set()", argv, set(values)
     if kind == "tuple":
         values = draw(st.lists(st.integers(min_value=0, max_value=1000), max_size=4))
-        argv = ["--%s" % name] + [str(v) for v in values]
+        argv = [tok for v in values for tok in ("--%s" % name, str(v))]
         return name, "ty.Tuple[int, ...]", "()", argv, tuple(values)
     # optional
     present = draw(st.booleans())

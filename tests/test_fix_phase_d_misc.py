@@ -104,7 +104,7 @@ class _SetField(Args):
 
 
 def test_collection_sidecar_not_leaked():
-    r = duho.parse(_SetField, ["--tags", "a", "b"])
+    r = duho.parse(_SetField, ["--tags", "a", "--tags", "b"])
     assert r.tags == {"a", "b"}
     assert not any(k.startswith("_duho_items_") for k in vars(r))
 

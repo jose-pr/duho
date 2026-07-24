@@ -118,11 +118,16 @@ def test_list_accumulation_repeated_flag():
     assert args.tags == ["a", "b"]
 
 
-def test_list_accumulation_space_separated():
-    """Space-separated `--x a b` accumulates via nargs="*"."""
+def test_list_option_rejects_space_separated_multi_value():
+    """An option field takes ONE value per occurrence -- `--x a b` leaves `b`
+    unconsumed, surfacing as an unrecognized positional (a repeatable option
+    is safe to place between two positionals as a result -- see
+    `test_positional_reorder.py`)."""
+    import pytest
+
     parser = ListArgs._parser_()
-    args = parser.parse_args(["--tags", "a", "b"])
-    assert args.tags == ["a", "b"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--tags", "a", "b"])
 
 
 def test_list_default_empty_when_undeclared():
@@ -135,7 +140,7 @@ def test_list_default_empty_when_undeclared():
 def test_list_element_type_conversion():
     """list[int] converts each element with the element factory."""
     parser = ListArgs._parser_()
-    args = parser.parse_args(["--numbers", "1", "2", "--numbers", "3"])
+    args = parser.parse_args(["--numbers", "1", "--numbers", "2", "--numbers", "3"])
     assert args.numbers == [1, 2, 3]
     assert all(isinstance(n, int) for n in args.numbers)
 

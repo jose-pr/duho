@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`Env` companion-module defaults no longer override the real environment.**
+  `Env`'s autoloaded `<prefix>env` companion module seeds genuine defaults
+  (lowest precedence) instead of shadowing a real exported
+  `<PREFIX>_<KEY>` variable — the class docstring already called these
+  "defaults"; the implementation now matches. Precedence: `**env` kwargs /
+  a runtime `env[k] = v` write, then `os.environ`, then the companion
+  module.
+
 ## [0.4.0] - 2026-07-23
 
 ### Added

@@ -240,3 +240,46 @@ class TestCompanionModuleAutoload:
         # The common case: no companion module. Must not error.
         e = Env("definitely_no_such_prefix_zzz")
         assert e._env == {}
+
+    def test_real_environ_wins_over_companion_module(self, monkeypatch, tmp_path):
+        # Regression: the companion module seeds DEFAULTS -- lowest
+        # precedence. A real exported PRECA_CMDS_PATH must win over a module
+        # that ships CMDS_PATH = "from-module", not be silently shadowed by
+        # it (the bug: __getitem__ checked the module-seeded value first).
+        # Unique prefix/module name per test -- a companion module is cached
+        # in sys.modules once imported, so a shared name across tests would
+        # silently reuse an earlier test's module content.
+        module = tmp_path / "preca_env.py"
+        module.write_text("CMDS_PATH = 'from-module'\nDEBUG = '0'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        monkeypatch.setenv("PRECA_CMDS_PATH", "from-environ")
+        monkeypatch.setenv("PRECA_DEBUG", "1")
+        e = Env("preca")
+        assert e["CMDS_PATH"] == "from-environ"
+        assert e.paths("CMDS_PATH") == ["from-environ"]
+        assert e.bool("DEBUG") is True
+
+    def test_companion_module_used_only_when_environ_unset(self, monkeypatch, tmp_path):
+        module = tmp_path / "precb_env.py"
+        module.write_text("TOKEN = 'from-module'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        monkeypatch.delenv("PRECB_TOKEN", raising=False)
+        e = Env("precb")
+        assert e["TOKEN"] == "from-module"
+
+    def test_kwargs_still_win_over_real_environ_and_companion_module(
+        self, monkeypatch, tmp_path
+    ):
+        module = tmp_path / "precc_env.py"
+        module.write_text("TOKEN = 'from-module'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        monkeypatch.setenv("PRECC_TOKEN", "from-environ")
+        e = Env("precc", TOKEN="from-kwarg")
+        assert e["TOKEN"] == "from-kwarg"
+
+    def test_iter_includes_companion_module_only_keys(self, monkeypatch, tmp_path):
+        module = tmp_path / "precd_env.py"
+        module.write_text("ONLYMODULE = 'x'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        e = Env("precd")
+        assert "ONLYMODULE" in list(e)

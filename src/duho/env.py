@@ -32,11 +32,14 @@ class Env(_abc.MutableMapping):
 
     On construction, when ``autoload`` is true (the default), the accessor tries
     to import a companion ``<prefix-lower>env`` module (e.g. ``my_app_env``) and
-    seeds its **upper-case, non-underscore** module variables as defaults; a
-    missing module is the common case and is silently ignored. ``**env`` keyword
-    arguments override those defaults. All seeded values -- module and kwargs --
-    are ``str()``-coerced (they go through ``__setitem__``), so ``env.bool``/
-    ``env.list`` never see a raw non-string.
+    seeds its **upper-case, non-underscore** module variables as *defaults* --
+    genuinely lowest-precedence, consulted only when a key is set neither
+    explicitly (``**env`` kwargs / a runtime ``env[k] = v`` write) nor in the
+    real process environment. Precedence, highest first:
+    ``**env`` kwargs / runtime writes  >  real ``os.environ``  >  the
+    ``<prefix>env`` companion module's shipped defaults. All seeded values --
+    module and kwargs -- are ``str()``-coerced, so ``env.bool``/``env.list``
+    never see a raw non-string.
 
     SECURITY: autoloading imports ``<prefix-lower>env`` from anywhere on
     ``sys.path`` (which normally includes the current working directory), so a
@@ -51,7 +54,16 @@ class Env(_abc.MutableMapping):
             prefix += "_"
         self.prefix = prefix
 
+        #: Explicit values: `**env` kwargs and any later `env[k] = v` runtime
+        #: write. Outranks BOTH the real environment and the companion
+        #: module -- a caller/runtime write is a deliberate override.
         self._env: "dict[str, object]" = {}
+        #: Companion-module-seeded values. Genuinely lowest precedence: a
+        #: shipped default must never shadow a real exported environment
+        #: variable (that inversion was a bug -- see module CHANGELOG entry).
+        #: Kept separate from `self._env` so `__getitem__` can consult
+        #: `os.environ` BEFORE falling back to this layer.
+        self._defaults: "dict[str, object]" = {}
         if autoload:
             try:
                 module = _importlib.import_module(f"{prefix.lower()}env")
@@ -63,10 +75,9 @@ class Env(_abc.MutableMapping):
                 for key, value in vars(module).items():
                     # Only real settings: skip dunders/private and lower-case
                     # helpers/imports (``__builtins__``, ``os``, a ``_helper``),
-                    # matching the UPPER_CASE env-var convention. Route through
-                    # __setitem__ so the str() coercion holds.
+                    # matching the UPPER_CASE env-var convention.
                     if key.isupper() and not key.startswith("_"):
-                        self[key] = value
+                        self._defaults[key] = str(value)
         for key, value in env.items():
             self[key] = value
 
@@ -75,7 +86,10 @@ class Env(_abc.MutableMapping):
     def __getitem__(self, key: str) -> str:
         if key in self._env:
             return self._env[key]
-        return _os.environ[f"{self.prefix}{key}"]
+        envkey = f"{self.prefix}{key}"
+        if envkey in _os.environ:
+            return _os.environ[envkey]
+        return self._defaults[key]
 
     def __setitem__(self, key: str, value: object) -> None:
         self._env[key] = str(value)
@@ -84,12 +98,19 @@ class Env(_abc.MutableMapping):
         del self._env[key]
 
     def __iter__(self) -> "_ty.Iterator[str]":
-        yield from self._env
+        seen: "set[str]" = set()
+        for key in self._env:
+            seen.add(key)
+            yield key
         for key in _os.environ:
             if key.startswith(self.prefix):
                 stripped = key[len(self.prefix):]
-                if stripped not in self._env:
+                if stripped not in seen:
+                    seen.add(stripped)
                     yield stripped
+        for key in self._defaults:
+            if key not in seen:
+                yield key
 
     def __len__(self) -> int:
         # A generator has no ``__len__``; count the unique keys instead.

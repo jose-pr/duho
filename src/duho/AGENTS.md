@@ -89,8 +89,13 @@ empty when absent).
 
 - **`Env(prefix, ...)`** — prefixed, typed `os.environ` accessor. Normalizes `prefix`
   (upper, `-`→`_`, trailing `_`), autoloads an optional `<prefix.lower()>env` companion
-  module of defaults (missing → silently ignored). Methods incl. `.list(name, ty=)`.
-  Mapping-like (`__iter__`/`__len__`/`**env`).
+  module of defaults (missing → silently ignored). Precedence, highest first: `**env`
+  kwargs / a runtime `env[k] = v` write, then the real `os.environ`, then the companion
+  module's shipped defaults (fixed 2026-07-24 — a companion-module value used to
+  shadow a real exported variable). Methods incl. `.list(name, ty=)`, `.paths(name,
+  ty=)` (splits on `os.pathsep`, not `.list`'s `":"` default — use this for a path-list
+  var so a Windows drive letter is never mis-split). Mapping-like (`__iter__`/`__len__`/
+  `**env`).
 - **`value_sources(...)`** — introspect where a parsed value came from (CLI/env/config/default).
 
 ## Logging

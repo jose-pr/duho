@@ -273,24 +273,88 @@ def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
     return positional >= 3
 
 
+def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None":
+    """Resolve the effective declarative ``Args`` class for a module command.
+
+    ``command.args_cls`` (see :class:`duho.discovery.ModuleCommand`) is
+    whatever the module declared, as-is: a real ``Args`` subclass, or a plain
+    class. If it's ``None``, there's nothing to add. If it's ALREADY a
+    subclass of ``root_cls``, it's used directly (the module explicitly
+    based its own ``Args`` on the app's shared root, e.g. ``class
+    Args(MyAppRoot): ...`` -- the common convention). Otherwise a class is
+    synthesized on the fly, ``type("_Args", (command.args_cls, root_cls), {})``
+    -- the module's own class first/overriding, ``root_cls`` as the base every
+    subcommand already gets -- so the module's declared fields work AND its
+    parsed instance still carries the app's shared root fields/methods (e.g.
+    ``_expanded_targets_``), without requiring the module author to
+    explicitly subclass the root themselves.
+    """
+    args_cls = command.args_cls
+    if args_cls is None:
+        return None
+    if issubclass(args_cls, root_cls):
+        return args_cls
+    return type("_Args", (args_cls, root_cls), {})
+
+
+def _add_module_declared_fields(
+    parser: "_argparse.ArgumentParser", args_cls: type
+) -> None:
+    """Add ``args_cls``'s own declared fields directly to ``parser``.
+
+    Mirrors the field-adding half of ``Args._initparser_`` (iterate
+    ``_getargs_()``, call each builder's ``add_to_parser``) WITHOUT installing
+    ``_initparser_``'s ``"#cls"`` dispatch-patching -- a module command's
+    parsed instance must stay the ROOT instance (the existing module-command
+    contract), not get hijacked into constructing an instance of this
+    synthesized/declared class. Skips any field whose ``dest`` is already on
+    the parser (the same root-option collision guard ``_initparser_`` itself
+    applies), so a declared field never re-adds/conflicts with an inherited
+    global.
+
+    **Scope note**: does not support ``NS(conflicts=...)`` (mutually-exclusive
+    groups) or ``NS(group=...)`` (titled groups) for a module command's
+    declared fields -- those need ``_initparser_``'s fuller machinery, which
+    is intertwined with the dispatch-patching this function deliberately
+    avoids. A module command needing those should keep using ``register()``
+    imperatively for that field, matching today's existing capability.
+    """
+    actions_by_dest = {action.dest: action for action in parser._actions}  # type: ignore[attr-defined]
+    for builder in args_cls._getargs_():  # type: ignore[attr-defined]
+        if builder.name in actions_by_dest:
+            continue
+        builder.add_to_parser(parser)
+
+
 def _register_module_command(
     subparsers: "_argparse._SubParsersAction",
     command: "_ModuleCommand",
     base_parser: "_argparse.ArgumentParser",
     root_instance_args: object,
+    root_cls: type,
 ) -> None:
     """Register a module command as a subparser and run its ``register`` hook.
 
     The subparser inherits the root/global options via ``parents=[base_parser]``
-    (parent-arg inheritance). If ``command.register`` is bound to a real hook
-    (not ``ModuleCommand``'s ``_noop`` default), it is called so the hook adds
-    its own arguments directly on the argparse object -- the "work directly
-    with the argparse object" API. **Gated and introspected on
-    ``command.register`` itself** (not a separate ``getattr(module,
-    "register", ...)`` re-fetch), so a caller who wraps/reassigns
-    ``command.register`` directly (a documented-looking seam -- it's a plain
-    instance attribute) is always honored, including for a module that
-    defines no ``register`` of its own. Two hook arities are accepted:
+    (parent-arg inheritance). If the module declares its own ``Args``
+    (``command.args_cls``, see :func:`_module_args_cls`), that class's fields
+    are added to the subparser FIRST -- declaratively, the same "annotated
+    class attr -> CLI field" story class commands get -- so a module can
+    declare positionals/options instead of adding everything imperatively.
+    ``register`` then runs AFTER (so, e.g., a shared trailing ``targets``
+    positional a `register` wrapper adds app-wide still lands after the
+    module's own declared positionals -- matching the existing convention of
+    calling a shared-positional helper LAST inside `register`).
+
+    If ``command.register`` is bound to a real hook (not ``ModuleCommand``'s
+    ``_noop`` default), it is called so the hook adds its own arguments
+    directly on the argparse object -- the "work directly with the argparse
+    object" API. **Gated and introspected on ``command.register`` itself**
+    (not a separate ``getattr(module, "register", ...)`` re-fetch), so a
+    caller who wraps/reassigns ``command.register`` directly (a
+    documented-looking seam -- it's a plain instance attribute) is always
+    honored, including for a module that defines no ``register`` of its own.
+    Two hook arities are accepted:
 
     * ``register(parser, args)`` -- the 2-arg form. ``args`` is a best-effort
       parsed root instance from the prepass; a hook that ignores it (the common
@@ -314,6 +378,10 @@ def _register_module_command(
         description=doc,
         add_help=True,
     )
+
+    args_cls = _module_args_cls(command, root_cls)
+    if args_cls is not None:
+        _add_module_declared_fields(parser, args_cls)
 
     register = getattr(command, "register", None)
     # Gate AND introspect the SAME object we call: `command.register` (NOT a
@@ -688,7 +756,11 @@ def app(
             _register_class_command(subparsers, command_cls, base_parser)
         else:
             _register_module_command(
-                subparsers, _ty.cast(_ModuleCommand, command), base_parser, prepass_args
+                subparsers,
+                _ty.cast(_ModuleCommand, command),
+                base_parser,
+                prepass_args,
+                root_cls,
             )
         registry[cmd_name] = (kind, command)
 

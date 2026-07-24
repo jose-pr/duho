@@ -162,7 +162,16 @@ class ModuleCommand:
       ``module.run`` / ``module.call``;
     * optional **lifecycle hooks** -- ``register`` (default no-op),
       ``init`` (default returns ``None`` -- no context), ``success`` /
-      ``finally_`` (default no-ops).
+      ``finally_`` (default no-ops);
+    * ``args_cls`` -- an optional module-level ``Args`` declaring this
+      module's own CLI fields DECLARATIVELY (added to the subparser before
+      ``register`` runs -- see ``runtime._register_module_command``), as an
+      alternative to adding everything imperatively in ``register``. Accepts
+      either an already-``Args``-subclassing ``Args`` (used directly) or a
+      plain class with annotated fields (mixed in with ``Args`` on the fly so
+      its annotations still work as CLI fields, with no explicit
+      import/subclass of ``duho.Args`` required). ``None`` if the module
+      declares no usable ``Args``.
 
     A ``ModuleCommand`` with no entrypoint raises ``NotImplementedError`` at
     construction (a module offering no ``main``/``run``/``call`` is not a
@@ -209,6 +218,29 @@ class ModuleCommand:
                 % (getattr(module, "__name__", module), ", ".join(_ENTRYPOINT_NAMES))
             )
         self._entrypoint = entry
+
+        # A module-level `Args` declares this module's own CLI fields,
+        # combined with the app's shared root class (see
+        # `runtime._register_module_command`, which does the actual mixing
+        # since the root class is only known at registration time) and added
+        # to the subparser before `register` runs. Stored as-is here: either
+        # a real `Args` subclass (used directly by the caller) or a plain
+        # class (mixed with the root at registration time so its own
+        # annotated attrs still work as CLI fields -- `_introspect.get_clsargs`
+        # walks the MRO -- without the author needing to import/subclass
+        # `duho.Args` or the app's root explicitly).
+        #
+        # A STRICT-subclass check distinguishes "a real declared class" from
+        # "the module did `from duho import Args` for its own use but never
+        # subclassed it" -- `getattr(module, "Args", None)` would resolve to
+        # `duho.args.Args` (or `Cmd`/`Cli`) itself there, which this correctly
+        # treats as "nothing declared", not a usable class.
+        args_cls = getattr(module, "Args", None)
+        self.args_cls: "type | None" = (
+            args_cls
+            if _inspect.isclass(args_cls) and args_cls not in (_Args, _Cmd)
+            else None
+        )
 
         # Bind lifecycle hooks with contract defaults. ``init`` defaults to a
         # context-less builder (returns None); the others to no-ops. All

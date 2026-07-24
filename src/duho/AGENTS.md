@@ -77,6 +77,21 @@ empty when absent).
   subclass). `_parsername_` = module `_parsername_`/`_cli_name` override, else file stem with
   `_`→`-`. Entrypoint `main` (fallback `run`/`call`); optional hooks `register`/`init`/
   `success`/`finally_`. A module with no entrypoint raises `NotImplementedError` (→ skipped).
+  `args_cls` (added 2026-07-24) — an optional module-level `Args` declaring the module's
+  own CLI fields DECLARATIVELY, an alternative to adding everything imperatively in
+  `register`. Either a real `Args` subclass (strict, not `Args`/`Cmd` themselves — a
+  bare `from duho import Args` with no subclassing is ignored) or a plain class with
+  annotated fields. `runtime._register_module_command` resolves the effective class
+  (already a subclass of the app's `root_cls` → used directly; otherwise synthesized as
+  `type("_Args", (args_cls, root_cls), {})`, so the module's fields work AND the parsed
+  instance still carries the root's own fields/methods) and adds its fields to the
+  subparser BEFORE `register` runs (declared positionals first, register-added ones
+  last — matches the existing convention of calling a shared trailing-positional helper
+  LAST inside `register`). Does NOT support `NS(conflicts=...)`/`NS(group=...)` for a
+  module command's declared fields (needs `Args._initparser_`'s fuller machinery,
+  which installs `"#cls"` dispatch-patching a module command's parsed instance must
+  NOT get — the parsed instance stays the ROOT instance, per the existing contract);
+  use `register()` imperatively for those.
 - **`CmdBuilder(qualname, source=None)`** — resolve one source (Path / dotted import path /
   module / Command) to a command. Filesystem imports use synthesized-unique `sys.modules`
   keys (a loose `json.py` never clobbers stdlib `json`).

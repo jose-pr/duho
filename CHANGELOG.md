@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-07-24
+## [0.5.1] - 2026-07-24
 
 ### Changed
 - **BREAKING: `list`/`set`/`tuple` fields used as an OPTION no longer accept
@@ -38,6 +38,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   stdlib argparse — so the reorder fix could not have covered that case
   regardless; downgrading the option default to `nargs=None` removes the
   ambiguity at its source instead.)
+- **The reorder fix above now also applies to module command subparsers.**
+  A module command's subparser (`discover_commands`/`ModuleCommand`, built
+  via a plain `subparsers.add_parser(...)`) was never patched with the fix —
+  only duho's own declarative `Cmd`/`Args` subcommand tree was. This meant
+  `<module-command> <positional> -f value <targets...>` still raised
+  "unrecognized arguments" on a module command even though the identical
+  shape already worked on a declarative subcommand. Module command
+  subparsers now get the same detect-and-reorder treatment once all of
+  their fields (declared `Args` + any `register()`-added arguments) are in
+  place.
+- **A field whose name is identical to its own type annotation (e.g.
+  `bool: bool = False`) now raises a clear `TypeError` at class-definition
+  time** instead of silently corrupting later argparse behavior. Python's
+  own class-body execution order stores the field's value BEFORE the
+  annotation expression is evaluated, so the name shadows itself within the
+  same statement — this is unfixable at the annotation-reading level; duho
+  now detects the symptom and raises with an actionable message naming the
+  field, rather than the confusing crash it produced before.
 
 ## [0.4.1] - 2026-07-24
 
@@ -678,8 +696,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/jose-pr/duho/compare/v0.4.1...v0.5.0
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/jose-pr/duho/compare/v0.4.1...v0.5.1
 [0.4.1]: https://github.com/jose-pr/duho/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jose-pr/duho/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/jose-pr/duho/compare/v0.3.2...v0.3.3

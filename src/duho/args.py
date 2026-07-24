@@ -1189,6 +1189,31 @@ def _has_variadic_and_sibling_positional(parser: "_argparse.ArgumentParser") -> 
     return any(action.nargs in _VARIADIC_NARGS for action in positionals)
 
 
+def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
+    """Install JUST the flag-between-positionals reorder on a plain parser.
+
+    For parsers built outside ``Args._initparser_`` -- a module command's
+    subparser (``runtime._register_module_command``), built via a bare
+    ``subparsers.add_parser(...)`` -- so they never get the patched
+    ``parse_known_args`` a declarative ``Args``/``Cmd`` subparser does. That
+    parser needs neither ``"#cls"`` dispatch nor ``_passthrough_`` splitting
+    (a module command has no subclass to select and the root already owns the
+    ``--`` split), only this one fix, so a full ``_initparser_`` call would be
+    the wrong tool -- it would also try to construct an ``Args`` instance from
+    a parser that was never declared as one.
+    """
+    real_parse_known_args = parser.parse_known_args
+
+    def parse_known_args(
+        args: "_ty.Sequence[str] | None" = None, namespace: "NS | None" = None
+    ):
+        if args is not None and _has_variadic_and_sibling_positional(parser):
+            args = _reorder_argv_for_variadic_positional(parser, list(args))
+        return real_parse_known_args(args, namespace)
+
+    parser.parse_known_args = parse_known_args  # type:ignore
+
+
 def _reorder_argv_for_variadic_positional(
     parser: "_argparse.ArgumentParser", argv: "list[str]"
 ) -> "list[str]":

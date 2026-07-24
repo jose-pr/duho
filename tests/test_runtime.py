@@ -986,3 +986,64 @@ def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
     rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["hello"],
              setup_logging=False)
     assert rc == "from-source"
+
+
+# --------------------------------------------------------------------------
+# Module command subparsers get the positional-reorder fix too
+# --------------------------------------------------------------------------
+
+# A module command shaped like the downstream-consumer repro this regression
+# test guards: a fixed positional (`ns`) declared via `Args`, plus a `register()`
+# hook that adds a `-f`/`--filter` flag AND a trailing variadic `targets`
+# positional. Placing `-f` BETWEEN `ns` and `targets` on argv used to break
+# because module command subparsers are a plain `subparsers.add_parser(...)`
+# instance, never patched with the reorder fix declarative `Args`/`Cmd`
+# subcommands get.
+_MODULE_CMD_QUERY_SHAPED = '''\
+"""A module command with a positional, a flag, then a variadic positional."""
+
+SEEN = {}
+
+
+class Args:
+    ns: str
+    ("ns",)
+
+
+def register(parser, args):
+    parser.add_argument("-f", "--filter", default=None)
+    parser.add_argument("targets", nargs="*")
+
+
+def main(args):
+    SEEN["ns"] = args.ns
+    SEEN["filter"] = args.filter
+    SEEN["targets"] = args.targets
+    return None
+'''
+
+
+def test_module_command_reorders_flag_between_positionals(tmp_path):
+    """A flag between a module command's own positional and a variadic one parses.
+
+    Regression test for the finding that `_register_module_command` built an
+    unpatched subparser, so this exact shape (`query <ns> -f <val> <targets...>`)
+    raised `unrecognized arguments` even though the same shape on a declarative
+    `Cmd` subcommand already worked via Plan 25's reorder fix.
+    """
+    _write(tmp_path, "query.py", _MODULE_CMD_QUERY_SHAPED)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["query", "user", "-f", "username=root", "nas1"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("query")
+    ][0]
+    assert discovered.SEEN["ns"] == "user"
+    assert discovered.SEEN["filter"] == "username=root"
+    assert discovered.SEEN["targets"] == ["nas1"]

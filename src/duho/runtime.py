@@ -51,6 +51,7 @@ from .args import (
     _apply_default_layers_one as _apply_default_layers_one,
     _load_config as _load_config,
     _maybe_await as _maybe_await,
+    _patch_parser_for_reorder as _patch_parser_for_reorder,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from .discovery import (
@@ -422,6 +423,14 @@ def _register_module_command(
                 f"options (e.g. -h, -v, -q, --version); pick a different flag in "
                 f"register().",
             ) from exc
+
+    # A module command's subparser is a plain `add_parser()` instance --
+    # never touched by `Args._initparser_`'s patching -- so it never got the
+    # flag-between-positionals reorder fix declarative `Args`/`Cmd`
+    # subcommands get. Patch it now that every field (declared + register
+    # hook) is in place, so `_has_variadic_and_sibling_positional` sees the
+    # parser's final shape.
+    _patch_parser_for_reorder(parser)
 
 
 def _build_parser(

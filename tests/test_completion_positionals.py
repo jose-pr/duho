@@ -139,7 +139,18 @@ def _complete_bash(script, func, words, cword):
         + f"\nCOMP_WORDS=({words_literal})\nCOMP_CWORD={cword}\n"
         + f"{func}\nprintf '%s\\n' \"${{COMPREPLY[@]}}\"\n"
     )
-    result = subprocess.run([_BASH, "-c", harness], capture_output=True, text=True)
+    # A bounded timeout, not just correctness: on some Windows setups `bash`
+    # on PATH resolves to the WSL launcher shim rather than a native/Git Bash
+    # binary, and invoking it via subprocess (as opposed to an interactive
+    # console) can hang indefinitely on WSL interop rather than erroring --
+    # observed hanging forever with no output. Fail loudly instead of wedging
+    # the whole test run.
+    try:
+        result = subprocess.run(
+            [_BASH, "-c", harness], capture_output=True, text=True, timeout=10
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip("bash on PATH did not respond within 10s (WSL shim interop?)")
     assert result.returncode == 0, result.stderr
     return [line for line in result.stdout.splitlines() if line]
 

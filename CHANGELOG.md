@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **A wrapped `command.register` on a module command is no longer silently
+  skipped.** `app()`'s module-command registration gated and introspected
+  arity on a fresh `getattr(module, "register", ...)` re-fetch instead of
+  `command.register` (the object actually called) — so a caller that wraps
+  or reassigns `command.register` directly (a documented-looking seam) saw
+  its wrapper silently skipped for any module defining no `register` hook
+  of its own (`module.register` is `None` there → not callable → gate never
+  passed). Now gated/introspected on `command.register` itself.
 - **`Env` companion-module defaults no longer override the real environment.**
   `Env`'s autoloaded `<prefix>env` companion module seeds genuine defaults
   (lowest precedence) instead of shadowing a real exported

@@ -56,6 +56,7 @@ from .args import (
 from .discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
+    _noop as _discovery_noop,
     discover_commands as _discover_commands,
     discover_entry_points as _discover_entry_points,
     is_class_command as _is_class_command,
@@ -261,10 +262,15 @@ def _register_module_command(
     """Register a module command as a subparser and run its ``register`` hook.
 
     The subparser inherits the root/global options via ``parents=[base_parser]``
-    (parent-arg inheritance). If the wrapped module defines ``register`` (a real
-    one, not the no-op default), it is called so the module adds its own arguments
-    directly on the argparse object -- the "work directly with the argparse object"
-    API. Two hook arities are accepted:
+    (parent-arg inheritance). If ``command.register`` is bound to a real hook
+    (not ``ModuleCommand``'s ``_noop`` default), it is called so the hook adds
+    its own arguments directly on the argparse object -- the "work directly
+    with the argparse object" API. **Gated and introspected on
+    ``command.register`` itself** (not a separate ``getattr(module,
+    "register", ...)`` re-fetch), so a caller who wraps/reassigns
+    ``command.register`` directly (a documented-looking seam -- it's a plain
+    instance attribute) is always honored, including for a module that
+    defines no ``register`` of its own. Two hook arities are accepted:
 
     * ``register(parser, args)`` -- the 2-arg form. ``args`` is a best-effort
       parsed root instance from the prepass; a hook that ignores it (the common
@@ -290,12 +296,22 @@ def _register_module_command(
     )
 
     register = getattr(command, "register", None)
-    # ``ModuleCommand`` binds ``register`` to a no-op default when the module
-    # defines none; only call a real module-provided hook.
-    module_register = getattr(module, "register", None)
-    if callable(module_register):
+    # Gate AND introspect the SAME object we call: `command.register` (NOT a
+    # fresh `getattr(module, "register", ...)` re-fetch, which is a different
+    # object whenever a caller wraps/reassigns `command.register` directly --
+    # a documented-looking seam, since `ModuleCommand` always binds `register`
+    # to a callable, `_noop` by default. Re-deriving from `module` silently
+    # skipped a caller's wrapper for any module with no register of its own
+    # (module_register was None -> not callable -> wrapper never called) and
+    # could introspect the WRONG arity for a wrapper whose signature differs
+    # from the module's original hook. `is not _discovery_noop` is the
+    # identity check for "a real hook was bound" (`_noop` is a shared
+    # module-level singleton in `discovery.py`, so identity comparison is
+    # reliable even after a caller wraps `command.register` with something
+    # else, since a caller-supplied wrapper is by definition not `_noop`).
+    if callable(register) and register is not _discovery_noop:
         try:
-            if _wants_logger_arg(module_register):
+            if _wants_logger_arg(register):
                 logger = getattr(root_instance_args, "_logger_", None)
                 if not isinstance(logger, _logging.Logger):
                     logger = _LOGGER

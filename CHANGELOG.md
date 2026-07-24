@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **A module whose `__file__` doesn't exist on disk (e.g. a zipapp, where
+  `__file__` is a zip-internal path) now still recovers its declared
+  flags/positionals and docstrings** instead of silently losing them and
+  falling back to name-derived option flags. `getclsdef` tried its
+  file-index lookup and the `inspect.getsource` fallback inside a single
+  `try`, so an `OSError` from the first (a nonexistent path) skipped the
+  second, which would have worked fine (`inspect.getsource` reads zipimport
+  modules via the loader's `get_source`). The file-index `OSError` is now
+  caught narrowly so the fallback still runs. (GH #1)
+
 ## [0.5.0] - 2026-07-24
 
 ### Changed

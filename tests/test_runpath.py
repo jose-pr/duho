@@ -290,9 +290,9 @@ def test_rcopts_unknown_pattern_errors_strict(tmp_path):
 
 
 def test_failing_step_resilient_continues(tmp_path, caplog):
-    # Phase 2 changed this default: a plain filename (no `?` suffix) is now
-    # strict-by-default for THAT step (restoring the predecessor's hardcoded
-    # `RcOptions(strict=True)` base, see the plan's Known Facts), independent
+    # A plain filename (no `?` suffix) is strict-by-default for THAT step
+    # (restoring the predecessor's hardcoded `RcOptions(strict=True)` base),
+    # independent
     # of the run-wide --rcopts flag. An explicit `!strict` on --rcopts (CLI,
     # wins last per the confirmed precedence) overrides every step's own
     # filename-derived strict setting back to resilient -- this is the
@@ -320,8 +320,8 @@ def test_failing_step_resilient_continues(tmp_path, caplog):
 
 
 def test_failing_step_strict_by_default_even_without_run_wide_strict(tmp_path):
-    # Phase 2: a plain filename's own strict-by-default now stops the run even
-    # when --rcopts never mentions `strict` at all (the new per-step default,
+    # A plain filename's own strict-by-default stops the run even when
+    # --rcopts never mentions `strict` at all (the per-step default,
     # independent of the run-wide flag).
     register()
     steps = tmp_path / "steps"
@@ -431,7 +431,7 @@ def test_module_all_lists_public_api():
 
 
 # --------------------------------------------------------------------------
-# Phase 1: `__main__.py` init/success/finally_ lifecycle
+# `__main__.py` init/success/finally_ lifecycle
 # --------------------------------------------------------------------------
 
 
@@ -541,7 +541,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
         'def main(cmd):\n    raise RuntimeError("boom")\n',
     )
 
-    # boom is strict-by-default (plain filename, Phase 2), so this run raises;
+    # boom is strict-by-default (plain filename), so this run raises;
     # explicit !strict makes it resilient again, and success() should NOT run
     # (resilient continue still counts as "not aborted"? no -- see below).
     _run(steps, rcopts=["!strict"])
@@ -602,7 +602,7 @@ def test_init_raising_is_always_fatal_even_without_strict(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Phase 2: filename-encoded per-step options
+# Filename-encoded per-step options
 # --------------------------------------------------------------------------
 
 
@@ -769,7 +769,7 @@ def test_two_symlinks_one_file_different_effective_options(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Phase 3: BEFORE/AFTER soft ordering
+# BEFORE/AFTER soft ordering
 # --------------------------------------------------------------------------
 
 

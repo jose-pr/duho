@@ -72,7 +72,7 @@ class SubcommandRoot(Args):
 
 
 # --------------------------------------------------------------------------
-# Phase 1: shape detection
+# Shape detection
 # --------------------------------------------------------------------------
 
 
@@ -99,7 +99,7 @@ def test_subparsers_action_does_not_false_trigger():
 
 
 # --------------------------------------------------------------------------
-# Phase 2/3: the reorder fix, exercised end-to-end through duho.parse
+# The reorder fix, exercised end-to-end through duho.parse
 # --------------------------------------------------------------------------
 
 

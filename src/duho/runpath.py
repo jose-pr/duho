@@ -204,10 +204,10 @@ class _Step:
     ``before``/``after`` are the module's ``BEFORE``/``AFTER`` lists (soft
     ordering only, see :func:`_order_steps`), defaulting to empty.
     ``file_enabled``/``file_strict`` are the filename-modifier-derived defaults
-    (Phase 2's ``!``/``:key`` token convention) for this specific directory
+    (the ``!``/``:key`` token convention) for this specific directory
     entry, defaulting to ``True``/``True`` (enabled, strict) when the filename carries
     no modifier; ``file_opts`` holds any extra ``,key``/``,!key`` tokens not
-    consumed by anything yet (forward compatibility, per the plan).
+    consumed by anything yet (forward compatibility).
     """
 
     __slots__ = (
@@ -708,7 +708,7 @@ class _Selection:
 
         ``default`` is the step's own base enabled state before any
         ``--rcopts`` pattern is applied -- ``True`` unless the caller passes the
-        step's filename-derived ``file_enabled`` (Phase 2's ``!`` prefix), per
+        step's filename-derived ``file_enabled`` (the ``!`` prefix), per
         the confirmed precedence (filename default, then ``--rcopts`` on top,
         CLI wins last). With no patterns a step keeps exactly ``default``.
         Otherwise a step is enabled iff the last pattern that matches it is an

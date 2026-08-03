@@ -1079,6 +1079,35 @@ class MyAppRoot(duho.LoggingArgs):
 duho.runpath.register(base=MyAppRoot)   # before building/running any RunPath command
 ```
 
+### Giving steps your app's own signature (`register(step_adapter=...)`)
+
+Steps are called `main(cmd)` or `main(cmd, ctx)`. If your app's *module*
+commands take a different shape — say `run(client, args, logger)` — steps and
+commands disagree, and the same body cannot move between them.
+
+`step_adapter` is a callable applied to each step's entrypoint just before it
+runs; it receives the entrypoint and returns the callable to call instead. That
+makes the step signature an app-wide convention rather than something every
+step file has to opt into with a decorator:
+
+```python
+def adapter(entrypoint):
+    def call(cmd, ctx=None):
+        return entrypoint(ctx, cmd, cmd._logger_)   # (client, args, logger)
+    return call
+
+duho.runpath.register(base=MyAppRoot, step_adapter=adapter)
+```
+
+The *adapted* callable is what arity detection inspects, so a wrapper is free
+to change the signature. An adapter that returns its argument unchanged leaves
+duho-native steps alone, which is how an app supports both shapes at once.
+
+Pass `None` to clear it; omit the argument to leave it unchanged. Unlike
+`base`, it takes effect immediately for every RunPath command in the process —
+it is consulted per step run, not at class-build time. The default is `None`:
+steps are called exactly as written.
+
 Each step is named after the part of the filename after `NN-`; the numeric prefix
 is its ordering key. A step module may override ordering and declare dependencies:
 

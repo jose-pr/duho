@@ -38,17 +38,22 @@ def _restore_providers():
     what stops provider state from leaking between tests. ``_BASE`` (the class
     every provider-built RunPathCmd subclass ALSO inherits from, set via
     ``register(base=...)``) is module-global the same way -- snapshot/restore it
-    too so a test that changes it never leaks into the next.
+    too so a test that changes it never leaks into the next. ``_ADAPTER``
+    (``register(step_adapter=...)``) is module-global for the same reason, and
+    leaks harder: it is consulted per step run, so it would affect every
+    already-built command in a later test, not just newly built ones.
     """
     saved = list(_discovery._PROVIDERS)
     saved_registered = runpath._REGISTERED
     saved_base = runpath._BASE
+    saved_adapter = runpath._ADAPTER
     try:
         yield
     finally:
         _discovery._PROVIDERS[:] = saved
         runpath._REGISTERED = saved_registered
         runpath._BASE = saved_base
+        runpath._ADAPTER = saved_adapter
 
 
 def _write_step(directory, filename, body):
@@ -471,6 +476,141 @@ def test_init_hook_ctx_reaches_two_arg_step_one_arg_step_unaffected(tmp_path):
 
     ran, _ = _run(steps)
     assert ran == ["legacy", "hi"]
+
+
+def test_no_step_adapter_calls_steps_exactly_as_written(tmp_path):
+    """The default must be indistinguishable from before the hook existed."""
+    register()
+    assert runpath._ADAPTER is None
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-one.py", _record_step("one", results))
+    _write_step(steps, "20-two.py", _record_step("two", results))
+
+    ran, _ = _run(steps)
+    assert ran == ["one", "two"]
+
+
+def test_step_adapter_can_give_steps_an_app_specific_signature(tmp_path):
+    """The point of the hook: an app defines what a step looks like.
+
+    Here steps are written ``(ctx, cmd)`` -- context FIRST, duho's opposite --
+    with no per-file decorator, which is what makes it an app-wide convention
+    rather than something every step has to opt into.
+    """
+    results = tmp_path / "results.txt"
+
+    def adapter(entrypoint):
+        def call(cmd, ctx=None):
+            return entrypoint(ctx, cmd)
+
+        return call
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_init(
+        steps,
+        '''\
+        def init(cmd, logger):
+            return "CTX"
+        ''',
+    )
+    _write_step(
+        steps,
+        "10-app-shape.py",
+        '''\
+        def main(ctx, cmd):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write(ctx + ":" + type(cmd).__name__ + "\\n")
+        '''.format(results=str(results)),
+    )
+
+    _run(steps)
+    written = results.read_text(encoding="utf-8").strip()
+    assert written.startswith("CTX:")
+
+
+def test_step_adapter_may_pass_entrypoints_through_untouched(tmp_path):
+    """An adapter that returns the entrypoint leaves duho-native steps alone.
+
+    This is how an app supports BOTH shapes: adapt what it recognises, return
+    everything else unchanged.
+    """
+    results = tmp_path / "results.txt"
+
+    def adapter(entrypoint):
+        return entrypoint
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-one.py", _record_step("one", results))
+
+    ran, _ = _run(steps)
+    assert ran == ["one"]
+
+
+def test_step_adapter_result_drives_arity_detection(tmp_path):
+    """A wrapper that changes the signature is honored, not second-guessed.
+
+    The adapted callable takes ``(cmd, ctx)``, so it must receive ctx even
+    though the step underneath was written 1-arg.
+    """
+    results = tmp_path / "results.txt"
+
+    def adapter(entrypoint):
+        def call(cmd, ctx=None):
+            return entrypoint("%s" % ctx)
+
+        return call
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_init(
+        steps,
+        '''\
+        def init(cmd, logger):
+            return "FROM-INIT"
+        ''',
+    )
+    _write_step(
+        steps,
+        "10-one.py",
+        '''\
+        def main(seen):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write(seen + "\\n")
+        '''.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "FROM-INIT"
+
+
+def test_step_adapter_returning_nothing_does_not_delete_the_step(tmp_path):
+    """A forgetful adapter must not silently turn a step into a no-op."""
+    results = tmp_path / "results.txt"
+
+    def adapter(entrypoint):
+        return None  # forgot to return
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-one.py", _record_step("one", results))
+
+    ran, _ = _run(steps)
+    assert ran == ["one"]
+
+
+def test_step_adapter_can_be_cleared_and_omitted():
+    """``None`` clears it; omitting the argument keeps whatever is set."""
+    register(step_adapter=lambda entrypoint: entrypoint)
+    assert runpath._ADAPTER is not None
+
+    register()  # omitted -> unchanged
+    assert runpath._ADAPTER is not None
+
+    register(step_adapter=None)  # explicit -> cleared
+    assert runpath._ADAPTER is None
 
 
 def test_init_absent_behaves_byte_identical_to_before(tmp_path):

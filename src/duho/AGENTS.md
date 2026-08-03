@@ -173,7 +173,14 @@ empty when absent).
   parsed instance, never its METHODS, so `_logger_`/`_set_loglevels_` need real class
   inheritance to work; defaulting to `LoggingArgs` makes `-v`/logging work with zero
   config, and `register(base=MyAppRoot)` lets a custom root's own methods reach every
-  RunPath command too. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
+  RunPath command too. `register`'s `step_adapter` (default: unchanged, initially
+  `None`) is a callable applied to each step's entrypoint just before it runs
+  (`adapter(entrypoint) -> callable`), so an app can accept step signatures of its own
+  — e.g. its module commands' `run(client, args, logger)` — without a decorator in every
+  step file. The ADAPTED callable is what arity detection inspects, so a wrapper may
+  change the signature; returning the entrypoint unchanged leaves duho-native steps
+  alone. `None` clears it; unlike `base` it applies per step run, so it affects
+  already-built commands too. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,
   cmd, logger)` (once, unconditionally) — a step entrypoint written `(cmd, ctx)`

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-03
+
+### Added
+- **`duho.runpath.register(step_adapter=...)`** — an app-supplied callable
+  applied to each step's entrypoint just before it runs
+  (`adapter(entrypoint) -> callable`). It lets an app accept step signatures of
+  its own rather than duho's `(cmd)`/`(cmd, ctx)` — an app whose module
+  commands take `run(client, args, logger)` can let steps be written that way
+  too, without a decorator in every step file. The *adapted* callable is what
+  arity detection inspects, so a wrapper may change the signature; returning
+  the entrypoint unchanged leaves duho-native steps alone. Pass `None` to clear
+  it, omit the argument to leave it unchanged.
+
+  Purely additive: the default is `None`, which calls steps exactly as before.
+  Unlike `base`, it is consulted per step run, so it also affects
+  already-built commands.
+
 ## [0.5.1] - 2026-07-24
 
 ### Fixed
@@ -709,7 +726,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/jose-pr/duho/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jose-pr/duho/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jose-pr/duho/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/jose-pr/duho/compare/v0.4.0...v0.4.1

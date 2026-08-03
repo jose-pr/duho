@@ -796,6 +796,43 @@ def _load_init(
     )
 
 
+#: Sentinel for "argument not supplied" where ``None`` is a meaningful value.
+#: :func:`register`'s ``base`` uses ``None`` for "keep the current value", which
+#: leaves no way to say "clear it"; ``step_adapter`` needs both, so it gets a
+#: sentinel instead of repeating that limitation.
+class _Keep:
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<keep>"
+
+
+_KEEP = _Keep()
+
+#: An app-supplied hook that rewrites a step's entrypoint before it is called.
+#: ``None`` (the default) means "call the step exactly as written", which is
+#: the behavior every RunPath app had before this existed. Configurable via
+#: :func:`register`'s ``step_adapter=`` -- set once per process/app, like
+#: :data:`_BASE`, since every RunPath command in one app shares it.
+_ADAPTER: "_ty.Optional[_ty.Callable[..., object]]" = None
+
+
+def _adapt_step(
+    entrypoint: "_ty.Callable[..., object]",
+) -> "_ty.Callable[..., object]":
+    """Apply the app's ``step_adapter`` to ``entrypoint``, if one is set.
+
+    Kept deliberately dumb: no caching (an adapter is cheap and a step runs
+    once per target), and a falsy return is ignored rather than treated as "no
+    step", so an adapter that forgets to return cannot silently delete work.
+
+    The adapted callable is what arity detection then inspects, so an adapter
+    that changes the signature -- wrapping a ``(client, args, logger)`` body in
+    a ``(cmd, ctx)`` shim, say -- is honored rather than second-guessed.
+    """
+    if _ADAPTER is None:
+        return entrypoint
+    return _ADAPTER(entrypoint) or entrypoint
+
+
 def _step_wants_ctx(entrypoint: "_ty.Callable[..., object]") -> bool:
     """True if a step's entrypoint accepts a 2nd positional ``ctx`` argument.
 
@@ -948,10 +985,11 @@ class RunPathCmd(_Cmd):
                     continue
                 logger.info("duho.runpath: running step %s", step.name)
                 try:
-                    if _step_wants_ctx(step.entrypoint):
-                        step.entrypoint(self, ctx)
+                    entrypoint = _adapt_step(step.entrypoint)
+                    if _step_wants_ctx(entrypoint):
+                        entrypoint(self, ctx)
                     else:
-                        step.entrypoint(self)
+                        entrypoint(self)
                 except Exception as exc:
                     logger.error(
                         "duho.runpath: step %s failed: %s", step.name, exc
@@ -1024,7 +1062,10 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
 _REGISTERED: "_ty.Optional[_ty.Tuple[_ty.Callable, _ty.Callable]]" = None
 
 
-def register(base: "_ty.Optional[type]" = None) -> None:
+def register(
+    base: "_ty.Optional[type]" = None,
+    step_adapter: "_ty.Any" = _KEEP,
+) -> None:
     """Register the RunPath command provider (idempotent).
 
     After this, ``duho.discover_commands``/``CmdBuilder`` resolve a step
@@ -1043,10 +1084,36 @@ def register(base: "_ty.Optional[type]" = None) -> None:
     on an ALREADY-active provider updates :data:`_BASE` for commands built
     from then on (existing built classes are unaffected -- they were already
     constructed).
+
+    ``step_adapter`` (default: keep the current value, initially ``None``)
+    sets a callable applied to every step's entrypoint just before it runs,
+    receiving the entrypoint and returning the callable to call in its place.
+    It exists so an app can accept step signatures of its own rather than
+    duho's ``(cmd)``/``(cmd, ctx)`` -- an app whose module commands take
+    ``run(client, args, logger)`` can let steps be written that way too,
+    without every step file importing a decorator::
+
+        def adapter(entrypoint):
+            if not getattr(entrypoint, "_wants_app_shape_", False):
+                return entrypoint          # leave duho-native steps alone
+            def call(cmd, ctx=None):
+                return entrypoint(ctx, cmd, cmd._logger_)
+            return call
+
+        register(base=MyAppRoot, step_adapter=adapter)
+
+    The *adapted* callable is what arity detection inspects, so a wrapper is
+    free to change the signature. Pass ``None`` to clear it and go back to
+    calling steps exactly as written; omit the argument entirely to leave it
+    unchanged. Unlike ``base``, this affects every RunPath command in the
+    process immediately, including already-built classes -- it is consulted per
+    step run, not at class-build time.
     """
-    global _REGISTERED, _BASE
+    global _REGISTERED, _BASE, _ADAPTER
     if base is not None:
         _BASE = base
+    if step_adapter is not _KEEP:
+        _ADAPTER = step_adapter
     if _REGISTERED is not None:
         return
     pair = (is_runpath_dir, _build_runpath_command)

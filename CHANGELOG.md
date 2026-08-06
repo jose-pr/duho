@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-08-05
+
+### Added
+- **`DUHO_TRACEBACK` — full tracebacks for swallowed framework failures.** duho's
+  resilient paths deliberately log-and-continue (a command file that fails to
+  import is skipped, a non-strict RunPath step that raises is logged and the run
+  goes on, a fan-out target's exception fails only that target), which means the
+  log line is the only record of the failure — and a one-line message says *that*
+  something broke, never *where*. Set `DUHO_TRACEBACK` to a truthy value and every
+  such site logs full `exc_info` instead. Off by default (`0`/`false`/`no`/`off`/
+  empty also count as off), re-read per call so it can be exported for a single
+  run. Behavior is unchanged either way — this only controls logged detail.
+
+  New public helpers in `duho.logging`: `traceback_enabled()` and
+  `log_exception(logger, msg, *args, level=ERROR)`, plus the `TRACEBACK_ENV`
+  constant. Wired into `runpath` (step import + step run + `init` failure),
+  `discovery` (skipped command module/file, failed entry point), `runtime`
+  (the advisory `register` prepass, previously swallowed with no log at all), and
+  `mcp` (a tool exception previously reached the client as a bare `Type: message`
+  string with no server-side stack).
+
+### Changed
+- **Framework log records now carry their own module's logger name** —
+  `duho.runpath`, `duho.discovery`, `duho.runtime`, `duho.fanout`, `duho.mcp`
+  instead of a flat `duho` — so a handler or `--loglevel duho.discovery:DEBUG`
+  can target one subsystem. All remain children of `duho`, so
+  `--loglevel duho:DEBUG` is unchanged.
+
+  This affects records the framework emits *as itself*. Records tied to a
+  running command are unchanged: they still go through the command's own
+  `_logger_`, named after its parser. A RunPath's per-step messages, for
+  instance, keep logging under the directory name (`steps`), not
+  `duho.runpath` — which is the fallback only for a bare `RunPathCmd` with no
+  `LoggingArgs` mixin. Likewise a module command's hooks and a 3-arg
+  `register(parser, args, logger)` still fall back to the plain `duho` logger,
+  never to a framework-internal module logger.
+- **Redundant source prefixes removed from log messages** — a record logged
+  under `duho.runpath` no longer also begins with `"duho.runpath: "`, and the
+  per-step case no longer reads `steps: duho.runpath: running step boom`, where
+  the prefix actively contradicted the logger name. The `ValueError` messages
+  that share their text with a log line keep their prefix (an exception carries
+  no logger name to identify it).
+
 ## [0.5.2] - 2026-08-03
 
 ### Added
@@ -726,7 +769,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/jose-pr/duho/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jose-pr/duho/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jose-pr/duho/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jose-pr/duho/compare/v0.4.1...v0.5.0

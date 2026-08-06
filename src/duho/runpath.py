@@ -180,10 +180,11 @@ from pathlib import Path as _Path
 from .args import Arg as _Arg, Cmd as _Cmd, Extend as _Extend
 from . import discovery as _discovery
 from . import presets as _presets
+from .logging import log_exception as _log_exception
 
 __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
 
-_LOGGER = _logging.getLogger("duho")
+_LOGGER = _logging.getLogger(__name__)
 
 #: The token in ``--rcopts`` that toggles strict mode (``strict`` enables,
 #: ``!strict`` disables). A bare ``strict`` is a run-wide marker, not a step name.
@@ -496,14 +497,18 @@ def _load_steps(
         except (ImportError, NotImplementedError) as exc:
             if strict:
                 raise
-            logger.warning(
-                "duho.runpath: step %s failed to import; skipping: %s", name, exc
+            _log_exception(
+                logger,
+                "step %s failed to import; skipping: %s",
+                name,
+                exc,
+                level=_logging.WARNING,
             )
             continue
         entrypoint = _discovery._module_entrypoint(module)
         if entrypoint is None:
             _LOGGER.debug(
-                "duho.runpath: %s has no entrypoint (%s); not a step",
+                "%s has no entrypoint (%s); not a step",
                 path,
                 ", ".join(_discovery._ENTRYPOINT_NAMES),
             )
@@ -972,7 +977,9 @@ class RunPathCmd(_Cmd):
                 # depends on ctx, so there is no meaningful resilient partial
                 # init -- log then re-raise unconditionally, regardless of
                 # --rcopts strict.
-                logger.error("duho.runpath: __main__.py init() failed: %s", exc)
+                _log_exception(
+                    logger, "__main__.py init() failed: %s", exc
+                )
                 raise
 
         aborted = False
@@ -980,10 +987,10 @@ class RunPathCmd(_Cmd):
             for step in steps:
                 if not selection.decide(step.name, step.file_enabled):
                     logger.debug(
-                        "duho.runpath: skipping disabled step %s", step.name
+                        "skipping disabled step %s", step.name
                     )
                     continue
-                logger.info("duho.runpath: running step %s", step.name)
+                logger.info("running step %s", step.name)
                 try:
                     entrypoint = _adapt_step(step.entrypoint)
                     if _step_wants_ctx(entrypoint):
@@ -991,8 +998,14 @@ class RunPathCmd(_Cmd):
                     else:
                         entrypoint(self)
                 except Exception as exc:
-                    logger.error(
-                        "duho.runpath: step %s failed: %s", step.name, exc
+                    # A non-strict step failure is SWALLOWED (the run continues),
+                    # so this log line is the only record of where it broke --
+                    # DUHO_TRACEBACK=1 turns it into a full traceback.
+                    _log_exception(
+                        logger,
+                        "step %s failed: %s",
+                        step.name,
+                        exc,
                     )
                     # Precedence: the step's own file_strict (filename
                     # default True, or overridden by a `!strict` token) ->

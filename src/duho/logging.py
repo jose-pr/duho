@@ -180,6 +180,62 @@ def init_stderr_logging(name=None, level: 'int | None' = None):
     return logger
 
 
+#: Environment variable enabling framework tracebacks. When set to a truthy
+#: value, every framework site that catches an exception and logs only its
+#: ``str()`` instead logs the full traceback (``exc_info=True``).
+TRACEBACK_ENV = "DUHO_TRACEBACK"
+
+#: Values of :data:`TRACEBACK_ENV` that mean "off". Anything else (including the
+#: empty-but-present case being absent from this set is deliberate: ``DUHO_TRACEBACK=``
+#: with an empty value counts as off) enables tracebacks.
+_FALSEY = frozenset({"", "0", "false", "no", "off"})
+
+
+def traceback_enabled() -> bool:
+    """Return whether framework error logs should carry a full traceback.
+
+    Reads :data:`TRACEBACK_ENV` (``DUHO_TRACEBACK``) from the process
+    environment on EVERY call rather than caching it, so a test (or an app that
+    sets it mid-run) can flip the switch without re-importing duho. The read is
+    a dict lookup -- cheap enough to sit on an error path.
+
+    Off by default: a CLI user seeing a framework warning wants the message, not
+    a stack. A developer debugging *where* a step/command/target actually failed
+    exports ``DUHO_TRACEBACK=1`` and gets the traceback for free at every site.
+    """
+    import os as _os
+
+    return _os.environ.get(TRACEBACK_ENV, "").strip().lower() not in _FALSEY
+
+
+def log_exception(
+    logger: "_logging.Logger",
+    msg: str,
+    *args: object,
+    level: int = _logging.ERROR,
+) -> None:
+    """Log a caught exception, with a traceback iff ``DUHO_TRACEBACK`` is set.
+
+    The framework's resilient paths (discovery skipping a bad command, a runpath
+    step failing, a fan-out target raising) deliberately do NOT propagate the
+    exception, which means the stack -- the only thing that says *where* it broke
+    -- is lost unless it is logged. Logging it unconditionally would bury an
+    ordinary "optional dependency missing" warning under 30 frames, so this
+    helper makes it opt-in via :func:`traceback_enabled`.
+
+    Call it from inside an ``except`` block, where ``exc_info`` has an exception
+    to render. When disabled the ``exc_info`` kwarg is omitted entirely rather
+    than passed as ``False`` -- both suppress the traceback, but ``False`` is
+    recorded verbatim on ``LogRecord.exc_info``, so a handler or test inspecting
+    that attribute would see ``False`` where every other un-decorated record in
+    the process carries ``None``.
+    """
+    if traceback_enabled():
+        logger.log(level, msg, *args, exc_info=True)
+    else:
+        logger.log(level, msg, *args)
+
+
 add_logging_level("TRACE", _logging.DEBUG - 5, color=_asicode(36))
 initverbose()
 
@@ -191,4 +247,7 @@ __all__ = [
     "parse_loglevels",
     "init_stderr_logging",
     "initverbose",
+    "TRACEBACK_ENV",
+    "traceback_enabled",
+    "log_exception",
 ]

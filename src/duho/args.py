@@ -14,7 +14,7 @@ from . import _compat as _compat
 from . import _introspect as _inspect
 from . import logging as _duho_logging
 
-_duho_module_logger = _logging_module.getLogger("duho")
+_duho_module_logger = _logging_module.getLogger(__name__)
 
 NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
@@ -390,14 +390,14 @@ def _resolve_version(cls) -> "str | None":
         try:
             return _importlib_metadata.version(dist)
         except _importlib_metadata.PackageNotFoundError:
-            _logging_module.getLogger("duho").debug(
+            _duho_module_logger.debug(
                 "duho.AUTO: distribution %r not found for %s; skipping --version",
                 dist,
                 cls,
             )
             return None
         except Exception:
-            _logging_module.getLogger("duho").debug(
+            _duho_module_logger.debug(
                 "duho.AUTO: failed to resolve version for %s (distribution %r)",
                 cls,
                 dist,

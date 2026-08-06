@@ -7,7 +7,7 @@ import textwrap as _textwrap
 import typing as _ty
 from dataclasses import dataclass as _data
 
-_LOGGER = _logging.getLogger("duho")
+_LOGGER = _logging.getLogger(__name__)
 from pathlib import Path as _Path
 
 # Classes from these modules are never user-defined Args mixins; skip scanning

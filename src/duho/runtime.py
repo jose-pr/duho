@@ -66,7 +66,13 @@ from .discovery import (
 
 __all__ = ["run_command", "app"]
 
-_LOGGER = _logging.getLogger("duho")
+_LOGGER = _logging.getLogger(__name__)
+
+#: The logger handed to a USER hook that has no `_logger_` of its own.
+#: Deliberately the app-facing "duho" parent, NOT this module's own
+#: `_LOGGER` -- a user's register/main hook is not framework-internal
+#: output, so its records must not be attributed to `duho.runtime`.
+_HOOK_LOGGER = _logging.getLogger("duho")
 
 
 def _command_name(command: object) -> str:
@@ -120,7 +126,7 @@ def run_command(
                 module_command.finally_(ctx, instance)
             except Exception:
                 _LOGGER.exception(
-                    "duho: finally_ hook for command %r raised; ignoring",
+                    "finally_ hook for command %r raised; ignoring",
                     _command_name(command),
                 )
         return 0 if result is None else result
@@ -403,7 +409,7 @@ def _register_module_command(
             if _wants_logger_arg(register):
                 logger = getattr(root_instance_args, "_logger_", None)
                 if not isinstance(logger, _logging.Logger):
-                    logger = _LOGGER
+                    logger = _HOOK_LOGGER
                 register(parser, root_instance_args, logger)
             else:
                 register(parser, root_instance_args)
@@ -686,6 +692,13 @@ def app(
             # and let the real parse below report errors authoritatively (C5).
             prepass_args = None
         except Exception:  # pragma: no cover - prepass is advisory only
+            # Fully swallowed by design, which also hides a genuinely broken
+            # parser from the author; DUHO_TRACEBACK=1 surfaces it at DEBUG.
+            _duho_logging.log_exception(
+                _LOGGER,
+                "advisory register prepass raised; continuing without it",
+                level=_logging.DEBUG,
+            )
             prepass_args = None
 
     # Map each subcommand name to (kind, command) in ONE registry so registration
@@ -750,7 +763,7 @@ def app(
         if cmd_name in registry:
             prev_kind, prev_obj = registry[cmd_name]
             _LOGGER.warning(
-                "duho.app: command name %r registered by more than one source "
+                "command name %r registered by more than one source "
                 "(%s %r, then %s %r); the last registration wins.",
                 cmd_name,
                 prev_kind,

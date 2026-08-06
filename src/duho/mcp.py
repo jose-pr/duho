@@ -68,6 +68,7 @@ All union annotations are quoted so the module imports cleanly on Python 3.9.
 
 import argparse as _argparse
 import datetime as _datetime
+import logging as _logging
 import enum as _enum
 import pathlib as _pathlib
 import sys as _sys
@@ -77,6 +78,7 @@ from . import _compat as _compat
 from . import _introspect as _introspect
 from . import agenthelp as _agenthelp
 from .args import Cmd as _Cmd
+from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command
 
 __all__ = [
@@ -88,7 +90,7 @@ __all__ = [
     "main",
 ]
 
-_LOGGER_NAME = "duho"
+_LOGGER = _logging.getLogger(__name__)
 
 _NOT_DEFINED = _introspect.NOT_DEFINED
 _NONETYPE = type(None)
@@ -641,6 +643,16 @@ def call_tool(root_cls: type, name: str, arguments: "dict | None") -> "dict":
                 return _text_result(message, is_error=True)
             result = _run_command(cls, instance)
     except Exception as exc:  # noqa: BLE001 - one broken command must not crash the server
+        # The client only ever sees "Type: message"; the stack that says WHERE
+        # the command broke exists nowhere else, so log it server-side too
+        # (traceback under DUHO_TRACEBACK=1).
+        _log_exception(
+            _LOGGER,
+            "tool %r raised: %s: %s",
+            name,
+            type(exc).__name__,
+            exc,
+        )
         return _text_result("%s: %s" % (type(exc).__name__, exc), is_error=True)
 
     stdout_text = out.getvalue()

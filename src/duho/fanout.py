@@ -47,7 +47,7 @@ __all__ = [
     "target_logging",
 ]
 
-_LOGGER = _logging.getLogger("duho")
+_LOGGER = _logging.getLogger(__name__)
 
 #: The target whose work is currently running in this context. Set at the top of
 #: each worker call (so it is thread-local by virtue of each worker thread having
@@ -149,7 +149,7 @@ def _run_one(
         try:
             result = func(target)
         except Exception:
-            logger.exception("duho.fanout: target %r failed", target)
+            logger.exception("target %r failed", target)
             return 1
         # Normalise inside the isolation boundary: a target returning a non-int,
         # non-None value must not abort the whole fan-out via an escaping
@@ -158,7 +158,7 @@ def _run_one(
             return 0 if result is None else int(result)
         except (TypeError, ValueError):
             logger.exception(
-                "duho.fanout: target %r returned non-int %r", target, result
+                "target %r returned non-int %r", target, result
             )
             return 1
     finally:

@@ -42,6 +42,7 @@ from types import ModuleType as _ModuleType
 
 from . import _compat as _compat
 from .args import Args as _Args, Cmd as _Cmd
+from .logging import log_exception as _log_exception
 from .qualname import PythonName as _PythonName
 
 __all__ = [
@@ -55,7 +56,12 @@ __all__ = [
     "is_module_command",
 ]
 
-_LOGGER = _logging.getLogger("duho")
+_LOGGER = _logging.getLogger(__name__)
+
+#: The logger handed to a command MODULE's hooks when its args instance
+#: has no `_logger_`. The app-facing "duho" parent, not this module's own
+#: `_LOGGER` -- a command module's output is the app's, not discovery's.
+_HOOK_LOGGER = _logging.getLogger("duho")
 
 #: Names, in priority order, looked up on a module to find its entrypoint.
 #: ``main`` is primary (aligns with the ``__main__`` convention); ``run``/``call``
@@ -267,7 +273,7 @@ class ModuleCommand:
         logger = getattr(args, "_logger_", None)
         if isinstance(logger, _logging.Logger):
             return logger
-        return _LOGGER
+        return _HOOK_LOGGER
 
     def main(self, args: "object | None" = None) -> object:
         """Run the command by invoking the wrapped module's entrypoint.
@@ -614,10 +620,12 @@ def _discover_from_package(dotted_name: str) -> "list[Command]":
             submodule = _importlib.import_module(sub_name)
             commands.extend(_commands_in_module(submodule, stem=stem))
         except (ImportError, NotImplementedError) as exc:
-            _LOGGER.warning(
-                "duho: skipping command module %r during discovery: %s",
+            _log_exception(
+                _LOGGER,
+                "skipping command module %r during discovery: %s",
                 sub_name,
                 exc,
+                level=_logging.WARNING,
             )
             continue
     return commands
@@ -640,8 +648,12 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
             module = _import_from_path(name, path)
             commands.extend(_commands_in_module(module, stem=stem))
         except (ImportError, NotImplementedError) as exc:
-            _LOGGER.warning(
-                "duho: skipping command file %s during discovery: %s", path, exc
+            _log_exception(
+                _LOGGER,
+                "skipping command file %s during discovery: %s",
+                path,
+                exc,
+                level=_logging.WARNING,
             )
             continue
     return commands
@@ -703,16 +715,18 @@ def discover_entry_points(group: str) -> "list[Command]":
             loaded = entry_point.load()
             command = _coerce_entry_point_command(loaded, ep_name)
         except Exception as exc:  # noqa: BLE001 - a bad plugin must not abort the app
-            _LOGGER.warning(
-                "duho: skipping entry point %r in group %r: failed to load (%s)",
+            _log_exception(
+                _LOGGER,
+                "skipping entry point %r in group %r: failed to load (%s)",
                 ep_name if ep_name is not None else entry_point,
                 group,
                 exc,
+                level=_logging.WARNING,
             )
             continue
         if command is None:
             _LOGGER.warning(
-                "duho: skipping entry point %r in group %r: %r is not a command "
+                "skipping entry point %r in group %r: %r is not a command "
                 "(expected a Cmd subclass, a command module, or a Command)",
                 ep_name if ep_name is not None else entry_point,
                 group,

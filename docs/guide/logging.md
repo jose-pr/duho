@@ -86,3 +86,80 @@ scale, and is accepted by `--loglevel`.
 class App(LoggingArgs):
     _logger_name_ = "myapp.cli"
 ```
+
+## Debugging framework failures: `DUHO_TRACEBACK`
+
+Several duho paths are deliberately **resilient**: they log a failure and keep
+going rather than aborting the whole run. A command file that fails to import is
+skipped so one bad command never hides the rest; a non-strict RunPath step that
+raises is logged and the run continues; a fan-out target that raises fails only
+that target.
+
+That resilience is the right default, but it means the exception is swallowed —
+the log line is the only record, and a one-line message tells you *that*
+something broke, never *where*:
+
+```
+ERROR steps: step boom failed: kaboom
+```
+
+Set `DUHO_TRACEBACK` to get the full stack at every one of those sites:
+
+```bash
+DUHO_TRACEBACK=1 myapp run-steps
+```
+
+```
+ERROR steps: step boom failed: kaboom
+Traceback (most recent call last):
+  File ".../duho/runpath.py", line 999, in __call__
+    entrypoint(self)
+  File ".../steps/01-boom.py", line 2, in main
+    raise RuntimeError("kaboom")
+RuntimeError: kaboom
+```
+
+The variable is read fresh on every log call, so you can export it for one run
+without reinstalling or re-importing anything. `0`, `false`, `no`, `off`, and the
+empty value all count as off; any other value enables it.
+
+Behavior is unchanged either way — this only controls how much detail is
+*logged*. A skipped command is still skipped, and a resilient step failure still
+doesn't abort the run. Use `--rcopts strict` if you want a RunPath step failure
+to actually stop the run.
+
+## Logger names
+
+Framework modules log under their own dotted name (`duho.runpath`,
+`duho.discovery`, `duho.runtime`, `duho.fanout`, `duho.mcp`), so a handler or
+`--loglevel` filter can target one subsystem:
+
+```bash
+myapp --loglevel duho.discovery:DEBUG run
+```
+
+All of them sit under the `duho` parent, so `--loglevel duho:DEBUG` still turns
+on everything at once.
+
+**Your commands' own records are named after the command, not the module.** A
+command's `self._logger_` is scoped to its parser name, and that is what the
+framework logs *through* wherever a run is associated with one. RunPath is the
+clearest case: a `steps/` directory logs its per-step messages under `steps`,
+not `duho.runpath`, so several RunPaths in one app stay distinguishable:
+
+```
+INFO steps: running step boom
+ERROR steps: step boom failed: kaboom
+```
+
+Target those by the command's own name:
+
+```bash
+myapp --loglevel steps:DEBUG steps
+```
+
+The `duho.runpath` logger is only the fallback for a bare `RunPathCmd` with no
+`LoggingArgs` mixin (plus a couple of module-level messages emitted while
+scanning for step files, before any run is under way). Module commands work the
+same way — their hooks get the args instance's `_logger_`, falling back to the
+plain `duho` logger when the args class has none.

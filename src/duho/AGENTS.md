@@ -135,7 +135,8 @@ empty when absent).
 ## Logging
 
 - **`LoggingArgs`** — mixin adding `-v/--verbose`, `-q/--quiet`, `--loglevel`. `_logger_`
-  (scoped to parser name), `_set_loglevels_()`, `_verbose_loglevel_()`. Verbosity table
+  (scoped to parser name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the
+  NUMERIC level, e.g. `logging.DEBUG` — not a level name). Verbosity table
   `VERBOSE_LEVELS` is most-severe-first; `-v`→DEBUG, `-vv`→TRACE, `-q`→WARNING; verbose and
   quiet offset each other.
 - **`init_stderr_logging(...)`** — one-liner console logging setup.

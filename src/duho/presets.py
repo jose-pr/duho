@@ -53,7 +53,11 @@ class LoggingArgs(Args):
     ("-q",)  # type:ignore
 
     def _verbose_loglevel_(self):
-        """Convert verbose/quiet count to a log level name."""
+        """Convert verbose/quiet count to a NUMERIC log level.
+
+        ``VERBOSE_LEVELS`` is keyed by int, so this returns the level number
+        (e.g. ``logging.DEBUG``), not a level name.
+        """
         levels = list(_logging.VERBOSE_LEVELS.keys())
         base = levels.index(_logging.INFO)
         index = base + self.verbose - self.quiet

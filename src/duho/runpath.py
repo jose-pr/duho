@@ -902,8 +902,12 @@ class RunPathCmd(_Cmd):
 
         A ``RunPathCmd`` combined with ``LoggingArgs`` (the usual app shape)
         exposes a ``_logger_`` property scoped to the parser name; a bare
-        ``RunPathCmd`` with no logging mixin has none, so fall back to duho's
-        ``"duho"`` logger. Mirrors ``ModuleCommand._logger_for``.
+        ``RunPathCmd`` with no logging mixin has none, so fall back to the
+        ``duho.runpath`` module logger (the 0.5.3 logger-naming change).
+
+        This deliberately differs from ``ModuleCommand._logger_for``, whose
+        fallback stays the plain ``"duho"`` logger: that one is handed to USER
+        hook code, which should not have to know duho's module layout.
         """
         logger = getattr(self, "_logger_", None)
         if isinstance(logger, _logging.Logger):

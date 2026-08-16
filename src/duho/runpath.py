@@ -986,7 +986,6 @@ class RunPathCmd(_Cmd):
                 )
                 raise
 
-        aborted = False
         try:
             for step in steps:
                 if not selection.decide(step.name, step.file_enabled):
@@ -1017,12 +1016,14 @@ class RunPathCmd(_Cmd):
                     # -> an explicit bare --rcopts strict/!strict (run-wide,
                     # wins last of all).
                     if selection.step_strict(step.name, step.file_strict):
-                        aborted = True
                         raise
         finally:
             if init_hooks is not None and init_hooks.finally_ is not None:
                 init_hooks.finally_(ctx, self, logger)
-        if init_hooks is not None and init_hooks.success is not None and not aborted:
+        # A strict step failure leaves via the ``raise`` above (the ``finally``
+        # re-raises rather than swallowing), so reaching this line IS the
+        # success case -- no completion flag is needed to tell them apart.
+        if init_hooks is not None and init_hooks.success is not None:
             init_hooks.success(ctx, self, logger)
         return 0
 

@@ -56,6 +56,31 @@ class TestBool:
     def test_missing_defaults_false(self):
         assert Env("ma").bool("DEBUG") is False
 
+    @pytest.mark.parametrize("value", ["on", "ON", "On"])
+    def test_on_is_truthy(self, monkeypatch, value):
+        # The layered converter (ArgumentBuilder._BOOL_TRUE) has always taken
+        # "on"; Env.bool did not, so a var spelled ON read silently as False.
+        monkeypatch.setenv("MA_DEBUG", value)
+        assert Env("ma").bool("DEBUG") is True
+
+    @pytest.mark.parametrize("value", ["off", "OFF"])
+    def test_off_is_falsey(self, monkeypatch, value):
+        monkeypatch.setenv("MA_DEBUG", value)
+        assert Env("ma").bool("DEBUG") is False
+
+    def test_truthy_set_matches_the_layered_converter(self):
+        """Env.bool and ArgumentBuilder._BOOL_TRUE must not drift apart again.
+
+        They differ only in strictness (Env.bool is lenient about unknown
+        values, the layered converter raises) -- never in which words are true.
+        """
+        from duho.args import ArgumentBuilder
+
+        truthy = {"1", "true", "yes", "y", "t", "on"}
+        assert set(ArgumentBuilder._BOOL_TRUE) == truthy
+        for value in truthy:
+            assert Env("ma", DEBUG=value).bool("DEBUG") is True
+
 
 class TestList:
     def test_default_separator(self, monkeypatch):

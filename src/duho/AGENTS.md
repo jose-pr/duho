@@ -128,8 +128,12 @@ empty when absent).
   module's shipped defaults (fixed 2026-07-24 — a companion-module value used to
   shadow a real exported variable). Methods incl. `.list(name, ty=)`, `.paths(name,
   ty=)` (splits on `os.pathsep`, not `.list`'s `":"` default — use this for a path-list
-  var so a Windows drive letter is never mis-split). Mapping-like (`__iter__`/`__len__`/
-  `**env`).
+  var so a Windows drive letter is never mis-split), `.bool(name)` — truthy
+  (case-insensitive) is `1`/`true`/`yes`/`y`/`t`/`on`, anything else (incl. a missing
+  key) is `False`. That set matches the layered env/config bool converter; the
+  difference is strictness — `.bool` returns `False` for an unrecognized value, the
+  layered converter raises. (`on` added after 0.5.3; before that `ON` read as `False`.)
+  Mapping-like (`__iter__`/`__len__`/`**env`).
 - **`value_sources(...)`** — introspect where a parsed value came from (CLI/env/config/default).
 
 ## Logging

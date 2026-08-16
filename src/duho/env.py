@@ -122,9 +122,14 @@ class Env(_abc.MutableMapping):
         """Return ``key`` interpreted as a boolean.
 
         Truthy values (case-insensitive) are ``1``, ``true``, ``yes``, ``y``,
-        ``t``; anything else (including a missing key) is ``False``.
+        ``t``, ``on``; anything else (including a missing key) is ``False``.
+
+        The truthy set matches ``ArgumentBuilder._BOOL_TRUE``, the layered
+        (env/config) converter -- but this accessor stays LENIENT where that
+        one is strict: an unrecognized value here is ``False`` rather than a
+        user error.
         """
-        return self.get(key, "0").lower() in {"1", "true", "yes", "y", "t"}
+        return self.get(key, "0").lower() in {"1", "true", "yes", "y", "t", "on"}
 
     def list(
         self, key: str, sep: str = ":", ty: "_ty.Callable[[str], _T]" = str

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-08-16
+
 ### Fixed
 - **`duho.__version__` now matches the released version.** It had been left at
   `0.5.1` while `pyproject.toml` went to `0.5.2` and then `0.5.3`, so an
@@ -14,8 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Both places still state the version literally (`pyproject.toml` deliberately
   keeps saying it out loud rather than deferring to
   `[tool.hatch.version] path = ...`), and a new `tests/test_version_sync.py`
-  now fails whenever the two disagree — the drift was previously invisible to
-  CI, since the only test touching the dunder used it as a substring source.
+  fails whenever the two disagree.
 - **`Env.bool` accepts `on`.** The layered env/config bool converter has always
   taken `on`, so a variable spelled `ON` read as `True` through a declared
   field and silently as `False` through `Env.bool`. The truthy set is now
@@ -799,7 +800,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/jose-pr/duho/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jose-pr/duho/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jose-pr/duho/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jose-pr/duho/compare/v0.5.0...v0.5.1

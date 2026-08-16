@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`duho.__version__` now matches the released version.** It had been left at
+  `0.5.1` while `pyproject.toml` went to `0.5.2` and then `0.5.3`, so an
+  installed `duho==0.5.3` reported `0.5.1` from a public, documented attribute.
+  Both places still state the version literally (`pyproject.toml` deliberately
+  keeps saying it out loud rather than deferring to
+  `[tool.hatch.version] path = ...`), and a new `tests/test_version_sync.py`
+  now fails whenever the two disagree — the drift was previously invisible to
+  CI, since the only test touching the dunder used it as a substring source.
+- **`Env.bool` accepts `on`.** The layered env/config bool converter has always
+  taken `on`, so a variable spelled `ON` read as `True` through a declared
+  field and silently as `False` through `Env.bool`. The truthy set is now
+  `1`/`true`/`yes`/`y`/`t`/`on` in both places; they still differ in strictness
+  only (`Env.bool` treats an unrecognized value as `False`, the layered
+  converter raises).
+
+### Changed
+- Corrected two stale docstrings that described behavior the code had already
+  moved past: `RunPathCmd._runpath_logger_` still documented the pre-0.5.3
+  `"duho"` fallback (the code correctly returns the `duho.runpath` module
+  logger, and deliberately does *not* mirror `ModuleCommand._logger_for`, whose
+  `"duho"` fallback is intentional because it is handed to user hook code), and
+  `LoggingArgs._verbose_loglevel_` claimed to return "a log level name" when it
+  returns the numeric level. No behavior change; each had been inviting a
+  "fix" that would have reverted correct code.
+- Removed a dead `aborted` flag from `RunPathCmd.__call__`. A strict step
+  failure raised on the line immediately after setting it, so the later
+  `not aborted` guard could never observe it as `True`; the `success()` hook
+  gating already worked purely by exception propagation.
+
 ## [0.5.3] - 2026-08-05
 
 ### Added

@@ -656,10 +656,10 @@ def app(
 
     Parsing goes through the root parser's patched ``parse_known_args`` (from
     ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and
-    the layered instance construction all apply. When ``setup_logging`` and the
-    parsed instance exposes ``_set_loglevels_`` (``LoggingArgs``), stderr logging
-    is initialised (unless the root logger already has handlers) and verbosity
-    applied -- identical to ``duho.main``.
+    the layered instance construction all apply. When ``setup_logging``,
+    stderr logging is initialised and verbosity applied -- identical to
+    ``duho.main``, including its fallback for a plain ``Cmd`` command
+    selected under a ``LoggingArgs`` root (see ``_setup_instance_logging``).
 
     **Config/env thread-down.** Before parsing, env/config-file defaults are
     layered onto the root and every class command's fields (precedence CLI > env
@@ -931,7 +931,7 @@ def app(
     except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
         pass
 
-    _setup_instance_logging(instance, setup_logging)
+    _setup_instance_logging(instance, setup_logging, root_cls)
 
     # Resolve which command was selected. A class command selection yields a
     # constructed instance that IS the command (a Cmd subclass); a module

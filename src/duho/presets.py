@@ -1,14 +1,56 @@
 """Pre-configured argument classes for common patterns."""
 
+import logging as _logging
 import typing as _ty
 
-from . import logging as _logging
+from . import logging as _duho_logging
 from .args import Args, NS, UpdateAction, _command_name as _command_name
 from .logging import parse_loglevels
 
 
+def _apply_loglevels(ns, default_logger: str) -> dict:
+    """Apply parsed ``loglevels``/``verbose``/``quiet`` fields to loggers.
+
+    Module-level (A012/D049) so it works on ANY object carrying
+    ``LoggingArgs``'s data fields, not just a ``LoggingArgs`` instance --
+    notably a plain ``Cmd`` leaf dispatched under a ``class MyApp(LoggingArgs,
+    Cli)`` root (the README's recommended app shape). argparse copies the
+    root's parsed ``-v``/``-q``/``--loglevel`` values onto the shared instance
+    regardless of which class ends up constructed, but only a ``LoggingArgs``
+    subclass has the ``_set_loglevels_``/``_logger_`` MEMBERS to apply them
+    through -- previously that made verbosity flags a silent no-op on such a
+    leaf. ``default_logger`` names the logger that receives the -v/-q-derived
+    (or a bare ``--loglevel LEVEL``) level: ``LoggingArgs._set_loglevels_``
+    passes its own ``_logger_.name``; ``duho.main``/``duho.app`` fall back to
+    the ROOT class's own command name when dispatching a leaf that has no
+    ``_logger_`` of its own.
+
+    Prefers ``ns._verbose_loglevel_()`` -- a bound method, so a subclass
+    override is honored (C042) -- over the base implementation, which is used
+    only when ``ns``'s own class doesn't define one at all (again, the plain
+    ``Cmd`` leaf case).
+    """
+    loglevels = ns.loglevels.copy()
+    # C006: a bare `--loglevel LEVEL` (parsed as {"": LEVEL}) should raise the
+    # app's OWN logger, not just root -- but only when nothing more specific
+    # (-v/-q, or an explicit `name:LEVEL` entry for this logger) already
+    # claims the default. An explicit `-v`/`-q` still wins over a bare level.
+    default = loglevels.get("") if not (ns.verbose or ns.quiet) else None
+    if default is None:
+        verbose_loglevel = getattr(ns, "_verbose_loglevel_", None)
+        default = (
+            verbose_loglevel()
+            if verbose_loglevel is not None
+            else LoggingArgs._verbose_loglevel_(ns)
+        )
+    loglevels.setdefault(default_logger, default)
+    for name, level in loglevels.items():
+        _logging.getLogger(name).setLevel(level)
+    return loglevels
+
+
 class LoggingArgs(Args):
-    """Args subclass with built-in --verbose and --loglevel support.
+    """Args subclass with built-in -v/-q and --loglevel support.
 
     ``LoggingArgs`` is a **data mixin** (verbosity fields + ``_set_loglevels_``
     + the ``_logger_`` property); it defines no ``__call__`` and is
@@ -34,23 +76,53 @@ class LoggingArgs(Args):
     action already exists (e.g. supplied by a parent parser).
     """
 
-    loglevels: _ty.Annotated[
-        dict[str, int], NS(type=parse_loglevels, action=UpdateAction)
-    ] = {}
-    "Log Levels"
-    ("--loglevel",)  # type: ignore
+    # C007: seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. LoggingArgs
+    # used to be deliberately left UNSEEDED so `_introspect._class_constants`
+    # would AST-scan this class body for a trailing docstring + flags-tuple
+    # after each field. Every field now carries its flags/help directly in
+    # its own `NS(...)` instead, so that scan is no longer needed -- which
+    # means duho's own `-v`/`-q`/`--loglevel` no longer silently change shape
+    # (to `--verbose`/`--quiet`/`--loglevels`, derived from the bare field
+    # names) under a PyInstaller/.pyc-only/Nuitka build that ships no .py
+    # source for duho itself to scan.
+    _duho_constants_: dict = {}
 
+    loglevels: _ty.Annotated[
+        dict[str, int],
+        NS(
+            type=parse_loglevels,
+            action=UpdateAction,
+            flags=("--loglevel",),
+            metavar="[NAME:]LEVEL[,...]",
+            help=lambda: (
+                "Set a logger's level, e.g. --loglevel mypkg:DEBUG "
+                f"(levels: {_duho_logging.VERBOSE_HELP})"
+            ),
+        ),
+    ] = {}
+
+    # C018/R006: the shipped header and this class's own docstring have long
+    # promised `--verbose`/`--quiet` alongside `-v`/`-q`; only the short forms
+    # were ever actually declared. Adding the long spellings (rather than
+    # correcting the docs to match the shorter reality) is additive and a
+    # PATCH pre-1.0.
     verbose: _ty.Annotated[
-        int, NS(action="count", help=lambda: _logging.VERBOSE_HELP)
+        int,
+        NS(
+            action="count",
+            flags=("-v", "--verbose"),
+            help="Increase verbosity (repeatable)",
+        ),
     ] = 0
-    "Verbose level"
-    ("-v",)  # type: ignore
 
     quiet: _ty.Annotated[
-        int, NS(action="count", help="Decrease verbosity (repeatable)")
+        int,
+        NS(
+            action="count",
+            flags=("-q", "--quiet"),
+            help="Decrease verbosity (repeatable)",
+        ),
     ] = 0
-    "Quiet level"
-    ("-q",)  # type: ignore
 
     def _verbose_loglevel_(self):
         """Convert verbose/quiet count to a NUMERIC log level.
@@ -58,7 +130,7 @@ class LoggingArgs(Args):
         ``VERBOSE_LEVELS`` is keyed by int, so this returns the level number
         (e.g. ``logging.DEBUG``), not a level name.
         """
-        levels = list(_logging.VERBOSE_LEVELS.keys())
+        levels = list(_duho_logging.VERBOSE_LEVELS.keys())
         base = levels.index(_logging.INFO)
         index = base + self.verbose - self.quiet
         index = max(0, min(index, len(levels) - 1))
@@ -66,12 +138,7 @@ class LoggingArgs(Args):
 
     def _set_loglevels_(self):
         """Apply parsed log levels to loggers."""
-        loglevels = self.loglevels.copy()
-        loglevels.setdefault(self._logger_.name, LoggingArgs._verbose_loglevel_(self))
-        for name, level in loglevels.items():
-            _logging.getLogger(name).setLevel(level)
-
-        return loglevels
+        return _apply_loglevels(self, self._logger_.name)
 
     @property
     def _logger_(self):

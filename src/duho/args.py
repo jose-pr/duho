@@ -3596,19 +3596,44 @@ def print_agent_help(cls, file=None) -> None:
     _agenthelp.print_agent_help(cls, file=file)
 
 
-def _setup_instance_logging(instance, setup_logging: bool) -> None:
+def _setup_instance_logging(
+    instance, setup_logging: bool, root_cls: "type | None" = None
+) -> None:
     """Initialize stderr logging + apply verbosity for a parsed instance
     (A072): the identical block ``duho.main`` and ``duho.app`` each ran
-    inline. A no-op unless `setup_logging` is true AND the instance provides
-    ``_set_loglevels_`` (i.e. mixes in ``LoggingArgs``); stderr logging is
-    only initialized when the root logger has no handlers yet, so a caller
-    that already configured logging is never overridden.
+    inline, now shared by both entry points.
+
+    A no-op unless `setup_logging` is true. Prefers the parsed instance's own
+    ``_set_loglevels_`` (present when it mixes in ``LoggingArgs``). When the
+    DEEPEST selected class is a plain ``Cmd`` with no such method, but
+    `root_cls` -- the class `duho.main`/`duho.app` were actually called with
+    -- IS a ``LoggingArgs``, the verbosity fields are still on `instance`
+    (argparse copies the parent parser's parsed values onto the shared
+    instance regardless of which class gets constructed); apply them under
+    the root's own command name via the module-level
+    :func:`duho.presets._apply_loglevels` instead of the missing bound method
+    (A012/D049). This is the documented ``class MyApp(LoggingArgs, Cli)`` +
+    plain ``Cmd`` leaves shape from the README, which previously left
+    ``-v``/``-q``/``--loglevel`` silently doing nothing.
+
+    ``init_stderr_logging`` is idempotent (C040), so it is called
+    unconditionally here rather than only when the root logger has no
+    handlers yet -- a caller managing its own logging entirely should pass
+    ``setup_logging=False`` instead.
     """
-    if setup_logging and hasattr(instance, "_set_loglevels_"):
-        root = _logging_module.getLogger()
-        if not root.handlers:
-            _duho_logging.init_stderr_logging()
-        instance._set_loglevels_()
+    if not setup_logging:
+        return
+    setter = getattr(instance, "_set_loglevels_", None)
+    if setter is None and root_cls is not None:
+        from . import presets as _presets
+
+        if issubclass(root_cls, _presets.LoggingArgs):
+            logger_name = _command_name(root_cls)
+            setter = lambda: _presets._apply_loglevels(instance, logger_name)
+    if setter is None:
+        return
+    _duho_logging.init_stderr_logging()
+    setter()
 
 
 def _maybe_await(result):
@@ -3688,9 +3713,11 @@ def main(
     entirely user-owned. Steps: build parser (auto-registers _subcommands_),
     apply the env/config/class-default layers (`config` overrides `cls._config_`;
     precedence CLI > env > config > class default), parse argv (SystemExit from
-    argparse propagates), optionally set up stderr logging + apply verbosity
-    when the resulting instance provides _set_loglevels_, then run the command
-    and map a None return to 0.
+    argparse propagates), optionally set up stderr logging + apply verbosity,
+    then run the command and map a None return to 0. Logging setup runs when
+    the resulting instance provides `_set_loglevels_` directly, OR -- when the
+    selected leaf is a plain `Cmd` under a `LoggingArgs` root -- when `cls`
+    itself is a `LoggingArgs` (see `_setup_instance_logging`).
 
     Since Plan 13's Args/Cmd split, dispatch expects the selected class to be
     a ``Cmd`` (executable, defines ``__call__``). A bare data ``Args`` -- with
@@ -3701,7 +3728,7 @@ def main(
     _apply_layers(parser, cls, config=config)
     instance = parser.parse_args(argv)
 
-    _setup_instance_logging(instance, setup_logging)
+    _setup_instance_logging(instance, setup_logging, cls)
 
     run = getattr(instance, "__call__", None)
     if run is None:

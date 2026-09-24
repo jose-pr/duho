@@ -57,3 +57,54 @@ def test_env_bool_strips_whitespace_like_the_layered_converter(monkeypatch):
     inst = duho.parse(_EnvBoolArgs, [])
     assert inst.debug is True
     assert Env("wsapp", autoload=False).bool("DEBUG") is True
+
+
+# --- A025: a bool field set True by a layer can be turned back off --------
+
+
+def test_env_layered_bool_can_be_turned_off_from_cli(monkeypatch):
+    """`_EnvBoolArgs.debug` defaults False but reads an env var -- when that
+    env var sets it True, `store_true` (chosen only from the DECLARED False
+    default) has no `--no-debug` to reach back to False from the CLI. A field
+    that CAN receive a layered value now gets `BooleanOptionalAction`
+    instead."""
+    import duho
+
+    monkeypatch.setenv("WSAPP_DEBUG", "1")
+    assert duho.parse(_EnvBoolArgs, []).debug is True
+    assert duho.parse(_EnvBoolArgs, ["--no-debug"]).debug is False
+
+
+class _ConfigBoolArgs(Args):
+    """A bool field on a class with a config source -- config can ALSO set
+    it True with no CLI way back to False, for the same reason (A025). The
+    static `_config_` declaration is what `layered` keys off; the actual
+    file loaded per-call is overridden via the `config=` kwarg below."""
+
+    _config_ = "unused-default.toml"
+
+    dry_run: bool = False
+    ("--dry-run",)
+
+
+def test_config_layered_bool_can_be_turned_off_from_cli(tmp_path):
+    import duho
+
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text("dry_run = true\n")
+    assert duho.parse(_ConfigBoolArgs, [], config=cfg).dry_run is True
+    assert duho.parse(_ConfigBoolArgs, ["--no-dry-run"], config=cfg).dry_run is False
+
+
+def test_plain_bool_without_layer_still_uses_store_true():
+    """A bool field with no env= and no config source keeps the plain
+    store_true flag (no `--no-*` pair) -- the layered upgrade must not apply
+    universally (would clutter --help for the common case)."""
+
+    class PlainBoolArgs(Args):
+        verbose: bool = False
+        ("--verbose",)
+
+    parser = PlainBoolArgs._parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--no-verbose"])

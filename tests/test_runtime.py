@@ -748,6 +748,88 @@ def test_run_command_class_command_direct():
 
 
 # --------------------------------------------------------------------------
+# run_command delivers the documented "duho" logger fallback (R018)
+# --------------------------------------------------------------------------
+
+_MODULE_HOOK_READS_LOGGER = '''\
+"""A module command whose hooks read args._logger_ directly (documented convention)."""
+SEEN = {}
+
+
+def init(args=None):
+    SEEN["logger_name"] = getattr(args, "_logger_", None).name
+    return None
+
+
+def main(args=None):
+    args._logger_.info("hello")
+    return 0
+'''
+
+
+def test_run_command_delivers_duho_logger_fallback_to_module_hooks(tmp_path):
+    """A module command's hooks/entrypoint may read ``args._logger_`` directly,
+    per the documented convention -- even against a PLAIN root with no
+    ``LoggingArgs`` (e.g. ``duho.app(root=None, source=...)``, a common
+    plugin-only shape). ``run_command`` must deliver the ``"duho"`` fallback
+    logger itself, rather than letting a bare ``argparse.Namespace`` (no
+    ``_logger_`` of its own) raise ``AttributeError`` on first use.
+    """
+    mod_path = _write(tmp_path, "plain_hook.py", _MODULE_HOOK_READS_LOGGER)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_r018_plain_hook", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_r018_plain_hook"] = module
+    try:
+        spec.loader.exec_module(module)
+        command = ModuleCommand(module, name="plain-hook")
+        instance = duho.NS()  # no _logger_ of its own
+        rc = run_command(command, instance)
+        assert rc == 0
+        assert module.SEEN["logger_name"] == "duho"
+        assert instance._logger_.name == "duho"
+    finally:
+        sys.modules.pop("_r018_plain_hook", None)
+
+
+def test_run_command_does_not_override_an_existing_logger(tmp_path):
+    """A root that already has a real ``_logger_`` (e.g. ``LoggingArgs``-based)
+    keeps its own -- the fallback only fills a gap, it never overrides."""
+    mod_path = _write(tmp_path, "has_logger.py", _MODULE_HOOK_READS_LOGGER)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_r018_has_logger", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_r018_has_logger"] = module
+    try:
+        spec.loader.exec_module(module)
+        command = ModuleCommand(module, name="has-logger")
+        instance = duho.NS()
+        instance._logger_ = duho.logging.getLogger("scoped.logger")
+        run_command(command, instance)
+        assert module.SEEN["logger_name"] == "scoped.logger"
+    finally:
+        sys.modules.pop("_r018_has_logger", None)
+
+
+def test_register_hook_logger_uses_module_commands_own_resolution():
+    """The 3-arg ``register`` hook's logger and ``ModuleCommand._logger_for``
+    must be ONE shared resolution (D047), not two independently-maintained
+    copies that could silently diverge -- a bare structural check that the
+    duplicate ``runtime._HOOK_LOGGER`` is gone and the call site reuses
+    ``command._logger_for``.
+    """
+    import inspect
+
+    from duho import runtime as _runtime
+
+    assert not hasattr(_runtime, "_HOOK_LOGGER")
+    source = inspect.getsource(_runtime._register_module_command)
+    assert "_logger_for" in source
+
+
+# --------------------------------------------------------------------------
 # app(dispatch=...) seam
 # --------------------------------------------------------------------------
 

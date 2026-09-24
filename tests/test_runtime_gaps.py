@@ -16,7 +16,9 @@ project's AST/-c limitation.
 """
 
 import logging
+import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -142,6 +144,121 @@ def test_app_dispatches_command_from_cmds_path_env(tmp_path, monkeypatch):
 
     rc = app(Root, env=env, argv=["Deploy", "--name", "x"], setup_logging=False)
     assert rc == "deployed x"
+
+
+# --------------------------------------------------------------------------
+# CMDS_PATH security: an empty segment must NEVER import the CWD (D001)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_EVIL = '''\
+"""A CWD command that must never be imported."""
+from pathlib import Path
+
+Path(r"{marker}").write_text("evil ran")
+
+
+def main(args=None):
+    return "evil ran"
+'''
+
+
+def test_cmds_path_empty_segment_never_imports_cwd(tmp_path, monkeypatch):
+    """A leading, trailing, doubled, or separator-only CMDS_PATH value must
+    never import (let alone execute) anything from the current directory.
+
+    This is the C11 hazard resurfacing: an empty CMDS_PATH segment used to
+    become ``Path("")`` (== ``Path(".")``), which glob-imported and EXECUTED
+    every top-level ``.py`` file in the CWD at import time -- the marker file
+    below is written as an IMPORT-TIME side effect, not by calling the
+    command, so even a bare resolution (no dispatch) must not trigger it.
+    `os.pathsep` on this box is ``;`` (Windows); the fix does not hard-code it.
+    """
+    real_cmds = tmp_path / "cmds"
+    real_cmds.mkdir()
+    _write(real_cmds, "deploy.py", _CLASS_CMD)
+
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    marker = cwd / "CANARY_IMPORTED.txt"
+    _write(cwd, "evil.py", _MODULE_CMD_EVIL.format(marker=marker))
+
+    monkeypatch.chdir(cwd)
+    monkeypatch.delenv("PATHSEP", raising=False)
+    sep = os.pathsep
+
+    cases = {
+        "leading": f"{sep}{real_cmds}",
+        "trailing": f"{real_cmds}{sep}",
+        "doubled": f"{real_cmds}{sep}{sep}{real_cmds}",
+        "only_sep": sep,
+    }
+    for label, value in cases.items():
+        if marker.exists():
+            marker.unlink()
+        monkeypatch.setenv("MYAPP_CMDS_PATH", value)
+        env = Env("myapp", autoload=False)
+        resolved = _resolve_commands(None, None, None, env, None)
+        assert not marker.exists(), f"{label}: evil.py was imported from the CWD"
+        names = {
+            getattr(c, "_parsername_", None) or getattr(c, "__name__", None)
+            for c in resolved
+        }
+        assert "evil" not in names, f"{label}: evil registered as a command"
+
+
+def test_cmds_path_explicit_dot_segment_is_still_honored(tmp_path, monkeypatch):
+    """An explicit '.' segment IS still the current directory (unlike an
+    empty one -- see test_cmds_path_empty_segment_never_imports_cwd)."""
+    _write(tmp_path, "deploy.py", _CLASS_CMD)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", ".")
+    env = Env("myapp", autoload=False)
+
+    resolved = _resolve_commands(None, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+
+
+# --------------------------------------------------------------------------
+# CMDS_PATH resilience: one stale entry must not take the app down (D015)
+# --------------------------------------------------------------------------
+
+
+def test_cmds_path_stale_entry_is_skipped_not_fatal(tmp_path, monkeypatch, caplog):
+    """A deleted/nonexistent CMDS_PATH directory is skipped with a WARNING;
+    the other entries (and built-ins) still resolve."""
+    good_dir = tmp_path / "good"
+    good_dir.mkdir()
+    _write(good_dir, "deploy.py", _CLASS_CMD)
+    missing_dir = tmp_path / "does-not-exist"
+
+    monkeypatch.setenv(
+        "MYAPP_CMDS_PATH", os.pathsep.join([str(good_dir), str(missing_dir)])
+    )
+    env = Env("myapp", autoload=False)
+
+    with caplog.at_level("WARNING", logger="duho.runtime"):
+        resolved = _resolve_commands(Root, None, None, env, None)
+
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+    assert any("is not a directory" in rec.message for rec in caplog.records)
+
+
+def test_cmds_path_tilde_is_expanded(tmp_path, monkeypatch):
+    """A ``~``-prefixed CMDS_PATH entry is expanded to the home directory."""
+    home = tmp_path / "home"
+    cmds = home / "cmds"
+    cmds.mkdir(parents=True)
+    _write(cmds, "deploy.py", _CLASS_CMD)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("MYAPP_CMDS_PATH", str(Path("~") / "cmds"))
+    env = Env("myapp", autoload=False)
+
+    resolved = _resolve_commands(None, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
 
 
 # --------------------------------------------------------------------------

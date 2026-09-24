@@ -72,16 +72,11 @@ from .discovery import (
     is_class_command as _is_class_command,
     is_module_command as _is_module_command,
 )
+from .logging import log_exception as _log_exception
 
 __all__ = ["run_command", "app"]
 
 _LOGGER = _logging.getLogger(__name__)
-
-#: The logger handed to a USER hook that has no `_logger_` of its own.
-#: Deliberately the app-facing "duho" parent, NOT this module's own
-#: `_LOGGER` -- a user's register/main hook is not framework-internal
-#: output, so its records must not be attributed to `duho.runtime`.
-_HOOK_LOGGER = _logging.getLogger("duho")
 
 # `_command_name` used to be a byte-for-byte copy of
 # `discovery._command_name` (the same "`_parsername_` if set, else the class
@@ -117,11 +112,24 @@ def run_command(
       ``main``'s return value (or ``None`` -> ``0``) is the exit code; an
       exception from ``main`` propagates after ``finally_`` runs.
 
-    No separate ``logger`` argument is threaded: hooks read ``instance._logger_``
-    when the args class provides one (``ModuleCommand`` resolves it internally).
+    No separate ``logger`` argument is threaded: hooks read ``instance._logger_``.
+    For a module command, THIS driver ensures it is present before any hook
+    runs: when ``instance`` has no ``_logger_`` of its own (a plain root, not
+    ``LoggingArgs``-based), it is set to ``module_command._logger_for(instance)``
+    (the ``"duho"`` fallback) so a hook written against the documented
+    ``args._logger_`` convention never hits ``AttributeError`` (R018). Setting
+    the attribute is best-effort: a root whose ``_logger_`` is a read-only
+    property simply keeps using its own resolution.
     """
     if _is_module_command(command):
         module_command = _ty.cast(_ModuleCommand, command)
+        if not isinstance(getattr(instance, "_logger_", None), _logging.Logger):
+            try:
+                instance._logger_ = module_command._logger_for(instance)  # type: ignore[attr-defined]
+            except (
+                Exception
+            ):  # pragma: no cover - a property-bearing root may refuse the write
+                pass
         ctx = context if context is not None else module_command.init(instance)
         try:
             result = module_command.main(instance)
@@ -154,12 +162,33 @@ def _cmds_path_commands(env: object) -> "list[_Command]":
 
     Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
     ``env`` doesn't support the expected interface -- all best-effort, never
-    raises. Only touches ``CMDS_PATH`` when it is actually set and non-empty:
-    a missing value must NOT be split/globbed -- that is what turned an unset
-    var into "import every ``.py`` in the CWD" (C11). Splits on the OS path
-    separator (``os.pathsep``; ``PATHSEP`` overrides), NOT a hard-coded
-    ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter is mis-split
-    into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+    raises for a resolution problem (a per-entry issue is logged and that
+    entry skipped; see below). Only touches ``CMDS_PATH`` when it is actually
+    set and non-empty: a missing value must NOT be split/globbed -- that is
+    what turned an unset var into "import every ``.py`` in the CWD" (C11).
+    Splits on the OS path separator (``os.pathsep``; ``PATHSEP`` overrides),
+    NOT a hard-coded ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter
+    is mis-split into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+
+    **Empty segments never mean the CWD (D001, security).** ``env.paths``
+    already drops an empty/whitespace-only segment before converting it to a
+    ``Path`` (a leading, trailing, or doubled separator -- the common
+    ``X="$X:/extra"`` append idiom run while ``X`` was unset -- must never
+    resolve to ``Path('.')`` and glob-import/execute the current directory).
+    This function does NOT trust that alone, since ``env`` is duck-typed and
+    may not be a real :class:`duho.env.Env`: it re-requests the raw STRING
+    segments (``ty=str``, no ``Path`` conversion yet) and filters blank ones
+    itself before ever constructing a ``Path`` -- a defense-in-depth second
+    layer that holds even for a caller-supplied ``env`` whose own ``paths()``
+    does not filter. (An explicit ``"."`` segment is still honoured.)
+
+    **A stale entry is skipped, not fatal (D015).** Each entry is expanded
+    with ``~`` (``Path.expanduser()``) and, if it does not resolve to an
+    existing directory, logged at WARNING and skipped -- a removed plugin
+    directory or an unexpanded ``~`` must not take down every invocation,
+    built-ins and ``--help`` included. Discovery's own resilience still
+    applies per entry (an ``ImportError`` from a single bad command file is
+    logged and skipped; a ``SyntaxError`` still propagates).
     """
     if env is None:
         return []
@@ -171,13 +200,30 @@ def _cmds_path_commands(env: object) -> "list[_Command]":
     if not raw:
         return []
     try:
-        paths = env.paths("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+        segments = env.paths("CMDS_PATH", ty=str)  # type: ignore[attr-defined]
     except Exception:  # pragma: no cover - env is best-effort here
-        paths = []
+        segments = []
     discovered: "list[_Command]" = []
-    for path in paths:
-        if str(path):
+    for segment in segments:
+        segment = segment.strip() if isinstance(segment, str) else str(segment)
+        if not segment:
+            # An empty/whitespace-only segment is never the current directory.
+            continue
+        path = _Path(segment).expanduser()
+        if not path.is_dir():
+            _LOGGER.warning("CMDS_PATH entry %r is not a directory; skipping", segment)
+            continue
+        try:
             discovered.extend(_discover_commands(path))
+        except ImportError as exc:
+            _log_exception(
+                _LOGGER,
+                "skipping CMDS_PATH entry %r: %s",
+                segment,
+                exc,
+                level=_logging.WARNING,
+            )
+            continue
     return discovered
 
 
@@ -451,9 +497,11 @@ def _register_module_command(
     if callable(register) and register is not _discovery_noop:
         try:
             if _wants_logger_arg(register):
-                logger = getattr(root_instance_args, "_logger_", None)
-                if not isinstance(logger, _logging.Logger):
-                    logger = _HOOK_LOGGER
+                # One resolution, shared with the rest of the module-command
+                # lifecycle: `command._logger_for` (the args instance's own
+                # `_logger_` if present, else the "duho" fallback) -- not a
+                # second, separately-maintained copy of that fallback (D047).
+                logger = command._logger_for(root_instance_args)
                 register(parser, root_instance_args, logger)
             else:
                 register(parser, root_instance_args)

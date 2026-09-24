@@ -40,12 +40,17 @@ def test_bool_env_one_is_true(monkeypatch):
     assert result.dry is True
 
 
-def test_bool_env_garbage_raises(monkeypatch):
+def test_bool_env_garbage_reports_usage_error(monkeypatch, capsys):
+    # A bad env value is reported the same way a bad CLI value would be --
+    # usage text + exit 2, never a raw traceback.
     monkeypatch.setenv("DUHO_A1_DRY", "banana")
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(SystemExit) as exc:
         duho.parse(_BoolEnv, [])
-    assert "DUHO_A1_DRY" in str(exc.value)
-    assert "dry" in str(exc.value)
+    assert exc.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "DUHO_A1_DRY" in stderr
+    assert "dry" in stderr
+    assert "usage:" in stderr
 
 
 # -- A1: collection env conversion (C2) --------------------------------------

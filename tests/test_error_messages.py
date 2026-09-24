@@ -30,13 +30,17 @@ class _EnvArgs(Args):
     ("--port",)
 
 
-def test_bad_env_value_message(monkeypatch):
+def test_bad_env_value_message(monkeypatch, capsys):
+    # R020: a bad env value is reported the same way a bad CLI value would be
+    # -- usage text + exit 2, never a raw traceback.
     monkeypatch.setenv("DUHO_T5_PORT", "not-an-int")
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         duho.parse(_EnvArgs, [])
-    msg = str(excinfo.value)
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
     assert re.search(r"environment variable 'DUHO_T5_PORT' for field 'port'", msg)
     assert "not-an-int" in msg
+    assert "usage:" in msg
 
 
 # --------------------------------------------------------------------------
@@ -52,14 +56,17 @@ class _ConfigArgs(Args):
     ("--port",)
 
 
-def test_bad_config_value_message(tmp_path):
+def test_bad_config_value_message(tmp_path, capsys):
+    # R020: same usage-text-and-exit-2 contract as a bad env value.
     config = tmp_path / "app.toml"
     config.write_text('port = "not-an-int"\n')
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         duho.parse(_ConfigArgs, [], config=config)
-    msg = str(excinfo.value)
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
     assert "config value for field 'port' on _ConfigArgs" in msg
     assert "not-an-int" in msg
+    assert "usage:" in msg
 
 
 # --------------------------------------------------------------------------

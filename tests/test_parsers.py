@@ -12,7 +12,7 @@ flags/docstrings resolve normally (never via ``-c``).
 """
 
 import duho
-from duho import Cli, Cmd
+from duho import Cli, Cmd, NS, Arg
 
 
 class _Child(Cmd):
@@ -67,3 +67,50 @@ def test_parse_globals_forwards_parser_kwargs():
     # still succeeds and returns the root instance with globals set.
     parsed = duho.parse_globals(_Root, ["--flag", "kw"], add_help=False)
     assert parsed.flag == "kw"
+
+
+# --------------------------------------------------------------------------
+# A015: parse_globals must apply the same env/config layers duho.main/parse do
+# --------------------------------------------------------------------------
+
+
+class _EnvRoot(Cli):
+    """A root whose global is backed by an env var."""
+
+    cmds_path: "Arg[str, NS(env='DUHO_TEST_GLOBALS_ENV')]" = "builtin"
+    ("--cmds-path",)
+
+    _subcommands_ = [_Child]
+
+
+def test_parse_globals_applies_env_layer(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_GLOBALS_ENV", "/from/env")
+    parsed = duho.parse_globals(_EnvRoot, [])
+    monkeypatch.delenv("DUHO_TEST_GLOBALS_ENV", raising=False)
+    assert parsed.cmds_path == "/from/env"
+
+
+def test_parse_globals_applies_config_kwarg(tmp_path):
+    cfg = tmp_path / "duho.toml"
+    cfg.write_text('cmds_path = "/from/config"\n')
+    parsed = duho.parse_globals(_EnvRoot, [], config=cfg)
+    assert parsed.cmds_path == "/from/config"
+
+
+class _RequiredEnvRoot(Cli):
+    """A REQUIRED global (no class default) suppliable only via env."""
+
+    token: "Arg[str, NS(env='DUHO_TEST_GLOBALS_TOKEN')]"
+    ("--token",)
+
+    _subcommands_ = [_Child]
+
+
+def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
+    # A015: pre-fix, parse_globals never applied env/config layers at all, so
+    # a required global suppliable only by env raised SystemExit(2) here even
+    # though the full duho.parse of the same class succeeds.
+    monkeypatch.setenv("DUHO_TEST_GLOBALS_TOKEN", "tok")
+    parsed = duho.parse_globals(_RequiredEnvRoot, ["_Child"])
+    monkeypatch.delenv("DUHO_TEST_GLOBALS_TOKEN", raising=False)
+    assert parsed.token == "tok"

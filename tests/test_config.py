@@ -6,6 +6,7 @@ parser.set_defaults()), which is exercised explicitly below.
 """
 
 import sys
+import typing as _ty
 
 import pytest
 
@@ -185,6 +186,163 @@ def test_value_sources_unavailable_returns_empty_dict():
 
     instance = Untouched(x="y")
     assert duho.value_sources(instance) == {}
+
+
+def test_parse_config_kwarg_overrides_class_config_attr(tmp_path):
+    """R037: an explicit ``config=`` to ``duho.parse`` beats a class-level
+    ``_config_`` -- both point at REAL files with DIFFERENT values here, so
+    the precedence documented in docs/guide/config.md is actually exercised."""
+
+    class BothConfigured(Args):
+        _config_ = None
+        host: str = "localhost"
+        ("--host",)
+
+    BothConfigured._config_ = str(tmp_path / "class-attr.toml")
+    (tmp_path / "class-attr.toml").write_text('host = "from-class-attr"\n')
+    (tmp_path / "kwarg.toml").write_text('host = "from-kwarg"\n')
+
+    result = duho.parse(BothConfigured, [], config=str(tmp_path / "kwarg.toml"))
+    assert result.host == "from-kwarg"
+
+
+def test_main_config_kwarg_overrides_class_config_attr(tmp_path):
+    """Same precedence (R037), through ``duho.main``."""
+
+    class BothConfiguredCmd(Args):
+        _config_ = None
+        host: str = "localhost"
+        ("--host",)
+
+        def __call__(self):
+            return self.host
+
+    BothConfiguredCmd._config_ = str(tmp_path / "class-attr.toml")
+    (tmp_path / "class-attr.toml").write_text('host = "from-class-attr"\n')
+    (tmp_path / "kwarg.toml").write_text('host = "from-kwarg"\n')
+
+    result = duho.main(
+        BothConfiguredCmd, [], config=str(tmp_path / "kwarg.toml"), setup_logging=False
+    )
+    assert result == "from-kwarg"
+
+
+class _ChoiceLayered(Args):
+    """A008: Literal/Choice fields backed by env and config."""
+
+    mode: "Arg[str, NS(choices=('fast', 'slow'), env='DUHO_TEST_MODE')]" = "fast"
+    ("--mode",)
+
+
+def test_env_value_rejects_invalid_choice(monkeypatch, capsys):
+    monkeypatch.setenv("DUHO_TEST_MODE", "banana")
+    with pytest.raises(SystemExit) as exc:
+        duho.parse(_ChoiceLayered, [])
+    monkeypatch.delenv("DUHO_TEST_MODE", raising=False)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "invalid choice: 'banana'" in err
+    assert "usage:" in err
+
+
+def test_config_value_rejects_invalid_choice(tmp_path, capsys):
+    cfg = tmp_path / "duho.toml"
+    cfg.write_text('mode = "banana"\n')
+    with pytest.raises(SystemExit) as exc:
+        duho.parse(_ChoiceLayered, [], config=cfg)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "invalid choice: 'banana'" in err
+    assert "usage:" in err
+
+
+def test_valid_env_choice_still_works(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_MODE", "slow")
+    result = duho.parse(_ChoiceLayered, [])
+    monkeypatch.delenv("DUHO_TEST_MODE", raising=False)
+    assert result.mode == "slow"
+
+
+class _ConfigFileMayBeMissing(Args):
+    """A011: a class-level ``_config_`` pointing at a not-yet-created file."""
+
+    target: str = "dev"
+    ("--target",)
+
+
+def test_missing_class_level_config_is_skipped_not_a_crash(tmp_path):
+    missing = tmp_path / "does" / "not" / "exist.toml"
+    _ConfigFileMayBeMissing._config_ = str(missing)
+    try:
+        assert not missing.exists()
+        result = duho.parse(_ConfigFileMayBeMissing, [])
+        assert result.target == "dev"
+        # --help must not crash either (the whole point of A011).
+        with pytest.raises(SystemExit) as exc:
+            duho.parse(_ConfigFileMayBeMissing, ["--help"])
+        assert exc.value.code == 0
+    finally:
+        _ConfigFileMayBeMissing._config_ = None
+
+
+def test_explicit_missing_config_kwarg_still_raises(tmp_path):
+    # An explicit `config=` is a deliberate request -- unlike a class-level
+    # `_config_`, a missing file there stays a clear, surfaced error.
+    missing = tmp_path / "nope.toml"
+    with pytest.raises(FileNotFoundError):
+        duho.parse(_ConfigFileMayBeMissing, [], config=missing)
+
+
+def test_non_mapping_config_top_level_raises_clear_error(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text("[1, 2]")
+    with pytest.raises(ValueError, match="must contain a table/object"):
+        duho.parse(_ConfigFileMayBeMissing, [], config=cfg)
+
+
+def test_config_loader_returning_none_is_treated_as_empty(tmp_path):
+    class WithLoader(Args):
+        _config_ = "unused.yaml"
+        _config_loader_ = staticmethod(lambda p: None)
+        target: str = "dev"
+        ("--target",)
+
+    result = duho.parse(WithLoader, [])
+    assert result.target == "dev"
+
+
+class _EmptyEnvArgs(Args):
+    """A036: an env var set to the empty string."""
+
+    paths: "Arg[list[str], NS(env='DUHO_TEST_PATHS')]" = []
+    ("--paths",)
+
+    port: "Arg[_ty.Optional[int], NS(env='DUHO_TEST_PORT')]" = None
+    ("--port",)
+
+    name: "Arg[str, NS(env='DUHO_TEST_NAME')]" = "default-name"
+    ("--name",)
+
+
+def test_empty_env_collection_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_PATHS", "")
+    result = duho.parse(_EmptyEnvArgs, [])
+    monkeypatch.delenv("DUHO_TEST_PATHS", raising=False)
+    assert result.paths == []
+
+
+def test_empty_env_optional_int_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_PORT", "")
+    result = duho.parse(_EmptyEnvArgs, [])
+    monkeypatch.delenv("DUHO_TEST_PORT", raising=False)
+    assert result.port is None
+
+
+def test_empty_env_str_field_keeps_empty_string(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_NAME", "")
+    result = duho.parse(_EmptyEnvArgs, [])
+    monkeypatch.delenv("DUHO_TEST_NAME", raising=False)
+    assert result.name == ""
 
 
 @pytest.mark.skipif(

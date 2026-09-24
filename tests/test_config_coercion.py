@@ -21,16 +21,24 @@ import duho
 from duho import Args
 
 
+def _assert_usage_error(exc_info, capsys):
+    # A bad config value is reported the same way a bad CLI value would be --
+    # usage text + exit 2, never a raw traceback (R020).
+    assert exc_info.value.code == 2
+    assert "usage:" in capsys.readouterr().err
+
+
 class _IntArgs(Args):
     n: int = 0
     ("--n",)
 
 
-def test_config_int_field_rejects_fractional_float(tmp_path):
+def test_config_int_field_rejects_fractional_float(tmp_path, capsys):
     cfg = tmp_path / "c.json"
     cfg.write_text(json.dumps({"n": 1.5}))
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit) as exc:
         duho.parse(_IntArgs, [], config=cfg)
+    _assert_usage_error(exc, capsys)
 
 
 def test_config_int_field_widens_integral_float(tmp_path):
@@ -39,14 +47,15 @@ def test_config_int_field_widens_integral_float(tmp_path):
     assert duho.parse(_IntArgs, [], config=cfg).n == 30
 
 
-def test_config_int_field_rejects_bool(tmp_path):
+def test_config_int_field_rejects_bool(tmp_path, capsys):
     # bool subclasses int -- isinstance(True, int) is True, which is exactly
     # why a naive "already an instance of the factory type" check let it
     # through silently.
     cfg = tmp_path / "c.json"
     cfg.write_text(json.dumps({"n": True}))
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit) as exc:
         duho.parse(_IntArgs, [], config=cfg)
+    _assert_usage_error(exc, capsys)
 
 
 class _StrArgs(Args):
@@ -54,11 +63,12 @@ class _StrArgs(Args):
     ("--name",)
 
 
-def test_config_str_field_rejects_list(tmp_path):
+def test_config_str_field_rejects_list(tmp_path, capsys):
     cfg = tmp_path / "c.json"
     cfg.write_text(json.dumps({"name": ["a", "b"]}))
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit) as exc:
         duho.parse(_StrArgs, [], config=cfg)
+    _assert_usage_error(exc, capsys)
 
 
 class _FloatArgs(Args):
@@ -89,8 +99,9 @@ def test_config_dict_table_values_widen_like_a_scalar_field(tmp_path):
     assert isinstance(inst.d["b"], int)
 
 
-def test_config_dict_table_values_reject_fractional_float(tmp_path):
+def test_config_dict_table_values_reject_fractional_float(tmp_path, capsys):
     cfg = tmp_path / "c.json"
     cfg.write_text(json.dumps({"d": {"a": 1.5}}))
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit) as exc:
         duho.parse(_DictIntArgs, [], config=cfg)
+    _assert_usage_error(exc, capsys)

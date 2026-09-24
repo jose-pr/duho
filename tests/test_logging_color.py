@@ -63,6 +63,27 @@ def test_getcolor_missing_colorama_returns_empty(monkeypatch):
     assert _getcolor("red+white") == ""
 
 
+def test_resolve_colorama_handles_a_genuinely_missing_module(monkeypatch):
+    """Exercise the real ``except ImportError`` branch in ``_resolve_colorama``.
+
+    The test above bypasses it entirely by monkeypatching the whole function;
+    here the actual ``import colorama`` statement is made to fail (a ``None``
+    entry in ``sys.modules`` forces ``ImportError``), so the fallback that
+    caches ``None`` -- instead of crashing or leaving the not-yet-probed
+    sentinel behind -- is what's actually running.
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "colorama", None)
+    monkeypatch.setattr(duho_logging, "_color", False)  # not-yet-probed sentinel
+
+    resolved = duho_logging._resolve_colorama()
+
+    assert resolved is None
+    assert duho_logging._color is None  # probed once and cached, not re-probed
+    assert _getcolor("red") == ""
+
+
 def test_add_logging_level_colors_levelname():
     colorama = pytest.importorskip("colorama")
     level = logging.DEBUG - 3

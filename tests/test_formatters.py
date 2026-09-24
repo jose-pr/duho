@@ -201,7 +201,11 @@ def test_composed_formatter_has_defaults_and_color(monkeypatch):
     monkeypatch.setenv("FORCE_COLOR", "1")
     monkeypatch.delenv("NO_COLOR", raising=False)
     help_text = ComposedApp._parser_().format_help()
-    assert "(default: us-east)" in help_text
+    # 3.15+ colors the expanded %(default)s value itself, so the plain text
+    # only appears once ANSI codes are stripped (duho's own coloring is
+    # unaffected either way; this just stops the pin depending on which
+    # argparse version formats defaults).
+    assert "(default: us-east)" in _ANSI.sub("", help_text)
     assert "\033[" in help_text
 
 

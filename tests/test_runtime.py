@@ -239,16 +239,6 @@ class Root(duho.LoggingArgs, duho.Cmd):
         return 0
 
 
-@pytest.fixture(autouse=True)
-def _clean_discovered_modules():
-    """Drop synthesized discovery modules between tests so fixtures re-import."""
-    before = set(sys.modules)
-    yield
-    for name in set(sys.modules) - before:
-        if name.startswith("duho._discovered."):
-            sys.modules.pop(name, None)
-
-
 # --------------------------------------------------------------------------
 # Class + module command both dispatch
 # --------------------------------------------------------------------------
@@ -1533,6 +1523,7 @@ def test_app_threads_env_to_nested_class_subcommand(tmp_path, monkeypatch):
     assert rc == "push from-env"
 
 
+@pytest.mark.requires_toml
 def test_app_threads_config_to_nested_class_subcommand(tmp_path):
     _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
     cfg = tmp_path / "app.toml"
@@ -1583,6 +1574,7 @@ def test_app_threads_env_to_module_declared_args_class(tmp_path, monkeypatch):
     assert _discovered_module("modtok").SEEN["token"] == "from-env"
 
 
+@pytest.mark.requires_toml
 def test_app_threads_config_to_module_declared_args_class(tmp_path):
     _write(tmp_path, "modtok.py", _MODULE_CMD_ARGS_ENV_D021)
     cfg = tmp_path / "app.toml"

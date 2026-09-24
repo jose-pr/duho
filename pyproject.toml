@@ -55,7 +55,10 @@ exclude = ["/.*", "/benchmarks", "*.local.*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-testpaths = ["tests"]
+testpaths = ["tests", "benchmarks"]
+markers = [
+    "requires_toml: skip when neither tomllib (3.11+) nor the tomli backport is importable",
+]
 
 [tool.black]
 target-version = ["py39"]

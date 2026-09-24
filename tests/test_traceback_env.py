@@ -112,30 +112,6 @@ def main(cmd):
 """
 
 
-@pytest.fixture(autouse=True)
-def _restore_providers():
-    """Snapshot/restore the global provider registry (see test_runpath.py).
-
-    ``import duho.runpath`` auto-registers its provider as an import side-effect,
-    so without this the registration leaks into every later test in the session.
-    """
-    import duho.discovery as _discovery
-    import duho.runpath as runpath
-
-    saved = list(_discovery._PROVIDERS)
-    saved_registered = runpath._REGISTERED
-    # Register explicitly rather than relying on the import side-effect: by the
-    # time this file runs, an earlier test module may already have imported
-    # duho.runpath (consuming the one-shot side-effect) and then restored a
-    # snapshot taken before it, leaving no provider registered.
-    runpath.register()
-    try:
-        yield
-    finally:
-        _discovery._PROVIDERS[:] = saved
-        runpath._REGISTERED = saved_registered
-
-
 def _runpath_dir(tmp_path):
     directory = tmp_path / "steps"
     directory.mkdir()

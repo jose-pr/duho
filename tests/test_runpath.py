@@ -7,9 +7,9 @@ that it ran by appending its name to a shared results file, so a test asserts th
 observed run order directly.
 
 **Provider isolation is the top footgun** (per the plan): the RunPath provider is
-a module-global registered on import. Every test snapshots/restores
-``discovery._PROVIDERS`` via the autouse ``_restore_providers`` fixture AND uses
-``runpath.unregister()`` where it asserts the unregistered state, so provider
+a module-global registered on import. The autouse provider-isolation fixture in
+``conftest.py`` snapshots/restores it around every test, and tests use
+``runpath.unregister()`` where they assert the unregistered state, so provider
 state never leaks between tests.
 """
 
@@ -25,35 +25,8 @@ from duho.discovery import CmdBuilder, discover_commands
 from duho.runpath import RunPathCmd, is_runpath_dir, register, unregister
 
 # --------------------------------------------------------------------------
-# Provider isolation + fixture helpers
+# Fixture helpers
 # --------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _restore_providers():
-    """Snapshot/restore the global provider registry around every test.
-
-    Also resets ``runpath``'s own ``_REGISTERED`` bookkeeping so ``register()``/
-    ``unregister()`` start each test from a known state, then restores it. This is
-    what stops provider state from leaking between tests. ``_BASE`` (the class
-    every provider-built RunPathCmd subclass ALSO inherits from, set via
-    ``register(base=...)``) is module-global the same way -- snapshot/restore it
-    too so a test that changes it never leaks into the next. ``_ADAPTER``
-    (``register(step_adapter=...)``) is module-global for the same reason, and
-    leaks harder: it is consulted per step run, so it would affect every
-    already-built command in a later test, not just newly built ones.
-    """
-    saved = list(_discovery._PROVIDERS)
-    saved_registered = runpath._REGISTERED
-    saved_base = runpath._BASE
-    saved_adapter = runpath._ADAPTER
-    try:
-        yield
-    finally:
-        _discovery._PROVIDERS[:] = saved
-        runpath._REGISTERED = saved_registered
-        runpath._BASE = saved_base
-        runpath._ADAPTER = saved_adapter
 
 
 def _write_step(directory, filename, body):

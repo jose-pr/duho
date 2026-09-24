@@ -69,17 +69,22 @@ class TestBool:
         assert Env("ma").bool("DEBUG") is False
 
     def test_truthy_set_matches_the_layered_converter(self):
-        """Env.bool and ArgumentBuilder._BOOL_TRUE must not drift apart again.
-
-        They differ only in strictness (Env.bool is lenient about unknown
-        values, the layered converter raises) -- never in which words are true.
+        """Env.bool and the layered converter share one truthy table now
+        (`duho._compat.BOOL_TRUE`, D052), so there is nothing left to drift --
+        they differ only in strictness (Env.bool is lenient about unknown
+        values, the layered converter raises), never in which words are true.
         """
-        from duho.args import ArgumentBuilder
+        from duho import _compat
 
-        truthy = {"1", "true", "yes", "y", "t", "on"}
-        assert set(ArgumentBuilder._BOOL_TRUE) == truthy
-        for value in truthy:
+        for value in _compat.BOOL_TRUE:
             assert Env("ma", DEBUG=value).bool("DEBUG") is True
+
+    def test_strips_whitespace(self, monkeypatch):
+        # The cmd.exe `set VAR=1 && ...` trailing-space pitfall: a layered
+        # NS(env=...) bool field already stripped before matching; Env.bool
+        # didn't (D052).
+        monkeypatch.setenv("MA_DEBUG", " 1 ")
+        assert Env("ma").bool("DEBUG") is True
 
 
 class TestList:

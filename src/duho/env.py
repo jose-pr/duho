@@ -18,6 +18,8 @@ import importlib as _importlib
 import os as _os
 import typing as _ty
 
+from . import _compat as _compat
+
 _T = _ty.TypeVar("_T")
 
 __all__ = ["Env"]
@@ -121,15 +123,16 @@ class Env(_abc.MutableMapping):
     def bool(self, key: str) -> bool:
         """Return ``key`` interpreted as a boolean.
 
-        Truthy values (case-insensitive) are ``1``, ``true``, ``yes``, ``y``,
-        ``t``, ``on``; anything else (including a missing key) is ``False``.
+        Truthy values (case-insensitive, whitespace-stripped) are
+        ``_compat.BOOL_TRUE`` (``1``, ``true``, ``yes``, ``y``, ``t``,
+        ``on``); anything else (including a missing key) is ``False``.
 
-        The truthy set matches ``ArgumentBuilder._BOOL_TRUE``, the layered
-        (env/config) converter -- but this accessor stays LENIENT where that
-        one is strict: an unrecognized value here is ``False`` rather than a
-        user error.
+        The truthy set is the same shared ``_compat.BOOL_TRUE`` the layered
+        (env/config) converter uses (A074/C046/D052) -- but this accessor
+        stays LENIENT where that one is strict: an unrecognized value here is
+        ``False`` rather than a user error.
         """
-        return self.get(key, "0").lower() in {"1", "true", "yes", "y", "t", "on"}
+        return self.get(key, "0").strip().lower() in _compat.BOOL_TRUE
 
     def list(
         self, key: str, sep: str = ":", ty: "_ty.Callable[[str], _T]" = str

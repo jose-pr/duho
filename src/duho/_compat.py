@@ -13,6 +13,16 @@ UNION_ORIGINS: tuple = (
     *([_types.UnionType] if hasattr(_types, "UnionType") else []),
 )
 
+#: The one true set of truthy/falsy text tokens (A074/C046/D052): every
+#: bool-ish text parser in duho (the layered CLI/env/config converter, the
+#: strict CLI text factory, ``Env.bool``, ``logging.traceback_enabled``)
+#: matches against these, case-insensitively after ``.strip()``, instead of
+#: keeping its own hand-copied set. They had already drifted (logging's
+#: falsey set lacked "n"/"f", so ``DUHO_TRACEBACK=n`` turned tracebacks ON
+#: while every declared bool field and ``AGENT_HELP`` treated "n" as off).
+BOOL_TRUE: frozenset = frozenset({"1", "true", "yes", "on", "y", "t"})
+BOOL_FALSE: frozenset = frozenset({"0", "false", "no", "off", "n", "f", ""})
+
 
 def get_level_names_mapping() -> dict[str, int]:
     """Get mapping of level names to level integers.
@@ -48,4 +58,10 @@ def iter_entry_points(group: str) -> "list":
         return list(_md.entry_points().get(group, []))
 
 
-__all__ = ["UNION_ORIGINS", "get_level_names_mapping", "iter_entry_points"]
+__all__ = [
+    "UNION_ORIGINS",
+    "BOOL_TRUE",
+    "BOOL_FALSE",
+    "get_level_names_mapping",
+    "iter_entry_points",
+]

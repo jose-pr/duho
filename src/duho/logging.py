@@ -3,6 +3,7 @@ import logging as _logging
 import sys as _sys
 import typing as _ty
 
+from ._compat import BOOL_FALSE as _BOOL_FALSE
 from ._compat import get_level_names_mapping
 
 if _ty.TYPE_CHECKING:
@@ -186,10 +187,10 @@ def init_stderr_logging(name=None, level: "int | None" = None):
 #: ``str()`` instead logs the full traceback (``exc_info=True``).
 TRACEBACK_ENV = "DUHO_TRACEBACK"
 
-#: Values of :data:`TRACEBACK_ENV` that mean "off". Anything else (including the
-#: empty-but-present case being absent from this set is deliberate: ``DUHO_TRACEBACK=``
-#: with an empty value counts as off) enables tracebacks.
-_FALSEY = frozenset({"", "0", "false", "no", "off"})
+#: Values of :data:`TRACEBACK_ENV` that mean "off" -- the shared
+#: ``_compat.BOOL_FALSE`` table (A074/C046/D052), so an unset/empty variable
+#: and every other declared bool field agree on what "off" means.
+_FALSEY = _BOOL_FALSE
 
 
 def traceback_enabled() -> bool:

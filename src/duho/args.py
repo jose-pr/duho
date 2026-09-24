@@ -924,13 +924,15 @@ class ArgumentBuilder(_argparse.Namespace):
     #: factory, not the collection factory.
     collection: "_type | None" = None
 
-    #: Truthy strings a layered bool value maps to True / False (case-insensitive,
-    #: whitespace-stripped). Mirrors ``duho.env.Env.bool``'s truthy set; unlike
-    #: ``Env.bool`` (which treats unknown strings as False) the layered converter
-    #: is STRICT -- an explicit config/env value that parses to neither is a user
-    #: error, not a silent False.
-    _BOOL_TRUE = frozenset({"1", "true", "yes", "on", "y", "t"})
-    _BOOL_FALSE = frozenset({"0", "false", "no", "off", "n", "f", ""})
+    #: Truthy/falsy strings a layered bool value maps to True/False
+    #: (case-insensitive, whitespace-stripped). The one shared table
+    #: (``_compat.BOOL_TRUE``/``BOOL_FALSE``, A074/C046/D052) aliased here so
+    #: existing readers of ``ArgumentBuilder._BOOL_TRUE``/``_BOOL_FALSE`` keep
+    #: working. Unlike ``Env.bool`` (which treats an unrecognized string as
+    #: False) the layered converter is STRICT -- an explicit config/env value
+    #: that parses to neither is a user error, not a silent False.
+    _BOOL_TRUE = _compat.BOOL_TRUE
+    _BOOL_FALSE = _compat.BOOL_FALSE
 
     def _convert_single(self, raw):
         """Convert one raw scalar (env string / TOML-typed value) to the field type.

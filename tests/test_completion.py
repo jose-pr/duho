@@ -222,6 +222,182 @@ def test_bash_function_name_is_namespaced_and_collision_resistant():
         assert func_a != func_b
 
 
+# --- Hostile choice values are escaped, not executed -----------------------
+
+
+class _Danger(Args):
+    """App with a multi-flag value option and hostile choice values."""
+
+    mode: ty.Literal["it's", "safe", "$(touch pwned)"] = "safe"
+    "Mode"
+    ("--mode",)
+
+    verbose: int = 0
+    "Verbosity"
+    ("-v", "--verbose")
+
+
+def _danger_script(shell):
+    return getattr(completion, shell)(_Danger._parser_())
+
+
+def test_zsh_multiflag_optspec_form():
+    script = _danger_script("zsh")
+    # Correct exclusion-list + brace-expansion form -- both the exclusion
+    # list AND the individual flags in the brace are quoted (an unquoted
+    # flag interpolated raw into the script body could inject shell code the
+    # moment the script is sourced, not just at Tab-time).
+    assert "'(-v --verbose)'{'-v','--verbose'}" in script
+    # The old invalid quoted-pipe brace must be gone.
+    assert "'{-v|--verbose}'" not in script
+    # The old fully-unquoted brace form must be gone too.
+    assert "{-v,--verbose}" not in script
+
+
+def test_bash_choices_neutralize_command_substitution():
+    script = _danger_script("bash")
+    # The '$' in a hostile choice is backslash-escaped so compgen -W (which
+    # expands its word list) cannot run the substitution.
+    assert "\\$(touch pwned)" in script
+    # And the raw, unescaped command substitution must NOT appear in a word list.
+    assert '-W "$(touch pwned)' not in script
+
+
+def test_zsh_choice_escaped_for_the_dynamic_eval_too():
+    """zsh's `_arguments` evaluates a choice list a SECOND time; a value must
+    survive that pass literally, not just the static script parse."""
+    script = _danger_script("zsh")
+    # `$` and `(`/`)` from the hostile choice must not appear un-escaped.
+    assert "$(touch pwned)" not in script
+    assert "\\$\\(touch\\ pwned\\)" in script
+    # The apostrophe choice is escaped for the dynamic eval (backslash) before
+    # being wrapped for the static parse (the doubled '\'' quote dance).
+    assert "it\\'\\''s" in script
+
+
+def test_fish_choice_escaped_for_the_dynamic_eval_too():
+    """fish expands a `complete -a` argument a SECOND time at Tab-time; a
+    value must survive that pass literally too. The backslashes from that
+    first (dynamic-eval) escaping are themselves doubled by `_fsq`'s
+    static-parse quoting (it escapes `\\` before `'`), so the hostile
+    choice's `\\$`/`\\(`/`\\)` each end up as TWO backslashes here."""
+    script = _danger_script("fish")
+    assert "$(touch pwned)" not in script
+    assert "\\\\$\\\\(touch\\\\ pwned\\\\)" in script
+    assert "it\\\\\\'s" in script
+
+
+def test_prog_with_whitespace_rejected():
+    parser = _Danger._parser_()
+    parser.prog = "evil prog"
+    with pytest.raises(ValueError):
+        completion.bash(parser)
+
+
+def test_prog_with_metachar_rejected():
+    parser = _Danger._parser_()
+    parser.prog = "evil$(x)"
+    with pytest.raises(ValueError):
+        completion.zsh(parser)
+
+
+class _OldFlag(Args):
+    """App with an old-style single-dash multi-char flag and a documented sub."""
+
+    rc: str = ""
+    "Old-style flag"
+    ("-rc", "--runconfig")
+
+
+def test_fish_oldstyle_flag_uses_o():
+    """A single-dash multi-char flag (``-rc``) uses fish's ``-o``, never ``-s``
+    (which is reserved for single-char short flags)."""
+    script = completion.fish(_OldFlag._parser_())
+    assert "-o 'rc'" in script
+    assert "-s 'rc'" not in script
+
+
+def test_bash_completion_does_not_execute_hostile_choice(tmp_path):
+    """Driving the bash completion with a hostile choice must NOT run it.
+
+    Calls the REAL registered function name (`completion._bash_func_name`),
+    not a guessed one -- an earlier version of this test called a name the
+    emitter never defines, so it always exited 127 ("command not found")
+    and the assertion passed vacuously no matter what the emitter did. Also
+    runs with cwd=tmp_path and a relative marker name so a regression can't
+    write a stray file into the repo root.
+    """
+    if not _BASH:
+        pytest.skip("bash not available on this machine")
+
+    marker = tmp_path / "pwned"
+
+    class _Attack(Args):
+        """attack"""
+
+        mode: ty.Literal["safe"] = "safe"  # placeholder; real value injected below
+        "m"
+        ("--mode",)
+
+    # Inject a hostile choice directly on the built parser's action.
+    parser = _Attack._parser_()
+    parser.prog = "_Attack"
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("$(touch pwned)", "safe")
+    script = completion.bash(parser)
+    func = completion._bash_func_name(parser.prog)
+
+    harness = script + (
+        f'\nCOMP_WORDS=({parser.prog} --mode "")\nCOMP_CWORD=2\n{func}\n'
+        "printf '%s\\n' \"${COMPREPLY[@]}\"\n"
+    )
+    result = subprocess.run(
+        [_BASH, "-c", harness],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+    assert list(os.listdir(tmp_path)) == []
+    assert any("touch" in c for c in result.stdout.splitlines())
+
+
+def test_bash_script_valid_with_hostile_choices():
+    if not _BASH:
+        pytest.skip("bash not available on this machine")
+    script = _danger_script("bash")
+    result = subprocess.run([_BASH, "-n", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_zsh_script_valid_if_available():
+    zsh_path = shutil.which("zsh")
+    if not zsh_path:
+        pytest.skip("zsh not available")
+    script = _danger_script("zsh")
+    result = subprocess.run(
+        [zsh_path, "-n", "-c", script], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_fish_script_valid_if_available():
+    fish_path = shutil.which("fish")
+    if not fish_path:
+        pytest.skip("fish not available")
+    script = _danger_script("fish")
+    result = subprocess.run(
+        [fish_path, "--no-execute", "/dev/stdin"],
+        input=script,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # --- --print-completion wiring ----------------------------------------------
 
 

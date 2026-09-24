@@ -4,6 +4,7 @@ Centralizes all version-specific logic and fallbacks.
 """
 
 import logging as _logging
+import sys as _sys
 import types as _types
 import typing as _ty
 
@@ -84,10 +85,69 @@ def iter_entry_points(group: str) -> "list":
         return result
 
 
+def write_machine(text: str, stream=None) -> None:
+    """Write machine-consumed (non-prose) text -- JSON agent-help documents, a
+    completion script, an MCP frame -- as literal UTF-8 bytes with LF-only
+    newlines (C008/O042).
+
+    On Windows, writing through the normal ``stream.write(str)`` text layer
+    (1) translates every ``\\n`` to ``\\r\\n``, and (2) encodes using the
+    console/redirect code page (``cp1252`` on this machine), which raises
+    ``UnicodeEncodeError`` -- empty output, exit 1 -- for any character
+    outside it (arrows, checkmarks, CJK/Greek text), and silently mangles
+    Latin-1 text a UTF-8-expecting reader then rejects. Writing raw UTF-8
+    bytes to the stream's underlying binary ``.buffer`` (present on a real
+    ``sys.stdout``/text file, Windows included) sidesteps both, so a machine
+    document survives any host locale. Falls back to the plain text
+    ``.write`` for a stream with no ``.buffer`` (``io.StringIO``, a caller's
+    own non-binary-backed file-like).
+    """
+    if stream is None:
+        stream = _sys.stdout
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        stream.flush()
+        buffer.write(text.encode("utf-8"))
+        buffer.flush()
+    else:
+        stream.write(text)
+
+
+def write_human(text: str, stream=None) -> None:
+    """Write human-facing prose -- help text, a CLI's status/error messages --
+    tolerating any character the stream's own encoding can't represent
+    (C008/O042).
+
+    Unlike :func:`write_machine`, human output should still look right in the
+    reader's own terminal/code page (an accented letter renders correctly
+    under ``cp1252``), so this keeps the stream's own encoding rather than
+    forcing UTF-8 -- only a character genuinely outside that encoding is
+    escaped (``errors="backslashreplace"``, e.g. ``\\u2192`` for an arrow)
+    instead of raising ``UnicodeEncodeError`` and losing the whole message.
+    """
+    if stream is None:
+        stream = _sys.stdout
+    buffer = getattr(stream, "buffer", None)
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    if buffer is not None:
+        stream.flush()
+        buffer.write(text.encode(encoding, errors="backslashreplace"))
+        buffer.flush()
+    else:
+        try:
+            stream.write(text)
+        except UnicodeEncodeError:
+            stream.write(
+                text.encode(encoding, errors="backslashreplace").decode(encoding)
+            )
+
+
 __all__ = [
     "UNION_ORIGINS",
     "BOOL_TRUE",
     "BOOL_FALSE",
     "get_level_names_mapping",
     "iter_entry_points",
+    "write_machine",
+    "write_human",
 ]

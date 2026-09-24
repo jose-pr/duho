@@ -117,6 +117,93 @@ def _opt(spec, dest):
 
 
 # --------------------------------------------------------------------------
+# C001: env/config secret values are never leaked as agent-help defaults
+# --------------------------------------------------------------------------
+
+
+class SecretDeploy(Cmd):
+    """Deploy something using a secret."""
+
+    token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_SECRET")] = ""
+    "Auth token"
+    ("--token",)
+
+    password: str = ""
+    "DB password"
+    ("--password",)
+
+    def __call__(self):
+        return 0
+
+
+class SecretApp(Cli):
+    """App with an env-bound secret field of its own, plus a subcommand with
+    an env- and config-bound secret of ITS own."""
+
+    _version_ = "1.0.0"
+    _agent_help_ = True
+    _subcommands_ = [SecretDeploy]
+
+    root_token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_ROOT_SECRET")] = ""
+    "Root-level auth token"
+    ("--root-token",)
+
+
+def test_agent_help_flag_redacts_root_env_secret(monkeypatch, capsys):
+    # `--help-agents` alone never selects (or parses into) a subcommand, so
+    # only the ROOT's own env/config-bound fields are ever actually layered
+    # for this invocation -- exercised here on `root_token`.
+    monkeypatch.setenv("DUHO_TEST_AGENTHELP_ROOT_SECRET", "root-s3cr3t-api-key")
+    with pytest.raises(SystemExit):
+        duho.main(SecretApp, ["--help-agents"])
+    out = capsys.readouterr().out
+
+    assert "root-s3cr3t-api-key" not in out
+    doc = json.loads(out)
+    root_token = next(o for o in doc["options"] if o["dest"] == "root_token")
+    assert root_token["default"] is None
+    assert root_token["default_source"] == "env DUHO_TEST_AGENTHELP_ROOT_SECRET"
+
+
+def test_agent_help_no_secret_leaves_default_untouched(monkeypatch, capsys):
+    # No env/config value in play: the class default still shows normally,
+    # and no `default_source` key is added.
+    monkeypatch.delenv("DUHO_TEST_AGENTHELP_ROOT_SECRET", raising=False)
+    with pytest.raises(SystemExit):
+        duho.main(SecretApp, ["--help-agents"])
+    doc = json.loads(capsys.readouterr().out)
+    root_token = next(o for o in doc["options"] if o["dest"] == "root_token")
+    assert root_token["default"] == ""
+    assert "default_source" not in root_token
+
+
+def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secret(
+    tmp_path, monkeypatch, capsys
+):
+    # `AGENT_HELP=1 app SecretDeploy --help` DOES parse into the subcommand,
+    # so both its env- and config-bound fields get layered for real before
+    # this fires -- the flagship leak scenario the finding reproduced.
+    monkeypatch.setenv("AGENT_HELP", "1")
+    monkeypatch.setenv("DUHO_TEST_AGENTHELP_SECRET", "s3cr3t-api-key")
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('[SecretDeploy]\npassword = "cfg-db-password"\n')
+
+    with pytest.raises(SystemExit):
+        duho.main(SecretApp, ["SecretDeploy", "--help"], config=cfg)
+    out = capsys.readouterr().out
+
+    assert "s3cr3t-api-key" not in out
+    assert "cfg-db-password" not in out
+    doc = json.loads(out)
+    token = next(o for o in doc["options"] if o["dest"] == "token")
+    password = next(o for o in doc["options"] if o["dest"] == "password")
+    assert token["default"] is None
+    assert token["default_source"] == "env DUHO_TEST_AGENTHELP_SECRET"
+    assert password["default"] is None
+    assert password["default_source"] == "config"
+
+
+# --------------------------------------------------------------------------
 # Document shape
 # --------------------------------------------------------------------------
 
@@ -324,3 +411,106 @@ def test_print_agent_help_writes_json(tmp_path):
         duho.print_agent_help(App, file=fh)
     doc = json.loads(out.read_text(encoding="utf-8"))
     assert doc["schema"] == SCHEMA
+
+
+# --------------------------------------------------------------------------
+# C019: agent-help type strings are version-independent
+# --------------------------------------------------------------------------
+
+
+class TypeStrings(Cmd):
+    """Fields exercising every type-string rendering path."""
+
+    port: ty.Optional[int] = None
+    "Port"
+    ("--port",)
+
+    tags: ty.List[str]
+    "Tags"
+    ("--tags",)
+
+    colors: ty.List[Color]
+    "Colors"
+    ("--colors",)
+
+    maybe: ty.Optional[Color] = None
+    "Maybe a color"
+    ("--maybe",)
+
+    color: Color = Color.RED
+    "A color"
+    ("--color",)
+
+    def __call__(self):
+        return 0
+
+
+def test_type_strings_are_version_independent():
+    # Pinned to one canonical spelling regardless of interpreter: 3.9/3.10
+    # used to render a bare `list[str]` as `list` (losing the element type)
+    # and `Optional[int]`; 3.14 renders unions as `int | None`. A qualified
+    # Enum used to appear only inside a generic (`list[__main__.Color]`).
+    doc = describe(TypeStrings)
+    opts = {o["dest"]: o for o in doc["options"]}
+    assert opts["port"]["type"] == "int | None"
+    assert opts["tags"]["type"] == "list[str]"
+    assert opts["colors"]["type"] == "list[Color]"
+    assert opts["maybe"]["type"] == "Color | None"
+    assert opts["color"]["type"] == "Color"
+
+
+# --------------------------------------------------------------------------
+# C020: the synthesized minimal invocation always includes <command>
+# --------------------------------------------------------------------------
+
+
+class ReqRootSub(Cmd):
+    """A trivial subcommand."""
+
+    def __call__(self):
+        return 0
+
+
+class ReqRootApp(Cli):
+    """Root requiring a global option, plus a subcommand."""
+
+    _subcommands_ = [ReqRootSub]
+
+    region: str
+    "Region"
+    ("--region", "-r")
+
+
+def test_synthesized_example_keeps_command_with_required_root_option():
+    doc = describe(ReqRootApp)
+    example = doc["examples"][0]["command"]
+    # `<command>` survives even though a root option is also required
+    # (duho's subparsers are always `required=True`, independent of that);
+    # the long flag is preferred over the short alias.
+    assert example == "ReqRootApp --region REGION <command>"
+    parser = ReqRootApp._parser_()
+    parsed = parser.parse_args(["--region", "x", "ReqRootSub"])
+    assert parsed is not None
+
+
+# --------------------------------------------------------------------------
+# C021: subcommand-scoped agent help still reports the APP's version/exit
+# codes, while examples stay scoped to the current command
+# --------------------------------------------------------------------------
+
+
+def test_env_trigger_scoped_help_reports_root_version_and_exit_codes(
+    monkeypatch, capsys
+):
+    monkeypatch.setenv("AGENT_HELP", "1")
+    parser = App._parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["Deploy", "--help"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["prog"] == "App Deploy"
+    assert doc["version"] == "9.9.9"
+    assert doc["exit_codes"]["3"] == "Custom failure."
+    # Deploy declares no `_examples_` of its own: a Deploy-scoped example is
+    # synthesized, not the app's unrelated root-level declared example.
+    assert doc["examples"][0]["command"].startswith("App Deploy")
+    assert doc["examples"][0]["command"] != "myapp Deploy --env prod ./src"

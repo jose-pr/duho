@@ -38,9 +38,9 @@ import argparse as _argparse
 import enum as _enum
 import os as _os
 import pathlib as _pathlib
-import sys as _sys
 import typing as _ty
 
+from . import _compat as _compat
 from . import _introspect as _introspect
 
 __all__ = [
@@ -91,14 +91,49 @@ def agent_help_requested(env_name=None, environ=None):
     return raw.strip().lower() not in _FALSEY
 
 
-def _render_annotation(tp):
-    """A readable type string for a declared annotation (never raises)."""
-    if tp is _NOT_DEFINED or tp is None:
-        return None
+def _render_type(tp) -> str:
+    """One canonical, version-independent spelling for a type, recursively.
+
+    Used by :func:`_render_annotation` (never called with ``tp`` being
+    ``None``/``NOT_DEFINED`` -- that's handled by the caller). Plain classes
+    render by ``__name__`` even nested inside a generic (``Color``, never
+    ``list[__main__.Color]``); a union always renders as ``X | Y`` (never
+    ``Optional[X]``/``Union[X, Y]``) so the same field renders identically on
+    every supported interpreter, unlike ``isinstance(tp, type)`` +
+    ``str(tp)`` (3.9/3.10 render a bare ``list[str]`` as `list`, since a
+    parameterized generic alias there passes ``isinstance(tp, type)``; 3.9
+    spells a union ``Optional[int]``/``Union[int, str]``, 3.14 spells it
+    ``int | None``/``int | str``).
+    """
     if isinstance(tp, type):
         return tp.__name__
-    # e.g. list[int], typing.Optional[str] -> "list[int]", "Optional[str]".
-    return str(tp).replace("typing.", "")
+    origin = _ty.get_origin(tp)
+    if origin is None:
+        # A bare typing special form with no origin (rare here) -- fall back
+        # to its own name, else its str() with the "typing." prefix dropped.
+        return getattr(tp, "__name__", None) or str(tp).replace("typing.", "")
+    args = _ty.get_args(tp)
+    if origin in _compat.UNION_ORIGINS:
+        members = [a for a in args if a is not type(None)]
+        rendered = " | ".join(_render_type(m) for m in members)
+        if len(members) != len(args):
+            rendered += " | None"
+        return rendered
+    origin_name = getattr(origin, "__name__", None) or str(origin).replace(
+        "typing.", ""
+    )
+    if not args:
+        return origin_name
+    return f"{origin_name}[{', '.join(_render_type(a) for a in args)}]"
+
+
+def _render_annotation(tp):
+    """A readable, version-independent type string for a declared annotation
+    (never raises) -- e.g. always ``list[int]``, ``int | None`` (C019).
+    """
+    if tp is _NOT_DEFINED or tp is None:
+        return None
+    return _render_type(tp)
 
 
 def _jsonable(value):
@@ -216,9 +251,36 @@ def _expand_action_help(action, prog: str) -> str:
         return text.replace("%%", "%")
 
 
-def _describe_option(action, clsargs, builders, prog: str):
+def _default_and_source(dest, builder, action, sources):
+    """``(default, default_source)`` for one field (C001).
+
+    ``action.default`` may already have been overwritten by
+    ``_stage_layers``/``_apply_default_layers_one`` with the CURRENT env var
+    or config-file value -- a secret, in the flagship documented
+    ``NS(env=...)`` example -- before ``--help``/``--help-agents`` renders.
+    Report the CLASS-declared default instead (``builder._effective_default_()``,
+    the same source ``duho.mcp`` already uses), and -- when the field's value
+    actually came from env or config -- a value-free provenance note in place
+    of ANY value, per the documented no-secrets-in-agent-help contract. An
+    ``instance=`` override is a caller-constructed Python value, not
+    env/filesystem-sourced, so it keeps showing its class default with no
+    note, same as an untouched field.
+    """
+    if builder is None:
+        return _jsonable(action.default), None
+    source = (sources or {}).get(dest)
+    if source == "env":
+        env_var = getattr(builder, "env", None)
+        return None, f"env {env_var}" if env_var else "env"
+    if source == "config":
+        return None, "config"
+    return _jsonable(builder._effective_default_()), None
+
+
+def _describe_option(action, clsargs, builders, prog: str, sources=None):
     dest = action.dest
     builder = builders.get(dest)
+    default, default_source = _default_and_source(dest, builder, action, sources)
     info = {
         "names": list(action.option_strings),
         "dest": dest,
@@ -227,10 +289,12 @@ def _describe_option(action, clsargs, builders, prog: str):
         "required": bool(getattr(action, "required", False)),
         "takes_value": action.nargs != 0,
         "repeatable": _repeatable(action, builder),
-        "default": _jsonable(action.default),
+        "default": default,
         "choices": _choices(action, clsargs.get(dest)),
         "metavar": _metavar(action),
     }
+    if default_source is not None:
+        info["default_source"] = default_source
     if builder is not None:
         if getattr(builder, "env", None):
             info["env"] = builder.env
@@ -240,19 +304,24 @@ def _describe_option(action, clsargs, builders, prog: str):
     return info
 
 
-def _describe_positional(action, clsargs, builders, prog: str):
+def _describe_positional(action, clsargs, builders, prog: str, sources=None):
     dest = action.dest
-    return {
+    builder = builders.get(dest)
+    default, default_source = _default_and_source(dest, builder, action, sources)
+    info = {
         "name": dest,
         "help": _expand_action_help(action, prog),
         "type": _type_of(dest, clsargs, action),
         "nargs": action.nargs,
         "required": action.nargs not in ("?", "*"),
         "repeatable": action.nargs in ("*", "+"),
-        "default": _jsonable(action.default),
+        "default": default,
         "choices": _choices(action, clsargs.get(dest)),
         "metavar": _metavar(action),
     }
+    if default_source is not None:
+        info["default_source"] = default_source
+    return info
 
 
 def _conflict_groups(builders):
@@ -272,12 +341,25 @@ def _conflict_groups(builders):
 
 
 def _synthesized_example(spec):
-    """A minimal invocation line built from a command's required arguments."""
+    """A minimal invocation line built from a command's required arguments.
+
+    Appends ``<command>`` whenever the spec has subcommands (C020): duho's own
+    subparsers are always built ``required=True``, so whether a command needs
+    a subcommand has nothing to do with whether some OTHER option is also
+    required -- the old ``and not any(required options)`` condition dropped
+    ``<command>`` from the example the moment a root also had a required
+    option, advertising an invocation that argparse itself rejects. Prefers
+    the first ``--long`` option string for the flag (the previous
+    ``names[-1]`` picked whichever spelling was declared last, often a terse
+    short flag like ``-t``).
+    """
     parts = [spec["prog"]]
     for option in spec["options"]:
         if not option["required"]:
             continue
-        flag = option["names"][-1] if option["names"] else option["dest"]
+        flag = next((n for n in option["names"] if n.startswith("--")), None)
+        if flag is None:
+            flag = option["names"][0] if option["names"] else option["dest"]
         if option["takes_value"]:
             parts.append(f"{flag} {option['metavar'] or option['dest'].upper()}")
         else:
@@ -285,7 +367,7 @@ def _synthesized_example(spec):
     for positional in spec["positionals"]:
         token = f"<{positional['name']}>"
         parts.append(token if positional["required"] else f"[{positional['name']}]")
-    if spec["subcommands"] and not any(o["required"] for o in spec["options"]):
+    if spec["subcommands"]:
         parts.append("<command>")
     return " ".join(parts)
 
@@ -339,6 +421,40 @@ def _cls_metadata(parser):
     return builders, clsargs
 
 
+def stash_default_provenance(parser) -> None:
+    """Snapshot each of ``parser``'s actions' CLASS default (and env/config
+    provenance) onto the action itself, for :class:`duho.formatters.DefaultsFormatter`
+    to read (C001).
+
+    ``DefaultsFormatter._get_help_string`` only ever receives ``action``, never
+    ``parser`` -- argparse's own ``HelpFormatter`` API has no seam for it --
+    so it cannot itself consult ``parser._duho_value_sources_``/``cls._getargs_()``
+    the way :func:`describe_parser` does for the JSON document. Called from
+    ``args.py``'s ``_AgentHelpAction`` right before it renders human help (the
+    one place in the print path that still has both ``parser`` and the
+    about-to-render actions), so ``--help`` never shows a live env/config
+    value either, matching the JSON document's own redaction. A no-op for a
+    parser with no duho class behind it, or one that was never parsed (no
+    ``_duho_value_sources_`` -- every field's ``action.default`` is already
+    just its class default there, nothing to redact).
+    """
+    cls = getattr(parser, "_duho_cls_", None)
+    if cls is None:
+        return
+    try:
+        builders = {b.name: b for b in cls._getargs_()}
+    except Exception:  # pragma: no cover - introspection is best-effort here
+        return
+    sources = getattr(parser, "_duho_value_sources_", None) or {}
+    for action in parser._actions:
+        builder = builders.get(action.dest)
+        if builder is None:
+            continue
+        default, source = _default_and_source(action.dest, builder, action, sources)
+        action._duho_class_default_ = default  # type: ignore[attr-defined]
+        action._duho_default_source_ = source  # type: ignore[attr-defined]
+
+
 def describe_parser(
     parser, *, root=False, root_cls=None, name=None, aliases=None, _seen=None
 ):
@@ -353,6 +469,13 @@ def describe_parser(
         _seen = set()
     builders, clsargs = _cls_metadata(parser)
     cls = getattr(parser, "_duho_cls_", None)
+    # C001: which of THIS parser's fields are currently showing a live
+    # env/config value on `action.default` -- populated by
+    # `_stage_layers`/`_apply_default_layers_one` only once an actual parse
+    # is underway (e.g. via `duho.main`/`duho.parse`/`duho.app`); absent
+    # (``None``) for a freshly built, never-parsed parser, in which case
+    # every field's `action.default` is already just its class default.
+    sources = getattr(parser, "_duho_value_sources_", None)
 
     spec = {}
     if root:
@@ -369,12 +492,20 @@ def describe_parser(
     # description that genuinely contains a literal `%%`; read it as stored.
     spec["description"] = (parser.description or "").strip()
     if root:
+        # C021: version comes from the APP'S ROOT class, not this node's own
+        # `cls` -- a subcommand-scoped document (``AGENT_HELP=1 app sub
+        # --help``) would otherwise report `version: null` for a subcommand
+        # that (like almost every subcommand) declares no `_version_` of its
+        # own. `root_cls` is `None` only when `describe_parser` was called
+        # directly on a raw/never-rooted parser, in which case `cls` is the
+        # best available fallback (matches the pre-C021 behavior there).
         version = None
-        if cls is not None:
+        version_cls = root_cls if root_cls is not None else cls
+        if version_cls is not None:
             from .args import _resolve_version
 
             try:
-                version = _resolve_version(cls)
+                version = _resolve_version(version_cls)
             except Exception:  # pragma: no cover - version resolution is best-effort
                 version = None
         spec["version"] = version
@@ -388,10 +519,12 @@ def describe_parser(
             subparsers_action = action
             continue
         if action.option_strings:
-            options.append(_describe_option(action, clsargs, builders, parser.prog))
+            options.append(
+                _describe_option(action, clsargs, builders, parser.prog, sources)
+            )
         else:
             positionals.append(
-                _describe_positional(action, clsargs, builders, parser.prog)
+                _describe_positional(action, clsargs, builders, parser.prog, sources)
             )
     spec["options"] = options
     spec["positionals"] = positionals
@@ -432,9 +565,16 @@ def describe_parser(
     spec["subcommands"] = subcommands
 
     if root:
-        target_cls = root_cls if root_cls is not None else cls
-        spec["exit_codes"] = _exit_codes(target_cls)
-        spec["examples"] = _examples(target_cls, spec)
+        # Exit codes, like version, come from the APP'S ROOT class (C021) --
+        # a subcommand can still return one of the app's documented codes
+        # even though it declares no `_exit_codes_` of its own. Examples stay
+        # scoped to the CURRENT command (`cls`, not `root_cls`): an app's
+        # root-level `_examples_` is not necessarily meaningful help for
+        # "just this subcommand", so a subcommand with no `_examples_` of its
+        # own keeps getting one synthesized from ITS OWN spec, as before.
+        exit_cls = root_cls if root_cls is not None else cls
+        spec["exit_codes"] = _exit_codes(exit_cls)
+        spec["examples"] = _examples(cls, spec)
     return spec
 
 
@@ -457,14 +597,27 @@ def render(spec):
     its import cost -- only actually rendering an agent-help document does. This
     keeps the framework's zero-eager-``json`` contract (see
     ``tests/test_config_json.py::test_json_import_is_lazy``).
+
+    ``ensure_ascii=True`` (C008): a non-ASCII character (an arrow in a
+    docstring, a Latin-1 accent) written through a piped Windows stdout's
+    text layer raises ``UnicodeEncodeError`` (empty output, exit 1) or comes
+    out console-code-page-encoded instead of UTF-8. ASCII-escaping every
+    non-ASCII character survives any stream encoding and decodes back to the
+    identical string, at the cost of a few extra bytes and less readable raw
+    JSON -- irrelevant for a document meant to be parsed, not read.
     """
     import json as _json
 
-    return _json.dumps(spec, indent=2, ensure_ascii=False) + "\n"
+    return _json.dumps(spec, indent=2, ensure_ascii=True) + "\n"
 
 
 def print_agent_help(cls, file=None):
-    """Print ``cls``'s agent-help JSON document to ``file`` (default stdout)."""
-    if file is None:
-        file = _sys.stdout
-    file.write(render(describe(cls)))
+    """Print ``cls``'s agent-help JSON document to ``file`` (default stdout).
+
+    Written via :func:`duho._compat.write_machine` (C008/O042): raw UTF-8
+    bytes with LF-only newlines, bypassing ``file``'s text-mode encoding and
+    newline translation, the same writer ``args.py``'s agent-help actions use
+    -- so this standalone entry point and the ``-h``/``--help-agents``
+    triggers behave identically on any host encoding.
+    """
+    _compat.write_machine(render(describe(cls)), file)

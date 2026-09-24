@@ -843,28 +843,16 @@ _COMPLETION_SHELLS = ("bash", "zsh", "fish", "powershell")
 
 
 def _write_machine_text(text: str, file=None) -> None:
-    """Write machine-consumed (non-prose) text -- a completion script -- as
-    literal UTF-8 bytes, bypassing the text layer's newline translation and
-    console code page.
+    """Write machine-consumed (non-prose) text -- a completion script, an
+    agent-help JSON document -- as literal UTF-8 bytes, bypassing the text
+    layer's newline translation and console code page.
 
-    On Windows, writing through the normal `file.write(str)` text layer (1)
-    translates every ``\\n`` to ``\\r\\n``, which a real (WSL/Linux/macOS) bash
-    then refuses to `source`, and (2) encodes using the console's ANSI code
-    page, which mangles/crashes on a non-ASCII choice or subcommand docstring
-    outside it. Writing raw UTF-8 bytes to the stream's underlying binary
-    `.buffer` (present on a real `sys.stdout`/text file, Windows included)
-    sidesteps both. Falls back to the plain text `write` for a stream with no
-    `.buffer` (e.g. `io.StringIO`, or pytest's capture stream).
+    Thin alias kept under its original name (used at several call sites in
+    this module); the actual implementation is the shared
+    ``duho._compat.write_machine`` writer also used by ``duho.agenthelp`` and
+    ``duho.mcp`` (C008/O042), so every machine-readable output path agrees.
     """
-    if file is None:
-        file = _sys.stdout
-    buffer = getattr(file, "buffer", None)
-    if buffer is not None:
-        file.flush()
-        buffer.write(text.encode("utf-8"))
-        buffer.flush()
-    else:
-        file.write(text)
+    _compat.write_machine(text, file)
 
 
 def _command_name(command) -> str:
@@ -993,9 +981,12 @@ class _AgentHelpAction(_argparse._HelpAction):
     exits 0; otherwise it defers to the normal human ``_HelpAction``.
     """
 
-    #: The duho class behind this parser (for version/exit-code/example lookup);
-    #: the trigger env-var name (``None`` -> the ``AGENT_HELP`` default). Both are
-    #: set as instance attrs right after the ``__class__`` swap.
+    #: The app's ROOT duho class (for version/exit-code lookup -- C021: kept
+    #: distinct from THIS parser's own ``_duho_cls_``, which stays the current
+    #: node so a subcommand-scoped document still reports the APP's version
+    #: and exit codes, not its own usually-unset ones); the trigger env-var
+    #: name (``None`` -> the ``AGENT_HELP`` default). Both are set as instance
+    #: attrs right after the ``__class__`` swap.
     _duho_agent_cls = None
     _duho_agent_env = None
 
@@ -1006,9 +997,22 @@ class _AgentHelpAction(_argparse._HelpAction):
             spec = _agenthelp.describe_parser(
                 parser, root=True, root_cls=self._duho_agent_cls
             )
-            parser._print_message(_agenthelp.render(spec), _sys.stdout)
+            _compat.write_machine(_agenthelp.render(spec), _sys.stdout)
             parser.exit()
-        super().__call__(parser, namespace, values, option_string)
+        # Human help (C001): show only each field's CLASS default, never a
+        # live env/config value `_stage_layers`/`_apply_default_layers_one`
+        # may have already installed as `action.default` for THIS invocation
+        # -- `DefaultsFormatter` only ever sees `action`, never `parser`, so
+        # the class default + provenance is stashed onto each action here,
+        # the one place in the print path that still has both.
+        _agenthelp.stash_default_provenance(parser)
+        # C008/O042: write via the stream's own encoding with a lossy
+        # fallback (`errors="backslashreplace"`) instead of argparse's own
+        # `_print_message`, which writes strict-encoded text and raises
+        # `UnicodeEncodeError` (empty output, exit 1) for a docstring/help
+        # character outside a piped Windows console's code page.
+        _compat.write_human(parser.format_help(), _sys.stdout)
+        parser.exit()
 
 
 class _AgentHelpFlagAction(_argparse.Action):
@@ -1032,11 +1036,11 @@ class _AgentHelpFlagAction(_argparse.Action):
 
         root = self.root_parser if self.root_parser is not None else parser
         spec = _agenthelp.describe_parser(root, root=True, root_cls=self.root_cls)
-        parser._print_message(_agenthelp.render(spec), _sys.stdout)
+        _compat.write_machine(_agenthelp.render(spec), _sys.stdout)
         parser.exit()
 
 
-def _install_agent_help(parser, cls, is_subcommand):
+def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
     """Wire up both agent-help triggers on a freshly built parser.
 
     1. Stash ``cls`` on the parser as ``_duho_cls_`` so the emitter can enrich
@@ -1048,8 +1052,19 @@ def _install_agent_help(parser, cls, is_subcommand):
        normal human help is unchanged.
     3. On the top-level parser only, when ``_agent_help_ = True``, add the opt-in
        ``--help-agents`` flag (guarded against a duplicate dest).
+
+    ``agent_root_cls`` (C021) is the APP's true root class, threaded down from
+    :meth:`Args._parser_`'s own recursive ``_subcommands_`` build (mirrors how
+    ``_inherited_formatter_class_`` propagates the effective help formatter) --
+    ``None`` at the true top level, where ``cls`` itself IS the root. It is
+    stashed on the (possibly swapped) help action as ``_duho_agent_cls`` so a
+    subcommand-scoped document (``AGENT_HELP=1 app sub --help``) still reports
+    the APP's own ``_version_``/``_exit_codes_``, not the subcommand's usually
+    unset ones -- ``_duho_cls_`` itself stays ``cls`` (the current node), since
+    field metadata must still come from THIS node, not the root.
     """
     parser._duho_cls_ = cls  # type: ignore[attr-defined]
+    root_cls = agent_root_cls if agent_root_cls is not None else cls
 
     env_name = getattr(cls, "_agent_help_env_", None)
     for action in parser._actions:
@@ -1057,7 +1072,7 @@ def _install_agent_help(parser, cls, is_subcommand):
             action, _AgentHelpAction
         ):
             action.__class__ = _AgentHelpAction
-            action._duho_agent_cls = cls  # type: ignore[attr-defined]
+            action._duho_agent_cls = root_cls  # type: ignore[attr-defined]
             action._duho_agent_env = env_name  # type: ignore[attr-defined]
 
     if not is_subcommand and getattr(cls, "_agent_help_", False):
@@ -1068,7 +1083,7 @@ def _install_agent_help(parser, cls, is_subcommand):
                 dest="help_agents",
                 action=_AgentHelpFlagAction,
                 root_parser=parser,
-                root_cls=cls,
+                root_cls=root_cls,
                 help="Show a detailed machine-readable description of this CLI "
                 "(for AI agents) and exit.",
             )
@@ -2713,6 +2728,7 @@ class Args(_argparse.Namespace):
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         init=True,
         _inherited_formatter_class_=None,
+        _inherited_agent_root_cls_=None,
         **kwargs,
     ) -> "_Parser[_Self]":
         if subparser:
@@ -2774,6 +2790,19 @@ class Args(_argparse.Namespace):
         )
         if effective_formatter is not None:
             kwargs.setdefault("formatter_class", effective_formatter)
+        # C021: the APP's true root class, threaded down through the whole
+        # `_subcommands_` tree the same way `_inherited_formatter_class_` is
+        # (see the recursive `sub._parser_(...)` call below) -- `None` here
+        # means THIS call is the actual top level, so `cls` itself is the
+        # root; a deeper node always keeps propagating the same value it
+        # received, never resetting to its own `cls`. Consumed by
+        # `_install_agent_help` (via `_initparser_`) so a subcommand-scoped
+        # agent-help document still reports the app's own version/exit codes.
+        agent_root_cls = (
+            _inherited_agent_root_cls_
+            if _inherited_agent_root_cls_ is not None
+            else cls
+        )
         if subparser:
             kwargs.setdefault(
                 "help",
@@ -2810,6 +2839,7 @@ class Args(_argparse.Namespace):
                     is_subcommand=bool(subparser),
                     parent_dests=parent_dests,
                     explicit_prog=explicit_prog,
+                    agent_root_cls=agent_root_cls,
                 )
 
             # A private, sandwich-named dest -- never a name a
@@ -2838,7 +2868,9 @@ class Args(_argparse.Namespace):
                 }
                 for sub in subcommands:
                     child = sub._parser_(
-                        subparsers, _inherited_formatter_class_=effective_formatter
+                        subparsers,
+                        _inherited_formatter_class_=effective_formatter,
+                        _inherited_agent_root_cls_=agent_root_cls,
                     )
                     # Link child -> parent so `_merge_layers_upward`
                     # (run from the child's own `_initparser_`-patched
@@ -2860,6 +2892,7 @@ class Args(_argparse.Namespace):
         is_subcommand: bool = False,
         parent_dests: "_ty.FrozenSet[str] | None" = None,
         explicit_prog: bool = False,
+        agent_root_cls: "type | None" = None,
     ):
         parent_dests = parent_dests if parent_dests is not None else frozenset()
 
@@ -3156,7 +3189,7 @@ class Args(_argparse.Namespace):
 
         # Agent help: stash the class for the emitter, make --help env-aware, and
         # add the opt-in --help-agents flag. See `_install_agent_help`.
-        _install_agent_help(parser, cls, is_subcommand)
+        _install_agent_help(parser, cls, is_subcommand, agent_root_cls=agent_root_cls)
 
         return parser
 

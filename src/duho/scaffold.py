@@ -39,6 +39,7 @@ import sys as _sys
 import typing as _ty
 from pathlib import Path as _Path
 
+from . import _compat as _compat
 from .args import AUTO as _AUTO, Cli as _Cli, main as _main
 
 __all__ = ["generate_launchers", "ScaffoldCmd"]
@@ -345,7 +346,14 @@ class ScaffoldCmd(_Cli):
             print("duho.scaffold: %s" % (exc,), file=_sys.stderr)
             return 1
         for path in written:
-            print(path)
+            # O042: both launchers are already written by this point --
+            # a `print(path)` that then raises `UnicodeEncodeError` (a
+            # non-cp1252 path piped on Windows) reported a successful run as
+            # a crash (exit 1), and the "obvious" re-run was then refused by
+            # `generate_launchers`' own no-clobber check. `write_human` shows
+            # each path using the stream's own encoding, escaping only a
+            # character genuinely outside it instead of raising.
+            _compat.write_human(str(path) + "\n", _sys.stdout)
         return 0
 
 

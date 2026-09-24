@@ -135,6 +135,3 @@ Thumbs.db
 *.local.md
 .claude/
 CLAUDE*
-
-# Benchmark run outputs (local, machine-specific)
-benchmarks/results/

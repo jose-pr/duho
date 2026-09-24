@@ -2,10 +2,13 @@
 """Shared benchmark core for duho.
 
 Home of the sample workloads (arg classes, subcommand trees, the field-type
-matrix) and the in-process **warm** metric functions, so ``run.py``,
-``update_baseline.py`` and ``check_baseline.py`` all measure the exact same
-things the same way. Kept dependency-free (stdlib + duho) and out of the sdist
-(``benchmarks/`` is excluded), so it never ships to users.
+matrix), the in-process **warm** metric functions, and the shared
+``benchmarks/results/<name>.json`` envelope writer, so ``run.py``,
+``update_baseline.py``, ``check_baseline.py``, ``bench_startup.py``,
+``bench_discovery.py`` and ``compare_cache.py`` all measure the exact same
+things the same way and emit the exact same JSON shape (see
+``benchmarks/README.md``). Kept dependency-free (stdlib + duho) and out of the
+sdist (``benchmarks/`` is excluded), so it never ships to users.
 
 A "warm" metric is a build/parse whose duho caches (`_duho_constants_`,
 `_duho_clsargs_`, `_duho_builders_`, the AST `lru_cache`) are already populated
@@ -17,9 +20,14 @@ metrics are stable enough to gate CI on; cold numbers are reported for insight.
 """
 
 import enum
+import json
+import platform
 import statistics
+import sys
 import timeit
 import typing as ty
+from datetime import datetime, timezone
+from pathlib import Path
 
 import duho
 from duho import Args, Cli, Cmd
@@ -286,3 +294,47 @@ def cold_metrics() -> "dict":
 
         metrics["cold.tree.%d" % n] = sample(_cold, COLD_INNER)
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Shared result envelope (REPO.md schema: name/python/platform/timestamp +
+# a ``metrics`` map of {min_ms, median_ms, max_ms}). Every script's --save /
+# --json goes through this so benchmarks/results/*.json is one shape.
+# ---------------------------------------------------------------------------
+
+#: Where every script's ``--save`` lands. Tracked and committed (REPO.md):
+#: this is what makes a before/after perf claim recoverable from the repo.
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+def result_envelope(name: str, metrics: dict, **extra) -> dict:
+    """Build the standard result document for ``name``: identifying fields
+    (python/platform/processor/timestamp) plus ``metrics`` (name -> either a
+    ``{min_ms, median_ms, max_ms}`` dict or a bare float, both of which
+    ``$ENGINEERING_OVERLAY_ROOT/tools/compare_bench.py`` reads). Extra keys
+    (e.g. ``duho_version``, ``iterations``) are merged in on top."""
+    result = {
+        "name": name,
+        "python": platform.python_version(),
+        "python_minor": "%d.%d" % (sys.version_info.major, sys.version_info.minor),
+        "platform": platform.platform(),
+        "processor": platform.processor() or platform.machine(),
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "metrics": metrics,
+    }
+    result.update(extra)
+    return result
+
+
+def save_result(dest_dir, name: str, metrics: dict, **extra) -> "Path":
+    """Write ``result_envelope(name, metrics, **extra)`` to
+    ``dest_dir/<name>.json`` (creating ``dest_dir`` if needed) and return the
+    path written."""
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = dest_dir / ("%s.json" % name)
+    out.write_text(
+        json.dumps(result_envelope(name, metrics, **extra), indent=2, sort_keys=True)
+        + "\n"
+    )
+    return out

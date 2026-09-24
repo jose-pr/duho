@@ -21,7 +21,7 @@ based introspection needs real on-disk source, never a ``python -c`` string
 import duho
 from duho import Arg, Args, NS
 from duho.args import (
-    _has_variadic_and_sibling_positional,
+    _has_variadic_positional,
     _reorder_argv_for_variadic_positional,
 )
 
@@ -78,24 +78,28 @@ class SubcommandRoot(Args):
 
 def test_shape_detected_for_fixed_then_variadic_positionals():
     parser = QueryArgs._parser_()
-    assert _has_variadic_and_sibling_positional(parser) is True
+    assert _has_variadic_positional(parser) is True
 
 
-def test_shape_not_detected_for_single_positional():
+def test_shape_detected_for_single_variadic_positional():
+    """A LONE variadic positional (no sibling) is ALSO the risky shape (A067):
+    a flag touching its own run gets swallowed as "unrecognized arguments"
+    (bpo-14191) just like the two-positional case does -- see
+    `test_lone_variadic_positional_with_flag_inside` below."""
     parser = SinglePositionalArgs._parser_()
-    assert _has_variadic_and_sibling_positional(parser) is False
+    assert _has_variadic_positional(parser) is True
 
 
 def test_shape_not_detected_for_fixed_arity_positionals_only():
     parser = FixedArityOnlyArgs._parser_()
-    assert _has_variadic_and_sibling_positional(parser) is False
+    assert _has_variadic_positional(parser) is False
 
 
 def test_subparsers_action_does_not_false_trigger():
     """A root with `_subcommands_` and no OTHER declared positional must not
     treat the subparsers action itself as a risky sibling positional."""
     parser = SubcommandRoot._parser_()
-    assert _has_variadic_and_sibling_positional(parser) is False
+    assert _has_variadic_positional(parser) is False
 
 
 # --------------------------------------------------------------------------
@@ -233,3 +237,57 @@ def test_variadic_nargs_flag_bails_unreordered_not_worse_than_baseline():
     argv = ["user", "-f", "username=root", "nas1"]
     reordered = _reorder_argv_for_variadic_positional(parser, list(argv))
     assert reordered == argv  # bailed, unchanged
+
+
+# --------------------------------------------------------------------------
+# A lone variadic positional (no sibling) is ALSO the risky shape (A067)
+# --------------------------------------------------------------------------
+
+
+def test_lone_variadic_positional_with_flag_inside():
+    """The exact A067 shape: a flag placed touching a LONE variadic
+    positional's own run, with no sibling positional at all. This used to be
+    swallowed as "unrecognized arguments" (bpo-14191) even though a previous
+    version of the gate's docstring claimed a lone variadic positional was
+    unaffected."""
+    result = duho.parse(SinglePositionalArgs, ["a.txt", "-v", "b.txt"])
+    assert result.targets == ["a.txt", "b.txt"]
+    assert result.verbose is True
+
+
+# --------------------------------------------------------------------------
+# Attached short-option values and unambiguous long prefixes (A048)
+# --------------------------------------------------------------------------
+
+
+class ShortFlagArgs(Args):
+    """Same shape as `QueryArgs`, but with a long alias on the `-f` flag so
+    an unambiguous `--filt` prefix has something to resolve to."""
+
+    ns: str
+    ("ns",)
+
+    targets: "list[str]" = []
+    ("targets",)
+
+    filters: "Arg[list, NS(action='append', nargs=None)]" = []
+    ("-f", "--filter")
+
+
+def test_attached_short_option_value_between_positionals():
+    """`-fVALUE` (the value glued directly onto a short flag) between two
+    positionals -- one of argparse's own accepted spellings, previously
+    missed by the reorder pass's exact-key/`--flag=value` recognition."""
+    result = duho.parse(ShortFlagArgs, ["user", "-fusername=root", "nas1"])
+    assert result.ns == "user"
+    assert result.targets == ["nas1"]
+    assert result.filters == ["username=root"]
+
+
+def test_unambiguous_long_prefix_between_positionals():
+    """`--filt` (an unambiguous prefix of `--filter`, argparse's own
+    `allow_abbrev` rule) between two positionals."""
+    result = duho.parse(ShortFlagArgs, ["user", "--filt", "username=root", "nas1"])
+    assert result.ns == "user"
+    assert result.targets == ["nas1"]
+    assert result.filters == ["username=root"]

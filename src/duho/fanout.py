@@ -53,6 +53,7 @@ import logging as _logging
 import typing as _ty
 
 from .args import _maybe_await as _maybe_await
+from .discovery import Command as _Command
 from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command
 
@@ -310,7 +311,7 @@ def run_targets(
 
 
 def fan_out_command(
-    command: object,
+    command: "_Command",
     make_instance: "_ty.Callable[[object], object]",
     targets: "_ty.Iterable[object]",
     *,
@@ -337,7 +338,7 @@ def fan_out_command(
 
     def _run_for(target: object) -> int:
         instance = make_instance(target)
-        return _run_command(_ty.cast("_ty.Any", command), instance, context=context)
+        return _run_command(command, instance, context=context)
 
     return run_targets(
         _run_for,

@@ -30,11 +30,9 @@ All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
 import importlib as _importlib
-import importlib.util as _importutil
 import inspect as _inspect
 import logging as _logging
 import os as _os
-import pkgutil as _pkgutil
 import sys as _sys
 import typing as _ty
 from pathlib import Path as _Path
@@ -414,6 +412,8 @@ def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
     of executing it again under a new key -- ``name`` is then unused for that
     call.
     """
+    import importlib.util as _importutil
+
     resolved = _os.fspath(_Path(path).resolve())
     try:
         mtime: object = _Path(path).stat().st_mtime
@@ -532,6 +532,12 @@ class CmdBuilder:
     returns; for an already-``Command`` source it is that object.
     """
 
+    #: Declared so a type checker sees the documented
+    #: ``duho.app(commands=[CmdBuilder(...).command])`` recipe as a properly
+    #: typed ``Command`` (D029), not the ``object`` a provider's own loose
+    #: ``Callable[[Path, str], object]`` signature would otherwise infer.
+    command: "Command"
+
     def __init__(
         self,
         qualname: "str | _PythonName",
@@ -553,11 +559,11 @@ class CmdBuilder:
 
     # -- resolution branches ------------------------------------------------
 
-    def _from_path(self, path: "_Path") -> object:
+    def _from_path(self, path: "_Path") -> "Command":
         path = path.absolute()
         builder = _match_provider(path)
         if builder is not None:
-            return builder(path, self.qualname)
+            return _ty.cast("Command", builder(path, self.qualname))
 
         if path.is_dir():
             if (path / "__init__.py").exists():
@@ -584,7 +590,7 @@ class CmdBuilder:
         module = _import_from_path(name, path)
         return self._wrap_module(module, stem=path.stem)
 
-    def _import_package_at(self, path: "_Path") -> object:
+    def _import_package_at(self, path: "_Path") -> "Command":
         """Import ``self.qualname`` as a package, verified to resolve to ``path``.
 
         ``find_spec`` on a dotted qualname is only consulted for its own
@@ -593,6 +599,8 @@ class CmdBuilder:
         silently importing whatever OTHER same-named package ``sys.path``
         happens to resolve first (D041).
         """
+        import importlib.util as _importutil
+
         try:
             spec = _importutil.find_spec(self.qualname)
         except (ImportError, ValueError):
@@ -611,7 +619,9 @@ class CmdBuilder:
         module = _importlib.import_module(self.qualname)
         return self._wrap_module(module)
 
-    def _from_import(self, qualname: str) -> object:
+    def _from_import(self, qualname: str) -> "Command":
+        import importlib.util as _importutil
+
         try:
             spec = _importutil.find_spec(qualname)
         except (ImportError, ValueError):
@@ -627,7 +637,7 @@ class CmdBuilder:
             location = _Path(list(spec.submodule_search_locations)[0])
             builder = _match_provider(location)
             if builder is not None:
-                return builder(location, qualname)
+                return _ty.cast("Command", builder(location, qualname))
         module = _importlib.import_module(qualname)
         return self._wrap_module(module)
 
@@ -699,6 +709,8 @@ def _importable_spec(name: str) -> object:
     bad/invalid name, a partially-initialised package) is treated the same as
     "not importable".
     """
+    import importlib.util as _importutil
+
     try:
         return _importutil.find_spec(name)
     except (ImportError, ValueError):
@@ -775,6 +787,8 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
 
 
 def _discover_from_package(dotted_name: str) -> "list[Command]":
+    import pkgutil as _pkgutil
+
     package = _importlib.import_module(dotted_name)
     search_path = getattr(package, "__path__", None)
     if not search_path:

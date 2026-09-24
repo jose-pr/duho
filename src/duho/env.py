@@ -31,6 +31,15 @@ _T = _ty.TypeVar("_T")
 #: alias instead sidesteps the shadow entirely, on every Python version.
 _bool = bool
 
+#: Same alias trick as ``_bool`` above, for ``list``: ``Env`` also declares a
+#: method named ``list`` (:meth:`Env.list`), so a quoted ``"list[_T]"``
+#: annotation elsewhere in the class body (e.g. :meth:`Env.paths`'s return
+#: type) resolves, under static type-checking, to the sibling METHOD rather
+#: than the builtin generic -- mypy reported ``Function "duho.env.Env.list"
+#: is not valid as a type``. Referencing this alias instead of the bare name
+#: sidesteps the shadow.
+_List = list
+
 #: A prefix is only ever auto-loaded as a companion-module name after this
 #: matches its NORMALISED form (upper-cased, ``-`` -> ``_``, trailing ``_``
 #: ensured -- see ``__init__``). Restricting autoload to ``[A-Za-z0-9_]``
@@ -98,13 +107,13 @@ class Env(_abc.MutableMapping):
         #: Explicit values: `**env` kwargs and any later `env[k] = v` runtime
         #: write. Outranks BOTH the real environment and the companion
         #: module -- a caller/runtime write is a deliberate override.
-        self._env: "dict[str, object]" = {}
+        self._env: "dict[str, str]" = {}
         #: Companion-module-seeded values. Genuinely lowest precedence: a
         #: shipped default must never shadow a real exported environment
         #: variable (that inversion was a bug -- see module CHANGELOG entry).
         #: Kept separate from `self._env` so `__getitem__` can consult
         #: `os.environ` BEFORE falling back to this layer.
-        self._defaults: "dict[str, object]" = {}
+        self._defaults: "dict[str, str]" = {}
         #: Tombstones: keys explicitly `del`eted that are still visible via
         #: `os.environ`/`self._defaults` (an override in `self._env` is
         #: removed outright instead -- see `__delitem__`). Makes the
@@ -211,7 +220,7 @@ class Env(_abc.MutableMapping):
 
     def list(
         self, key: str, sep: str = ":", ty: "_ty.Callable[[str], _T]" = str
-    ) -> "list[_T]":
+    ) -> "_List[_T]":
         """Return ``key`` split on ``sep`` with ``ty`` applied to each part.
 
         A missing or empty value yields ``[]`` -- an empty list, NOT ``[ty("")]``.
@@ -224,7 +233,7 @@ class Env(_abc.MutableMapping):
             return []
         return [ty(part) for part in raw.split(sep)]
 
-    def paths(self, key: str, ty: "_ty.Callable[[str], _T]" = str) -> "list[_T]":
+    def paths(self, key: str, ty: "_ty.Callable[[str], _T]" = str) -> "_List[_T]":
         """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
 
         Unlike :meth:`list` (whose ``sep`` defaults to ``":"`` for generic lists

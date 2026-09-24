@@ -29,7 +29,8 @@ from .args import (
     UpdateAction,
     value_sources,
 )
-from . import completion
+from .args import _A as _A
+from .args import _Parser as _Parser
 from .discovery import (
     CmdBuilder,
     Command,
@@ -58,25 +59,30 @@ from .text import camelcase, expand, gettext, pysafe, snakecase
 __version__ = "0.5.4"
 
 
-def parser(cls, *args, **kwargs):
+def parser(cls: "type[_A]", *args: object, **kwargs: object) -> "_Parser[_A]":
     """Build an ArgumentParser for an Args class.
 
-    Public module-level entry point (delegates to cls._parser_).
+    Public module-level entry point (delegates to ``cls._parser_``, matching
+    its own ``_Parser[Self]`` return typing so ``duho.parser(MyApp)`` keeps
+    ``MyApp``'s type instead of widening to ``Any``).
     """
     return cls._parser_(*args, **kwargs)
 
 
 def __getattr__(name):
-    """Lazily import the ``agenthelp`` submodule on first attribute access (PEP 562).
+    """Lazily import a feature submodule on first attribute access (PEP 562).
 
-    ``duho.agenthelp`` is a feature module only touched when agent help actually
-    fires (the ``AGENT_HELP`` trigger / ``--help-agents`` flag / ``print_agent_help``
-    -- all of which import it lazily at call time). Keeping it OUT of ``import
-    duho`` means a plain import resolves no extra submodule and pays no extra
-    import cost, while ``duho.agenthelp`` (and ``import duho.agenthelp``) still
-    work on demand.
+    ``duho.agenthelp`` and ``duho.completion`` are feature modules only touched
+    when their feature actually fires (agent help's ``AGENT_HELP`` trigger /
+    ``--help-agents`` flag / ``print_agent_help``; completion's
+    ``--print-completion`` action / ``print_completion()``) -- both already
+    import lazily at call time internally. Keeping them OUT of ``import duho``
+    means a plain import resolves no extra submodule (and, for ``completion``,
+    no extra ``shlex`` import) and pays no extra import cost, while
+    ``duho.agenthelp``/``duho.completion`` (and ``import duho.agenthelp``/
+    ``import duho.completion``) still work on demand.
     """
-    if name == "agenthelp":
+    if name in ("agenthelp", "completion"):
         import importlib
 
         module = importlib.import_module("." + name, __name__)

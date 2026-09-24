@@ -113,6 +113,7 @@ from . import __version__ as _DUHO_VERSION
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import agenthelp as _agenthelp
+from .args import ArgumentBuilder as _ArgumentBuilder
 from .args import Cmd as _Cmd
 from .args import _apply_layers as _apply_layers
 from .args import _command_name as _command_name
@@ -285,7 +286,7 @@ def _schema_for_type(tp: object) -> "dict":
     return {"type": "string"}
 
 
-def _is_required(builder: object) -> bool:
+def _is_required(builder: "_ArgumentBuilder") -> bool:
     """Whether a field must be supplied (no usable default at all).
 
     Derived from ``builder._kwargs()`` -- the SAME kwargs
@@ -322,7 +323,7 @@ def _is_required(builder: object) -> bool:
 
 
 def _description_for(
-    decl: "_introspect.ClsArgDeclaration | None", builder: object
+    decl: "_introspect.ClsArgDeclaration | None", builder: "_ArgumentBuilder"
 ) -> str:
     """The MCP description text for one field.
 
@@ -349,7 +350,7 @@ def _description_for(
 
 
 def json_schema_for_field(
-    decl: "_introspect.ClsArgDeclaration | None", builder: object
+    decl: "_introspect.ClsArgDeclaration | None", builder: "_ArgumentBuilder"
 ) -> "tuple[dict, bool]":
     """Build ``(json_schema, required)`` for one field from its declaration + builder.
 
@@ -384,7 +385,7 @@ def json_schema_for_field(
     return schema, required
 
 
-def input_schema_for_command(cls: type) -> "dict":
+def input_schema_for_command(cls: "type[_Cmd]") -> "dict":
     """Assemble a JSON-Schema ``object`` describing ``cls``'s own fields.
 
     ``properties``/``required``/``additionalProperties: false`` from
@@ -499,7 +500,7 @@ class _Node:
 _TREE_CACHE: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
 
 
-def _tree_for(root_cls: type) -> "tuple":
+def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
     """Return (and cache) ``root_cls``'s ``(root_parser, {dotted_name: _Node})``.
 
     Builds ``root_cls._parser_()`` exactly once and applies the SAME env/
@@ -621,7 +622,7 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     }
 
 
-def _conflict_note(cls: type) -> str:
+def _conflict_note(cls: "type[_Cmd]") -> str:
     """A short human-readable note for ``cls``'s ``NS(conflicts=...)`` groups.
 
     Exclusive groups are surfaced only as tool-description text in v1 (no
@@ -654,7 +655,7 @@ def _tool_spec(node: "_Node") -> "dict":
     }
 
 
-def describe_tools(root_cls: type) -> "list[dict]":
+def describe_tools(root_cls: "type[_Cmd]") -> "list[dict]":
     """Describe every callable command in ``root_cls``'s tree as MCP tool specs.
 
     Each ``Cmd`` reached by walking the built parser tree -- the root itself
@@ -680,7 +681,7 @@ def describe_tools(root_cls: type) -> "list[dict]":
 # --------------------------------------------------------------------------
 
 
-def _long_flag_or_first(builder: object) -> "tuple[str, bool]":
+def _long_flag_or_first(builder: "_ArgumentBuilder") -> "tuple[str, bool]":
     """The flag to encode a value under, and whether it is a long flag.
 
     Prefers the first declared ``--long`` flag (a value can then always be
@@ -938,7 +939,7 @@ def _muted_color(parsers: "_ty.Iterable[_argparse.ArgumentParser]"):
             p.color = old
 
 
-def call_tool(root_cls: type, name: object, arguments: object) -> "dict":
+def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict":
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
     Resolves ``name`` to a node in the cached tree (:func:`_tree_for`),
@@ -1057,7 +1058,7 @@ def call_tool(root_cls: type, name: object, arguments: object) -> "dict":
 # --------------------------------------------------------------------------
 
 
-def _resolve_app(spec: str) -> type:
+def _resolve_app(spec: str) -> "type[_Cmd]":
     """Resolve the ``<app>`` CLI argument (a dotted qualname) to a root ``Cmd``/``Cli`` class.
 
     Uses the stdlib ``pkgutil.resolve_name`` (3.9+): it accepts BOTH the
@@ -1099,7 +1100,7 @@ def _error_response(req_id: object, code: int, message: str) -> "dict":
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
-def _handle_request(root_cls: type, request: object) -> "dict | None":
+def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
     ``None`` means "no response" -- either the request was a **notification**
@@ -1246,7 +1247,12 @@ def _real_stdio_streams() -> "tuple":
     return stream_in, stream_out
 
 
-def serve(root_cls: type, *, stdin: object = None, stdout: object = None) -> int:
+def serve(
+    root_cls: "type[_Cmd]",
+    *,
+    stdin: "_ty.Optional[_ty.TextIO]" = None,
+    stdout: "_ty.Optional[_ty.TextIO]" = None,
+) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
 
     Reads newline-delimited JSON-RPC 2.0 request lines from ``stdin`` (real

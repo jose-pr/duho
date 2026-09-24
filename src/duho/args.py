@@ -2481,6 +2481,159 @@ def _has_variadic_positional(parser: "_argparse.ArgumentParser") -> bool:
     return any(action.nargs in _VARIADIC_NARGS for action in positionals)
 
 
+def _add_fields(
+    parser: "_argparse.ArgumentParser",
+    cls: type,
+    exclusive_groups: "dict | None" = None,
+    *,
+    parent_dests: "_ty.FrozenSet[str] | None" = None,
+    strict: bool = True,
+) -> "dict":
+    """Add ``cls``'s own declared fields to ``parser`` (titled/mutually-
+    exclusive groups included).
+
+    The one field/group wiring routine shared by :meth:`Args._initparser_`
+    (class commands) and ``duho.runtime._add_module_declared_fields`` (module
+    commands) -- previously duplicated by hand, which is why a module command
+    could not use ``NS(conflicts=...)``/``NS(group=...)``: that support lived
+    only in ``_initparser_``'s own copy. Iterates ``cls._getargs_()``,
+    resolves each field's titled group (``NS(group=...)``) and
+    mutually-exclusive group (``NS(conflicts=...)``, precomputing group
+    requiredness first so argparse -- which fixes ``required`` at
+    group-creation time -- sees the right value on the first member), then
+    calls the field's own ``ArgumentBuilder.add_to_parser``.
+
+    ``strict=True`` (the ``_initparser_`` case) raises on an unexpected dest
+    collision unless it is an explicit ``parents=[...]`` share (``arg.name in
+    parent_dests``). ``strict=False`` (the module-command case) silently
+    skips any colliding dest instead, matching a module command's existing
+    "never re-adds/conflicts with an inherited global" contract.
+
+    Returns the ``exclusive_groups`` dict (created fresh when not given),
+    already merged onto ``parser.exclusive_groups``; ``parser``'s titled-group
+    state (``_duho_titled_groups_``) is updated in place too.
+    """
+    parent_dests = parent_dests if parent_dests is not None else frozenset()
+    exclusive_groups = exclusive_groups or {}
+
+    # A mutually-exclusive group is *required* when ANY of its members
+    # declares NS(conflicts_required=True). Groups are created lazily on the
+    # first member, so pre-compute requiredness across all members here and
+    # pass it at creation.
+    required_by_conflicts: "dict[str, bool]" = {}
+    # A `conflicts=` key must use the SAME `group=` title (or no title)
+    # everywhere it appears -- otherwise members that share a conflicts=
+    # string land in TWO separate mutex groups (one per title) and are no
+    # longer mutually exclusive at all, silently (A024).
+    conflicts_titles: "dict[str, object]" = {}
+    for arg in cls._getargs_():
+        conflicts = arg.conflicts
+        if conflicts:
+            required_by_conflicts[conflicts] = required_by_conflicts.get(
+                conflicts, False
+            ) or bool(arg.conflicts_required)
+            group_title = arg.group
+            if conflicts in conflicts_titles:
+                if conflicts_titles[conflicts] != group_title:
+                    raise ValueError(
+                        f"argument {arg.name!r}: conflicts={conflicts!r} is "
+                        f"declared with group={group_title!r} here but "
+                        f"group={conflicts_titles[conflicts]!r} elsewhere; "
+                        f"every field sharing a conflicts= key must use the "
+                        f"same group= (or none)"
+                    )
+            else:
+                conflicts_titles[conflicts] = group_title
+
+    # A025: a bool field that can receive True from a layer OTHER than the
+    # CLI needs a way to turn it back off from the command line (see
+    # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
+    # per-field signal; a config source is a per-CLASS one.
+    _has_config_source = getattr(cls, "_config_", None) is not None
+
+    # Titled argument groups (NS(group="...")), created lazily per title.
+    # Persisted on the parser so a parents=[...] merge / subclass override can
+    # reuse them, mirroring `exclusive_groups`.
+    titled_groups: "dict[str, object]" = (
+        getattr(parser, "_duho_titled_groups_", None) or {}
+    )
+
+    actions_by_dest = {action.dest: action for action in parser._actions}
+    for arg in cls._getargs_():
+        _existing_action = actions_by_dest.get(arg.name)
+        if _existing_action:
+            if strict:
+                if arg.name in parent_dests:
+                    # A genuine `parents=[...]` merge: the CALLER deliberately
+                    # shares this global option with the parent (e.g. a
+                    # subcommand inheriting `-v`/`-q`) -- reuse it silently,
+                    # same as before.
+                    continue
+                # Anything else sharing this dest was added by duho ITSELF,
+                # moments ago, for this same class (`-h`/`--help`,
+                # `--version`, `--print-completion`) -- silently dropping the
+                # user's field here (the previous behavior) lost both its
+                # value and its declared flags with no error at all,
+                # contradicting the documented "no reserved field names"
+                # policy. Fail loud at build time instead.
+                raise ValueError(
+                    f"field {arg.name!r} on {cls.__name__} collides with a "
+                    f"dest that {cls.__name__}'s own parser already uses "
+                    f"(-h/--help, --version, or --print-completion each "
+                    f"reserve their field name); rename the field (a "
+                    f"field's dest is always its name -- there is no "
+                    f"dest= override; NS(kwargs={{'dest': ...}}) is the raw "
+                    f"add_argument escape hatch if you truly need one)"
+                )
+            # Not strict (a module command's own declared fields): a dest
+            # already present -- whether inherited from the root or added by
+            # duho itself -- is skipped rather than re-added or conflicted.
+            continue
+
+        conflicts = arg.conflicts
+        group_title = arg.group
+
+        # The container the field's argument is added to: a titled group when
+        # NS(group=...) is set, else the parser itself.
+        if group_title is not None:
+            if group_title not in titled_groups:
+                titled_groups[group_title] = parser.add_argument_group(group_title)
+            container = titled_groups[group_title]
+        else:
+            container = parser
+
+        if conflicts:
+            # A conflicts= member lives in a mutually-exclusive group. When it
+            # ALSO declares group=, nest the exclusive group inside the titled
+            # group (argparse supports it), keyed by (group, conflicts);
+            # otherwise it's a top-level group keyed by conflicts (so
+            # `parser.exclusive_groups["type"]` keeps working).
+            key = (group_title, conflicts) if group_title is not None else conflicts
+            if key not in exclusive_groups:
+                exclusive_groups[key] = container.add_mutually_exclusive_group(
+                    required=required_by_conflicts.get(conflicts, False)
+                )
+            group = exclusive_groups[key]
+        else:
+            group = container
+
+        layered = _has_config_source or bool(getattr(arg, "env", None))
+        arg.add_to_parser(group, layered=layered)
+
+    # Expose the built mutually-exclusive groups on the parser so a subclass
+    # `_parser_` override can add extra options into a `conflicts=`-built
+    # group (e.g. a short-flag alias that must stay mutually exclusive with a
+    # declared field). Merge rather than overwrite so a parents=[...] parser
+    # that already carries groups keeps them.
+    existing = getattr(parser, "exclusive_groups", None)
+    if existing:
+        existing.update(exclusive_groups)
+    else:
+        parser.exclusive_groups = exclusive_groups
+    parser._duho_titled_groups_ = titled_groups  # type: ignore[attr-defined]
+    return exclusive_groups
+
+
 def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
     """Install JUST the flag-between-positionals reorder on a plain parser.
 
@@ -3027,7 +3180,6 @@ class Args(_argparse.Namespace):
     def _initparser_(
         cls,
         parser: _argparse.ArgumentParser,
-        exclusive_groups: "dict | None" = None,
         is_subcommand: bool = False,
         parent_dests: "_ty.FrozenSet[str] | None" = None,
         explicit_prog: bool = False,
@@ -3192,7 +3344,6 @@ class Args(_argparse.Namespace):
             )
 
         parser.parse_known_intermixed_args = _unsupported_intermixed_args  # type: ignore
-        exclusive_groups = exclusive_groups or {}
 
         version = _resolve_version(cls)
         actions_by_dest_pre = {action.dest: action for action in parser._actions}
@@ -3230,115 +3381,12 @@ class Args(_argparse.Namespace):
                     help="Print a shell completion script for the given shell and exit.",
                 )
 
-        # F2: a mutually-exclusive group is *required* when ANY of its members
-        # declares NS(conflicts_required=True). Groups are created lazily on the
-        # first member, so pre-compute requiredness across all members here and
-        # pass it at creation (argparse fixes `required` at group-build time).
-        required_by_conflicts: "dict[str, bool]" = {}
-        # A `conflicts=` key must use the SAME `group=` title (or no title)
-        # everywhere it appears -- otherwise members that share a conflicts=
-        # string land in TWO separate mutex groups (one per title) and are no
-        # longer mutually exclusive at all, silently (A024).
-        conflicts_titles: "dict[str, object]" = {}
-        for arg in cls._getargs_():
-            conflicts = arg.conflicts
-            if conflicts:
-                required_by_conflicts[conflicts] = required_by_conflicts.get(
-                    conflicts, False
-                ) or bool(arg.conflicts_required)
-                group_title = arg.group
-                if conflicts in conflicts_titles:
-                    if conflicts_titles[conflicts] != group_title:
-                        raise ValueError(
-                            f"argument {arg.name!r}: conflicts={conflicts!r} is "
-                            f"declared with group={group_title!r} here but "
-                            f"group={conflicts_titles[conflicts]!r} elsewhere; "
-                            f"every field sharing a conflicts= key must use the "
-                            f"same group= (or none)"
-                        )
-                else:
-                    conflicts_titles[conflicts] = group_title
-
-        # A025: a bool field that can receive True from a layer OTHER than
-        # the CLI needs a way to turn it back off from the command line (see
-        # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
-        # per-field signal; a config source is a per-CLASS one.
-        _has_config_source = getattr(cls, "_config_", None) is not None
-
-        # F3: titled argument groups (NS(group="...")), created lazily per title.
-        # Persisted on the parser so a parents=[...] merge / subclass override can
-        # reuse them, mirroring `exclusive_groups`.
-        titled_groups: "dict[str, object]" = (
-            getattr(parser, "_duho_titled_groups_", None) or {}
-        )
-
-        actions_by_dest = {action.dest: action for action in parser._actions}
-        for arg in cls._getargs_():
-            _action = actions_by_dest.get(arg.name)
-            if _action:
-                if arg.name in parent_dests:
-                    # A genuine `parents=[...]` merge: the CALLER deliberately
-                    # shares this global option with the parent (e.g. a
-                    # subcommand inheriting `-v`/`-q`) -- reuse it silently,
-                    # same as before.
-                    continue
-                # Anything else sharing this dest was added by
-                # duho ITSELF, moments ago, for this same class (`-h`/
-                # `--help`, `--version`, `--print-completion`) -- silently
-                # dropping the user's field here (the previous behavior) lost
-                # both its value and its declared flags with no error at all,
-                # contradicting the documented "no reserved field names"
-                # policy. Fail loud at build time instead.
-                raise ValueError(
-                    f"field {arg.name!r} on {cls.__name__} collides with a "
-                    f"dest that {cls.__name__}'s own parser already uses "
-                    f"(-h/--help, --version, or --print-completion each "
-                    f"reserve their field name); rename the field (a "
-                    f"field's dest is always its name -- there is no "
-                    f"dest= override; NS(kwargs={{'dest': ...}}) is the raw "
-                    f"add_argument escape hatch if you truly need one)"
-                )
-            conflicts = arg.conflicts
-            group_title = arg.group
-
-            # The container the field's argument is added to: a titled group
-            # (F3) when NS(group=...) is set, else the parser itself.
-            if group_title is not None:
-                if group_title not in titled_groups:
-                    titled_groups[group_title] = parser.add_argument_group(group_title)
-                container = titled_groups[group_title]
-            else:
-                container = parser
-
-            if conflicts:
-                # A conflicts= member lives in a mutually-exclusive group. When
-                # it ALSO declares group=, nest the exclusive group inside the
-                # titled group (argparse supports it), keyed by (group,
-                # conflicts); otherwise it's a top-level group keyed by conflicts
-                # (so `parser.exclusive_groups["type"]` keeps working).
-                key = (group_title, conflicts) if group_title is not None else conflicts
-                if key not in exclusive_groups:
-                    exclusive_groups[key] = container.add_mutually_exclusive_group(
-                        required=required_by_conflicts.get(conflicts, False)
-                    )
-                group = exclusive_groups[key]
-            else:
-                group = container
-
-            layered = _has_config_source or bool(getattr(arg, "env", None))
-            _action = arg.add_to_parser(group, layered=layered)
-
-        # Expose the built mutually-exclusive groups on the parser so a subclass
-        # `_parser_` override can add extra options into a `conflicts=`-built
-        # group (e.g. a short-flag alias that must stay mutually exclusive with a
-        # declared field). Merge rather than overwrite so a parents=[...] parser
-        # that already carries groups keeps them.
-        existing = getattr(parser, "exclusive_groups", None)
-        if existing:
-            existing.update(exclusive_groups)
-        else:
-            parser.exclusive_groups = exclusive_groups
-        parser._duho_titled_groups_ = titled_groups  # type: ignore[attr-defined]
+        # Wire this class's own declared fields (and their titled/mutually-
+        # exclusive groups) onto the parser -- shared with
+        # `runtime._add_module_declared_fields` (A069) so a module command
+        # gets the exact same `NS(group=...)`/`NS(conflicts=...)` support a
+        # class command does.
+        _add_fields(parser, cls, parent_dests=parent_dests, strict=True)
 
         # Agent help: stash the class for the emitter, make --help env-aware, and
         # add the opt-in --help-agents flag. See `_install_agent_help`.

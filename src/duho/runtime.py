@@ -52,6 +52,7 @@ from . import parsers as _parsers
 from .args import (
     Args as _Args,
     Cmd as _Cmd,
+    _add_fields as _add_fields,
     _apply_default_layers_one as _apply_default_layers_one,
     _apply_layers as _apply_layers,
     _escape_description as _escape_description,
@@ -526,28 +527,21 @@ def _add_module_declared_fields(
 ) -> None:
     """Add ``args_cls``'s own declared fields directly to ``parser``.
 
-    Mirrors the field-adding half of ``Args._initparser_`` (iterate
-    ``_getargs_()``, call each builder's ``add_to_parser``) WITHOUT installing
-    ``_initparser_``'s ``"#cls"`` dispatch-patching -- a module command's
-    parsed instance must stay the ROOT instance (the existing module-command
-    contract), not get hijacked into constructing an instance of this
-    synthesized/declared class. Skips any field whose ``dest`` is already on
-    the parser (the same root-option collision guard ``_initparser_`` itself
-    applies), so a declared field never re-adds/conflicts with an inherited
-    global.
+    Thin wrapper around the shared ``duho.args._add_fields`` (A069) WITHOUT
+    installing ``_initparser_``'s ``"#cls"`` dispatch-patching -- a module
+    command's parsed instance must stay the ROOT instance (the existing
+    module-command contract), not get hijacked into constructing an instance
+    of this synthesized/declared class. ``strict=False`` skips (rather than
+    raises on) a dest already present on the parser -- whether inherited from
+    the root or added by duho itself -- so a declared field never re-adds/
+    conflicts with an inherited global, matching a module command's existing
+    contract.
 
-    **Scope note**: does not support ``NS(conflicts=...)`` (mutually-exclusive
-    groups) or ``NS(group=...)`` (titled groups) for a module command's
-    declared fields -- those need ``_initparser_``'s fuller machinery, which
-    is intertwined with the dispatch-patching this function deliberately
-    avoids. A module command needing those should keep using ``register()``
-    imperatively for that field, matching today's existing capability.
+    A module command's declared fields now support ``NS(conflicts=...)``/
+    ``NS(group=...)`` the same as a class command's -- that support used to
+    live only in ``_initparser_``'s own, separate copy of this wiring.
     """
-    dests_present = {action.dest for action in parser._actions}  # type: ignore[attr-defined]
-    for builder in args_cls._getargs_():  # type: ignore[attr-defined]
-        if builder.name in dests_present:
-            continue
-        builder.add_to_parser(parser)
+    _add_fields(parser, args_cls, strict=False)
 
 
 def _register_module_command(

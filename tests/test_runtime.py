@@ -699,6 +699,70 @@ def test_module_args_class_fields_precede_register_added_ones(tmp_path):
     assert discovered.SEEN["extra"] == "trailing-value"
 
 
+_MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS = '''\
+"""A module command declaring a mutually-exclusive pair via NS(conflicts=...)."""
+
+import duho
+from duho import Arg, NS
+
+SEEN = {}
+
+
+class Args:
+    fast: Arg[bool, NS(conflicts="mode")] = False
+    ("--fast",)
+
+    slow: Arg[bool, NS(conflicts="mode")] = False
+    ("--slow",)
+
+
+def main(args):
+    SEEN["fast"] = args.fast
+    SEEN["slow"] = args.slow
+    return None
+'''
+
+
+def test_module_args_class_supports_mutually_exclusive_conflicts(tmp_path):
+    """A module command's own declared fields now honor ``NS(conflicts=...)``
+    the same as a class command's -- this used to need ``_initparser_``'s
+    fuller machinery (only available to a class command) and silently had no
+    support for it at all."""
+    _write(tmp_path, "modeflag.py", _MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["modeflag", "--fast"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("modeflag")
+    ][0]
+    assert discovered.SEEN["fast"] is True
+    assert discovered.SEEN["slow"] is False
+
+    with pytest.raises(SystemExit):
+        app(
+            Root,
+            source=tmp_path,
+            argv=["modeflag", "--fast", "--slow"],
+            setup_logging=False,
+        )
+
+
+def test_module_declared_fields_share_the_same_field_wiring_as_a_class_command():
+    """`runtime._add_module_declared_fields` is a thin wrapper around the same
+    `duho.args._add_fields` a class command's own `_initparser_` uses, not an
+    independent, hand-kept copy."""
+    import duho.args as args_mod
+    import duho.runtime as runtime_mod
+
+    assert runtime_mod._add_fields is args_mod._add_fields
+
+
 def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path):
     """Wrapping `command.register` on a module with NO register of its own still fires.
 

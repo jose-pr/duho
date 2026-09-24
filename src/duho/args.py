@@ -98,19 +98,92 @@ class Meta:
         return {k: v for k, v in vars(self).items() if v is not _META_UNSET}
 
 
+class _ConversionError(_argparse.ArgumentTypeError, ValueError):
+    """Raised by duho's own text factories so argparse shows OUR message.
+
+    argparse's ``_get_value`` only preserves a type function's own message for
+    ``ArgumentTypeError``; a plain ``ValueError``/``TypeError`` is replaced
+    with a generic ``invalid <type> value: ...`` that discards whatever
+    detail the factory raised -- so a crafted "choose from ..."/"expected
+    KEY=VALUE" message never reached the user (A018). Subclassing
+    ``ValueError`` too means every existing ``except (TypeError, ValueError)``
+    catch (the Union/Literal try-loops, the env/config layers) keeps working
+    unchanged.
+    """
+
+
+def _bool_from_text(text, /):
+    """Strict CLI-text-to-bool factory (A002).
+
+    Plain ``bool`` is never a valid CLI/element/value factory: ``bool(text)``
+    is true for almost any non-empty string, so ``--flag False`` silently
+    became ``True``. This shares the same shared token table
+    (:data:`_compat.BOOL_TRUE`/:data:`_compat.BOOL_FALSE`) the layered
+    (env/config) converter already used, closing the gap where the CLI and
+    env/config disagreed on the very same field. A real ``bool`` passes
+    through unchanged (a native TOML/JSON value, or a value already
+    converted upstream); any other non-string is rejected the same as
+    unrecognized text, rather than crashing on ``.strip()``.
+    """
+    if isinstance(text, bool):
+        return text
+    if isinstance(text, str):
+        low = text.strip().lower()
+        if low in _compat.BOOL_TRUE:
+            return True
+        if low in _compat.BOOL_FALSE:
+            return False
+    raise _ConversionError(f"{text!r} is not a valid boolean")
+
+
+_bool_from_text.__name__ = "bool"
+
+
+def _choice_checked(factory: "Factory", choices) -> "Factory":
+    """Wrap `factory` so its result must be one of `choices` (A004).
+
+    A Union field never gets argparse's own ``choices=`` kwarg (it can't
+    express "this member's choices OR any other member's"), so a Literal
+    member composed into a multi-member Union needs its membership check
+    enforced here instead -- otherwise the try-loop below accepts anything
+    the member's bare TYPE conversion accepts, silently dropping the
+    Literal's restriction.
+    """
+
+    def _checked(text: str, /, _factory=factory, _choices=choices):
+        value = _factory(text)
+        if value not in _choices:
+            raise _ConversionError(f"{text!r} is not one of {_choices}")
+        return value
+
+    return _checked
+
+
 def _enum_name_factory(enum_cls: type) -> "Factory":
     """Build a factory that resolves CLI text to an enum member by NAME.
 
-    Raises ValueError (not KeyError) on a miss so callers that catch
-    ``(TypeError, ValueError)`` (e.g. the Union-branch try-loop) can treat a
-    non-matching name as "this sub-factory rejects text" and fall through.
-    """
-    names = tuple(member.name for member in enum_cls)
+    Validates against ``enum_cls.__members__`` (A053) rather than iterating
+    the enum: iteration skips ALIASES (a second name for the same value) and,
+    since Python 3.11, skips multi-bit ``Flag`` composite members too, so a
+    declaration that worked on the 3.9 floor could reject a composite name on
+    the ceiling. ``__members__`` includes both on every supported version.
+    The "choose from" text still lists only the canonical (non-alias) names
+    from iteration, matching the metavar built alongside this factory.
 
-    def _factory(text: str, /, _enum_cls=enum_cls, _names=names):
-        if text not in _names:
-            raise ValueError(
-                f"invalid choice: {text!r} (choose from {', '.join(_names)})"
+    Raises :class:`_ConversionError` (a ``ValueError`` subclass, A018) so
+    argparse shows the crafted "choose from ..." message instead of its own
+    generic "invalid <x> value", and so callers that catch
+    ``(TypeError, ValueError)`` (e.g. the Union-branch try-loop) can still
+    treat a non-matching name as "this sub-factory rejects text" and fall
+    through.
+    """
+    canonical = tuple(member.name for member in enum_cls)
+    valid = frozenset(enum_cls.__members__)
+
+    def _factory(text: str, /, _enum_cls=enum_cls, _valid=valid, _canonical=canonical):
+        if text not in _valid:
+            raise _ConversionError(
+                f"invalid choice: {text!r} (choose from {', '.join(_canonical)})"
             )
         return _enum_cls[text]
 
@@ -161,12 +234,13 @@ def _collection_action(collection: type) -> "_type[_argparse.Action]":
 def _split_kv(text: str, name: str) -> "tuple[str, str]":
     """Split a ``KEY=VALUE`` token on its first ``=``.
 
-    Raises ``ValueError`` naming the field when no ``=`` is present, so a
-    ``dict`` field's ``--opt noequals`` fails with a clear argparse error
-    rather than a traceback.
+    Raises :class:`_ConversionError` naming the field when no ``=`` is
+    present (A018), so a ``dict`` field's ``--opt noequals`` shows this
+    message on the CLI instead of argparse's generic
+    ``invalid <_KVFactory object at 0x...> value``.
     """
     if "=" not in text:
-        raise ValueError(
+        raise _ConversionError(
             f"argument {name!r}: expected KEY=VALUE, got {text!r} (no '=' found)"
         )
     key, value = text.split("=", 1)
@@ -192,12 +266,37 @@ class _KVFactory:
         return {key: self.value_factory(value)}
 
 
+def _isoformat_factory(cls: type) -> "Factory":
+    """Build the ``fromisoformat`` factory for a date/datetime/time `cls`.
+
+    Before Python 3.11, ``fromisoformat`` only accepts its OWN ``isoformat()``
+    output: no trailing ``Z`` (RFC 3339's UTC marker, and the form most tools
+    emit) and no basic ``YYYYMMDD`` format. duho.mcp advertises
+    ``format: date-time`` (RFC 3339) on every version regardless (A043), so a
+    schema-valid MCP call could fail on the 3.9 floor. On <3.11 this rewrites
+    a trailing ``Z``/``z`` to ``+00:00`` before delegating; 3.11+ uses
+    ``fromisoformat`` directly, which already accepts ``Z`` natively. Basic
+    (no-dash) formats stay unsupported on every version -- out of scope here.
+    """
+    if _sys.version_info >= (3, 11):
+        return cls.fromisoformat
+
+    def _factory(text: str, /, _cls=cls):
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        return _cls.fromisoformat(text)
+
+    _factory.__name__ = cls.__name__
+    return _factory
+
+
 #: Stdlib types whose constructor does NOT accept an ISO string; each maps to
-#: its ``fromisoformat`` classmethod so a CLI/date field converts cleanly (C15).
+#: its ``fromisoformat``-based factory so a CLI/date field converts cleanly
+#: (C15), consistently across the supported Python range (A043).
 _ISOFORMAT_FACTORIES = {
-    _datetime.date: _datetime.date.fromisoformat,
-    _datetime.datetime: _datetime.datetime.fromisoformat,
-    _datetime.time: _datetime.time.fromisoformat,
+    _datetime.date: _isoformat_factory(_datetime.date),
+    _datetime.datetime: _isoformat_factory(_datetime.datetime),
+    _datetime.time: _isoformat_factory(_datetime.time),
 }
 
 
@@ -222,20 +321,29 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
         if lit_ty not in literal_types:
             literal_types.append(lit_ty)
     if len(literal_types) == 1:
-        factory: "Factory" = literal_types[0]
+        lit_ty = literal_types[0]
+        # bool is never a valid CLI text factory on its own: bool(text) is
+        # true for almost any non-empty string, so Literal[True, False] with
+        # "--flag False" silently became True (A002).
+        factory: "Factory" = _bool_from_text if lit_ty is bool else lit_ty
     else:
         # Mixed-type Literal: try each declared literal's own type, but only
         # accept a conversion that round-trips to one of the declared values (a
-        # naive "first type that doesn't raise" would let str('1') shadow int(1)).
+        # naive "first type that doesn't raise" would let str('1') shadow int(1),
+        # and a naive bool(text) would let True shadow every other member).
         def factory(text: str, /, _literals=tuple(args)):  # type: ignore[misc]
             for lit in _literals:
+                lit_ty = type(lit)
+                convert = _bool_from_text if lit_ty is bool else lit_ty
                 try:
-                    candidate = type(lit)(text)
+                    candidate = convert(text)
                 except (TypeError, ValueError):
                     continue
                 if candidate == lit:
                     return candidate
-            raise ValueError(f"could not convert {text!r} using any of {_literals}")
+            raise _ConversionError(
+                f"could not convert {text!r} using any of {_literals}"
+            )
 
     return _FieldSpec(factory, tuple(args), None, None, None, NOT_DEFINED, None)
 
@@ -246,10 +354,18 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
     Each member is resolved through :func:`_factory_for` so a member like
     ``list[int]`` or ``Literal[...]`` gets its full spec (C6). A single remaining
     member (an ``Optional[T]``) adopts T's ENTIRE spec -- element conversion,
-    action, choices, default. A multi-member union composes the member factories
-    in declaration order (the enum-by-name rule preserved), but rejects any
-    member that needs a special ``action`` (a collection): argparse cannot switch
-    actions per value within one option.
+    action, choices, default (this is also why a bare/``Optional`` ``bool``
+    keeps `store_true`/`BooleanOptionalAction`: its single-member spec's
+    factory stays the raw ``bool`` builtin, untouched below). A multi-member
+    union composes the member factories in declaration order (the
+    enum-by-name rule preserved), but rejects any member that needs a special
+    ``action`` (a collection): argparse cannot switch actions per value within
+    one option. Within that multi-member composition, a raw ``bool`` member
+    is routed through the strict :func:`_bool_from_text` (A002) and any
+    member carrying ``choices`` (e.g. a Literal) is membership-checked before
+    the try-loop can silently accept a value only because a LATER member's
+    bare type conversion happens not to raise (A004) -- a union field never
+    gets argparse's own ``choices=`` kwarg, so this is the only enforcement.
     """
     member_specs = [_factory_for(m, name) for m in members]
     resolved_factories = [
@@ -269,7 +385,14 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
                 f"per value inside a multi-member union"
             )
 
-    factories = tuple(resolved_factories)
+    factories = []
+    for member, f, spec in zip(members, resolved_factories, member_specs):
+        if member is bool:
+            f = _bool_from_text
+        if spec.choices is not None:
+            f = _choice_checked(f, spec.choices)
+        factories.append(f)
+    factories = tuple(factories)
 
     def factory(text: str, /, _factories=factories):
         for f in _factories:
@@ -277,22 +400,97 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
                 return f(text)
             except (TypeError, ValueError):
                 pass
-        raise ValueError(f"could not convert {text!r} using any of {_factories}")
+        raise _ConversionError(f"could not convert {text!r} using any of {_factories}")
 
     return _scalar_spec(factory)
+
+
+#: ``typing.TypeAliasType`` only exists on 3.12+ (PEP 695); ``None`` on the
+#: 3.9 floor, where the attribute-probe branch below simply never matches.
+_TypeAliasType = getattr(_ty, "TypeAliasType", None)
+
+
+def _unwrap_type_alias(tp):
+    """Unwrap a PEP 695 ``type X = ...`` alias (3.12+) or a ``typing.NewType``
+    down to the real type it describes, looping so a chain of aliases
+    resolves fully (A029).
+
+    Neither is safe to hand straight to argparse's ``type=``: a
+    ``TypeAliasType`` instance is not callable at all (``type Port = int``
+    crashes every parser build with "Port is not callable"), and a
+    ``NewType`` IS callable but is the identity function at runtime, so
+    ``UserId("5")`` silently returns the string ``'5'`` where the annotation
+    promises an ``int``. Both attribute probes are safe on every supported
+    version -- neither exists on a plain type.
+    """
+    while True:
+        if _TypeAliasType is not None and isinstance(tp, _TypeAliasType):
+            tp = tp.__value__
+            continue
+        supertype = getattr(tp, "__supertype__", None)
+        if supertype is not None:
+            tp = supertype
+            continue
+        return tp
+
+
+def _element_spec(elem_ty, name: str, what: str) -> "tuple":
+    """Resolve a collection ELEMENT or dict VALUE type through the same
+    ladder a top-level field uses (A003), so an enum element matches by
+    name, a date element parses ISO text, a bool element parses strictly
+    (A002), and a Literal element carries its own membership check. Raises a
+    build-time ValueError naming the field when the element type is itself a
+    collection -- argparse cannot switch actions/nargs per element (mirrors
+    the check `_union_spec` makes for a collection Union member).
+
+    Returns ``(factory, choices, metavar)``; ``choices`` is already enforced
+    INSIDE `factory` via :func:`_choice_checked` when the element spec
+    carried any (e.g. a Literal element) -- element/value fields never get
+    argparse's own ``choices=`` kwarg (it validates the whole collection's
+    converted value, not each element).
+    """
+    spec = _factory_for(elem_ty, name)
+    if spec.action is not None or spec.collection is not None:
+        raise ValueError(
+            f"argument {name!r}: {what} element type {elem_ty!r} is itself "
+            f"a collection; nested collections are not supported"
+        )
+    factory = spec.factory if spec.factory is not None else elem_ty
+    if elem_ty is bool:
+        factory = _bool_from_text
+    if spec.choices is not None:
+        factory = _choice_checked(factory, spec.choices)
+    return factory, spec.choices, spec.metavar
 
 
 def _factory_for(tp, name: str) -> "_FieldSpec":
     """Resolve a single annotation type to its :class:`_FieldSpec`.
 
-    The one dispatch ladder shared by the top-level field and every Union member
-    (C6). Ordering matches the historical branch order (Literal, Enum, list, set,
-    tuple, iso-date, Union, fallthrough). A plain/custom type returns
+    The one dispatch ladder shared by the top-level field, every Union
+    member, and every collection element/dict value (C6, A003). Ordering
+    matches the historical branch order (Literal, Enum, list, set, frozenset,
+    tuple, dict, iso-date, Union, fallthrough). A plain/custom type returns
     ``factory=None`` so the caller keeps whatever factory it seeded (e.g. a
-    ``duho.Argument.from_type`` custom factory).
+    ``duho.Argument.from_type`` custom factory) -- EXCEPT when `tp` was
+    itself a type alias/NewType that had to be unwrapped to reach that plain
+    type, since the caller's seeded factory is the un-unwrapped original,
+    which is not usable as-is (A029).
     """
+    original_tp = tp
+    tp = _unwrap_type_alias(tp)
     origin = _ty.get_origin(tp)
     args = _ty.get_args(tp)
+
+    if origin is _ty.Annotated:
+        # A nested Annotated/Arg[...] Union member (e.g.
+        # `Optional[Arg[int, NS(env=...)]]`) previously crashed later at the
+        # unhashable-metadata isoformat lookup, or silently dropped its
+        # metadata. Reject it loudly instead (A029).
+        raise ValueError(
+            f"argument {name!r}: a nested Annotated/Arg[...] type {tp!r} is "
+            f"not supported inside a Union; put the metadata on the OUTER "
+            f"annotation instead (e.g. Arg[Optional[T], ...])"
+        )
 
     if origin is _ty.Literal:
         return _literal_spec(args)
@@ -306,11 +504,28 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
 
     if origin is list or tp is list:
         elem_ty = args[0] if args else str
-        return _FieldSpec(elem_ty, None, None, "extend", "*", [], list)
+        factory, choices, metavar = _element_spec(elem_ty, name, "list")
+        return _FieldSpec(factory, choices, metavar, "extend", "*", [], list)
 
     if origin is set or tp is set:
         elem_ty = args[0] if args else str
-        return _FieldSpec(elem_ty, None, None, _collection_action(set), "*", set(), set)
+        factory, choices, metavar = _element_spec(elem_ty, name, "set")
+        return _FieldSpec(
+            factory, choices, metavar, _collection_action(set), "*", set(), set
+        )
+
+    if origin is frozenset or tp is frozenset:
+        elem_ty = args[0] if args else str
+        factory, choices, metavar = _element_spec(elem_ty, name, "frozenset")
+        return _FieldSpec(
+            factory,
+            choices,
+            metavar,
+            _collection_action(frozenset),
+            "*",
+            frozenset(),
+            frozenset,
+        )
 
     if origin is tuple or tp is tuple:
         # Only variadic homogeneous ``tuple[T, ...]`` and bare ``tuple``
@@ -322,8 +537,9 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
                 f"variadic homogeneous tuple, or bare tuple"
             )
         elem_ty = args[0] if args else str
+        factory, choices, metavar = _element_spec(elem_ty, name, "tuple")
         return _FieldSpec(
-            elem_ty, None, None, _collection_action(tuple), "*", (), tuple
+            factory, choices, metavar, _collection_action(tuple), "*", (), tuple
         )
 
     if origin is dict or tp is dict:
@@ -338,16 +554,53 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
                 f"argument {name!r}: dict key type must be str, got {key_ty!r} "
                 f"(a CLI KEY=VALUE token's key is always text)"
             )
+        val_factory, _val_choices, _val_metavar = _element_spec(
+            val_ty, name, "dict value"
+        )
         return _FieldSpec(
-            _KVFactory(name, val_ty), None, "KEY=VALUE", UpdateAction, None, {}, dict
+            _KVFactory(name, val_factory),
+            None,
+            "KEY=VALUE",
+            UpdateAction,
+            None,
+            {},
+            dict,
         )
 
-    if tp in _ISOFORMAT_FACTORIES:
+    try:
+        is_isoformat = tp in _ISOFORMAT_FACTORIES
+    except TypeError:
+        # An unhashable annotation (e.g. Annotated metadata that doesn't
+        # define __hash__) can't be a dict key -- it's simply not one of
+        # these, not a crash (A029).
+        is_isoformat = False
+    if is_isoformat:
         return _scalar_spec(_ISOFORMAT_FACTORIES[tp])
 
     if origin in _compat.UNION_ORIGINS:
         non_none = [a for a in args if a is not _NONETYPE]
         return _union_spec(non_none, name)
+
+    if origin is not None:
+        # Some other subscripted generic this ladder doesn't know how to
+        # build a factory for (frozenset is handled above; this catches
+        # things like Sequence[str]/Iterable[str], which previously fell
+        # through to calling the raw typing alias on every value -- failing
+        # per-value at PARSE time instead of once at build time, or (for a
+        # bare `frozenset`) silently splitting text into characters) (A029).
+        raise ValueError(
+            f"argument {name!r}: unsupported annotation {tp!r}; duho does "
+            f"not know how to build a CLI factory for this generic type "
+            f"(supported: list/set/frozenset/tuple[T, ...], dict[str, V], "
+            f"Literal, Enum, Union/Optional, or a plain scalar type)"
+        )
+
+    if tp is not original_tp:
+        # `tp` was unwrapped from a TypeAliasType/NewType above and fell
+        # through to here as a plain scalar type -- `original_tp` (the
+        # caller's seeded factory) is not itself usable, so hand back the
+        # real, callable, unwrapped type instead of `None` (A029).
+        return _scalar_spec(tp)
 
     return _scalar_spec(None)
 

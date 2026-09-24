@@ -2,22 +2,32 @@
 """Shared benchmark core for duho.
 
 Home of the sample workloads (arg classes, subcommand trees, the field-type
-matrix) and the in-process **warm** metric functions, so ``run.py``,
-``update_baseline.py`` and ``check_baseline.py`` all measure the exact same
-things the same way. Kept dependency-free (stdlib + duho) and out of the sdist
-(``benchmarks/`` is excluded), so it never ships to users.
+matrix), the in-process **warm** metric functions, and the shared
+``benchmarks/results/<name>.json`` envelope writer, so ``run.py``,
+``update_baseline.py``, ``check_baseline.py``, ``bench_startup.py``,
+``bench_discovery.py`` and ``compare_cache.py`` all measure the exact same
+things the same way and emit the exact same JSON shape (see
+``benchmarks/README.md``). Kept dependency-free (stdlib + duho) and out of the
+sdist (``benchmarks/`` is excluded), so it never ships to users.
 
 A "warm" metric is a build/parse whose duho caches (`_duho_constants_`,
 `_duho_clsargs_`, `_duho_builders_`, the AST `lru_cache`) are already populated
 -- what a long-lived process or a repeated call pays. A "cold" metric drops
-every cache first, reproducing what a fresh CLI *invocation* pays. Only warm
+every cache first, reproducing what a fresh CLI *invocation* pays -- except the
+``_duho_constants_`` seeded directly on ``Args``/``Cmd``/``Cli`` (see
+``drop_caches`` below), which a fresh process always has too. Only warm
 metrics are stable enough to gate CI on; cold numbers are reported for insight.
 """
 
 import enum
+import json
+import platform
 import statistics
+import sys
 import timeit
 import typing as ty
+from datetime import datetime, timezone
+from pathlib import Path
 
 import duho
 from duho import Args, Cli, Cmd
@@ -117,6 +127,17 @@ FIELD_MATRIX = {
 
 CACHE_ATTRS = ("_duho_constants_", "_duho_clsargs_", "_duho_builders_")
 
+#: Args/Cmd/Cli each pre-seed ``_duho_constants_ = {}`` in their own class body
+#: (P2, see the docstring on ``duho.Args._duho_constants_``) so that building
+#: ANY user parser never AST-parses duho's own ``args.py`` to scan these
+#: framework base classes -- they declare no real CLI fields. A fresh process
+#: always has this seed. Deleting it here forced every "cold" sample to
+#: additionally index and AST-parse the ~2300-line args.py on its next build,
+#: inflating cold.build.complex/cold.tree.* by 4-10x with a cost no real
+#: invocation ever pays. Excluded from the drop for exactly these three
+#: classes; a real user subclass's own seed is still cleared normally.
+_FRAMEWORK_SEEDED = (Args, Cmd, Cli)
+
 
 def make_tree(n: int) -> "type":
     """Build a fresh ``Cli`` root with ``n`` dynamically-created subcommands.
@@ -148,7 +169,9 @@ def make_tree(n: int) -> "type":
 
 def drop_caches(cls) -> None:
     """Evict every duho cache reachable from ``cls`` (and its subcommand tree),
-    reproducing a cold build."""
+    reproducing a cold build -- except the framework's own pre-seeded
+    ``_duho_constants_`` on ``Args``/``Cmd``/``Cli`` (see ``_FRAMEWORK_SEEDED``
+    above), which a fresh process never drops either."""
     seen = set()
 
     def _drop(klass):
@@ -156,6 +179,8 @@ def drop_caches(cls) -> None:
             return
         seen.add(klass)
         for base in klass.__mro__:
+            if base in _FRAMEWORK_SEEDED:
+                continue
             for attr in CACHE_ATTRS:
                 if attr in vars(base):
                     delattr(base, attr)
@@ -269,3 +294,47 @@ def cold_metrics() -> "dict":
 
         metrics["cold.tree.%d" % n] = sample(_cold, COLD_INNER)
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Shared result envelope (REPO.md schema: name/python/platform/timestamp +
+# a ``metrics`` map of {min_ms, median_ms, max_ms}). Every script's --save /
+# --json goes through this so benchmarks/results/*.json is one shape.
+# ---------------------------------------------------------------------------
+
+#: Where every script's ``--save`` lands. Tracked and committed (REPO.md):
+#: this is what makes a before/after perf claim recoverable from the repo.
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+def result_envelope(name: str, metrics: dict, **extra) -> dict:
+    """Build the standard result document for ``name``: identifying fields
+    (python/platform/processor/timestamp) plus ``metrics`` (name -> either a
+    ``{min_ms, median_ms, max_ms}`` dict or a bare float, both of which
+    ``$ENGINEERING_OVERLAY_ROOT/tools/compare_bench.py`` reads). Extra keys
+    (e.g. ``duho_version``, ``iterations``) are merged in on top."""
+    result = {
+        "name": name,
+        "python": platform.python_version(),
+        "python_minor": "%d.%d" % (sys.version_info.major, sys.version_info.minor),
+        "platform": platform.platform(),
+        "processor": platform.processor() or platform.machine(),
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "metrics": metrics,
+    }
+    result.update(extra)
+    return result
+
+
+def save_result(dest_dir, name: str, metrics: dict, **extra) -> "Path":
+    """Write ``result_envelope(name, metrics, **extra)`` to
+    ``dest_dir/<name>.json`` (creating ``dest_dir`` if needed) and return the
+    path written."""
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = dest_dir / ("%s.json" % name)
+    out.write_text(
+        json.dumps(result_envelope(name, metrics, **extra), indent=2, sort_keys=True)
+        + "\n"
+    )
+    return out

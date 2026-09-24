@@ -2,8 +2,9 @@
 """Structured benchmark runner for duho.
 
 Produces a comparable JSON result plus a human summary. Save a run to the
-history with --save; results land in benchmarks/results/<name>.json where
-<name> defaults to duho-<version>-py<major><minor>.
+results directory with --save; results land in benchmarks/results/<name>.json
+(tracked and committed -- see benchmarks/README.md) where <name> defaults to
+duho-<version>-py<major><minor>.
 
     python benchmarks/run.py            # print summary (warm metrics)
     python benchmarks/run.py --cold     # also run the cold (per-invocation) set
@@ -23,9 +24,7 @@ reported for insight, not gated (they are dominated by ast.parse noise).
 
 import argparse
 import json
-import platform
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # benchmarks/ is not a package; make the sibling _bench importable.
@@ -65,22 +64,15 @@ def main(argv=None):
     warm = _bench.warm_metrics()
     cold = _bench.cold_metrics() if args.cold else {}
     metrics = {**warm, **cold}
-
-    result = {
-        "name": name,
+    extra = {
         "duho_version": duho.__version__,
-        "python": platform.python_version(),
-        "python_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
-        "platform": platform.platform(),
-        "processor": platform.processor() or platform.machine(),
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "iterations": {
             "build_inner": _bench.BUILD_INNER,
             "parse_inner": _bench.PARSE_INNER,
             "repeat": _bench.REPEAT,
         },
-        "metrics": metrics,
     }
+    result = _bench.result_envelope(name, metrics, **extra)
 
     print("=== Duho Benchmark ===")
     print(f"{name}  ({result['python']} on {result['processor']})")
@@ -89,10 +81,7 @@ def main(argv=None):
         _print_table("\n-- cold (per-invocation; informational) --", cold)
 
     if args.save:
-        dest = Path(__file__).resolve().parent / "results"
-        dest.mkdir(parents=True, exist_ok=True)
-        out = dest / f"{name}.json"
-        out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        out = _bench.save_result(_bench.RESULTS_DIR, name, metrics, **extra)
         print(f"\nsaved: {out}")
     if args.json:
         Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")

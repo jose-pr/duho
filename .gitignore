@@ -38,9 +38,6 @@ htmlcov/
 .venv/
 .pyvenv/
 
-# Benchmark run outputs (local, machine-specific)
-benchmarks/results/
-
 # OS/editor
 .DS_Store
 Thumbs.db

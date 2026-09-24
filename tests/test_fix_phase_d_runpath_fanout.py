@@ -4,6 +4,7 @@ import textwrap
 
 import pytest
 
+from duho import discovery as _discovery
 from duho.discovery import CmdBuilder
 from duho.fanout import run_targets
 from duho import runpath as _runpath
@@ -11,9 +12,21 @@ from duho import runpath as _runpath
 
 @pytest.fixture(autouse=True)
 def _register_runpath():
+    # Snapshot/restore instead of an unconditional register()/unregister()
+    # pair (D-review provider-isolation footgun, same as test_runpath.py's own
+    # _restore_providers): the old unconditional `unregister()` teardown left
+    # the RunPath provider unregistered for the REST OF THE PYTEST SESSION
+    # once this module's tests finished, breaking any later test file (e.g.
+    # test_examples.py, when this file sorts before it) that relies on
+    # `import duho.runpath` having already auto-registered it.
+    saved_providers = list(_discovery._PROVIDERS)
+    saved_registered = _runpath._REGISTERED
     _runpath.register()
-    yield
-    _runpath.unregister()
+    try:
+        yield
+    finally:
+        _discovery._PROVIDERS[:] = saved_providers
+        _runpath._REGISTERED = saved_registered
 
 
 # -- D4 / M5: a non-int return from one target must not abort the fan-out -----
@@ -54,6 +67,10 @@ def _run(directory, rcopts=None):
 
 
 def test_import_error_step_skipped_resilient(tmp_path, caplog):
+    # A plain filename is strict-by-default (0.4.x+): an import failure on a
+    # plain step now follows the STEP'S OWN strict setting, not just the
+    # run-wide flag (D057/Design Q5), so this step is marked `;!strict` to
+    # keep exercising the resilient (skip-and-continue) path end to end.
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
     _write_step(
@@ -67,7 +84,7 @@ def test_import_error_step_skipped_resilient(tmp_path, caplog):
     )
     _write_step(
         steps,
-        "20-broken.py",
+        "20-broken;!strict.py",
         """
         import a_module_that_does_not_exist_xyz  # noqa: F401
         def main(args):

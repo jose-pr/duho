@@ -1,19 +1,19 @@
 """Completion coverage for positional args + functional/injection round-trips.
 
-Plan 03 T3. The positional branches of every emitter (bash/zsh/fish/powershell)
-were at 0% coverage -- no fixture declared positionals. This adds a parser with
-required/optional/variadic positionals (one choice-bearing, one Path) and asserts
-each shell emits its positional branch. It also drives the generated bash script
-functionally (subcommand names, `--fl<TAB>` flags, choice values, and the
-after-a-flag-value case that M8 fixed) and checks an injected hostile choice
-value round-trips as one literal candidate.
-
-All shell-execution tests skipif the shell binary is absent.
+Beyond the positional branches of every emitter, this drives the generated
+scripts against REAL bash, zsh, fish and PowerShell (each skipped when its
+binary is absent) rather than only syntax-checking them: a script that
+parses fine can still complete nothing, error at Tab-time, or execute a
+hostile value, and a parse-only check misses all three. Every shell-driving
+helper here is timeout-bounded so a hang never wedges the whole run.
 """
 
+import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
+import textwrap
 import typing as ty
 
 import pytest
@@ -21,9 +21,35 @@ import pytest
 import duho.completion as completion
 from duho import Args
 
-_BASH = shutil.which("bash")
+
+def _is_real_bash(path: str) -> bool:
+    """A real bash binary is several MB; the WSL launcher shims Windows
+    installs both under System32 AND at the WindowsApps app-execution-alias
+    path (which `shutil.which` can return FIRST under PowerShell) are
+    near-zero-byte stub/reparse files that hang or misbehave when driven
+    non-interactively via subprocess."""
+    try:
+        return os.path.getsize(path) > 4096
+    except OSError:
+        return False
+
+
+def _find_bash() -> "str | None":
+    """Resolve a real bash deterministically (see `_is_real_bash`)."""
+    found = shutil.which("bash")
+    if found and _is_real_bash(found):
+        return found
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = shutil.which("bash", path=directory)
+        if candidate and _is_real_bash(candidate):
+            return candidate
+    return None
+
+
+_BASH = _find_bash()
 _ZSH = shutil.which("zsh")
 _FISH = shutil.which("fish")
+_PWSH = shutil.which("pwsh")
 
 
 # --- Fixtures ---------------------------------------------------------------
@@ -48,6 +74,18 @@ class Convert(Args):
     "Environment (a value-taking flag with choices)"
     ("--env",)
 
+    name: str = ""
+    "A free-value flag (no choices, not a Path)"
+    ("--name",)
+
+    out: pathlib.Path = pathlib.Path(".")
+    "A Path-typed flag"
+    ("-o", "--out")
+
+    color: bool = False
+    "A boolean flag"
+    ("--color",)
+
 
 class Tool(Args):
     """A tool with a subcommand tree and positionals."""
@@ -59,11 +97,22 @@ class Tool(Args):
     _subcommands_ = [Convert]
 
 
+def _tool_parser():
+    parser = Tool._parser_()
+    parser.prog = "tool"
+    return parser
+
+
+def _bash_func(parser) -> str:
+    """The bash function name duho would register for `parser`'s prog."""
+    return completion._bash_func_name(parser.prog)
+
+
 # --- Positional branches emit for every shell -------------------------------
 
 
 def test_walk_captures_positionals():
-    spec = completion._walk(Tool._parser_())
+    spec = completion.spec(Tool._parser_())
     convert = spec.subcommands["Convert"]
     names = {p.name for p in convert.positionals}
     assert {"source", "fmt", "extras"} <= names
@@ -79,11 +128,13 @@ def test_bash_emits_positional_choices():
     assert "json" in script and "yaml" in script and "toml" in script
 
 
-def test_zsh_emits_positional_specs():
+def test_zsh_emits_numbered_positional_specs():
+    """C002/C004: zsh positionals use the required `N:message:action` form
+    (1-based), not the `name:name:action` form `_arguments` rejects on
+    every Tab."""
     script = completion.zsh(Tool._parser_())
-    # zsh renders positionals as `name:name:(...)` / `name:name:_files` specs.
-    assert "source:source:_files" in script
-    assert "fmt:fmt:(json yaml toml)" in script
+    assert "1:source:_files" in script
+    assert "2:fmt:(json yaml toml)" in script
 
 
 def test_fish_emits_positional_completions():
@@ -131,7 +182,7 @@ def test_bash_positional_script_syntax_valid():
 # --- Functional bash completion (source + drive the completion function) ----
 
 
-def _complete_bash(script, func, words, cword):
+def _complete_bash(script, func, words, cword, cwd=None):
     """Source `script`, run the completion function, print COMPREPLY lines."""
     words_literal = " ".join(_bash_arr(w) for w in words)
     harness = (
@@ -147,7 +198,11 @@ def _complete_bash(script, func, words, cword):
     # the whole test run.
     try:
         result = subprocess.run(
-            [_BASH, "-c", harness], capture_output=True, text=True, timeout=10
+            [_BASH, "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired:
         pytest.skip("bash on PATH did not respond within 10s (WSL shim interop?)")
@@ -163,39 +218,157 @@ def _bash_arr(word):
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_root_subcommand_names():
-    script = completion.bash(Tool._parser_())
-    reply = _complete_bash(script, "_Tool", ["Tool", ""], 1)
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(script, _bash_func(parser), ["tool", ""], 1)
     assert "Convert" in reply
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_flags():
-    script = completion.bash(Tool._parser_())
-    # `Tool Convert --e<TAB>` -> the --env flag.
-    reply = _complete_bash(script, "_Tool", ["Tool", "Convert", "--e"], 2)
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    # `tool Convert --e<TAB>` -> the --env flag.
+    reply = _complete_bash(script, _bash_func(parser), ["tool", "Convert", "--e"], 2)
     assert "--env" in reply
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_choice_values_after_flag():
-    script = completion.bash(Tool._parser_())
-    # `Tool Convert --env <TAB>` -> the choice values for --env.
-    reply = _complete_bash(script, "_Tool", ["Tool", "Convert", "--env", ""], 3)
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    # `tool Convert --env <TAB>` -> the choice values for --env.
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "--env", ""], 3
+    )
     assert "prod" in reply and "dev" in reply
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
-def test_bash_after_flag_value_does_not_break_subcommand(tmp_path):
-    """M8: a value-taking flag before the cursor must not corrupt the cmd path.
+def test_bash_after_flag_value_does_not_break_subcommand():
+    """A value-taking flag before the cursor must not corrupt the cmd path.
 
-    `Tool --verbose 2 <TAB>` at the root must still offer the subcommand names
-    (the `--verbose`'s value `2` is skipped, not treated as a cmd-path word).
-    `--verbose` takes a value here (it's an int flag), so this exercises the
-    skip-the-value-after-a-value-flag branch.
+    `tool --verbose 2 <TAB>` at the root must still offer the subcommand
+    names (the `--verbose`'s value `2` is skipped, not treated as a
+    cmd-path word).
     """
-    script = completion.bash(Tool._parser_())
-    reply = _complete_bash(script, "_Tool", ["Tool", "--verbose", "2", ""], 3)
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "--verbose", "2", ""], 3
+    )
     assert "Convert" in reply
+
+
+# --- Positional-then-flag / opt=value / free & Path flags (C003/C024/C028/C029) -
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_completes_after_a_positional_value():
+    """C003: a positional value must not be mistaken for a subcommand word,
+    and completion must resume for the NEXT positional's own choices."""
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "in.txt", ""], 3
+    )
+    assert set(reply) == {"json", "yaml", "toml"}
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_completes_flags_after_all_positionals_consumed():
+    """C003: options placed after positionals (a common argparse usage) are
+    completed, not silently dropped."""
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "in.txt", "yaml", "--"], 4
+    )
+    assert "--env" in reply and "--color" in reply
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_free_value_flag_offers_nothing():
+    """C024: a value-taking flag with neither choices nor a Path type must
+    not fall through to the general flag/subcommand candidate list."""
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "--name", ""], 3
+    )
+    assert reply == []
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_path_flag_completes_files(tmp_path):
+    """C028: a Path-typed flag gets native file completion, not the general
+    flag/subcommand list."""
+    (tmp_path / "afile.txt").write_text("x")
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "--out", "af"], 3, cwd=tmp_path
+    )
+    assert any("afile.txt" in c for c in reply)
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_completes_split_opt_equals_value():
+    """C029: `--opt=value` arrives as the three words `--opt`, `=`, `value`
+    (COMP_WORDBREAKS splits on `=`) -- both the walker (using the value to
+    descend correctly) and direct `--opt=<TAB>` completion must handle it."""
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    # tool --verbose=2 Convert --<TAB> : the root's own --verbose=value must
+    # still resolve into Convert (the value flag lives on the root here).
+    reply = _complete_bash(
+        script,
+        _bash_func(parser),
+        ["tool", "--verbose", "=", "2", "Convert", "--"],
+        5,
+    )
+    assert "--color" in reply
+    # tool Convert --env=<TAB> : must offer the choice values.
+    reply = _complete_bash(
+        script,
+        _bash_func(parser),
+        ["tool", "Convert", "--env", "=", ""],
+        4,
+    )
+    assert "prod" in reply and "dev" in reply
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_value_flag_scoped_per_command_path():
+    """C048: a flag that is boolean at one level and value-taking at another
+    is resolved per command path, not merged globally."""
+
+    class Deploy(Args):
+        """deploy"""
+
+        name: str = ""
+        "value-taking -n at this level"
+        ("-n", "--name")
+
+    class R3(Args):
+        """root"""
+
+        dry_run: bool = False
+        "boolean -n at the root"
+        ("-n", "--dry-run")
+        _subcommands_ = [Deploy]
+
+    parser = R3._parser_()
+    parser.prog = "r3"
+    script = completion.bash(parser)
+    func = _bash_func(parser)
+    # At the root, -n is boolean: the word after it is NOT swallowed, so
+    # `Deploy` is still recognised as the subcommand and its OWN flags
+    # (including its value-taking -n/--name) are offered.
+    reply = _complete_bash(script, func, ["r3", "-n", "Deploy", "-"], 3)
+    assert {"-n", "--name", "--help"} <= set(reply)
+    reply = _complete_bash(script, func, ["r3", "-n", ""], 2)
+    assert "Deploy" in reply
 
 
 # --- Injection round-trip ---------------------------------------------------
@@ -252,12 +425,27 @@ def test_hostile_choice_fish_syntax_valid():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_hostile_choice_bash_does_not_execute(tmp_path):
-    """The injected `$(...)` must NOT run when the completion is driven (01-D3)."""
+    """The injected `$(...)` must NOT run when the completion is driven.
+
+    Runs the bash subprocess with cwd=tmp_path and a RELATIVE marker name:
+    an earlier version of this test spliced a Windows tmp_path (with `\\`)
+    into the payload, which on Windows meant the marker check never fired
+    because bash strips the backslashes and `touch` creates a mangled
+    filename in the process's cwd instead -- which, since that cwd was the
+    repo root, left a stray untracked file there. Both fixed here.
+    """
     marker = tmp_path / "pwned"
-    parser = _hostile_parser(f"it's $(touch {marker})")
+    parser = _hostile_parser("it's $(touch pwned)")
     script = completion.bash(parser)
-    reply = _complete_bash(script, "_hostileapp", ["hostileapp", "--mode", ""], 2)
+    reply = _complete_bash(
+        script,
+        completion._bash_func_name(parser.prog),
+        ["hostileapp", "--mode", ""],
+        2,
+        cwd=tmp_path,
+    )
     assert not marker.exists()  # the substitution never ran
+    assert list(os.listdir(tmp_path)) == []
     # Some fragment of the literal survives (the `touch` token is offered as a
     # candidate rather than being executed).
     assert any("touch" in c for c in reply)
@@ -270,13 +458,387 @@ def test_hostile_choice_bash_does_not_execute(tmp_path):
         "A choice value containing whitespace/quotes cannot round-trip as ONE "
         "candidate through bash's `compgen -W`: the word list is IFS-split, so "
         "`it's $(uh oh)` comes back as the separate tokens `its`, `\\$(uh`, `oh)`. "
-        "01-D3/M2 hardened the emitter against EXECUTION (verified separately), "
-        "but static `compgen -W` word-splitting is inherent -- the intact "
-        "single-candidate round-trip is NOT delivered for metacharacter values."
+        "The emitter is hardened against EXECUTION (verified separately, and in "
+        "zsh/fish -- neither of which has this limitation, see docs), but static "
+        "`compgen -W` word-splitting is inherent -- the intact single-candidate "
+        "round-trip is NOT delivered for metacharacter values in bash."
     ),
 )
 def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
     parser = _hostile_parser("it's $(uh oh)")
     script = completion.bash(parser)
-    reply = _complete_bash(script, "_hostileapp", ["hostileapp", "--mode", ""], 2)
+    reply = _complete_bash(
+        script,
+        completion._bash_func_name(parser.prog),
+        ["hostileapp", "--mode", ""],
+        2,
+    )
     assert "it's $(uh oh)" in reply
+
+
+# --- Real zsh/fish functional drives (not just syntax checks) --------------
+#
+# A script that PARSES fine can still complete nothing (a broken command-path
+# walk), error at Tab-time (an invalid `_arguments` spec), or run a hostile
+# value (a second-evaluation escaping gap) -- none of which a `-n`/
+# `--no-execute` syntax check can catch. These drive the real shells.
+
+
+def _zsh_drive(zsh_path, fpath_dir, funcname, cmdname, cmdline, timeout=20):
+    """Drive a real, interactive zsh (via zpty) far enough to render Tab
+    candidates for `cmdline`, and return the raw terminal output.
+
+    zsh's `_arguments` refuses to run outside a genuine completion context
+    (`can only be called from completion function`), so a plain `zsh -c`
+    invocation that just seeds `$words`/`$CURRENT` does not work -- an
+    actual interactive completion widget is required, hence zpty.
+    """
+    driver = textwrap.dedent("""
+        zmodload zsh/zpty
+        zpty sh 'zsh -i'
+        _drain() {
+          local acc="" chunk n=0
+          while (( n < 30 )); do
+            if zpty -r -t sh chunk 2>/dev/null; then
+              acc+=$chunk
+            else
+              sleep 0.05
+            fi
+            (( n++ ))
+          done
+          print -rn -- "$acc"
+        }
+        _drain > /dev/null
+        zpty -w -n sh "$1"$'\\t'
+        sleep 0.7
+        out=$(_drain)
+        print -r -- "$out"
+        zpty -d sh 2>/dev/null
+        """)
+    with tempfile.TemporaryDirectory() as home:
+        zshrc = os.path.join(home, ".zshrc")
+        with open(zshrc, "w", newline="\n") as f:
+            f.write(
+                "autoload -Uz compinit && compinit -u -d %s/.zcompdump\n"
+                "fpath=(%s $fpath)\n"
+                "autoload -Uz %s\n"
+                "compdef %s %s\n" % (home, fpath_dir, funcname, funcname, cmdname)
+            )
+        driver_path = os.path.join(home, "drive.zsh")
+        with open(driver_path, "w", newline="\n") as f:
+            f.write(driver)
+        env = dict(os.environ)
+        env["HOME"] = home
+        env["ZDOTDIR"] = home
+        try:
+            result = subprocess.run(
+                [zsh_path, driver_path, cmdline],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=home,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            pytest.skip("zsh did not respond within the timeout")
+        return result.stdout
+
+
+def _write_zsh_script(fpath_dir, funcname, script_text):
+    os.makedirs(fpath_dir, exist_ok=True)
+    with open(os.path.join(fpath_dir, funcname), "w", newline="\n") as f:
+        f.write(script_text)
+
+
+class Up(Args):
+    """Migrate up."""
+
+    steps: int = 1
+    "steps"
+    ("--steps",)
+
+
+class Down(Args):
+    """Migrate down."""
+
+    force: bool = False
+    "force"
+    ("--force",)
+
+
+class Migrate(Args):
+    """Migrate the db."""
+
+    _subcommands_ = [Up, Down]
+
+
+class Db(Args):
+    """DB tools."""
+
+    _subcommands_ = [Migrate]
+
+
+class Ship(Args):
+    """Ship it."""
+
+    speed: ty.Literal["fast", "slow"] = "fast"
+    "speed"
+    ("--speed",)
+
+
+class Nest(Args):
+    """A 3-level-deep subcommand tree, for a real depth >= 2 completion."""
+
+    _completion_ = True
+    _subcommands_ = [Db, Ship]
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_completes_at_depth_three(tmp_path):
+    """C002: the old zsh emitter only worked at the root; a grandchild
+    command (`Nest Db Migrate Up -<TAB>`) errored or offered nothing."""
+    parser = Nest._parser_()
+    parser.prog = "Nest"
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_Nest", script)
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest Db Migrate Up -")
+    assert "invalid argument" not in out
+    assert "command not found" not in out
+    assert "--steps" in out
+    assert "--help" in out
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_completes_root_subcommands_and_does_not_leak_siblings(tmp_path):
+    """C026/C003 (zsh side): at `Nest Db <TAB>`, only Migrate is offered --
+    not Ship (a sibling of Db) and not Up/Down (Migrate's own children)."""
+    parser = Nest._parser_()
+    parser.prog = "Nest"
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_Nest", script)
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest Db ")
+    assert "invalid argument" not in out
+    assert "Migrate" in out
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_positional_completion_does_not_error(tmp_path):
+    """C002/C004: a Path positional used to make EVERY Tab in that command
+    error (`invalid argument: src:src:_files`)."""
+    parser = Tool._parser_()
+    parser.prog = "Tool"
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_Tool", script)
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Tool", "Tool", "Tool Convert ")
+    assert "invalid argument" not in out
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_hostile_subcommand_name_does_not_execute(tmp_path):
+    """C004 (security): a hostile `_parsername_` must not run as shell code
+    when the root's subcommand list is completed."""
+
+    class CondRoot(Args):
+        """cond"""
+
+    CondRoot._parsername_ = "x;touch pwned_cond"
+
+    class Root(Args):
+        """root"""
+
+        _completion_ = True
+        _subcommands_ = [CondRoot]
+
+    parser = Root._parser_()
+    parser.prog = "HostRoot"
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_HostRoot", script)
+    _zsh_drive(_ZSH, str(fpath_dir), "_HostRoot", "HostRoot", "HostRoot ")
+    assert not (tmp_path / "pwned_cond").exists()
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_hostile_choice_does_not_execute(tmp_path):
+    """C004 (security): `$(...)` in a choice value must not run at Tab-time
+    in zsh -- the finding this plan treats as its core (zsh's `_arguments`
+    evaluates a `(a b c)` action list with `eval`)."""
+    parser = _hostile_parser("safe2 $(touch pwned_choice)")
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_hostileapp", script)
+    _zsh_drive(_ZSH, str(fpath_dir), "_hostileapp", "hostileapp", "hostileapp --mode ")
+    # The substitution never ran. Whether the raw literal is visible in the
+    # small captured terminal window is a rendering detail (zsh may only
+    # show the disambiguated common prefix on the first Tab); the file
+    # never existing is the load-bearing assertion here.
+    assert not (tmp_path / "pwned_choice").exists()
+
+
+# --- Real fish functional drives ---------------------------------------------
+
+
+def _fish_drive(fish_path, script_path, cmdline, cwd, timeout=10):
+    try:
+        result = subprocess.run(
+            [
+                fish_path,
+                "--no-config",
+                "-c",
+                f"source {script_path}; complete -C '{cmdline}'",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip("fish did not respond within the timeout")
+    return result.stdout, result.stderr
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_completes_at_depth_two_without_leaking(tmp_path):
+    """C026: fish's old `and`-string bug + missing negation leaked
+    grandchild names/flags into a parent level and offered root names again
+    after a subcommand was chosen."""
+    parser = Nest._parser_()
+    parser.prog = "Nest"
+    script = completion.fish(parser)
+    script_path = tmp_path / "nest.fish"
+    script_path.write_text(script, newline="\n")
+    out, err = _fish_drive(_FISH, script_path, "Nest Db ", tmp_path)
+    assert err == ""
+    names = {
+        line.split("\t")[0]
+        for line in out.splitlines()
+        if line and not line.startswith("-")
+    }
+    assert names == {"Migrate"}
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_choice_option_does_not_offer_files():
+    """C050: a choice option must use `-x`, not `-r` (which still allows
+    file completion for its value alongside the declared choices)."""
+    script = completion.fish(Tool._parser_())
+    assert "-x" in script
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_hostile_choice_does_not_execute(tmp_path):
+    """C004 (security): `$(...)`/`(...)` in a choice value must not run when
+    fish expands a `complete -a` argument at Tab-time."""
+    parser = _hostile_parser("safe2 $(touch pwned_fish)")
+    script = completion.fish(parser)
+    script_path = tmp_path / "hostileapp.fish"
+    script_path.write_text(script, newline="\n")
+    out, err = _fish_drive(_FISH, script_path, "hostileapp --mode ", tmp_path)
+    assert not (tmp_path / "pwned_fish").exists()
+    assert "touch" in out
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_hostile_subcommand_name_does_not_execute(tmp_path):
+    """C004 (security): a hostile subcommand name must not run when it
+    appears as a fish `-n __fish_seen_subcommand_from` condition or `-a`
+    completion value."""
+
+    class CondRoot(Args):
+        """cond"""
+
+    CondRoot._parsername_ = "x;touch pwned_fish_cond"
+
+    class Root(Args):
+        """root"""
+
+        _completion_ = True
+        _subcommands_ = [CondRoot]
+
+    parser = Root._parser_()
+    parser.prog = "HostRootFish"
+    script = completion.fish(parser)
+    script_path = tmp_path / "hostrootfish.fish"
+    script_path.write_text(script, newline="\n")
+    _fish_drive(_FISH, script_path, "HostRootFish ", tmp_path)
+    assert not (tmp_path / "pwned_fish_cond").exists()
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_choice_with_whitespace_and_quote_round_trips(tmp_path):
+    """Unlike bash's `compgen -W`, fish does not IFS-split its `-a` values:
+    'dry run' and "it's" survive as distinct, literal candidates."""
+    parser = _hostile_parser("it's")
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("dry run", "it's", "safe")
+    script = completion.fish(parser)
+    script_path = tmp_path / "hostileapp.fish"
+    script_path.write_text(script, newline="\n")
+    out, _ = _fish_drive(_FISH, script_path, "hostileapp --mode ", tmp_path)
+    values = {line.split("\t")[0] for line in out.splitlines() if line}
+    assert values == {"dry run", "it's", "safe"}
+
+
+# --- Real PowerShell functional drives ---------------------------------------
+
+
+def _pwsh_complete(script, line, cwd, timeout=15):
+    ps_script = (
+        "$ErrorActionPreference = 'Stop'\n"
+        + script
+        + "\n"
+        + f"$r = TabExpansion2 -inputScript {completion._psq(line)} -cursorColumn {len(line)}\n"
+        + "$r.CompletionMatches | ForEach-Object { $_.CompletionText }\n"
+    )
+    try:
+        result = subprocess.run(
+            [_PWSH, "-NoProfile", "-Command", "-"],
+            input=ps_script,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip("pwsh did not respond within the timeout")
+    assert result.returncode == 0, result.stderr
+    return [line for line in result.stdout.splitlines() if line]
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_completes_after_a_positional_value(tmp_path):
+    """C003 (PowerShell side): a positional value must not be mistaken for
+    a subcommand word."""
+    parser = _tool_parser()
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "tool Convert in.txt ", tmp_path)
+    assert set(reply) == {"json", "yaml", "toml"}
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_free_value_flag_offers_nothing(tmp_path):
+    """C024 (PowerShell side): a free-value flag falls through to native
+    file completion (no candidates of our own), not the flag/subcommand list."""
+    parser = _tool_parser()
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "tool Convert --name ", tmp_path)
+    assert "--help" not in reply and "Convert" not in reply
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_hostile_choice_is_quoted_when_inserted(tmp_path):
+    """C031 (security-adjacent): a candidate containing whitespace or a
+    PowerShell metacharacter is inserted as ONE quoted literal, not split or
+    left able to run on Enter."""
+    parser = _hostile_parser("dry run")
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("dry run", "$(rm -rf /)", "safe")
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "hostileapp --mode ", tmp_path)
+    assert "'dry run'" in reply
+    assert "'$(rm -rf /)'" in reply

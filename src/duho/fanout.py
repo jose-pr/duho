@@ -10,7 +10,9 @@ one command out over :func:`duho.expand`-produced targets. Core never imports it
 **Threads-first, stdlib only.** CLI fan-out is typically I/O-bound (a subprocess
 or a network round-trip per target), so a :class:`concurrent.futures.ThreadPoolExecutor`
 suffices and keeps duho zero-dependency. An asyncio variant is deliberately out of
-scope (a future add-on if a real need appears).
+scope (a future add-on if a real need appears); an ``async def`` target callable
+is still supported -- its coroutine is driven to completion the same way
+:func:`duho.run_command` does (driving any returned coroutine to completion).
 
 **Per-target logging.** While a target's work runs, log records it emits are
 tagged with a ``[<target>]`` prefix so interleaved concurrent output stays
@@ -19,14 +21,27 @@ installed on the app's existing stderr handler(s) for the duration of the
 fan-out and removed afterwards (no per-target handler churn, no leaked filter,
 no permanent mutation of global logging config). The current target is carried in
 a :class:`contextvars.ContextVar` set at the top of each worker call, so
-concurrent worker threads tag their own records without cross-talk.
+concurrent worker threads tag their own records without cross-talk. The filter
+never mutates the shared ``LogRecord`` (no rewritten ``msg``/``args``); it defers
+rendering the prefixed text until the record is actually formatted, by
+overriding the record's own ``getMessage`` for that call, so a mismatched-args
+log call still fails the same "--- Logging error ---" way it would outside a
+fan-out instead of raising into the target.
 
 **Exit-code aggregation.** Each call's result is normalised to an exit code
-(``None`` -> ``0``; an ``int`` as-is; an unhandled exception -> logged and treated
-as ``1``) and the per-target codes are reduced with ``aggregate`` (default
-:func:`max` -- any non-zero surfaces the worst code, ``0`` only if all targets
-succeed; empty target list -> ``0``). Pass ``aggregate=any`` or a custom reducer
-to change the policy.
+(``None`` -> ``0``; an ``int`` as-is (including negative -- see below); a
+``SystemExit`` -> its ``.code`` normalised the same way; an unhandled exception
+-> logged and treated as ``1`` -- one target failing never aborts the others)
+and the per-target codes are reduced with ``aggregate`` (default: a worst-by-
+magnitude reducer, so ``0`` only if every target is ``0``; empty target list ->
+``0``). A negative code (a POSIX subprocess killed by a signal reports
+``-signum``) ranks as a failure under the default reducer instead of being
+hidden by any succeeding (``0``) target the way ``max`` would hide it. Pass
+``aggregate=any`` or a custom reducer to change the policy.
+
+**Ctrl-C.** An interrupt while targets are still queued cancels the queued
+ones (already-running targets are allowed to finish) and re-raises
+``KeyboardInterrupt`` -- it does not silently drain the rest of the queue.
 
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
@@ -37,6 +52,8 @@ import contextvars as _contextvars
 import logging as _logging
 import typing as _ty
 
+from .args import _maybe_await as _maybe_await
+from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command
 
 __all__ = [
@@ -62,24 +79,36 @@ class TargetPrefixFilter(_logging.Filter):
     """A :class:`logging.Filter` that prefixes records with the current target.
 
     While a target's work runs, :data:`current_target` names it; this filter
-    reads that context var and, when set, rewrites the record's message to
-    ``[<target>] <original>``. It never drops a record (``filter`` always returns
-    ``True``) -- it only annotates. When no target is active it is a no-op, so it
-    is safe to leave installed across code that is not fanning out (though
-    :func:`target_logging` removes it promptly regardless).
+    reads that context var and, when set, arranges for the record to render as
+    ``[<target>] <original>`` -- WITHOUT mutating ``record.msg``/``record.args``.
+    It never drops a record (``filter`` always returns ``True``) -- it only
+    annotates. When no target is active it is a no-op, so it is safe to leave
+    installed across code that is not fanning out (though :func:`target_logging`
+    removes it promptly regardless).
 
-    The prefix is applied to ``record.msg`` with ``record.args`` cleared after the
-    record is rendered once via ``record.getMessage()`` -- this way a
-    ``%``-style logging call (``log.info("x=%s", x)``) is formatted first and the
-    prefix wraps the finished text, rather than corrupting the format string.
+    The prefix is applied by overriding the record's own ``getMessage`` with a
+    closure that renders the original message (via the record's real
+    ``getMessage``) and wraps it in ``[<target>] ...`` -- deferred until
+    whatever formats the record (a :class:`logging.Formatter`, or a handler that
+    calls ``record.getMessage()`` directly) actually calls it. Rendering eagerly
+    here, outside the ``emit``/``handleError`` protection every handler gives its
+    own formatting, would let a mismatched-``%``-args log call raise a
+    ``TypeError`` straight into the target's code; deferring it means that call
+    fails exactly the way it would outside a fan-out (a "--- Logging error ---"
+    notice, or nothing under ``logging.raiseExceptions = False``), not by
+    marking the target as failed.
     """
 
     def filter(self, record: "_logging.LogRecord") -> bool:
         target = current_target.get()
-        if target is not None and not getattr(record, "_duho_target_tagged", False):
-            record.msg = "[%s] %s" % (target, record.getMessage())
-            record.args = ()
-            record._duho_target_tagged = True  # type: ignore[attr-defined]
+        if target is not None and not getattr(record, "_duho_target_tagged_", False):
+            record._duho_target_tagged_ = True  # type: ignore[attr-defined]
+            _render = record.getMessage
+
+            def _get_message(_render=_render, _target=target) -> str:
+                return "[%s] %s" % (_target, _render())
+
+            record.getMessage = _get_message  # type: ignore[method-assign]
         return True
 
 
@@ -139,17 +168,35 @@ def _run_one(
 
     Sets :data:`current_target` for the duration of the call (so records emitted
     by ``func`` -- or anything it calls -- are prefixed by an installed
-    :class:`TargetPrefixFilter`), maps ``None`` -> ``0`` and an ``int`` through,
-    and turns an unhandled exception into a logged nonzero code (``1``) rather
-    than aborting the whole fan-out. Runs in the worker thread, so the context
-    var it sets is isolated to that thread.
+    :class:`TargetPrefixFilter`), drives an ``async def`` result to completion
+    (the same coroutine-driving helper :func:`duho.run_command` uses), and
+    normalises the outcome: ``None`` -> ``0``,
+    an ``int`` as-is (including negative -- see the module docstring's
+    "Exit-code aggregation"), a :class:`SystemExit` -> its ``.code`` normalised
+    the same way (``None`` -> ``0``, an ``int`` as-is, anything else -> logged and
+    ``1``), and an unhandled ``Exception`` -> logged (honoring ``DUHO_TRACEBACK``
+    via :func:`duho.logging.log_exception`) and treated as ``1``. A target
+    raising or exiting never aborts the whole fan-out -- only that target's code
+    is affected. ``KeyboardInterrupt`` (and any other non-``SystemExit``
+    ``BaseException``) is deliberately let through uncaught.
+
+    Runs in the worker thread, so the context var it sets is isolated to that
+    thread.
     """
     token = current_target.set(target)
     try:
         try:
-            result = func(target)
-        except Exception:
-            logger.exception("target %r failed", target)
+            result = _maybe_await(func(target))
+        except SystemExit as exc:
+            code = exc.code
+            if code is None:
+                return 0
+            if isinstance(code, int):
+                return code
+            logger.error("target %r exited with non-int code %r", target, code)
+            return 1
+        except Exception as exc:
+            _log_exception(logger, "target %r failed: %s", target, exc)
             return 1
         # Normalise inside the isolation boundary: a target returning a non-int,
         # non-None value must not abort the whole fan-out via an escaping
@@ -157,10 +204,24 @@ def _run_one(
         try:
             return 0 if result is None else int(result)
         except (TypeError, ValueError):
-            logger.exception("target %r returned non-int %r", target, result)
+            logger.error("target %r returned non-int %r", target, result)
             return 1
     finally:
         current_target.reset(token)
+
+
+def _worst(codes: "_ty.Sequence[int]") -> int:
+    """Reduce per-target exit codes to the worst one, ranking by magnitude.
+
+    The default ``aggregate`` for :func:`run_targets`/:func:`fan_out_command`.
+    Unlike :func:`max`, a negative code -- a POSIX subprocess killed by a signal
+    reports ``-signum`` -- ranks as a failure rather than being hidden by any
+    succeeding (``0``) target: codes are compared by absolute value, so
+    ``[0, -9, 0]`` returns ``-9``. For all-non-negative codes this returns
+    exactly what :func:`max` would, so ordinary (non-negative) exit codes are
+    unaffected.
+    """
+    return max(codes, key=abs)
 
 
 def run_targets(
@@ -168,35 +229,62 @@ def run_targets(
     targets: "_ty.Iterable[object]",
     *,
     max_workers: "int | None" = None,
-    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = max,
+    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
     logger: "_logging.Logger | None" = None,
 ) -> int:
     """Run ``func(target)`` for each target concurrently; return an aggregate code.
 
     The primary, general fan-out primitive. Each ``func(target)`` call runs on a
     :class:`~concurrent.futures.ThreadPoolExecutor` worker; its result is
-    normalised to an exit code (``None`` -> ``0``, an ``int`` as-is, an unhandled
-    exception -> logged and treated as ``1`` -- one target failing never aborts the
-    others). The per-target codes are reduced by ``aggregate`` (default
-    :func:`max`: any non-zero surfaces the worst code, ``0`` only if all succeed).
+    normalised to an exit code by :func:`_run_one` -- one target failing never
+    aborts the others. The per-target codes are reduced by ``aggregate``
+    (default: :func:`_worst`, a worst-by-magnitude reducer -- ``0`` only if every
+    target succeeds, and a negative code is never hidden by a succeeding one).
     An empty ``targets`` returns ``0`` (``aggregate`` is not called).
+
+    ``targets`` must be an iterable of individually-meaningful targets, not a
+    bare ``str``/``bytes`` -- either of those would silently fan out one call per
+    character/byte, so passing one raises :class:`TypeError`. Wrap a single
+    target in a list.
 
     * ``max_workers`` -- forwarded to the pool; ``None`` lets
       :class:`~concurrent.futures.ThreadPoolExecutor` choose (cap it to mirror a
-      ``--parallel`` flag; ``max_workers=1`` serialises).
+      ``--parallel`` flag; ``max_workers=1`` serialises). Validated up front
+      (``ValueError`` for a non-positive value) even when ``targets`` is empty,
+      so a bad ``--parallel 0`` is caught immediately rather than only once
+      there is work.
     * ``aggregate`` -- the reducer over the list of per-target codes. Pass
-      :func:`any`/:func:`all` or a custom callable for a different policy (its
-      truthy/int return is coerced with ``int`` by the caller of this function's
-      result if needed -- ``max``/``any``/``all`` already return usable values).
+      :func:`any`/:func:`all` or a custom callable for a different policy; its
+      result is coerced with ``int`` by this function before being returned.
     * ``logger`` -- where a target exception is reported and whose handlers carry
-      the ``[<target>]`` prefix filter for the duration; defaults to the ``"duho"``
-      logger (the prefix filter is installed on the effective handlers, i.e. the
-      root's when ``"duho"`` propagates, so app-configured stderr output is tagged).
+      the ``[<target>]`` prefix filter for the duration; defaults to this
+      module's own logger, ``"duho.fanout"`` (a child of ``"duho"``, so a handler
+      configured on ``"duho"`` or the root still sees it via propagation).
+
+    An ``async def`` ``func`` is supported: its coroutine result is driven to
+    completion the same way :func:`duho.run_command` drives one
+    (the same coroutine-driving helper :func:`duho.run_command` uses), so
+    ``run_targets`` and ``fan_out_command`` agree
+    with the rest of duho on async targets.
 
     Per-target log prefixing is active only inside this call: the filter is
     installed on entry and removed on return (see :func:`target_logging`), so a
     log line emitted after ``run_targets`` returns is unprefixed.
+
+    An interrupt (``KeyboardInterrupt``) or an escaping ``SystemExit`` while
+    targets are still queued cancels every target that has not yet started
+    (already-running ones are allowed to finish) and re-raises -- queued work is
+    never silently drained to completion after an abort.
     """
+    if isinstance(targets, (str, bytes)):
+        raise TypeError(
+            "run_targets: targets must be an iterable of targets, not a single "
+            "%s (which would fan out one call per character/byte) -- wrap it in "
+            "a list" % type(targets).__name__
+        )
+    if max_workers is not None and max_workers <= 0:
+        raise ValueError("max_workers must be greater than 0")
+
     active_logger = logger if logger is not None else _LOGGER
     target_list = list(targets)
     if not target_list:
@@ -204,11 +292,19 @@ def run_targets(
 
     with target_logging(active_logger):
         with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = [
-                pool.submit(_run_one, func, target, active_logger)
-                for target in target_list
-            ]
-            codes = [future.result() for future in futures]
+            try:
+                futures = [
+                    pool.submit(_run_one, func, target, active_logger)
+                    for target in target_list
+                ]
+                codes = [future.result() for future in futures]
+            except BaseException:
+                # Ctrl-C / an escaping SystemExit: drop every queued target, but
+                # let one already running finish (wait=True) while the prefix
+                # filter is still installed. The second shutdown() from
+                # __exit__ afterwards is a no-op.
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
 
     return int(aggregate(codes))
 
@@ -220,7 +316,7 @@ def fan_out_command(
     *,
     context: object = None,
     max_workers: "int | None" = None,
-    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = max,
+    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
     logger: "_logging.Logger | None" = None,
 ) -> int:
     """Fan a single duho ``command`` out over targets, one parsed instance each.

@@ -818,6 +818,22 @@ def _apply_app_config_layers(
       stdlib one -- see this module's own docstring), so its table is applied
       EAGERLY, immediately, the pre-27 way.
 
+    A module command's own env/config-bound field, once laid on eagerly
+    above, gets the SAME "never show the live value" redaction a class
+    command's does: right after ``_apply_default_layers_one`` installs it,
+    ``duho.agenthelp.stash_default_provenance`` snapshots the class default
+    (and, when applicable, a value-free provenance note) onto each action,
+    for its own ``--help``/agent-help description to read later -- BEFORE
+    ``app()``'s own ``parser.parse_args(argv)`` runs (this whole function is
+    called from command-tree assembly, always before that), so it is in
+    place no matter which trigger fires. Passed this command's OWN
+    ``args_cls`` explicitly rather than relying on ``parser._duho_cls_``: a
+    module command's subparser deliberately has none (``duho.mcp`` also reads
+    that same attribute, to decide whether a node is callable -- a decision
+    this redaction has no business changing). ``duho.agenthelp`` is imported
+    lazily so a plain ``duho.app()`` call with no module command declaring
+    fields never pays for it.
+
     ``raw_config`` is the already-loaded TOML table (``app`` loads it once so
     the root layering can also run before the advisory prepass -- C5).
     """
@@ -834,6 +850,9 @@ def _apply_app_config_layers(
         args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
         if args_cls is not None:
             _apply_default_layers_one(sub_parser, args_cls, sub_table)
+            from . import agenthelp as _agenthelp
+
+            _agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
 
 
 def _prepare_app_parser(

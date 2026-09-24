@@ -35,6 +35,7 @@ only when an agent-help trigger actually fires).
 """
 
 import argparse as _argparse
+import contextlib as _contextlib
 import enum as _enum
 import os as _os
 import pathlib as _pathlib
@@ -265,8 +266,19 @@ def _default_and_source(dest, builder, action, sources):
     ``instance=`` override is a caller-constructed Python value, not
     env/filesystem-sourced, so it keeps showing its class default with no
     note, same as an untouched field.
+
+    A builder-less action (no duho class behind this parser at all, e.g. a
+    ``duho.app`` module command) falls back to whatever
+    :func:`stash_default_provenance` already stashed directly on the ACTION
+    (``_duho_class_default_``/``_duho_default_source_``) -- that caller
+    resolves its own builder/source data independently (it has no
+    ``parser._duho_cls_`` to hand `describe_parser` either), so this is the
+    only place its redaction can still reach the JSON document.
     """
     if builder is None:
+        stashed_source = getattr(action, "_duho_default_source_", None)
+        if stashed_source is not None:
+            return getattr(action, "_duho_class_default_", None), stashed_source
         return _jsonable(action.default), None
     source = (sources or {}).get(dest)
     if source == "env":
@@ -421,10 +433,34 @@ def _cls_metadata(parser):
     return builders, clsargs
 
 
-def stash_default_provenance(parser) -> None:
+@_contextlib.contextmanager
+def _muted_color(parser):
+    """Temporarily force ``parser.color = False`` while formatting.
+
+    Argparse's own native color (3.14+, ``ArgumentParser(color=True)`` by
+    default) still colors ``parser.format_usage()`` even when the caller
+    never asked for colored HELP TEXT -- a machine-readable agent-help
+    ``usage`` field must be plain regardless of the process's own
+    TTY/``FORCE_COLOR`` state, since it is parsed by a tool, not displayed in
+    a terminal. A no-op pre-3.14, where ``ArgumentParser`` has no ``color``
+    attribute at all (mirrors ``duho.mcp``'s own ``_muted_color``, which does
+    the same for a captured tool-call usage/error string).
+    """
+    has_color = hasattr(parser, "color")
+    old = parser.color if has_color else None
+    if has_color:
+        parser.color = False
+    try:
+        yield
+    finally:
+        if has_color:
+            parser.color = old
+
+
+def stash_default_provenance(parser, cls=None) -> None:
     """Snapshot each of ``parser``'s actions' CLASS default (and env/config
     provenance) onto the action itself, for :class:`duho.formatters.DefaultsFormatter`
-    to read (C001).
+    and :func:`describe_parser`'s own builder-less fallback to read (C001).
 
     ``DefaultsFormatter._get_help_string`` only ever receives ``action``, never
     ``parser`` -- argparse's own ``HelpFormatter`` API has no seam for it --
@@ -433,12 +469,25 @@ def stash_default_provenance(parser) -> None:
     ``args.py``'s ``_AgentHelpAction`` right before it renders human help (the
     one place in the print path that still has both ``parser`` and the
     about-to-render actions), so ``--help`` never shows a live env/config
-    value either, matching the JSON document's own redaction. A no-op for a
-    parser with no duho class behind it, or one that was never parsed (no
-    ``_duho_value_sources_`` -- every field's ``action.default`` is already
-    just its class default there, nothing to redact).
+    value either, matching the JSON document's own redaction.
+
+    ``cls`` defaults to ``parser._duho_cls_`` (the normal class-command case);
+    an explicit ``cls`` lets a caller redact a parser that intentionally has
+    NO ``_duho_cls_`` of its own -- a ``duho.app`` module command's subparser
+    is a deliberately bare stdlib one (see ``duho.runtime``'s own module
+    docstring), so it is never routed through ``_AgentHelpAction``/described
+    with duho field metadata either; ``duho.runtime`` calls this directly,
+    right after applying that command's own env/config layer, WITHOUT ever
+    setting ``parser._duho_cls_`` itself (that attribute is also read by
+    ``duho.mcp`` to decide whether a node is callable, a decision this
+    redaction has no business changing).
+
+    A no-op when no ``cls`` is available (explicit or via ``_duho_cls_``), or
+    the parser was never layered (no ``_duho_value_sources_`` -- every
+    field's ``action.default`` is already just its class default there,
+    nothing to redact).
     """
-    cls = getattr(parser, "_duho_cls_", None)
+    cls = cls if cls is not None else getattr(parser, "_duho_cls_", None)
     if cls is None:
         return
     try:
@@ -509,7 +558,8 @@ def describe_parser(
             except Exception:  # pragma: no cover - version resolution is best-effort
                 version = None
         spec["version"] = version
-    spec["usage"] = parser.format_usage().strip()
+    with _muted_color(parser):
+        spec["usage"] = parser.format_usage().strip()
 
     options = []
     positionals = []

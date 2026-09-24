@@ -514,3 +514,34 @@ def test_env_trigger_scoped_help_reports_root_version_and_exit_codes(
     # synthesized, not the app's unrelated root-level declared example.
     assert doc["examples"][0]["command"].startswith("App Deploy")
     assert doc["examples"][0]["command"] != "myapp Deploy --env prod ./src"
+
+
+# --------------------------------------------------------------------------
+# C022 (agenthelp half): the usage text in an agent-help document is never
+# colored, even when argparse's native 3.14+ color is forced on
+# --------------------------------------------------------------------------
+
+
+def test_agent_help_usage_has_no_ansi_when_color_forced(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    doc = describe(App)
+    assert "\x1b" not in doc["usage"]
+    dep = _deploy_spec(doc)
+    assert "\x1b" not in dep["usage"]
+    # A control byte JSON must escape (`\u001b`) survives a decode round-trip
+    # back into a real ESC character -- check the DECODED value too, not just
+    # the serialized text (which is always control-byte-escaped regardless).
+    decoded = json.loads(render(doc))
+    assert "\x1b" not in decoded["usage"]
+    assert "\x1b" not in decoded["subcommands"][0]["usage"]
+
+
+def test_print_agent_help_has_no_ansi_when_color_forced(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    out = tmp_path / "help.json"
+    with out.open("w", encoding="utf-8") as fh:
+        duho.print_agent_help(App, file=fh)
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    assert "\x1b" not in doc["usage"]

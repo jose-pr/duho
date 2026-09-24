@@ -50,6 +50,65 @@ __all__ = ["generate_launchers", "ScaffoldCmd"]
 _DEFAULT_POSIX_PYTHON = "python3"
 _DEFAULT_WINDOWS_PYTHON = "python"
 
+#: Characters that could let ``libdir``/``python`` break out of the double
+#: quotes they are interpolated into (a stray quote), run a nested command (a
+#: backtick or ``$(...)`` in POSIX ``sh``), expand an unintended variable
+#: (``%...%`` in ``cmd.exe``, still expanded inside double quotes), or split
+#: the generated file into more than one line.
+_FORBIDDEN_INTERPOLATION_CHARS = frozenset("\"'`$%\n\r")
+
+
+def _validate_app(app: str) -> None:
+    """Raise :class:`ValueError` unless ``app`` is a safe, real module name.
+
+    ``app`` is used BOTH as a filename under ``bin/`` and unquoted after ``-m``
+    in the generated shell/batch text, so it must be a dotted ASCII identifier
+    (the same grammar Python itself requires for ``python -m <app>``) -- never
+    a hyphenated distribution name, a path (which could escape ``bin/`` via
+    ``..``), or text containing shell/batch metacharacters (O038).
+    """
+    if (
+        not app
+        or not app.isascii()
+        or not all(part.isidentifier() for part in app.split("."))
+    ):
+        raise ValueError(
+            "duho.scaffold: app must be a dotted ASCII identifier (the "
+            "importable module name for `python -m <app>`), got %r" % (app,)
+        )
+
+
+def _validate_interpolated(value: str, what: str, *, path_like: bool = False) -> None:
+    """Raise :class:`ValueError` unless ``value`` is safe to bake into a launcher.
+
+    Applies to ``libdir`` and ``python``, both of which are written verbatim
+    inside double quotes in the generated POSIX/``.cmd`` text (O038, O040):
+    non-ASCII is rejected outright (cmd.exe decodes a batch file with the
+    console's OEM code page, not UTF-8, so a non-ASCII byte baked into the
+    ``.cmd`` is mis-decoded there -- O040), as are quotes, backticks, ``$``,
+    ``%`` and newlines. ``path_like`` additionally rejects an absolute path or
+    one containing ``..`` (``libdir`` is joined under the app root).
+    """
+    if not value.isascii():
+        raise ValueError(
+            "duho.scaffold: %s must be ASCII (a non-ASCII byte in the "
+            "generated .cmd is mis-decoded by cmd.exe's OEM code page): %r"
+            % (what, value)
+        )
+    if any(ch in _FORBIDDEN_INTERPOLATION_CHARS for ch in value):
+        raise ValueError(
+            "duho.scaffold: %s must not contain quotes, backticks, '$', '%%' "
+            "or newlines (it is interpolated into generated shell/batch "
+            "text): %r" % (what, value)
+        )
+    if path_like:
+        as_path = _Path(value)
+        if as_path.is_absolute() or ".." in as_path.parts:
+            raise ValueError(
+                "duho.scaffold: %s must be a relative path without '..': %r"
+                % (what, value)
+            )
+
 
 def _posix_launcher(app: str, libdir: str, python: str) -> str:
     """Return the POSIX ``sh`` launcher text for ``app``.
@@ -60,6 +119,12 @@ def _posix_launcher(app: str, libdir: str, python: str) -> str:
     ``<root>/<libdir>`` to ``PYTHONPATH``, and ``exec``s the app module. The
     interpreter is ``${PYTHON:-<python>}`` so a ``PYTHON`` env var overrides the
     baked-in default. Generic -- no project-specific names are emitted.
+
+    Both ``cd`` calls run with ``CDPATH=`` cleared: bash's ``cd`` PRINTS the
+    resolved directory to stdout when ``CDPATH`` is exported and the target is
+    relative, which would make the surrounding ``$(...)`` capture two lines
+    instead of one and fail the next ``cd`` under ``set -e`` (O039) -- this
+    breaks a developer's own shell rc, not just a hostile environment.
     """
     return (
         "#!/bin/sh\n"
@@ -76,8 +141,8 @@ def _posix_launcher(app: str, libdir: str, python: str) -> str:
         '        *) script="$(dirname "$script")/$link" ;;\n'
         "    esac\n"
         "done\n"
-        'bindir=$(cd "$(dirname "$script")" && pwd)\n'
-        'root=$(cd "$bindir/.." && pwd)\n'
+        'bindir=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)\n'
+        'root=$(CDPATH= cd -- "$bindir/.." && pwd)\n'
         'libdir="$root/{libdir}"\n'
         'if [ -n "${{PYTHONPATH:-}}" ]; then\n'
         '    PYTHONPATH="$libdir:$PYTHONPATH"\n'
@@ -95,8 +160,10 @@ def _windows_launcher(app: str, libdir: str, python: str) -> str:
     Uses ``%~dp0`` (the batch file's own directory) to derive the app root,
     prepends ``<root>\\<libdir>`` to ``PYTHONPATH``, and runs ``%PYTHON% -m
     <app> %*``. ``PYTHON`` defaults to ``<python>`` when unset so a caller can
-    override the interpreter. Emitted with CRLF-friendly plain text (Python
-    writes it with the platform newline); generic -- no project names.
+    override the interpreter. Generic -- no project names. The text embeds
+    literal CRLF line endings, and the caller writes it with ``newline=""`` so
+    Python does not translate them again (O032 -- this used to say Python
+    writes it with "the platform newline", which is wrong on POSIX).
     """
     return (
         "@echo off\r\n"
@@ -172,7 +239,20 @@ def generate_launchers(
     The generator writes **plain files** (never symlinks) and sets the POSIX
     launcher's executable bit best-effort (a no-op where the platform/filesystem
     doesn't support it).
+
+    Raises :class:`ValueError` for an ``app`` that is not a dotted ASCII
+    identifier, a ``libdir`` that is not a relative, ``..``-free ASCII path
+    free of quote/backtick/``$``/``%``/newline characters, or a ``python`` with
+    the same forbidden characters -- all three are interpolated into generated
+    shell/batch text, so a hyphenated/path-like/hostile value would otherwise
+    produce a launcher that cannot work, escapes ``bin/``, or executes
+    unintended commands (O038, O040).
     """
+    _validate_app(app)
+    _validate_interpolated(libdir, "libdir", path_like=True)
+    if python is not None:
+        _validate_interpolated(python, "python")
+
     root_path = _Path(root)
     bindir = root_path / "bin"
 
@@ -244,13 +324,22 @@ class ScaffoldCmd(_Cli):
     ("--force",)  # type: ignore
 
     def __call__(self) -> int:
-        written = generate_launchers(
-            self.app,
-            self.root,
-            libdir=self.libdir,
-            python=self.python,
-            overwrite=self.force,
-        )
+        try:
+            written = generate_launchers(
+                self.app,
+                self.root,
+                libdir=self.libdir,
+                python=self.python,
+                overwrite=self.force,
+            )
+        except FileExistsError as exc:
+            # generate_launchers documents this as the refusal-to-overwrite
+            # signal; the CLI reports it as a one-line error, not a traceback
+            # for an expected, documented condition (R056). The library
+            # function itself keeps raising -- only this CLI wrapper catches it.
+            print(str(exc), file=_sys.stderr)
+            print("duho.scaffold: pass --force to overwrite", file=_sys.stderr)
+            return 1
         for path in written:
             print(path)
         return 0

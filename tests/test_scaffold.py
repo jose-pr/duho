@@ -50,6 +50,7 @@ _ALLOWED_LAUNCHER_WORDS = frozenset(
         "than",
         "resolve",
         "real",
+        "cdpath",
         "directory",
         "following",
         "symlinks",
@@ -219,6 +220,121 @@ def test_overwrite_message_names_the_conflict(tmp_path):
     with pytest.raises(FileExistsError) as excinfo:
         generate_launchers("myapp", tmp_path)
     assert "myapp" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------
+# Input validation: app / libdir / python are baked unquoted into generated
+# shell/batch text, so a bad value must be rejected up front rather than
+# producing a broken or hostile launcher.
+# --------------------------------------------------------------------------
+
+
+def test_hyphenated_app_name_is_rejected(tmp_path):
+    """A distribution-style hyphenated name can never be `python -m`'d."""
+    with pytest.raises(ValueError):
+        generate_launchers("my-app", tmp_path)
+
+
+def test_app_with_space_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("my app", tmp_path)
+
+
+def test_app_path_traversal_is_rejected(tmp_path):
+    """An app name is also a filename under bin/; '..' must not escape it."""
+    with pytest.raises(ValueError):
+        generate_launchers("../escape", tmp_path)
+
+
+def test_empty_app_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("", tmp_path)
+
+
+def test_dotted_app_name_is_accepted(tmp_path):
+    """A genuine dotted module path (each part a real identifier) is fine."""
+    written = generate_launchers("pkg.sub", tmp_path)
+    assert all(path.exists() for path in written)
+
+
+def test_app_command_injection_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp;echo hi", tmp_path)
+
+
+def test_libdir_command_substitution_is_rejected(tmp_path):
+    """A libdir containing $(...) would run a command every launch."""
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir="lib$(echo hi)")
+
+
+def test_libdir_quote_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir='lib"x')
+
+
+def test_libdir_traversal_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir="../escape")
+
+
+def test_libdir_absolute_path_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir=str(tmp_path))
+
+
+def test_python_with_forbidden_char_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, python='python"; rm -rf /')
+
+
+def test_non_ascii_libdir_is_rejected(tmp_path):
+    """cmd.exe decodes the .cmd with its OEM code page, not UTF-8: a
+    non-ASCII libdir baked into it would be mis-decoded there."""
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir="bibliothèque")
+
+
+def test_non_ascii_python_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, python="pythön")
+
+
+# --------------------------------------------------------------------------
+# POSIX launcher: CDPATH safety
+# --------------------------------------------------------------------------
+
+
+def test_posix_launcher_is_cdpath_safe(tmp_path):
+    """Both `cd` calls clear CDPATH -- otherwise an exported CDPATH makes
+    bash's `cd` print the resolved directory, corrupting the `$(...)`
+    capture and failing the launcher under `set -e`."""
+    generate_launchers("myapp", tmp_path)
+    text = _read(tmp_path / "bin" / "myapp")
+    assert text.count("CDPATH=") == 2
+    assert 'CDPATH= cd -- "$(dirname -- "$script")"' in text
+    assert 'CDPATH= cd -- "$bindir/.."' in text
+
+
+# --------------------------------------------------------------------------
+# CLI: FileExistsError is reported as a one-line error, not a traceback
+# --------------------------------------------------------------------------
+
+
+def test_cli_reports_overwrite_refusal_without_a_traceback(tmp_path, capsys):
+    """Re-running the dogfooded CLI without --force is a documented, expected
+    condition -- it must exit 1 with a clear message, not an unhandled
+    FileExistsError traceback."""
+    scaffold.main(["demo", "--root", str(tmp_path)])
+    capsys.readouterr()
+
+    rc = scaffold.main(["demo", "--root", str(tmp_path)])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "already exists" in err
+    assert "--force" in err
+    assert "Traceback" not in err
 
 
 # --------------------------------------------------------------------------

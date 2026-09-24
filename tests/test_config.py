@@ -5,6 +5,7 @@ A value from any layer un-requires the corresponding field for free (via
 parser.set_defaults()), which is exercised explicitly below.
 """
 
+import pathlib
 import sys
 import typing as _ty
 
@@ -376,3 +377,169 @@ def test_missing_toml_backend_raises_clear_runtimeerror(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="tomli"):
         duho.parse(ConfigArgs, [], config=cfg)
+
+
+# --------------------------------------------------------------------------
+# Layered bool env conversion
+# --------------------------------------------------------------------------
+
+
+class _BoolEnv(Args):
+    dry: Arg[bool, NS(env="DUHO_A1_DRY")] = False
+    "Dry run"
+    ("--dry",)
+
+
+def test_bool_env_false_string_is_false(monkeypatch):
+    # A naive bool("false") is True; the layered converter must not do that.
+    monkeypatch.setenv("DUHO_A1_DRY", "false")
+    result = duho.parse(_BoolEnv, [])
+    assert result.dry is False
+
+
+def test_bool_env_zero_is_false(monkeypatch):
+    monkeypatch.setenv("DUHO_A1_DRY", "0")
+    result = duho.parse(_BoolEnv, [])
+    assert result.dry is False
+
+
+def test_bool_env_one_is_true(monkeypatch):
+    monkeypatch.setenv("DUHO_A1_DRY", "1")
+    result = duho.parse(_BoolEnv, [])
+    assert result.dry is True
+
+
+def test_bool_env_garbage_reports_usage_error(monkeypatch, capsys):
+    # A bad env value is reported the same way a bad CLI value would be --
+    # usage text + exit 2, never a raw traceback.
+    monkeypatch.setenv("DUHO_A1_DRY", "banana")
+    with pytest.raises(SystemExit) as exc:
+        duho.parse(_BoolEnv, [])
+    assert exc.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "DUHO_A1_DRY" in stderr
+    assert "dry" in stderr
+    assert "usage:" in stderr
+
+
+# --------------------------------------------------------------------------
+# Layered collection env conversion
+# --------------------------------------------------------------------------
+
+
+class _ListEnv(Args):
+    files: Arg[list[str], NS(env="DUHO_A1_FILES")]
+    "Files"
+    ("--files",)
+
+
+class _SetEnv(Args):
+    tags: Arg[set[str], NS(env="DUHO_A1_TAGS")]
+    "Tags"
+    ("--tags",)
+
+
+def test_list_env_single_element_wrapped(monkeypatch):
+    # A naive element factory (str) run on the whole string would give the
+    # scalar "a.txt" instead of a one-element list.
+    monkeypatch.setenv("DUHO_A1_FILES", "a.txt")
+    result = duho.parse(_ListEnv, [])
+    assert result.files == ["a.txt"]
+
+
+def test_set_env_single_element_wrapped(monkeypatch):
+    monkeypatch.setenv("DUHO_A1_TAGS", "x")
+    result = duho.parse(_SetEnv, [])
+    assert result.tags == {"x"}
+
+
+# --------------------------------------------------------------------------
+# Non-string config-layer conversion
+# --------------------------------------------------------------------------
+
+
+class _TimeoutArgs(Args):
+    timeout: float = 10.0
+    "Timeout"
+    ("--timeout",)
+
+    paths: list[pathlib.Path]
+    "Paths"
+    ("--paths",)
+
+
+@pytest.mark.requires_toml
+def test_config_int_becomes_float(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("timeout = 30\n")
+    result = duho.parse(_TimeoutArgs, [], config=cfg)
+    assert result.timeout == 30.0
+    assert isinstance(result.timeout, float)
+
+
+@pytest.mark.requires_toml
+def test_config_list_of_paths(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('paths = ["a", "b"]\n')
+    result = duho.parse(_TimeoutArgs, [], config=cfg)
+    assert result.paths == [pathlib.Path("a"), pathlib.Path("b")]
+
+
+# --------------------------------------------------------------------------
+# A layered CLI flag declared on the root survives past subcommand dispatch
+# --------------------------------------------------------------------------
+
+
+class _SubLayeredVerbose(Args):
+    verbose: Arg[int, NS(env="DUHO_A2_VERBOSE")] = 0
+    "Verbosity"
+    ("--verbose",)
+
+    def __call__(self):
+        return 0
+
+
+class _RootLayeredVerbose(duho.Cli):
+    verbose: Arg[int, NS(env="DUHO_A2_VERBOSE")] = 0
+    "Verbosity"
+    ("--verbose",)
+
+    _subcommands_ = [_SubLayeredVerbose]
+
+    def __call__(self):
+        return 0
+
+
+def test_cli_flag_before_subcommand_survives_env(monkeypatch):
+    monkeypatch.setenv("DUHO_A2_VERBOSE", "5")
+    result = duho.parse(_RootLayeredVerbose, ["--verbose", "3", "_SubLayeredVerbose"])
+    assert result.verbose == 3
+
+
+def test_env_applies_when_no_cli_flag(monkeypatch):
+    monkeypatch.setenv("DUHO_A2_VERBOSE", "5")
+    result = duho.parse(_RootLayeredVerbose, ["_SubLayeredVerbose"])
+    assert result.verbose == 5
+
+
+# --------------------------------------------------------------------------
+# A layered value un-requires a positional the same way it un-requires a flag
+# --------------------------------------------------------------------------
+
+
+class _PositionalEnv(Args):
+    name: Arg[str, NS(env="DUHO_A3_NAME")]
+    "Name"
+    ("name",)
+
+
+def test_positional_env_makes_optional(monkeypatch):
+    monkeypatch.setenv("DUHO_A3_NAME", "from-env")
+    result = duho.parse(_PositionalEnv, [])
+    assert result.name == "from-env"
+
+
+def test_positional_no_env_still_required(monkeypatch):
+    monkeypatch.delenv("DUHO_A3_NAME", raising=False)
+    with pytest.raises(SystemExit):
+        duho.parse(_PositionalEnv, [])

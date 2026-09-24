@@ -161,10 +161,16 @@ def _class_constants(cls: type) -> "dict[str, list]":
         clsdef = getclsdef(cls)
         if clsdef is None and getattr(cls, "__annotations__", None):
             # A class with annotated fields whose source we could not locate
-            # (REPL/exec/zipapp) silently loses its flags/env/docstrings. Leave a
-            # one-time diagnostic (this runs once per class -- the result is cached
-            # below) so the loss is at least discoverable (M18).
-            _LOGGER.debug(
+            # (a PyInstaller/py2exe freeze, a .pyc-only install, Nuitka, REPL/
+            # exec, zipapp) silently loses its flags/env/docstrings -- every
+            # field falls back to a derived `--field-name` option, a
+            # no-default positional becomes a REQUIRED option, and short
+            # aliases/help text vanish (C007). This happens while the parser
+            # is still being BUILT, before an app's own `-v`/`--loglevel`
+            # could raise the level to see a DEBUG-level diagnostic, so it
+            # must be loud enough to be seen by default (this runs once per
+            # class -- the result is cached below).
+            _LOGGER.warning(
                 "duho: no source ClassDef found for %s.%s; class-body flags, "
                 "env, and attribute docstrings will be unavailable",
                 getattr(cls, "__module__", "?"),

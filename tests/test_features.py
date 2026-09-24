@@ -9,6 +9,23 @@ import pytest
 import duho
 from duho import Args, Cmd, LoggingArgs
 
+
+@pytest.fixture(autouse=True)
+def _reset_auto_version_cache(monkeypatch):
+    """`_version_ = duho.AUTO` caches its resolution for the life of the
+    process, keyed by distribution name -- correct in production,
+    where an installed distribution's version cannot change mid-process, but
+    it would otherwise let one test's `importlib.metadata.version`
+    monkeypatch leak into a LATER test resolving AUTO for the same class
+    (same computed distribution name), making that test see a stale cached
+    result instead of its own monkeypatched behavior. Reset to an empty dict
+    before every test in this module; `monkeypatch` restores the original
+    object afterward, same as the provider-state reset pattern used
+    elsewhere in this suite.
+    """
+    monkeypatch.setattr(duho.args, "_AUTO_VERSION_CACHE", {})
+
+
 # --- Literal & Enum -> choices -----------------------------------------
 
 

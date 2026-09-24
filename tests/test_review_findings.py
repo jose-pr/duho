@@ -43,16 +43,6 @@ def test_docstring_percent_does_not_crash_parser_build():
     assert "RPM %files list" in text
 
 
-@pytest.mark.xfail(
-    reason="args.py:1492 (finding A029-adjacent %-escaping, owned by whichever "
-    "plan touches _initparser_'s description= construction): the same "
-    "'%' -> '%%' escaping meant for argparse's help= interpolation is also "
-    "applied to a class's own description=, which argparse never "
-    "%-interpolates -- a standalone command's own --help shows a doubled "
-    "'%%files'. R044 fix-readiness pin; un-xfail once that escaping is "
-    "scoped to help= only.",
-    strict=True,
-)
 def test_own_percent_help_is_not_doubled():
     sub_help = _PercentDoc._parser_().format_help()
     assert "RPM %files list" in sub_help

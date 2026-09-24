@@ -56,6 +56,7 @@ class _RootCfg(Cli):
         return 0
 
 
+@pytest.mark.requires_toml
 def test_value_sources_subcommand_config(tmp_path):
     cfg = tmp_path / "c.toml"
     cfg.write_text('[_SubCfg]\ntarget = "prod"\n')

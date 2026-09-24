@@ -129,6 +129,7 @@ class _CliReq(LoggingArgs, Cli):
         return 0
 
 
+@pytest.mark.requires_toml
 def test_config_required_global_with_module_command(tmp_path, monkeypatch):
     monkeypatch.delenv("DUHO_B2_DSN", raising=False)
     cfg = tmp_path / "app.toml"

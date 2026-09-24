@@ -251,6 +251,7 @@ def test_list_cli_value_replaces_env_default(monkeypatch):
     assert inst.tags == ["cli"]
 
 
+@pytest.mark.requires_toml
 def test_list_config_value_replaced_by_cli(tmp_path):
     cfg = tmp_path / "cfg.toml"
     cfg.write_text('paths = ["a", "b"]\n')

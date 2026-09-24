@@ -355,6 +355,7 @@ class ConfigTool(Cmd):
         return {"region": self.region}
 
 
+@pytest.mark.requires_toml
 def test_config_bound_field_is_satisfied_without_an_explicit_argument(tmp_path):
     from duho.mcp import _TREE_CACHE
 

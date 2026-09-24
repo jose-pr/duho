@@ -94,6 +94,7 @@ class _TimeoutArgs(Args):
     ("--paths",)
 
 
+@pytest.mark.requires_toml
 def test_config_int_becomes_float(tmp_path):
     cfg = tmp_path / "c.toml"
     cfg.write_text("timeout = 30\n")
@@ -102,6 +103,7 @@ def test_config_int_becomes_float(tmp_path):
     assert isinstance(result.timeout, float)
 
 
+@pytest.mark.requires_toml
 def test_config_list_of_paths(tmp_path):
     cfg = tmp_path / "c.toml"
     cfg.write_text('paths = ["a", "b"]\n')

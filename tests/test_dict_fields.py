@@ -115,6 +115,7 @@ class ConfigLayered(Args):
     ("--label",)
 
 
+@pytest.mark.requires_toml
 def test_dict_config_table(tmp_path):
     cfg = tmp_path / "cfg.toml"
     cfg.write_text("[labels]\na = 1\nb = 2\n")

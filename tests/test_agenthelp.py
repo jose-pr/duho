@@ -177,6 +177,7 @@ def test_agent_help_no_secret_leaves_default_untouched(monkeypatch, capsys):
     assert "default_source" not in root_token
 
 
+@pytest.mark.requires_toml
 def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secret(
     tmp_path, monkeypatch, capsys
 ):

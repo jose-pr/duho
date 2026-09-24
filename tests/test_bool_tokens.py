@@ -87,6 +87,7 @@ class _ConfigBoolArgs(Args):
     ("--dry-run",)
 
 
+@pytest.mark.requires_toml
 def test_config_layered_bool_can_be_turned_off_from_cli(tmp_path):
     import duho
 

@@ -52,6 +52,7 @@ class ConfigArgs(Args):
     ("--port",)
 
 
+@pytest.mark.requires_toml
 def test_config_overrides_class_default(tmp_path, monkeypatch):
     monkeypatch.delenv("DUHO_TEST_HOST", raising=False)
     cfg = tmp_path / "duho.toml"
@@ -61,6 +62,7 @@ def test_config_overrides_class_default(tmp_path, monkeypatch):
     assert result.port == 9000
 
 
+@pytest.mark.requires_toml
 def test_full_four_layer_ladder(tmp_path, monkeypatch):
     """config < env < CLI, all in one test."""
     cfg = tmp_path / "duho.toml"
@@ -99,6 +101,7 @@ class RequiredByConfig(Args):
     ("--name",)
 
 
+@pytest.mark.requires_toml
 def test_required_less_by_config_layer(tmp_path):
     """A required field (no class default) supplied only by config must NOT
     raise SystemExit when omitted from the CLI."""
@@ -137,6 +140,7 @@ class App(Args):
         return 0
 
 
+@pytest.mark.requires_toml
 def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
     """A `[Install]` table (subcommand name = its _parsername_, which
     defaults to the class name) applies only to the Install subcommand's
@@ -149,6 +153,7 @@ def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
     assert result.verbose is True
 
 
+@pytest.mark.requires_toml
 def test_subcommand_config_table_does_not_leak_to_root(tmp_path):
     cfg = tmp_path / "duho.toml"
     cfg.write_text("[Install]\n" 'target = "from-config"\n')
@@ -156,6 +161,7 @@ def test_subcommand_config_table_does_not_leak_to_root(tmp_path):
     assert result.target == "from-config"
 
 
+@pytest.mark.requires_toml
 def test_value_sources_reports_correct_origin(tmp_path, monkeypatch):
     monkeypatch.delenv("DUHO_TEST_HOST", raising=False)
     cfg = tmp_path / "duho.toml"
@@ -188,6 +194,7 @@ def test_value_sources_unavailable_returns_empty_dict():
     assert duho.value_sources(instance) == {}
 
 
+@pytest.mark.requires_toml
 def test_parse_config_kwarg_overrides_class_config_attr(tmp_path):
     """R037: an explicit ``config=`` to ``duho.parse`` beats a class-level
     ``_config_`` -- both point at REAL files with DIFFERENT values here, so
@@ -206,6 +213,7 @@ def test_parse_config_kwarg_overrides_class_config_attr(tmp_path):
     assert result.host == "from-kwarg"
 
 
+@pytest.mark.requires_toml
 def test_main_config_kwarg_overrides_class_config_attr(tmp_path):
     """Same precedence (R037), through ``duho.main``."""
 
@@ -245,6 +253,7 @@ def test_env_value_rejects_invalid_choice(monkeypatch, capsys):
     assert "usage:" in err
 
 
+@pytest.mark.requires_toml
 def test_config_value_rejects_invalid_choice(tmp_path, capsys):
     cfg = tmp_path / "duho.toml"
     cfg.write_text('mode = "banana"\n')
@@ -285,6 +294,7 @@ def test_missing_class_level_config_is_skipped_not_a_crash(tmp_path):
         _ConfigFileMayBeMissing._config_ = None
 
 
+@pytest.mark.requires_toml
 def test_explicit_missing_config_kwarg_still_raises(tmp_path):
     # An explicit `config=` is a deliberate request -- unlike a class-level
     # `_config_`, a missing file there stays a clear, surfaced error.

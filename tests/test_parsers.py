@@ -11,6 +11,8 @@ All command classes are defined in this real ``.py`` file so their AST-derived
 flags/docstrings resolve normally (never via ``-c``).
 """
 
+import pytest
+
 import duho
 from duho import Cli, Cmd, NS, Arg
 
@@ -90,6 +92,7 @@ def test_parse_globals_applies_env_layer(monkeypatch):
     assert parsed.cmds_path == "/from/env"
 
 
+@pytest.mark.requires_toml
 def test_parse_globals_applies_config_kwarg(tmp_path):
     cfg = tmp_path / "duho.toml"
     cfg.write_text('cmds_path = "/from/config"\n')

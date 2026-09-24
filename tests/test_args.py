@@ -952,6 +952,7 @@ class ExtendConfigArgs(Args):
     ("--path",)
 
 
+@pytest.mark.requires_toml
 def test_extend_config_string_value_is_split(tmp_path):
     cfg = tmp_path / "cfg.toml"
     cfg.write_text('paths = "a,b"\n')
@@ -959,6 +960,7 @@ def test_extend_config_string_value_is_split(tmp_path):
     assert inst.paths == ["a", "b"]
 
 
+@pytest.mark.requires_toml
 def test_extend_config_array_values_are_split_and_flattened(tmp_path):
     cfg = tmp_path / "cfg.toml"
     cfg.write_text('paths = ["a,b", "c"]\n')

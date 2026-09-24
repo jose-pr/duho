@@ -6,6 +6,8 @@ All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags/env/docstrings resolve normally (never via ``-c``).
 """
 
+import pytest
+
 import duho
 from duho import NS, Arg, Args
 
@@ -198,6 +200,7 @@ class App37(Args):
         return 0
 
 
+@pytest.mark.requires_toml
 def test_sibling_subcommand_config_does_not_leak_provenance(tmp_path):
     cfg = tmp_path / "duho.toml"
     cfg.write_text("[SiblingA37]\nport = 10\n\n[SiblingB37]\nport = 20\n")
@@ -211,6 +214,7 @@ def test_sibling_subcommand_config_does_not_leak_provenance(tmp_path):
     assert duho.value_sources(result_b)["port"] == "config"
 
 
+@pytest.mark.requires_toml
 def test_unselected_sibling_config_does_not_apply_to_selected_one(tmp_path):
     cfg = tmp_path / "duho.toml"
     cfg.write_text("[SiblingB37]\nport = 20\n")
@@ -265,6 +269,7 @@ class RootR21(Args):
         return 0
 
 
+@pytest.mark.requires_toml
 def test_value_sources_on_subcommand_includes_root_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_TEST_R21_TOKEN", "envtok")
     cfg = tmp_path / "duho.toml"

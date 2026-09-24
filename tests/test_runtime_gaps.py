@@ -512,6 +512,7 @@ def test_print_completion_emits_exactly_one_script(tmp_path, capsys):
     assert "hello" in out  # the ONE script includes the discovered subcommand
 
 
+@pytest.mark.requires_toml
 def test_non_dict_subcommand_config_table_tolerated(tmp_path):
     """A `[subcommand]` config entry that is a scalar (not a table) is ignored."""
     _write(tmp_path, "deploy.py", _CLASS_CMD)

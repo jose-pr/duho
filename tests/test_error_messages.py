@@ -56,6 +56,7 @@ class _ConfigArgs(Args):
     ("--port",)
 
 
+@pytest.mark.requires_toml
 def test_bad_config_value_message(tmp_path, capsys):
     # R020: same usage-text-and-exit-2 contract as a bad env value.
     config = tmp_path / "app.toml"

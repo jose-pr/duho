@@ -300,6 +300,7 @@ def test_logging_args_cli_mro_resolves_all_members():
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.requires_toml
 def test_app_threads_config_and_env_to_subcommand(tmp_path):
     """A Cli root's ``_config_`` applies to a discovered subcommand's fields,
     and the resolved ``Env`` reaches the dispatched command via ``_env_``."""
@@ -323,6 +324,7 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
     assert rc == "region=eu-west replicas=5 env=True"
 
 
+@pytest.mark.requires_toml
 def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     """An explicit ``config=`` to app() overrides the root's ``_config_``
     (R037): both are set here to REAL files with DIFFERENT values, so a
@@ -349,6 +351,7 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     assert rc == "region=us-east replicas=1 env=False"
 
 
+@pytest.mark.requires_toml
 def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
     """End-to-end: a Cli root with a command discovered from a dir dispatches
     it; CLI overrides still win over config."""

@@ -13,10 +13,22 @@ shell-agnostic `CompletionSpec`. Only the emitters know shell syntax.
 Completion data is read off the built parser's private attrs
 (`parser._actions`, `parser._subparsers`) -- the same internal contract
 `parsers.py` already relies on elsewhere in this codebase.
+
+**Two-level quoting.** A value (a choice, a subcommand name, a flag) can pass
+through TWO parses: the STATIC parse when the shell first reads/sources the
+generated script, and -- for zsh's `_arguments` action lists and fish's
+`complete -a`/`-n` arguments -- a SECOND, dynamic evaluation every time the
+user presses Tab. A quoter that only survives the first parse (bash's
+`_bash_wordlist`, zsh/fish's old shared `_sq`) does not protect the second.
+Every site that reaches a second evaluation therefore escapes each value for
+that evaluation FIRST (`_zsh_word` / the fish-word escaper below), then wraps
+the result for the static parse (`_sq` / `_fsq`).
 """
 
 import argparse as _argparse
 import dataclasses as _dc
+import hashlib as _hashlib
+import inspect as _inspect
 import pathlib as _pathlib
 import shlex as _shlex
 
@@ -24,6 +36,7 @@ __all__ = [
     "CompletionOption",
     "CompletionPositional",
     "CompletionSpec",
+    "spec",
     "bash",
     "zsh",
     "fish",
@@ -57,25 +70,111 @@ def _bash_wordlist(values: "list") -> str:
 
 
 def _sq(value: object) -> str:
-    """Single-quote a value for a zsh/fish single-quoted context.
+    """Single-quote a value for a zsh single-quoted context (the STATIC parse).
 
     An embedded single quote is closed, escaped, and reopened (``'\\''``) so a
-    choice like ``it's`` cannot break out of the surrounding quotes or inject
-    shell code (M2).
+    choice like ``it's`` cannot break out of the surrounding quotes at the
+    point zsh first reads the script. This is the *outer* layer only: any
+    value zsh's `_arguments` evaluates a second time (an action's `(a b c)`
+    list, a `1:command:(...)` name list) must ALSO go through `_zsh_word`
+    first, or the second evaluation can still run it (C004).
     """
     return "'" + str(value).replace("'", "'\\''") + "'"
+
+
+_ZSH_WORD_SAFE = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./+,=@%-"
+)
+
+
+def _zsh_word(value: object) -> str:
+    """Escape ``value`` for zsh's SECOND (dynamic) evaluation (C004).
+
+    zsh's ``_arguments`` builds an action list like ``(a b c)`` with
+    ``eval``, and splits a message/action spec on ``:``. Backslash-escape
+    every character outside a conservative safe set -- the same approach
+    zsh's own ``${(q)}`` quoting uses -- so a value survives that second
+    pass literally: whitespace, ``$`` `` ` `` ``()[]{}`` ``;|&<>`` ``'"``
+    ``*?~#^!`` and ``:`` all become a literal character instead of shell
+    syntax. Apply this FIRST, then wrap the joined result in `_sq` for the
+    static parse.
+    """
+    return "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
+
+
+_FISH_WORD_SAFE = _ZSH_WORD_SAFE
+
+
+def _fish_word(value: object) -> str:
+    """Escape ``value`` for fish's SECOND (dynamic) evaluation (C004).
+
+    fish's ``complete -a``/``-n`` arguments are tokenized and expanded again
+    at completion time -- including ``$(...)``/``(...)`` command
+    substitution. Backslash-escape every character outside a conservative
+    safe set so a value (a choice, a subcommand name used in an
+    ``__fish_seen_subcommand_from`` condition) survives that pass literally.
+    Apply this FIRST, then wrap the joined/assembled result in `_fsq` for
+    the static parse.
+    """
+    return "".join(c if c in _FISH_WORD_SAFE else "\\" + c for c in str(value))
+
+
+def _fsq(value: object) -> str:
+    """Single-quote a value for a fish single-quoted context (the STATIC parse).
+
+    Inside fish single quotes, only ``\\\\`` and ``\\'`` are recognised
+    escapes (unlike POSIX/zsh, where a single-quoted string has no escapes
+    at all) -- a value ending in an odd number of backslashes would
+    otherwise leave the quote open and fish refuses to source the rest of
+    the file (C027). Escape backslash first, then the quote.
+    """
+    s = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return "'" + s + "'"
 
 
 def _psq(value: object) -> str:
     """Single-quote a value for a PowerShell single-quoted string literal.
 
     PowerShell escapes an embedded single quote by *doubling* it (``''``), the
-    only metacharacter live inside a single-quoted literal -- so a hostile choice
-    like ``it's`` or ``$(rm)`` cannot break out of the quotes or be expanded
-    (single-quoted PS literals are non-interpolating). Same escaping discipline as
-    the bash/zsh/fish emitters (01-D3).
+    only metacharacter live inside a single-quoted literal. When ``value``
+    contains a non-ASCII character, emit a pure-ASCII expression instead
+    (ASCII runs as quote-doubled literals, concatenated with
+    ``[char]0xNNNN`` for each non-ASCII UTF-16 code unit) rather than the raw
+    character: PowerShell decodes a native command's stdout with the
+    console's OEM code page, which duho cannot control, so non-ASCII text
+    piped through ``| Out-String | Invoke-Expression`` can arrive mangled
+    even though this Python process wrote correct UTF-8/text (C032). A pure
+    ASCII script sidesteps the console code page entirely, on both Windows
+    PowerShell 5.1 and pwsh 7. This protects only the *script body* -- see
+    `powershell`'s docstring for what protects the *inserted candidate text*
+    at Tab-time (C031).
     """
-    return "'" + str(value).replace("'", "''") + "'"
+    text = str(value)
+    if text.isascii():
+        return "'" + text.replace("'", "''") + "'"
+    parts: "list[str]" = []
+    run = ""
+    for ch in text:
+        if ch.isascii():
+            run += ch
+        else:
+            if run:
+                parts.append("'" + run.replace("'", "''") + "'")
+                run = ""
+            for code_unit in _utf16_units(ch):
+                parts.append("[char]0x%04X" % code_unit)
+    if run:
+        parts.append("'" + run.replace("'", "''") + "'")
+    if not parts:
+        return "''"
+    return "(" + " + ".join(parts) + ")"
+
+
+def _utf16_units(ch: str) -> "list[int]":
+    """The UTF-16 code unit(s) for a single ``str`` character (surrogate pair
+    for an astral character, one unit otherwise)."""
+    encoded = ch.encode("utf-16-le")
+    return [encoded[i] | (encoded[i + 1] << 8) for i in range(0, len(encoded), 2)]
 
 
 def _validate_prog(prog: str) -> str:
@@ -86,7 +185,7 @@ def _validate_prog(prog: str) -> str:
     script, so it is rejected with a clear error (M2). A normal prog (letters,
     digits, ``_``/``-``/``.``) passes untouched.
     """
-    if prog != prog.strip() or any(c.isspace() for c in prog):
+    if any(c.isspace() for c in prog):
         raise ValueError(
             "completion: program name %r contains whitespace; refusing to emit "
             "a completion script for it" % prog
@@ -125,6 +224,10 @@ class CompletionSpec:
     """Shell-agnostic view of a single (sub)parser and its subcommand tree."""
 
     prog: str
+    #: The subcommand names from the root down to THIS spec, e.g. ``("Db",
+    #: "Migrate")``; ``()`` for the root. Used by every emitter as the join
+    #: key for "which node am I completing" lookups (C055).
+    path: "tuple[str, ...]" = ()
     options: "list[CompletionOption]" = _dc.field(default_factory=list)
     positionals: "list[CompletionPositional]" = _dc.field(default_factory=list)
     subcommands: "dict[str, CompletionSpec]" = _dc.field(default_factory=dict)
@@ -137,11 +240,39 @@ def _is_path_type(action: _argparse.Action) -> bool:
     return isinstance(ty, type) and issubclass(ty, _pathlib.Path)
 
 
+def _enum_choices(type_factory: object) -> "tuple[str, ...] | None":
+    """Recover ``enum.Enum`` member names from a duho Enum-field factory (C025).
+
+    duho's Enum branch (``args.py``) sets ``action.choices = None`` and gives
+    the field a resolving factory instead, shaped
+    ``_factory(text, /, _enum_cls=<enum>, _names=<member names>)``. Reading
+    the ``_names`` parameter's default via :mod:`inspect` recovers the member
+    names without a new args.py<->completion.py attribute contract -- the
+    same kind of read-only reliance on a private internal shape `_walk`
+    already has on ``parser._actions``/``_SubParsersAction.choices``
+    elsewhere in this module. This is best-effort: any factory that doesn't
+    match the shape (a plain/custom type's factory) yields ``None``.
+    """
+    try:
+        params = _inspect.signature(type_factory).parameters
+    except (TypeError, ValueError):
+        return None
+    names_param = params.get("_names")
+    if names_param is None:
+        return None
+    default = names_param.default
+    if not isinstance(default, tuple) or not default:
+        return None
+    if not all(isinstance(n, str) for n in default):
+        return None
+    return default
+
+
 def _choices_tuple(action: _argparse.Action) -> "tuple[str, ...] | None":
     choices = getattr(action, "choices", None)
-    if not choices:
-        return None
-    return tuple(str(c) for c in choices)
+    if choices:
+        return tuple(str(c) for c in choices)
+    return _enum_choices(getattr(action, "type", None))
 
 
 def _takes_value(action: _argparse.Action) -> bool:
@@ -151,18 +282,23 @@ def _takes_value(action: _argparse.Action) -> bool:
 
 
 def _walk(
-    parser: _argparse.ArgumentParser, prog: "str | None" = None
+    parser: _argparse.ArgumentParser,
+    prog: "str | None" = None,
+    path: "tuple[str, ...]" = (),
 ) -> CompletionSpec:
     """Recursively turn a built ArgumentParser into a CompletionSpec.
 
-    Pure data, no shell strings -- shared by all three emitters below.
+    Pure data, no shell strings -- shared by all four emitters below.
     """
-    spec = CompletionSpec(prog=prog or parser.prog)
+    spec = CompletionSpec(prog=prog or parser.prog, path=path)
 
     subparsers_action = None
     for action in parser._actions:
         if isinstance(action, _argparse._SubParsersAction):
             subparsers_action = action
+            continue
+        if getattr(action, "help", None) is _argparse.SUPPRESS:
+            # Hidden from --help; keep it hidden from completion too (C049).
             continue
         if not action.option_strings:
             # Positional argument.
@@ -185,32 +321,87 @@ def _walk(
 
     if subparsers_action is not None:
         # argparse keeps each subcommand's one-line help in the pseudo-actions,
-        # not on the subparser -- capture it here for the fish `-d` description.
-        help_by_name = {
-            getattr(a, "dest", None): (getattr(a, "help", None) or "")
-            for a in getattr(subparsers_action, "_choices_actions", [])
-        }
+        # not on the subparser -- capture it here for the fish `-d` description,
+        # and skip any subcommand hidden via `help=argparse.SUPPRESS` (C049).
+        help_by_name: "dict[object, str]" = {}
+        suppressed: "set[object]" = set()
+        for a in getattr(subparsers_action, "_choices_actions", []):
+            dest = getattr(a, "dest", None)
+            if getattr(a, "help", None) is _argparse.SUPPRESS:
+                suppressed.add(dest)
+            else:
+                help_by_name[dest] = getattr(a, "help", None) or ""
         choices = subparsers_action.choices or {}
         for name, subparser in choices.items():
-            sub_spec = _walk(subparser, prog=f"{spec.prog} {name}")
+            if name in suppressed:
+                continue
+            sub_spec = _walk(subparser, prog=f"{spec.prog} {name}", path=path + (name,))
             sub_spec.help = help_by_name.get(name, "")
             spec.subcommands[name] = sub_spec
 
     return spec
 
 
-def _all_specs(spec: CompletionSpec) -> "list[CompletionSpec]":
+def spec(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> CompletionSpec:
+    """Build the shell-agnostic :class:`CompletionSpec` tree for ``parser``.
+
+    Public wrapper around the internal parser-tree walk (C053): the
+    dataclasses are documented and exported, but until now the only producer
+    was the private `_walk`, so a caller writing a completion emitter for a
+    shell this module doesn't cover (nushell, elvish, ...) had no supported
+    way to get one. Additive, so a PATCH release pre-1.0.
+    """
+    return _walk(parser, prog=prog)
+
+
+def _all_specs(root: CompletionSpec) -> "list[CompletionSpec]":
     """Flatten a spec tree into a list (root first, depth-first)."""
-    result = [spec]
-    for sub in spec.subcommands.values():
+    result = [root]
+    for sub in root.subcommands.values():
         result.extend(_all_specs(sub))
     return result
+
+
+def _cmd_key(spec: CompletionSpec) -> str:
+    """The command-path lookup key for ``spec``: its subcommand path joined
+    with a single space (C055) -- consulted by bash/PowerShell as they walk
+    the typed-so-far command line to find "which node am I completing"."""
+    return " ".join(spec.path)
+
+
+def _value_flag_names(spec: CompletionSpec) -> "list[str]":
+    """This spec's OWN value-taking option flags, sorted (C048/C055): used
+    per-command-path, never merged across levels, so a flag that is a
+    boolean at one level and value-taking at another is resolved correctly
+    at each level independently."""
+    return sorted({f for opt in spec.options for f in opt.flags if opt.takes_value})
+
+
+def _flag_names(spec: CompletionSpec) -> "list[str]":
+    """This spec's own flags (any arity), sorted."""
+    return sorted({f for opt in spec.options for f in opt.flags})
 
 
 def _func_name(prog: str) -> str:
     """Turn a (possibly multi-word, sub-command-qualified) prog into a
     shell-safe identifier fragment."""
     return "".join(c if (c.isalnum() or c == "_") else "_" for c in prog)
+
+
+def _bash_func_name(root_prog: str) -> str:
+    """A collision-resistant bash function name for ``root_prog`` (C051).
+
+    The plain sanitised name alone collides across programs that only differ
+    in punctuation (``my-app``/``my.app``/``my_app`` all sanitise to
+    ``my_app``) and can shadow a bash-completion helper of the same name
+    (``_filedir``, ``_files``, ...). Prefix with a fixed namespace and a
+    short content hash of the *raw* prog so two differently-punctuated progs
+    -- or a prog that happens to match a helper name -- get distinct
+    functions.
+    """
+    safe = _func_name(root_prog)
+    digest = _hashlib.sha1(root_prog.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"_duho_complete_{safe}_{digest}"
 
 
 # --------------------------------------------------------------------------
@@ -221,106 +412,185 @@ def _func_name(prog: str) -> str:
 def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a self-contained bash completion script for `parser`.
 
-    Registers ``complete -F _<prog> <prog>``. Choices use `compgen -W`,
-    Path-typed args fall back to `compgen -f`/`-d` (native file/dir
-    completion), non-Path/non-choice args get no candidates (bash's default
-    filename completion still applies).
+    Descends the command line only on words that are real subcommand names
+    of the CURRENT node (a per-path subcommand table, resolved as the walk
+    goes -- C002/C003); every other bare word counts as one of that node's
+    own positionals, tracked by position so only the pending positional's
+    own candidates (its `choices` via `compgen -W`, or `compgen -f` for a
+    Path positional) are offered, not every positional's at once. A
+    value-taking flag's value is skipped the same way, including the split
+    `--opt = value` form bash produces for `--opt=value` (C029); the
+    value-flag set is resolved per command path, not merged globally
+    (C048). Every value-taking flag -- choice, Path, or free -- gets its own
+    `$prev` arm (C024). `COMPREPLY` is always filled via `mapfile` from a
+    process-substitution `compgen` call, never `$(...)` splicing, so results
+    are never word-split or glob-expanded a second time (C030). Registered
+    with `-o bashdefault -o default -o filenames` so bash's native filename
+    completion applies whenever nothing above matches, and Path
+    positionals/options get properly escaped/slashed directory names.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
-    func = _func_name(root_prog)
-
-    # Flags that CONSUME a value: when one appears in COMP_WORDS its following
-    # word is that value, not a subcommand -- skip it when reconstructing the
-    # command path, or `myapp --env prod deploy` builds cmd_path "prod deploy"
-    # and no completion matches (M8).
-    value_flags = sorted(
-        {
-            f
-            for spec in _all_specs(root)
-            for opt in spec.options
-            if opt.takes_value
-            for f in opt.flags
-        }
-    )
-    value_flags_pat = " ".join(value_flags)
+    func = _bash_func_name(root_prog)
+    specs = _all_specs(root)
 
     lines: "list[str]" = []
     lines.append(f"# bash completion for {root_prog}")
-    lines.append(f"_{func}() {{")
-    lines.append("    local cur prev words cword")
+    lines.append(f"{func}() {{")
+    lines.append("    local cur prev")
     lines.append("    COMPREPLY=()")
     lines.append('    cur="${COMP_WORDS[COMP_CWORD]}"')
     lines.append('    prev="${COMP_WORDS[COMP_CWORD-1]}"')
+    lines.append("    # `--opt=value` arrives as the three words --opt, =, value")
+    lines.append(
+        "    # (`=` is in COMP_WORDBREAKS); look one word further back (C029)."
+    )
+    lines.append('    if [ "$prev" = "=" ] && [ "$COMP_CWORD" -ge 2 ]; then')
+    lines.append('        prev="${COMP_WORDS[COMP_CWORD-2]}"')
+    lines.append("    fi")
     lines.append("")
-    lines.append("    # Walk COMP_WORDS to find which (sub)command we are in,")
-    lines.append("    # skipping option flags AND the value that follows a")
-    lines.append("    # value-taking flag.")
-    lines.append(f'    local value_flags=" {value_flags_pat} "')
+    lines.append("    # Walk COMP_WORDS to find which (sub)command we are in: descend")
+    lines.append("    # only on a word that is a REAL subcommand name of the current")
+    lines.append("    # node, skip the value that follows a value-taking flag of the")
+    lines.append("    # current node (including the split `--opt = value` form), and")
+    lines.append("    # count every other bare word as one of the current node's own")
+    lines.append("    # positionals (C002/C003/C048).")
     lines.append('    local cmd_path=""')
+    lines.append("    local npos=0")
     lines.append("    local i=1")
-    lines.append("    local skip_next=0")
+    lines.append("    local skip=0")
+    lines.append("    local w is_vflag is_sub")
     lines.append("    while [ $i -lt $COMP_CWORD ]; do")
-    lines.append('        local w="${COMP_WORDS[i]}"')
-    lines.append("        if [ $skip_next -eq 1 ]; then")
-    lines.append("            skip_next=0")
+    lines.append('        w="${COMP_WORDS[i]}"')
+    lines.append("        if [ $skip -gt 0 ]; then")
+    lines.append("            skip=$((skip - 1))")
     lines.append("        else")
     lines.append('            case "$w" in')
     lines.append("                -*)")
-    lines.append('                    case "$value_flags" in')
-    lines.append('                        *" $w "*) skip_next=1 ;;')
+    lines.append("                    is_vflag=0")
+    lines.append('                    case "$cmd_path" in')
+    for s in specs:
+        vflags = _value_flag_names(s)
+        if not vflags:
+            continue
+        pattern = "|".join(_bashq(f) for f in vflags)
+        lines.append(f"                        {_bashq(_cmd_key(s))})")
+        lines.append('                            case "$w" in')
+        lines.append(f"                                {pattern}) is_vflag=1 ;;")
+        lines.append("                            esac")
+        lines.append("                            ;;")
     lines.append("                    esac")
+    lines.append("                    if [ $is_vflag -eq 1 ]; then")
+    lines.append('                        if [ "${COMP_WORDS[i+1]}" = "=" ]; then')
+    lines.append("                            skip=2")
+    lines.append("                        else")
+    lines.append("                            skip=1")
+    lines.append("                        fi")
+    lines.append("                    fi")
     lines.append("                    ;;")
-    lines.append('                *) cmd_path="${cmd_path} $w" ;;')
+    lines.append("                *)")
+    lines.append("                    is_sub=0")
+    lines.append('                    case "$cmd_path" in')
+    for s in specs:
+        if not s.subcommands:
+            continue
+        pattern = "|".join(_bashq(n) for n in s.subcommands)
+        lines.append(f"                        {_bashq(_cmd_key(s))})")
+        lines.append('                            case "$w" in')
+        lines.append(f"                                {pattern}) is_sub=1 ;;")
+        lines.append("                            esac")
+        lines.append("                            ;;")
+    lines.append("                    esac")
+    lines.append("                    if [ $is_sub -eq 1 ]; then")
+    lines.append('                        cmd_path="${cmd_path:+$cmd_path }$w"')
+    lines.append("                        npos=0")
+    lines.append("                    else")
+    lines.append("                        npos=$((npos + 1))")
+    lines.append("                    fi")
+    lines.append("                    ;;")
     lines.append("            esac")
     lines.append("        fi")
     lines.append("        i=$((i + 1))")
     lines.append("    done")
-    lines.append('    cmd_path="$(echo "$cmd_path" | xargs)"')
     lines.append("")
 
-    for spec in _all_specs(root):
-        opts = sorted({f for opt in spec.options for f in opt.flags})
-        key = spec.prog[len(root_prog) :].strip()
+    for cspec in specs:
+        key = _cmd_key(cspec)
         lines.append(f'    if [ "$cmd_path" = {_bashq(key)} ]; then')
 
-        # prev-based value completion (choices/paths) for this command.
-        value_opts = [o for o in spec.options if o.takes_value]
+        # prev-based value completion: EVERY value-taking flag gets an arm,
+        # not just choice/Path ones, so a free-value flag never falls
+        # through to the general candidate list (C024).
+        value_opts = [o for o in cspec.options if o.takes_value]
         if value_opts:
             lines.append('        case "$prev" in')
             for opt in value_opts:
-                flag_pattern = "|".join(opt.flags)
+                flag_pattern = "|".join(_bashq(f) for f in opt.flags)
+                lines.append(f"            {flag_pattern})")
                 if opt.choices:
                     words = _bash_wordlist(list(opt.choices))
-                    lines.append(f"            {flag_pattern})")
                     lines.append(
-                        f'                COMPREPLY=( $(compgen -W {words} -- "$cur") )'
+                        f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
                     )
-                    lines.append("                return 0 ;;")
                 elif opt.is_path:
-                    lines.append(f"            {flag_pattern})")
                     lines.append(
-                        '                COMPREPLY=( $(compgen -f -- "$cur") )'
+                        '                mapfile -t COMPREPLY < <(compgen -f -- "$cur")'
                     )
-                    lines.append("                return 0 ;;")
+                else:
+                    lines.append("                COMPREPLY=()")
+                lines.append("                return 0 ;;")
             lines.append("        esac")
 
-        candidates = list(opts)
-        candidates.extend(sorted(spec.subcommands))
-        for pos in spec.positionals:
-            if pos.choices:
-                candidates.extend(pos.choices)
-
-        if candidates:
-            words = _bash_wordlist(candidates)
-            lines.append(f'        COMPREPLY=( $(compgen -W {words} -- "$cur") )')
+        flags = _flag_names(cspec)
+        n_pos = len(cspec.positionals)
+        lines.append('        case "$cur" in')
+        lines.append("            -*)")
+        if flags:
+            words = _bash_wordlist(flags)
+            lines.append(
+                f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+            )
         else:
-            lines.append('        COMPREPLY=( $(compgen -f -- "$cur") )')
+            lines.append("                COMPREPLY=()")
+        lines.append("                return 0 ;;")
+        lines.append("        esac")
+
+        if n_pos:
+            lines.append('        case "$npos" in')
+            for idx, pos in enumerate(cspec.positionals):
+                lines.append(f"            {idx})")
+                if pos.choices:
+                    words = _bash_wordlist(list(pos.choices))
+                    lines.append(
+                        f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+                    )
+                elif pos.is_path:
+                    lines.append(
+                        '                mapfile -t COMPREPLY < <(compgen -f -- "$cur")'
+                    )
+                else:
+                    lines.append("                COMPREPLY=()")
+                lines.append("                return 0 ;;")
+            lines.append("        esac")
+
+        if cspec.subcommands:
+            names = sorted(cspec.subcommands)
+            words = _bash_wordlist(names)
+            lines.append(f"        if [ $npos -eq {n_pos} ]; then")
+            lines.append(
+                f'            mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+            )
+            lines.append("            return 0")
+            lines.append("        fi")
+
+        lines.append("        COMPREPLY=()")
         lines.append("        return 0")
         lines.append("    fi")
 
     lines.append("}")
-    lines.append(f"complete -F _{func} {_bashq(root_prog)}")
+    lines.append(
+        f"complete -o bashdefault -o default -o filenames -F {func} {_bashq(root_prog)}"
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -333,7 +603,7 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 def _zsh_value_part(opt: "CompletionOption") -> str:
     """The ``:message:action`` tail of a zsh optspec for a value-taking option."""
     if opt.choices:
-        values = " ".join(str(c) for c in opt.choices)
+        values = " ".join(_zsh_word(c) for c in opt.choices)
         return f":value:({values})"
     if opt.is_path:
         return ":value:_files"
@@ -344,52 +614,62 @@ def _zsh_optspec(opt: "CompletionOption") -> str:
     """Build one zsh ``_arguments`` optspec for ``opt``.
 
     A single-flag option is ``<flag>'[desc]...'``; a multi-flag option uses the
-    exclusion-list + brace-expansion form ``'(-v --verbose)'{-v,--verbose}'[desc]...'``
-    -- the previous ``'{-v|--verbose}'`` quoted-pipe brace was invalid zsh (C12).
-    Every interpolated part is single-quoted with embedded-quote escaping (M2).
+    exclusion-list + brace-expansion form ``'(-v --verbose)'{-v,--verbose}'[desc]...'``.
+    Every interpolated part is single-quoted with embedded-quote escaping
+    (M2), INCLUDING the flag(s) themselves (C033/C004): an unquoted flag
+    interpolated raw into the script body can inject shell code the moment
+    the script is sourced (a flag containing `$(...)`), not just at Tab-time.
     """
     tail_inner = "[option]"
     if opt.takes_value:
         tail_inner += _zsh_value_part(opt)
     tail = _sq(tail_inner)
     if len(opt.flags) == 1:
-        return opt.flags[0] + tail
+        return _sq(opt.flags[0]) + tail
     exclusion = _sq("(" + " ".join(opt.flags) + ")")
-    brace = "{" + ",".join(opt.flags) + "}"
+    brace = "{" + ",".join(_sq(f) for f in opt.flags) + "}"
     return exclusion + brace + tail
 
 
-def _zsh_arguments_block(spec: CompletionSpec, indent: str = "    ") -> "list[str]":
-    lines: "list[str]" = []
-    lines.append(f"{indent}local -a args")
-    lines.append(f"{indent}args=(")
-    for opt in spec.options:
-        lines.append(f"{indent}    {_zsh_optspec(opt)}")
-    if spec.subcommands:
-        names = " ".join(str(n) for n in spec.subcommands)
-        lines.append(f"{indent}    {_sq('1:command:(' + names + ')')}")
-        lines.append(f"{indent}    {_sq('*::arg:->args')}")
-    for pos in spec.positionals:
-        if pos.choices:
-            values = " ".join(str(c) for c in pos.choices)
-            spec_str = f"{pos.name}:{pos.name}:({values})"
-        elif pos.is_path:
-            spec_str = f"{pos.name}:{pos.name}:_files"
-        else:
-            spec_str = f"{pos.name}:{pos.name}:"
-        lines.append(f"{indent}    {_sq(spec_str)}")
-    lines.append(f"{indent})")
-    lines.append(f"{indent}_arguments -s $args")
-    return lines
+def _zsh_pos_spec(n: int, pos: "CompletionPositional") -> str:
+    """Build one zsh positional spec: ``N:message:action`` (1-based position)
+    -- NOT the ``name:name:action`` form the old emitter used, which
+    `_arguments` rejects outright on every Tab (C002/C004)."""
+    name = _zsh_word(pos.name)
+    if pos.choices:
+        values = " ".join(_zsh_word(c) for c in pos.choices)
+        return f"{n}:{name}:({values})"
+    if pos.is_path:
+        return f"{n}:{name}:_files"
+    return f"{n}:{name}:"
+
+
+def _zsh_funcid(func: str, path: "tuple[str, ...]") -> str:
+    """The zsh function name for the node at ``path``: ``_<func>`` for the
+    root, ``_<func>__<seg1>__<seg2>...`` for a nested node."""
+    if not path:
+        return f"_{func}"
+    suffix = "__".join(_func_name(p) for p in path)
+    return f"_{func}__{suffix}"
 
 
 def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a `#compdef`-style zsh completion script for `parser`.
 
-    Uses `_arguments`: subcommand names and option choices are rendered as
-    `(a b c)` value lists; Path-typed args delegate to `_files`. The command path
-    is rebuilt from the non-option words only, so a flag before the cursor no
-    longer breaks completion (C12).
+    Standard zsh subcommand dispatch (C002): one function per (sub)command
+    node. A node with subcommands calls `_arguments -C -s` with a numbered
+    `N:command:(names)` positional followed by `*::arg:->args`, which makes
+    `_arguments` itself shift `words`/`CURRENT` for the matched branch --
+    the child node's own `_arguments` call then sees the subcommand name as
+    `words[1]`, not an extra unexpected positional. Because the real
+    `_arguments` engine parses options and positionals for us, a
+    value-taking flag before the cursor never breaks completion and a
+    positional value is never mistaken for a subcommand word (C003).
+    Positional specs use the required `N:message:action` form. Every choice,
+    subcommand name and positional message is escaped for zsh's SECOND
+    (dynamic) evaluation via `_zsh_word` before being wrapped in `_sq` for
+    the first (C004): a value containing `$(...)`, `;`, or a colon can no
+    longer run code or break the spec at Tab-time.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
@@ -398,32 +678,55 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     lines: "list[str]" = []
     lines.append(f"#compdef {root_prog}")
     lines.append("")
-    lines.append(f"_{func}() {{")
-    lines.append("    local context state state_descr line")
-    lines.append("    typeset -A opt_args")
-    lines.append("")
-    lines.append("    # Reconstruct the (sub)command path from non-option words.")
-    lines.append("    local -a path_words")
-    lines.append("    integer idx=2")
-    lines.append("    while (( idx < CURRENT )); do")
-    lines.append('        if [[ "${words[idx]}" != -* ]]; then')
-    lines.append('            path_words+=("${words[idx]}")')
-    lines.append("        fi")
-    lines.append("        (( idx++ ))")
-    lines.append("    done")
-    lines.append('    local cmd_path="${(j: :)path_words}"')
-    lines.append("")
 
-    for spec in _all_specs(root):
-        key = spec.prog[len(root_prog) :].strip()
-        lines.append(f'    if [[ "$cmd_path" == {_sq(key)} ]]; then')
-        lines.extend(_zsh_arguments_block(spec, indent="        "))
-        lines.append("        return")
-        lines.append("    fi")
+    for cspec in _all_specs(root):
+        funcid = _zsh_funcid(func, cspec.path)
+        lines.append(f"{funcid} () {{")
 
-    lines.append("}")
-    lines.append("")
-    lines.append(f'_{func} "$@"')
+        args_items: "list[str]" = [_zsh_optspec(opt) for opt in cspec.options]
+        n = 0
+        for pos in cspec.positionals:
+            n += 1
+            args_items.append(_sq(_zsh_pos_spec(n, pos)))
+        if cspec.subcommands:
+            lines.append('    local curcontext="$curcontext" state state_descr line')
+            lines.append("    typeset -A opt_args")
+            n += 1
+            names = " ".join(_zsh_word(name) for name in cspec.subcommands)
+            args_items.append(_sq(f"{n}:command:({names})"))
+            args_items.append(_sq("*::arg:->args"))
+            arguments_flags = "-C -s"
+        else:
+            arguments_flags = "-s"
+
+        if args_items:
+            lines.append(f"    _arguments {arguments_flags} \\")
+            for idx, item in enumerate(args_items):
+                sep = " \\" if idx < len(args_items) - 1 else ""
+                lines.append(f"        {item}{sep}")
+        else:
+            lines.append(f"    _arguments {arguments_flags}")
+
+        if cspec.subcommands:
+            lines.append("")
+            lines.append("    case $state in")
+            lines.append("        args)")
+            lines.append("            case $line[1] in")
+            for name, sub in cspec.subcommands.items():
+                subfuncid = _zsh_funcid(func, sub.path)
+                # A quoted case label is matched literally (no glob
+                # interpretation of a hostile name) -- reuse `_sq` (C004).
+                lines.append(f"                {_sq(name)})")
+                lines.append(f"                    {subfuncid}")
+                lines.append("                    ;;")
+            lines.append("            esac")
+            lines.append("            ;;")
+            lines.append("    esac")
+
+        lines.append("}")
+        lines.append("")
+
+    lines.append(f'{_zsh_funcid(func, ())} "$@"')
     lines.append("")
     return "\n".join(lines)
 
@@ -433,47 +736,72 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 # --------------------------------------------------------------------------
 
 
-def _fish_condition(spec: CompletionSpec, root: CompletionSpec) -> "str | None":
-    """Build a `__fish_seen_subcommand_from` condition chain locating `spec`
-    within the tree rooted at `root`, or None for the root command itself."""
-    key = spec.prog[len(root.prog) :].strip()
-    if not key:
-        return None
-    parts = key.split()
-    conds = [f"__fish_seen_subcommand_from {part}" for part in parts]
-    return " and ".join(conds)
+def _fish_seen(name: str) -> str:
+    return f"__fish_seen_subcommand_from {_fish_word(name)}"
+
+
+def _fish_condition(spec: CompletionSpec) -> "str | None":
+    """Build the `-n` gating condition for `spec`'s own completions (C026).
+
+    The root is gated on `__fish_use_subcommand` (true only before any
+    subcommand has been chosen) -- but only when the app actually HAS
+    subcommands; otherwise there is nothing to gate against and no
+    condition is emitted. A deeper node chains one
+    `__fish_seen_subcommand_from <segment>` per path segment as SEPARATE
+    fish commands (`; and`, not the string `" and "`, which fish parses as
+    extra arguments to a single call -- the original bug), AND excludes
+    each of its OWN direct children (`; and not __fish_seen_subcommand_from
+    <child>`) so a grandchild's own flags/names don't also appear at this
+    level once the grandchild has been chosen.
+    """
+    if not spec.path:
+        if not spec.subcommands:
+            return None
+        return "__fish_use_subcommand"
+    parts = [_fish_seen(p) for p in spec.path]
+    parts.extend(f"not {_fish_seen(c)}" for c in spec.subcommands)
+    return " ; and ".join(parts)
 
 
 def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a fish completion script (`complete -c <prog> ...` lines) for `parser`.
 
-    Choices become `-a`, value-taking options get `-r` (require an
-    argument), Path-typed options additionally get `-F` to enable fish's
-    native file completion; subcommand-scoped rules are gated on
-    `__fish_seen_subcommand_from`.
+    Each rule is gated by `_fish_condition` (C026) so a node's flags and
+    subcommand names appear only on its own exact path, not above or below
+    it. Choice/free-value options use `-x` (require a value, no file
+    completion mixed in); Path-typed options keep `-r -F` for fish's native
+    file completion (C050/C028). Every value reaching a `-a` or `-n`
+    argument -- which fish tokenizes and expands AGAIN at completion time --
+    is escaped for that second pass with `_fish_word` before being wrapped
+    for the static parse with `_fsq`, fish's own quoter that also escapes a
+    trailing backslash (C004/C027): `it's`, `dry run`, `$(touch x)` and a
+    Windows-style `C:\\` choice all round-trip as literal text instead of
+    running or corrupting the file.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
-    prog_q = _sq(root_prog)
+    prog_q = _fsq(root_prog)
 
     lines: "list[str]" = []
     lines.append(f"# fish completion for {root_prog}")
     lines.append(f"complete -c {prog_q} -f")
     lines.append("")
 
-    for spec in _all_specs(root):
-        cond = _fish_condition(spec, root)
-        cond_args = ["-n", _sq(cond)] if cond else []
+    for cspec in _all_specs(root):
+        cond = _fish_condition(cspec)
+        cond_args = ["-n", _fsq(cond)] if cond else []
 
-        for name, sub in spec.subcommands.items():
-            parts = [f"complete -c {prog_q}"] + cond_args + ["-a", _sq(name)]
+        for name, sub in cspec.subcommands.items():
+            parts = (
+                [f"complete -c {prog_q}"] + cond_args + ["-a", _fsq(_fish_word(name))]
+            )
             # The one-line help, NOT the fully-qualified prog, as the description.
             description = sub.help or ""
             if description:
-                parts.extend(["-d", _sq(description)])
+                parts.extend(["-d", _fsq(description)])
             lines.append(" ".join(parts))
 
-        for opt in spec.options:
+        for opt in cspec.options:
             long_flags = [f for f in opt.flags if f.startswith("--")]
             # A single-dash MULTI-char flag (e.g. ``-rc``) is an old-style flag:
             # fish's ``-s`` is for a single character only, so use ``-o`` (M2/fish).
@@ -493,24 +821,27 @@ def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
             ]
             parts = [f"complete -c {prog_q}"] + cond_args
             for lf in long_flags:
-                parts.extend(["-l", _sq(lf.lstrip("-"))])
+                parts.extend(["-l", _fsq(lf.lstrip("-"))])
             for sf in short_flags:
-                parts.extend(["-s", _sq(sf.lstrip("-"))])
+                parts.extend(["-s", _fsq(sf.lstrip("-"))])
             for of in old_flags:
-                parts.extend(["-o", _sq(of.lstrip("-"))])
+                parts.extend(["-o", _fsq(of.lstrip("-"))])
             if opt.takes_value:
-                parts.append("-r")
                 if opt.choices:
-                    values = " ".join(str(c) for c in opt.choices)
-                    parts.extend(["-a", _sq(values)])
+                    values = " ".join(_fish_word(c) for c in opt.choices)
+                    parts.extend(["-x", "-a", _fsq(values)])
                 elif opt.is_path:
-                    parts.append("-F")
+                    parts.extend(["-r", "-F"])
+                else:
+                    # A free-value option: require a value but offer no
+                    # candidates of our own; do not also mix in files (C024).
+                    parts.append("-x")
             lines.append(" ".join(parts))
 
-        for pos in spec.positionals:
+        for pos in cspec.positionals:
             if pos.choices:
-                values = " ".join(str(c) for c in pos.choices)
-                parts = [f"complete -c {prog_q}"] + cond_args + ["-a", _sq(values)]
+                values = " ".join(_fish_word(c) for c in pos.choices)
+                parts = [f"complete -c {prog_q}"] + cond_args + ["-a", _fsq(values)]
                 lines.append(" ".join(parts))
             elif pos.is_path:
                 parts = [f"complete -c {prog_q}"] + cond_args + ["-F"]
@@ -525,52 +856,31 @@ def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 # --------------------------------------------------------------------------
 
 
-def _powershell_candidates(spec: CompletionSpec) -> str:
-    """The general candidate list for a spec: flags + subcommand names + choices.
-
-    Rendered as a comma-separated list of PS single-quoted literals for a
-    ``@(...)`` array. Empty when the spec offers nothing (a command that only
-    takes a path/free value) -- the completer then returns nothing and PowerShell
-    falls through to its own (file) completion.
-    """
-    items = sorted({f for opt in spec.options for f in opt.flags})
-    items.extend(sorted(spec.subcommands))
-    for pos in spec.positionals:
-        if pos.choices:
-            items.extend(pos.choices)
-    return ", ".join(_psq(i) for i in items)
-
-
 def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a PowerShell completion script for `parser`.
 
-    Registers a ``Register-ArgumentCompleter -Native`` script block that walks the
-    same `CompletionSpec` tree the other emitters use: it reconstructs the
-    (sub)command path from the non-flag words on the line (skipping the value that
-    follows a value-taking flag, mirroring the bash walker), then offers that
-    command's flags, subcommand names, and choice values. When the previous token
-    is a choice-bearing value flag, its choices are offered instead. A command
-    that only takes a free/path value offers nothing, so PowerShell's own file
-    completion takes over.
+    Registers a ``Register-ArgumentCompleter -Native`` script block that
+    reconstructs the (sub)command path from the command elements strictly
+    BEFORE the cursor, descending only on words that are real subcommand
+    names of the current node (a per-path table, mirroring bash --
+    C003/C048), and tracks how many of the current node's own positionals
+    have been consumed so only the pending one's choices are offered.
 
-    Every interpolated value (prog, flags, choices, command-path keys) is
-    single-quoted with PS quote-doubling via :func:`_psq` (01-D3), so a hostile
-    choice cannot break out of the generated script or be expanded.
+    Every value-taking flag gets an explicit branch -- choices, an empty
+    result for a Path flag (native file completion takes over), and an
+    empty result for a free-value flag (C024/C028) -- and command-path/flag
+    comparisons are case-SENSITIVE (``-ceq``/``-ccontains``/``-cmatch``),
+    matching argparse instead of PowerShell's default case-insensitivity
+    (C031). The inserted completion TEXT is single-quoted (embedded quotes
+    doubled) whenever it contains whitespace or a PowerShell metacharacter,
+    so a candidate like ``dry run`` or ``$(rm)`` is inserted as one literal
+    argument instead of being split or evaluated when the line is run
+    (C031) -- this is a *different* protection from `_psq`, which only
+    keeps the script BODY safe when it is first parsed.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
-
-    # Flags that CONSUME a value: their following word is that value, not a
-    # subcommand -- skip it when reconstructing the command path (mirrors bash M8).
-    value_flags = sorted(
-        {
-            f
-            for spec in _all_specs(root)
-            for opt in spec.options
-            if opt.takes_value
-            for f in opt.flags
-        }
-    )
+    specs = _all_specs(root)
 
     lines: "list[str]" = []
     lines.append(f"# PowerShell completion for {root_prog}")
@@ -581,70 +891,136 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
     lines.append("")
     lines.append("    $elements = @($commandAst.CommandElements)")
-    lines.append("    $valueFlags = @(" + ", ".join(_psq(f) for f in value_flags) + ")")
+    lines.append("    $subsByPath = @{}")
+    for s in specs:
+        if s.subcommands:
+            names = ", ".join(_psq(n) for n in s.subcommands)
+            lines.append(f"    $subsByPath[{_psq(_cmd_key(s))}] = @({names})")
+    lines.append("    $vflagsByPath = @{}")
+    for s in specs:
+        vflags = _value_flag_names(s)
+        if vflags:
+            values = ", ".join(_psq(f) for f in vflags)
+            lines.append(f"    $vflagsByPath[{_psq(_cmd_key(s))}] = @({values})")
     lines.append("")
-    lines.append("    # Reconstruct the (sub)command path from the non-flag words,")
-    lines.append("    # skipping the value that follows a value-taking flag.")
-    lines.append("    $cmdWords = @()")
-    lines.append("    $skipNext = $false")
+    lines.append("    # Reconstruct the (sub)command path from the elements strictly")
+    lines.append("    # before the cursor, descending only on real subcommand names")
+    lines.append("    # of the current node and skipping a value flag's value.")
+    lines.append("    $cmdPath = ''")
+    lines.append("    $npos = 0")
+    lines.append("    $skip = $false")
+    lines.append("    $prev = ''")
     lines.append("    for ($i = 1; $i -lt $elements.Count; $i++) {")
-    lines.append("        $el = $elements[$i].Extent.Text")
-    lines.append("        if ($el -eq $wordToComplete) { continue }")
-    lines.append("        if ($skipNext) { $skipNext = $false; continue }")
-    lines.append("        if ($el -like '-*') {")
-    lines.append("            if ($valueFlags -contains $el) { $skipNext = $true }")
+    lines.append("        $el = $elements[$i]")
+    lines.append(
+        "        if ($el.Extent.StartOffset -ge $cursorPosition -or "
+        "$el.Extent.Text -eq $wordToComplete) { continue }"
+    )
+    lines.append("        $text = $el.Extent.Text")
+    lines.append("        $prev = $text")
+    lines.append("        if ($skip) { $skip = $false; continue }")
+    lines.append("        if ($text -clike '-*') {")
+    lines.append("            $vflags = @()")
+    lines.append(
+        "            if ($vflagsByPath.ContainsKey($cmdPath)) { $vflags = $vflagsByPath[$cmdPath] }"
+    )
+    lines.append("            if ($vflags -ccontains $text) { $skip = $true }")
     lines.append("            continue")
     lines.append("        }")
-    lines.append("        $cmdWords += $el")
-    lines.append("    }")
-    lines.append("    $cmdPath = ($cmdWords -join ' ')")
-    lines.append("")
-    lines.append("    # The token immediately before the word under the cursor.")
-    lines.append("    $prev = ''")
-    lines.append("    if ($elements.Count -ge 2) {")
-    lines.append("        $lastText = $elements[$elements.Count - 1].Extent.Text")
-    lines.append("        if ($lastText -eq $wordToComplete) {")
+    lines.append("        $subs = @()")
     lines.append(
-        "            if ($elements.Count -ge 3) "
-        "{ $prev = $elements[$elements.Count - 2].Extent.Text }"
+        "        if ($subsByPath.ContainsKey($cmdPath)) { $subs = $subsByPath[$cmdPath] }"
     )
+    lines.append("        if ($subs -ccontains $text) {")
+    lines.append(
+        '            $cmdPath = if ($cmdPath) { "$cmdPath $text" } else { $text }'
+    )
+    lines.append("            $npos = 0")
     lines.append("        } else {")
-    lines.append("            $prev = $lastText")
+    lines.append("            $npos++")
     lines.append("        }")
     lines.append("    }")
     lines.append("")
     lines.append("    $candidates = @()")
 
     first = True
-    for spec in _all_specs(root):
-        key = spec.prog[len(root_prog) :].strip()
+    for cspec in specs:
+        key = _cmd_key(cspec)
         cond = "if" if first else "elseif"
         first = False
-        lines.append(f"    {cond} ($cmdPath -eq {_psq(key)}) {{")
-        general = _powershell_candidates(spec)
-        choice_opts = [o for o in spec.options if o.takes_value and o.choices]
-        if choice_opts:
-            lines.append("        switch -Exact ($prev) {")
+        lines.append(f"    {cond} ($cmdPath -ceq {_psq(key)}) {{")
+
+        choice_opts = [o for o in cspec.options if o.takes_value and o.choices]
+        other_value_opts = [o for o in cspec.options if o.takes_value and not o.choices]
+        if choice_opts or other_value_opts:
+            lines.append("        $matched = $false")
+            lines.append("        switch -CaseSensitive -Exact ($prev) {")
             for opt in choice_opts:
                 values = ", ".join(_psq(c) for c in opt.choices)
                 for flag in opt.flags:
                     lines.append(
-                        f"            {_psq(flag)} {{ $candidates = @({values}); break }}"
+                        f"            {_psq(flag)} {{ $candidates = @({values}); $matched = $true }}"
                     )
-            lines.append(f"            default {{ $candidates = @({general}) }}")
+            for opt in other_value_opts:
+                # A Path flag: native file completion takes over. A free
+                # (non-choice, non-Path) flag: no candidates of our own,
+                # never the surrounding flags/subcommand names (C024/C028).
+                for flag in opt.flags:
+                    lines.append(
+                        f"            {_psq(flag)} {{ $candidates = @(); $matched = $true }}"
+                    )
             lines.append("        }")
+            lines.append("        if (-not $matched) {")
+            indent = "            "
         else:
-            lines.append(f"        $candidates = @({general})")
+            lines.append("        if ($true) {")
+            indent = "            "
+
+        lines.append(f"{indent}if ($wordToComplete -clike '-*') {{")
+        flag_names = _flag_names(cspec)
+        if flag_names:
+            values = ", ".join(_psq(f) for f in flag_names)
+            lines.append(f"{indent}    $candidates = @({values})")
+        else:
+            lines.append(f"{indent}    $candidates = @()")
+        lines.append(f"{indent}}} else {{")
+        n_pos = len(cspec.positionals)
+        if n_pos:
+            lines.append(f"{indent}    switch ($npos) {{")
+            for idx, pos in enumerate(cspec.positionals):
+                lines.append(f"{indent}        {idx} {{")
+                if pos.choices:
+                    values = ", ".join(_psq(c) for c in pos.choices)
+                    lines.append(f"{indent}            $candidates = @({values})")
+                else:
+                    lines.append(f"{indent}            $candidates = @()")
+                lines.append(f"{indent}        }}")
+            lines.append(f"{indent}        default {{ $candidates = @() }}")
+            lines.append(f"{indent}    }}")
+        if cspec.subcommands:
+            sub_names = ", ".join(_psq(n) for n in cspec.subcommands)
+            lines.append(
+                f"{indent}    if ($npos -eq {n_pos}) {{ $candidates = @({sub_names}) }}"
+            )
+        if not n_pos and not cspec.subcommands:
+            lines.append(f"{indent}    $candidates = @()")
+        lines.append(f"{indent}}}")
+        lines.append("        }")
         lines.append("    }")
 
     lines.append("")
+    lines.append("    $escaped = [regex]::Escape($wordToComplete)")
     lines.append(
-        '    $candidates | Where-Object { $_ -like "$wordToComplete*" } '
-        "| Sort-Object -Unique | ForEach-Object {"
+        '    $candidates | Where-Object { $_ -cmatch "^$escaped" } '
+        "| Sort-Object -Unique -CaseSensitive | ForEach-Object {"
     )
+    lines.append("        $text = $_")
+    lines.append("        if ($text -cmatch '[\\s`\"''$();|&<>{}]') {")
+    lines.append('            $text = "\'" + ($text -replace "\'", "\'\'") + "\'"')
+    lines.append("        }")
     lines.append(
         "        [System.Management.Automation.CompletionResult]::new("
-        "$_, $_, 'ParameterValue', $_)"
+        "$text, $_, 'ParameterValue', $_)"
     )
     lines.append("    }")
     lines.append("}")

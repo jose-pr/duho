@@ -10,7 +10,9 @@ things the same way. Kept dependency-free (stdlib + duho) and out of the sdist
 A "warm" metric is a build/parse whose duho caches (`_duho_constants_`,
 `_duho_clsargs_`, `_duho_builders_`, the AST `lru_cache`) are already populated
 -- what a long-lived process or a repeated call pays. A "cold" metric drops
-every cache first, reproducing what a fresh CLI *invocation* pays. Only warm
+every cache first, reproducing what a fresh CLI *invocation* pays -- except the
+``_duho_constants_`` seeded directly on ``Args``/``Cmd``/``Cli`` (see
+``drop_caches`` below), which a fresh process always has too. Only warm
 metrics are stable enough to gate CI on; cold numbers are reported for insight.
 """
 
@@ -117,6 +119,17 @@ FIELD_MATRIX = {
 
 CACHE_ATTRS = ("_duho_constants_", "_duho_clsargs_", "_duho_builders_")
 
+#: Args/Cmd/Cli each pre-seed ``_duho_constants_ = {}`` in their own class body
+#: (P2, see the docstring on ``duho.Args._duho_constants_``) so that building
+#: ANY user parser never AST-parses duho's own ``args.py`` to scan these
+#: framework base classes -- they declare no real CLI fields. A fresh process
+#: always has this seed. Deleting it here forced every "cold" sample to
+#: additionally index and AST-parse the ~2300-line args.py on its next build,
+#: inflating cold.build.complex/cold.tree.* by 4-10x with a cost no real
+#: invocation ever pays. Excluded from the drop for exactly these three
+#: classes; a real user subclass's own seed is still cleared normally.
+_FRAMEWORK_SEEDED = (Args, Cmd, Cli)
+
 
 def make_tree(n: int) -> "type":
     """Build a fresh ``Cli`` root with ``n`` dynamically-created subcommands.
@@ -148,7 +161,9 @@ def make_tree(n: int) -> "type":
 
 def drop_caches(cls) -> None:
     """Evict every duho cache reachable from ``cls`` (and its subcommand tree),
-    reproducing a cold build."""
+    reproducing a cold build -- except the framework's own pre-seeded
+    ``_duho_constants_`` on ``Args``/``Cmd``/``Cli`` (see ``_FRAMEWORK_SEEDED``
+    above), which a fresh process never drops either."""
     seen = set()
 
     def _drop(klass):
@@ -156,6 +171,8 @@ def drop_caches(cls) -> None:
             return
         seen.add(klass)
         for base in klass.__mro__:
+            if base in _FRAMEWORK_SEEDED:
+                continue
             for attr in CACHE_ATTRS:
                 if attr in vars(base):
                     delattr(base, attr)

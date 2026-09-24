@@ -13,17 +13,22 @@ two numbers are directly comparable -- unlike comparing a historical local run
 against a current one. The COLD number is the one that matters for CLI startup;
 the ratio shows how much the caches save a warm caller.
 
+Shares its sample workloads, cache-dropping and sampler with ``_bench.py`` (the
+one place that knows about duho's internal cache attribute names and the
+Args/Cmd/Cli framework-seed exception -- see ``_bench.drop_caches``), so a fix
+to either only has to happen once.
+
     python benchmarks/compare_cache.py
 """
 
-import statistics
 import sys
-import timeit
-import typing as ty
+from pathlib import Path
 
-import duho
-from duho import Args
-from duho import _introspect
+# benchmarks/ is not a package; make the sibling _bench importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import duho  # noqa: E402
+from _bench import ComplexArgs, SimpleArgs, drop_caches, sample  # noqa: E402
 
 # The prototype's cost was dominated by re-parsing; keep the uncached loop small.
 UNCACHED_INNER = 20
@@ -31,57 +36,8 @@ CACHED_INNER = 200
 REPEAT = 5
 
 
-class SimpleArgs(Args):
-    """Simple argument set."""
-
-    name: str
-    ("--name",)
-    count: int = 1
-    ("--count",)
-
-
-class ComplexArgs(Args):
-    """Complex argument set with many fields."""
-
-    name: str
-    ("--name",)
-    version: str = "1.0.0"
-    ("--version",)
-    output: str = "output.txt"
-    ("--output",)
-    verbose: bool = False
-    ("--verbose",)
-    dry_run: bool = False
-    ("--dry-run",)
-    config: ty.Optional[str] = None
-    ("--config",)
-    workers: int = 4
-    ("--workers",)
-
-
-CACHE_ATTRS = ("_duho_constants_", "_duho_clsargs_", "_duho_builders_")
-
-
-def _drop_caches(cls):
-    """Evict every duho cache reachable from cls, mimicking a cold build."""
-    for klass in cls.__mro__:
-        for attr in CACHE_ATTRS:
-            if attr in vars(klass):
-                delattr(klass, attr)
-    _introspect._module_index.cache_clear()
-
-
-def sample(fn, inner, repeat=REPEAT):
-    per_call = [timeit.timeit(fn, number=inner) / inner * 1000 for _ in range(repeat)]
-    return {
-        "median_ms": round(statistics.median(per_call), 4),
-        "min_ms": round(min(per_call), 4),
-        "max_ms": round(max(per_call), 4),
-    }
-
-
 def build_uncached(cls):
-    _drop_caches(cls)
+    drop_caches(cls)
     duho.parser(cls)
 
 
@@ -92,9 +48,9 @@ def main():
 
     results = {}
     for label, cls in (("simple", SimpleArgs), ("complex", ComplexArgs)):
-        un = sample(lambda c=cls: build_uncached(c), UNCACHED_INNER)
+        un = sample(lambda c=cls: build_uncached(c), UNCACHED_INNER, repeat=REPEAT)
         duho.parser(cls)  # warm
-        ca = sample(lambda c=cls: duho.parser(c), CACHED_INNER)
+        ca = sample(lambda c=cls: duho.parser(c), CACHED_INNER, repeat=REPEAT)
         results[label] = (un, ca)
 
         print(
@@ -110,8 +66,8 @@ def main():
     for label, (un, ca) in results.items():
         if ca["median_ms"]:
             print(
-                f"{label}: warm is {un['median_ms'] / ca['median_ms']:.0f}x the "
-                f"cold build ({un['median_ms']:.2f} ms cold -> {ca['median_ms']:.3f} "
+                f"{label}: warm is {un['median_ms'] / ca['median_ms']:.0f}x faster "
+                f"than cold ({un['median_ms']:.2f} ms cold -> {ca['median_ms']:.3f} "
                 f"ms warm, median)"
             )
     return 0

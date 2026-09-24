@@ -1094,6 +1094,345 @@ def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# Overriding a command deregisters its aliases too (D024)
+# --------------------------------------------------------------------------
+
+
+class _AliasedDeploy(duho.LoggingArgs, duho.Cmd):
+    """A built-in with an alias, carried on the root class."""
+
+    _parsername_ = "deploy"
+    _parseraliases_ = ["d"]
+
+    def __call__(self):
+        return "built-in-deploy"
+
+
+class RootWithAliasedBuiltin(duho.LoggingArgs, duho.Cli):
+    """A root whose only built-in subcommand declares an alias."""
+
+    _subcommands_ = [_AliasedDeploy]
+
+    def __call__(self):  # pragma: no cover - root is not dispatched here
+        return 0
+
+
+_MODULE_CMD_DEPLOY_OVERRIDE = '''\
+"""Shadows the built-in deploy."""
+
+
+def main(args=None):
+    return "overridden-deploy"
+'''
+
+
+def test_cmds_path_override_deregisters_the_shadowed_commands_aliases(
+    tmp_path, monkeypatch, capsys
+):
+    """Overriding a built-in via CMDS_PATH also drops its stale aliases.
+
+    Before the fix, `_deregister_subparser` popped only the primary name from
+    argparse's `_name_parser_map`; the shadowed command's alias (`d`) stayed
+    registered and kept SILENTLY dispatching to the OLD command even though
+    `deploy` itself now ran the override (D024). The module override declares
+    no alias of its own, so the correct post-fix outcome for `d` is an
+    ordinary "invalid choice" (the alias is gone, not secretly re-pointed) --
+    never a silent run of the shadowed built-in.
+    """
+    _write(tmp_path, "deploy.py", _MODULE_CMD_DEPLOY_OVERRIDE)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    rc = app(RootWithAliasedBuiltin, env=env, argv=["deploy"], setup_logging=False)
+    assert rc == "overridden-deploy"
+    with pytest.raises(SystemExit):
+        app(RootWithAliasedBuiltin, env=env, argv=["d"], setup_logging=False)
+    assert "invalid choice: 'd'" in capsys.readouterr().err
+
+
+class _DeployPatch(duho.LoggingArgs, duho.Cmd):
+    """An explicit override reusing the SAME name and alias as the built-in."""
+
+    _parsername_ = "deploy"
+    _parseraliases_ = ["d"]
+
+    def __call__(self):
+        return "patched-deploy"
+
+
+def test_commands_override_reusing_the_same_alias_does_not_crash():
+    """A class-command override that reuses the shadowed command's own alias
+    must not raise argparse's `conflicting subparser alias` (3.11+) nor
+    silently leave the alias pointing at the old command (3.9) (D024)."""
+    rc = app(
+        RootWithAliasedBuiltin,
+        commands=[_DeployPatch],
+        argv=["deploy"],
+        setup_logging=False,
+    )
+    assert rc == "patched-deploy"
+    rc = app(
+        RootWithAliasedBuiltin,
+        commands=[_DeployPatch],
+        argv=["d"],
+        setup_logging=False,
+    )
+    assert rc == "patched-deploy"
+
+
+# --------------------------------------------------------------------------
+# commands=/source=/entry_points= are additive with a root's own
+# _subcommands_, not a replacement for them (D025)
+# --------------------------------------------------------------------------
+
+
+class _Extra(duho.Cmd):
+    """An explicitly-passed command unrelated to any built-in."""
+
+    _parsername_ = "extra"
+
+    def __call__(self):
+        return "extra"
+
+
+def test_commands_arg_is_additive_with_root_builtins():
+    """commands=[...] adds to root._subcommands_; both remain callable."""
+    rc = app(RootWithBuiltins, commands=[_Extra], argv=["hello"], setup_logging=False)
+    assert rc == "built-in"
+    rc = app(RootWithBuiltins, commands=[_Extra], argv=["extra"], setup_logging=False)
+    assert rc == "extra"
+
+
+def test_source_arg_is_additive_with_root_builtins(tmp_path):
+    """source=dir adds to root._subcommands_; both remain callable."""
+    _write(tmp_path, "extra.py", _MODULE_CMD_GREET)
+    rc = app(RootWithBuiltins, source=tmp_path, argv=["hello"], setup_logging=False)
+    assert rc == "built-in"
+    rc = app(RootWithBuiltins, source=tmp_path, argv=["extra"], setup_logging=False)
+    assert rc == "greeted"
+
+
+# --------------------------------------------------------------------------
+# Override/collision logging: deferred, once, and INFO vs WARNING (D042)
+# --------------------------------------------------------------------------
+
+
+def test_cmds_path_override_logs_info_once_never_a_warning(
+    tmp_path, monkeypatch, caplog
+):
+    """The documented CMDS_PATH-overrides-a-builtin story logs INFO exactly
+    once; it must never ALSO trip the generic 'registered by more than one
+    source' WARNING (that one is for a genuinely separate collision)."""
+    _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    with caplog.at_level("INFO", logger="duho.runtime"):
+        rc = app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False)
+    assert rc == "overridden"
+    info_messages = [r.message for r in caplog.records if r.levelname == "INFO"]
+    warning_messages = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert sum("overrides the built-in" in m for m in info_messages) == 1
+    assert not warning_messages
+
+
+def test_genuine_collision_between_two_explicit_sources_still_warns(tmp_path, caplog):
+    """Two independently-resolved commands sharing a name (not the documented
+    CMDS_PATH override) is a real ambiguity and must still warn."""
+    _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
+
+    with caplog.at_level("WARNING", logger="duho.runtime"):
+        rc = app(RootWithBuiltins, source=tmp_path, argv=["hello"], setup_logging=False)
+    assert rc == "overridden"
+    assert any(
+        "registered by more than one source" in r.message for r in caplog.records
+    )
+
+
+# --------------------------------------------------------------------------
+# register()'s ArgumentError rewrap only blames a global when one actually
+# conflicted (D043)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_SELF_COLLISION = '''\
+"""A register() hook that collides with the module's OWN declared field."""
+
+
+class Args:
+    """A plain Args class with a --url field."""
+
+    url: str = "default"
+    "The url."
+    ("--url",)
+
+
+def register(parser, args):
+    parser.add_argument("--url")
+
+
+def main(args):
+    return None
+'''
+
+
+def test_register_hook_self_collision_error_does_not_blame_a_global(tmp_path):
+    """A register() hook colliding with the module's OWN declared field (not
+    an inherited global) must not be told to rename a nonexistent global
+    flag."""
+    import argparse
+
+    _write(tmp_path, "selfcollide.py", _MODULE_CMD_REGISTER_SELF_COLLISION)
+    with pytest.raises(argparse.ArgumentError) as excinfo:
+        app(Root, source=tmp_path, argv=["selfcollide", "--help"], setup_logging=False)
+    msg = str(excinfo.value)
+    assert "selfcollide" in msg
+    assert "global" not in msg
+    assert "--url" in msg
+
+
+# --------------------------------------------------------------------------
+# A non-command in commands=... fails loudly (D045)
+# --------------------------------------------------------------------------
+
+
+def test_commands_arg_with_a_non_command_raises_typeerror():
+    """A non-Cmd/non-ModuleCommand item in commands=... must fail loudly,
+    naming the bad object, instead of being silently dropped."""
+
+    class NotACommand:
+        pass
+
+    with pytest.raises(TypeError, match="NotACommand"):
+        app(Root, commands=[NotACommand()], argv=["x"], setup_logging=False)
+
+
+# --------------------------------------------------------------------------
+# A keyword-only register() logger parameter is passed by keyword (D061)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_KWONLY_LOGGER = '''\
+"""A register hook with a keyword-only logger parameter."""
+import logging
+
+SEEN = {}
+
+
+def register(parser, args, *, logger):
+    SEEN["logger_is_logger"] = isinstance(logger, logging.Logger)
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
+
+def test_register_hook_keyword_only_logger_is_called_by_keyword(tmp_path):
+    """`register(parser, args, *, logger)` cannot be called positionally
+    (raises TypeError: too many positional arguments); it must be called
+    `logger=...`."""
+    _write(tmp_path, "kwreg.py", _MODULE_CMD_REGISTER_KWONLY_LOGGER)
+    rc = app(Root, source=tmp_path, argv=["kwreg", "--flag", "kw"], setup_logging=False)
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("kwreg")
+    ][0]
+    assert discovered.SEEN["logger_is_logger"] is True
+    assert discovered.SEEN["flag"] == "kw"
+
+
+# --------------------------------------------------------------------------
+# register()'s arity detection reads its OWN signature, not a wrapped
+# function's (functools.wraps guidance, mirrors runpath's D014 fix)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_WRAPPED = '''\
+"""A register hook wrapped with functools.wraps: the WRAPPER's own signature
+(3-arg, with a logger) differs from the function it wraps (2-arg)."""
+import functools
+import logging
+
+SEEN = {}
+
+
+def _original(parser, args):
+    pass
+
+
+@functools.wraps(_original)
+def register(parser, args, logger):
+    SEEN["logger_is_logger"] = isinstance(logger, logging.Logger)
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
+
+def test_register_hook_wrapped_with_functools_wraps_uses_its_own_signature(tmp_path):
+    """Inspecting the WRAPPED function (`follow_wrapped=True`, inspect's
+    default) would see the 2-arg original and never pass a logger, silently
+    dropping the wrapper's own extra parameter."""
+    _write(tmp_path, "wrapreg.py", _MODULE_CMD_REGISTER_WRAPPED)
+    rc = app(
+        Root, source=tmp_path, argv=["wrapreg", "--flag", "w"], setup_logging=False
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("wrapreg")
+    ][0]
+    assert discovered.SEEN["logger_is_logger"] is True
+    assert discovered.SEEN["flag"] == "w"
+
+
+# --------------------------------------------------------------------------
+# A module command's async hooks are rejected loudly, never silently skipped
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_ASYNC_MAIN = '''\
+"""A module command whose main is async."""
+
+
+async def main(args):
+    return None
+'''
+
+_MODULE_CMD_ASYNC_INIT = '''\
+"""A module command whose init is async."""
+
+
+async def init(args):
+    return None
+
+
+def main(args):
+    return None
+'''
+
+
+def test_async_module_command_main_raises_type_error(tmp_path):
+    """An `async def main()` must be rejected loudly instead of silently
+    never running (mirrors runpath's async-step rejection)."""
+    _write(tmp_path, "asyncmain.py", _MODULE_CMD_ASYNC_MAIN)
+    with pytest.raises(TypeError, match="coroutine"):
+        app(Root, source=tmp_path, argv=["asyncmain"], setup_logging=False)
+
+
+def test_async_module_command_init_raises_type_error(tmp_path):
+    """An `async def init()` must be rejected loudly too."""
+    _write(tmp_path, "asyncinit.py", _MODULE_CMD_ASYNC_INIT)
+    with pytest.raises(TypeError, match="coroutine"):
+        app(Root, source=tmp_path, argv=["asyncinit"], setup_logging=False)
+
+
+# --------------------------------------------------------------------------
 # Module command subparsers get the positional-reorder fix too
 # --------------------------------------------------------------------------
 

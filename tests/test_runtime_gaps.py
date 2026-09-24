@@ -25,7 +25,7 @@ import pytest
 import duho
 from duho import Args, Cmd
 from duho.env import Env
-from duho.runtime import _resolve_commands, app
+from duho.runtime import _module_args_cls, _resolve_commands, app
 
 _CLASS_CMD = '''\
 """A class command."""
@@ -259,6 +259,31 @@ def test_cmds_path_tilde_is_expanded(tmp_path, monkeypatch):
     resolved = _resolve_commands(None, None, None, env, None)
     names = {getattr(c, "__name__", "") for c in resolved}
     assert "Deploy" in names
+
+
+# --------------------------------------------------------------------------
+# A module Args that already subclasses the root is used as-is (D056)
+# --------------------------------------------------------------------------
+
+
+def test_module_args_cls_already_subclassing_root_is_used_as_is():
+    """When a module's own ``Args`` already subclasses the app root (the
+    documented convention: ``class Args(MyAppRoot): ...``), `_module_args_cls`
+    must return it AS-IS rather than wrapping it in a second synthesized
+    mixin class -- this branch (`issubclass(args_cls, root_cls)`) had no
+    dedicated test before (D056)."""
+
+    class _FakeModuleCommand:
+        pass
+
+    class SubclassesRoot(Root):
+        method: str
+
+    fake_command = _FakeModuleCommand()
+    fake_command.args_cls = SubclassesRoot
+
+    result = _module_args_cls(fake_command, Root)
+    assert result is SubclassesRoot
 
 
 # --------------------------------------------------------------------------

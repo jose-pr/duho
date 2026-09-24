@@ -74,6 +74,9 @@ from .discovery import (
 )
 from .logging import log_exception as _log_exception
 
+if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
+    from .env import Env as _Env
+
 __all__ = ["run_command", "app"]
 
 _LOGGER = _logging.getLogger(__name__)
@@ -85,6 +88,28 @@ _LOGGER = _logging.getLogger(__name__)
 # `discovery` to share, rather than two definitions that could silently drift
 # apart (the import direction only allows it this way round: `discovery.py`
 # already imports from `.args`, so `args.py`/`mcp.py` still keep their own).
+
+
+def _reject_coroutine(result: object, where: str) -> None:
+    """Refuse a coroutine ``result`` from a module command's entrypoint/hooks.
+
+    duho only ever awaits ``Cmd.__call__`` (via ``duho.args._maybe_await`` --
+    a class command may declare ``async def __call__``, driven to completion
+    with ``asyncio.run`` at the call site). A module command's ``main``/
+    ``init``/``success``/``finally_`` are NOT awaited: before this, an
+    ``async def`` hook silently produced a coroutine nothing ever ran, whose
+    only symptom was an easy-to-miss "coroutine was never awaited"
+    ``RuntimeWarning`` raised later from the coroutine's own ``__del__``. This
+    turns that into an immediate, loud failure instead. Mirrors
+    :func:`duho.runpath._reject_coroutine` (D059) -- a separate copy, since
+    ``runtime.py`` and ``runpath.py`` intentionally don't import each other.
+    """
+    if _inspect.iscoroutine(result):
+        result.close()
+        raise TypeError(
+            "duho.runtime: %s returned a coroutine; duho awaits only "
+            "Cmd.__call__ -- module command hooks must be synchronous" % where
+        )
 
 
 def run_command(
@@ -120,6 +145,12 @@ def run_command(
     ``args._logger_`` convention never hits ``AttributeError`` (R018). Setting
     the attribute is best-effort: a root whose ``_logger_`` is a read-only
     property simply keeps using its own resolution.
+
+    A module command's ``init``/``main``/``success``/``finally_`` are never
+    awaited (unlike a class command's ``__call__``, see :func:`_maybe_await`):
+    a coroutine returned by any of them is closed immediately and raises
+    ``TypeError`` (see :func:`_reject_coroutine`), rather than silently never
+    running.
     """
     if _is_module_command(command):
         module_command = _ty.cast(_ModuleCommand, command)
@@ -131,17 +162,23 @@ def run_command(
             ):  # pragma: no cover - a property-bearing root may refuse the write
                 pass
         ctx = context if context is not None else module_command.init(instance)
+        _reject_coroutine(ctx, "%s init()" % _command_name(command))
         try:
             result = module_command.main(instance)
+            _reject_coroutine(result, "%s main()" % _command_name(command))
             # `success` is the SUCCESS hook: run it only when main reported
             # success (None or exit code 0), not for a non-zero exit code (M22).
             if result is None or result == 0:
-                module_command.success(ctx, instance)
+                success_result = module_command.success(ctx, instance)
+                _reject_coroutine(
+                    success_result, "%s success()" % _command_name(command)
+                )
         finally:
             # A raising `finally_` must not mask the original exception (if main
             # raised) nor the real exit code: log and swallow its error (M22).
             try:
-                module_command.finally_(ctx, instance)
+                fin_result = module_command.finally_(ctx, instance)
+                _reject_coroutine(fin_result, "%s finally_()" % _command_name(command))
             except Exception:
                 _LOGGER.exception(
                     "finally_ hook for command %r raised; ignoring",
@@ -157,7 +194,7 @@ def run_command(
     return 0 if result is None else result
 
 
-def _cmds_path_commands(env: object) -> "list[_Command]":
+def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
     """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
 
     Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
@@ -192,15 +229,14 @@ def _cmds_path_commands(env: object) -> "list[_Command]":
     """
     if env is None:
         return []
-    raw = None
     try:
-        raw = env.get("CMDS_PATH")  # type: ignore[attr-defined]
+        raw = env.get("CMDS_PATH")
     except Exception:  # pragma: no cover - env is best-effort here
         raw = None
     if not raw:
         return []
     try:
-        segments = env.paths("CMDS_PATH", ty=str)  # type: ignore[attr-defined]
+        segments = env.paths("CMDS_PATH", ty=str)
     except Exception:  # pragma: no cover - env is best-effort here
         segments = []
     discovered: "list[_Command]" = []
@@ -228,13 +264,25 @@ def _cmds_path_commands(env: object) -> "list[_Command]":
 
 
 def _merge_discovered(
-    base: "list[_Command]", discovered: "list[_Command]"
+    base: "list[_Command]",
+    discovered: "list[_Command]",
+    overridden: "set[str] | None" = None,
 ) -> "list[_Command]":
     """Merge ``discovered`` on top of ``base``: discovered wins on a name clash.
 
     Keeps ``base``'s order for everything NOT overridden, then appends every
-    discovered command; a name collision drops the ``base`` entry and logs the
-    shadowing at INFO (the override story is intentional, but never silent).
+    discovered command. A name collision drops the ``base`` entry (the
+    override story is intentional, but never silent).
+
+    **Logging is deferred, not skipped (D042).** Called from
+    :func:`_resolve_commands` -- itself called before ``app()`` has set up any
+    logging handler -- an immediate ``_LOGGER.info`` here is emitted into the
+    void: Python's ``logging.lastResort`` handler only prints WARNING and
+    above, so the override notice would be silently lost even under ``-vv``.
+    When ``overridden`` is given, the overridden name is recorded into it
+    instead of logged immediately, so the caller (``app()``) can log it once
+    logging is actually configured. When ``overridden`` is omitted (a direct,
+    non-``app()`` caller), the old immediate-INFO behavior is kept.
     """
     if not discovered:
         return base
@@ -243,7 +291,10 @@ def _merge_discovered(
     for cmd in base:
         name = _command_name(cmd)
         if name and name in override:
-            _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
+            if overridden is not None:
+                overridden.add(name)
+            else:
+                _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
             continue
         merged.append(cmd)
     merged.extend(discovered)
@@ -254,8 +305,9 @@ def _resolve_commands(
     root: "type | None",
     commands: "_ty.Sequence[_Command] | None",
     source: "str | _Path | None",
-    env: object,
+    env: "_Env | None",
     entry_points: "str | None" = None,
+    overridden: "set[str] | None" = None,
 ) -> "list[_Command]":
     """Resolve the command set for :func:`app` by precedence.
 
@@ -274,7 +326,23 @@ def _resolve_commands(
     footgun for a *supplementary* command directory -- the usual reason to point
     at one is "I have a few extra commands", not "replace this CLI". A discovered
     command whose name collides with a base command **wins** (that is the
-    override story), and the shadowing is logged so it is never silent.
+    override story), and the shadowing is never silent (see ``overridden``).
+
+    **Additive, not exclusive, w.r.t. a root's OWN declared subcommands
+    (D025).** This function only falls back to ``root._subcommands_`` as ITS
+    OWN base when none of ``commands``/``source``/``entry_points`` is given.
+    But ``app()`` separately, and always, registers ``root``'s own declared
+    ``_subcommands_`` too (via ``root_cls._parser_()``, independent of this
+    function) -- so passing ``commands=``/``source=``/``entry_points=``
+    alongside a root that already declares ``_subcommands_`` does not remove
+    or replace those; this function's result is layered on top of them, not
+    instead of them. Pass an explicit, subcommand-free root (or ``root=None``)
+    to get a command set with nothing but what this function resolves.
+
+    ``overridden``, when given, receives the name of every base command a
+    CMDS_PATH-discovered one replaced (see :func:`_merge_discovered`) --
+    ``app()`` uses this to log the override once, after logging is set up,
+    and to avoid a second, redundant collision warning when registering.
 
     Discovery is resilient (a bad command drops out with a warning -- see
     :func:`duho.discovery.discover_commands` /
@@ -291,7 +359,29 @@ def _resolve_commands(
             list(getattr(root, "_subcommands_", []) or []) if root is not None else []
         )
 
-    return _merge_discovered(base, _cmds_path_commands(env))
+    return _merge_discovered(base, _cmds_path_commands(env), overridden=overridden)
+
+
+def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":
+    """Every name ``command`` claims in a subparsers action.
+
+    A class command claims its primary ``cmd_name`` PLUS its own
+    ``_parseraliases_`` (argparse's ``add_parser(..., aliases=...)`` registers
+    each alias as an extra ``_name_parser_map`` key pointing at the same
+    subparser object). A module command has no alias mechanism and claims
+    only its primary name. Used to detect -- and, on an override, fully
+    undo -- a collision against ANY of a command's names, not just its
+    primary one (D024): checking only ``cmd_name`` missed the case where an
+    INCOMING command's alias collides with an already-registered name/alias,
+    which argparse itself only reports at ``add_parser()`` time (raising on
+    3.11+, silently overwriting on 3.9).
+    """
+    names = [cmd_name]
+    if kind == "class":
+        for alias in getattr(command, "_parseraliases_", None) or ():
+            if alias not in names:
+                names.append(alias)
+    return names
 
 
 def _register_class_command(
@@ -313,21 +403,37 @@ def _register_class_command(
 
 
 def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
-    """True if a module ``register`` hook takes a 3rd ``logger`` positional.
+    """True if a module ``register`` hook accepts a resolved ``logger``.
 
-    A module's ``register`` may be written either 2-arg ``(parser, args)`` or
-    3-arg ``(parser, args, logger)``. This inspects the hook's signature and
-    returns ``True`` only when it accepts a third positional argument -- either
-    because it declares three (or more) positional parameters, or because it
-    declares a ``*args`` catch-all (which can absorb a logger). If the signature
-    cannot be introspected (a builtin / C callable / anything ``inspect`` refuses),
-    we conservatively default to ``False`` (the 2-arg call), which is the
+    A module's ``register`` may be written 2-arg ``(parser, args)``, 3-arg
+    ``(parser, args, logger)``, or with a keyword-only ``logger`` (e.g.
+    ``(parser, args, *, logger)``). This inspects the hook's signature and
+    returns ``True`` when it accepts a logger via any of those shapes --
+    three (or more) positional parameters, a ``*args`` catch-all (which can
+    absorb a logger positionally), or a parameter literally named ``logger``
+    of any kind (see :func:`_wants_logger_by_keyword` for which of these
+    calling conventions to actually use). If the signature cannot be
+    introspected (a builtin / C callable / anything ``inspect`` refuses), we
+    conservatively default to ``False`` (the 2-arg call), which is the
     historical shape and never over-supplies an argument the hook can't take.
+
+    Inspects with ``follow_wrapped=False``: a hook wrapped with
+    ``functools.wraps`` (e.g. a user decorator around ``register``) must be
+    read on its OWN signature, not the wrapped function's -- otherwise the
+    wrapper's own extra/different parameters are invisible and the wrong
+    calling convention is chosen (the same bug ``runpath._step_wants_ctx``
+    had before D014's fix).
     """
     try:
-        params = _inspect.signature(register).parameters
+        params = _inspect.signature(register, follow_wrapped=False).parameters
     except (TypeError, ValueError):  # pragma: no cover - builtins/C callables
         return False
+    logger_param = params.get("logger")
+    if (
+        logger_param is not None
+        and logger_param.kind is _inspect.Parameter.KEYWORD_ONLY
+    ):
+        return True
     positional = 0
     for param in params.values():
         if param.kind is _inspect.Parameter.VAR_POSITIONAL:
@@ -338,6 +444,48 @@ def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
         ):
             positional += 1
     return positional >= 3
+
+
+def _wants_logger_by_keyword(register: "_ty.Callable[..., object]") -> bool:
+    """True if ``register``'s logger must be passed as ``logger=...``.
+
+    A keyword-only ``logger`` parameter (``def register(parser, args, *,
+    logger)``) cannot be supplied positionally -- doing so raises
+    ``TypeError: register() takes 2 positional arguments but 3 were given``.
+    Only called after :func:`_wants_logger_arg` has already confirmed a
+    logger slot exists; this just decides how to pass it.
+    """
+    try:
+        params = _inspect.signature(register, follow_wrapped=False).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins/C callables
+        return False
+    logger_param = params.get("logger")
+    return (
+        logger_param is not None
+        and logger_param.kind is _inspect.Parameter.KEYWORD_ONLY
+    )
+
+
+def _conflicting_option_strings(exc: "_argparse.ArgumentError") -> "list[str]":
+    """Extract the actual conflicting option string(s) from an argparse
+    ``ArgumentError`` raised by ``_ActionsContainer._handle_conflict_error``.
+
+    That error's message is always one of ``"conflicting option string: %s"``
+    or ``"conflicting option strings: %s"`` (stdlib ``argparse``, stable
+    across the supported Python range), where ``%s`` is a comma-joined list
+    of the option string(s) that actually collided -- e.g. ``"-q"`` or ``"-h,
+    --help"``. Parsed from ``exc.message`` (not ``str(exc)``, which prepends
+    an unrelated ``argument ...:`` prefix naming the NEW action, not the
+    option strings). Returns ``[]`` if the message doesn't match this shape
+    (a different ``ArgumentError`` entirely -- callers should treat that as
+    "unknown, not a global-flag collision").
+    """
+    message = getattr(exc, "message", "") or ""
+    prefix, sep, tail = message.partition("conflicting option string")
+    if not sep or prefix:
+        return []
+    _, _, tail = tail.partition(":")
+    return [s.strip() for s in tail.split(",") if s.strip()]
 
 
 def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None":
@@ -394,9 +542,9 @@ def _add_module_declared_fields(
     avoids. A module command needing those should keep using ``register()``
     imperatively for that field, matching today's existing capability.
     """
-    actions_by_dest = {action.dest: action for action in parser._actions}  # type: ignore[attr-defined]
+    dests_present = {action.dest for action in parser._actions}  # type: ignore[attr-defined]
     for builder in args_cls._getargs_():  # type: ignore[attr-defined]
-        if builder.name in actions_by_dest:
+        if builder.name in dests_present:
             continue
         builder.add_to_parser(parser)
 
@@ -502,7 +650,12 @@ def _register_module_command(
                 # `_logger_` if present, else the "duho" fallback) -- not a
                 # second, separately-maintained copy of that fallback (D047).
                 logger = command._logger_for(root_instance_args)
-                register(parser, root_instance_args, logger)
+                if _wants_logger_by_keyword(register):
+                    # A keyword-only `logger` (`def register(parser, args, *,
+                    # logger)`) cannot be supplied positionally.
+                    register(parser, root_instance_args, logger=logger)
+                else:
+                    register(parser, root_instance_args, logger)
             else:
                 register(parser, root_instance_args)
         except _argparse.ArgumentError as exc:
@@ -512,14 +665,25 @@ def _register_module_command(
             # ``LoggingArgs``, or ``-h``/``-v``/``--version``) collides. argparse's
             # own message doesn't say it clashed with a *global*, and the crash
             # only appears once a command is moved onto ``app``'s inheritance --
-            # re-raise naming the command and the cause.
+            # re-raise naming the command and the cause. BUT only when the
+            # option string(s) argparse actually reports as conflicting are
+            # ones the ROOT owns (`base_parser`) -- a hook that collides with
+            # its own module-declared field, or adds the same flag twice, has
+            # nothing to do with an inherited global, and blaming one sends
+            # the author to look in the wrong place (D043).
+            conflicting = _conflicting_option_strings(exc)
+            global_options = getattr(base_parser, "_option_string_actions", {})
+            if conflicting and any(opt in global_options for opt in conflicting):
+                raise _argparse.ArgumentError(
+                    None,
+                    f"command {command._parsername_!r}: its register() hook added "
+                    f"an option that collides with a global flag inherited from "
+                    f"the app root ({exc}). Every subcommand parser inherits the "
+                    f"root's global options (e.g. -h, -v, -q, --version); pick a "
+                    f"different flag in register().",
+                ) from exc
             raise _argparse.ArgumentError(
-                None,
-                f"command {command._parsername_!r}: its register() hook added an "
-                f"option that collides with a global flag inherited from the app "
-                f"root ({exc}). Every subcommand parser inherits the root's global "
-                f"options (e.g. -h, -v, -q, --version); pick a different flag in "
-                f"register().",
+                None, f"command {command._parsername_!r}: {exc}"
             ) from exc
 
     # A module command's subparser is a plain `add_parser()` instance --
@@ -597,19 +761,32 @@ def _existing_subparsers(
 
 
 def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) -> None:
-    """Remove a previously-registered subparser ``name`` from ``subparsers``.
+    """Remove a previously-registered subparser ``name``, and every alias of
+    the SAME subparser, from ``subparsers``.
 
     argparse's ``add_parser`` raises ``ArgumentError('conflicting subparser')``
-    on a duplicate name, so a later registration under the same name cannot
-    simply overwrite an earlier one. This drops the earlier registration from
-    the name->parser map and the help pseudo-actions so the later command can
-    register cleanly and win (see the collision handling in :func:`app`, M6).
+    (or, for an alias specifically, ``'conflicting subparser alias'`` on
+    3.11+) on a duplicate name/alias, so a later registration under the same
+    name cannot simply overwrite an earlier one. argparse registers a
+    class command's aliases (``_parseraliases_``) as EXTRA keys in
+    ``_name_parser_map`` pointing at the very same subparser object as its
+    primary name -- so an override that only popped ``name`` left every alias
+    of the LOSING command still dispatching to it (D024). Deleting every key
+    whose value ``is`` that same parser object removes the primary name AND
+    every alias in one pass, whatever they're named, without this function
+    needing to know the losing command's own alias list.
     """
-    subparsers._name_parser_map.pop(name, None)  # type: ignore[attr-defined]
+    name_parser_map = subparsers._name_parser_map  # type: ignore[attr-defined]
+    parser_obj = name_parser_map.get(name)
+    if parser_obj is None:
+        return
+    dropped = [n for n, p in name_parser_map.items() if p is parser_obj]
+    for n in dropped:
+        name_parser_map.pop(n, None)
     subparsers._choices_actions = [  # type: ignore[attr-defined]
         a
         for a in subparsers._choices_actions  # type: ignore[attr-defined]
-        if getattr(a, "dest", None) != name
+        if getattr(a, "dest", None) not in dropped
     ]
 
 
@@ -668,7 +845,7 @@ def app(
     argv: "_ty.Sequence[str] | None" = None,
     name: "str | None" = None,
     description: "str | None" = None,
-    env: object = None,
+    env: "_Env | None" = None,
     config: "str | _Path | None" = None,
     setup_logging: bool = True,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
@@ -684,6 +861,16 @@ def app(
     base was used -- a layer, not a branch reachable only when no other source
     is given -- extending the base rather than replacing it, with a discovered
     command overriding a same-named base command (logged, never silent).
+
+    **Additive, not exclusive (D025).** ``root``'s own declared
+    ``_subcommands_`` are ALWAYS registered too (``app`` reuses the
+    subparsers action ``root_cls._parser_()`` already built for them), no
+    matter what ``commands``/``source``/``entry_points`` was passed --
+    passing one of those does not remove or replace a root's built-ins, it
+    only adds alongside them (see :func:`_resolve_commands` for the exact
+    contract). Give ``root`` no ``_subcommands_`` of its own (or pass
+    ``root=None``) for an app whose ONLY commands are the ones explicitly
+    resolved here.
 
     ``entry_points`` is an installed-distribution entry-point **group** name
     (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
@@ -743,7 +930,19 @@ def app(
     :func:`run_command` directly, so existing callers are unaffected.
     """
     run = dispatch if dispatch is not None else run_command
-    resolved_commands = _resolve_commands(root, commands, source, env, entry_points)
+    # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
+    # Collected rather than logged immediately: at this point in `app()` no
+    # logging handler has been installed yet, so an immediate `_LOGGER.info`
+    # would be emitted into the void (D042) -- flushed once, below, after
+    # `_setup_instance_logging` actually runs. Also used to recognize, in the
+    # registration loop below, that a registry collision for the SAME name is
+    # this very (intentional, already-accounted-for) override, not a second,
+    # independent one worth its own warning.
+    cmds_path_overridden: "set[str]" = set()
+    resolved_commands = _resolve_commands(
+        root, commands, source, env, entry_points, overridden=cmds_path_overridden
+    )
+    notices: "list[tuple[int, str]]" = []
 
     parser, base_parser, root_cls = _build_parser(root, name, description)
 
@@ -798,7 +997,13 @@ def app(
     # class command sharing a name) warns naming both; the LAST registration wins
     # -- the earlier subparser is deregistered so argparse does not raise
     # `conflicting subparser`, and dispatch resolves via this same registry (M6).
+    # `registry` stays keyed by PRIMARY names only (its shape `_apply_app_config_
+    # layers` below relies on, one config-table lookup per canonical subcommand
+    # name). `claimed` mirrors it but also carries every class command's
+    # ALIASES (`_full_names`), so the collision check below catches an alias
+    # clash too, not just a primary-name one (D024).
     registry: "dict[str, tuple[str, object]]" = {}
+    claimed: "dict[str, tuple[str, object]]" = {}
 
     # A root class with `_subcommands_` already had them registered by its own
     # `_parser_`, which created a subparsers action. argparse allows only one per
@@ -847,9 +1052,12 @@ def app(
         # empty for that name) and argparse's own `add_parser` raises
         # `conflicting subparser` when the loop tries to register the
         # override under the same, still-occupied name.
-        for name, builtin_command in builtin_by_name.items():
-            if name in preregistered:
-                registry[name] = ("class", builtin_command)
+        for builtin_name, builtin_command in builtin_by_name.items():
+            if builtin_name in preregistered:
+                registry[builtin_name] = ("class", builtin_command)
+                for n in _full_names(builtin_command, builtin_name, "class"):
+                    if n in preregistered:
+                        claimed[n] = ("class", builtin_command)
     for command in resolved_commands:
         if _is_class_command(command):
             cmd_name = _command_name(command)
@@ -857,21 +1065,51 @@ def app(
         elif _is_module_command(command):
             cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
             kind = "module"
-        else:  # pragma: no cover - resolver only yields the two kinds
-            continue
-
-        if cmd_name in registry:
-            prev_kind, prev_obj = registry[cmd_name]
-            _LOGGER.warning(
-                "command name %r registered by more than one source "
-                "(%s %r, then %s %r); the last registration wins.",
-                cmd_name,
-                prev_kind,
-                getattr(prev_obj, "__name__", prev_obj),
-                kind,
-                getattr(command, "__name__", command),
+        else:
+            # D045: a provider/caller can hand `commands=`/`source=` anything;
+            # silently dropping a non-command (behind a "can't happen" pragma
+            # that coverage proved wrong) left the user staring at argparse's
+            # bare "invalid choice ... (choose from )" with no hint why.
+            raise TypeError(
+                f"app(): expected a Cmd subclass or a discovered ModuleCommand, "
+                f"got {command!r} ({type(command).__name__})"
             )
-            _deregister_subparser(subparsers, cmd_name)
+
+        names = _full_names(command, cmd_name, kind)
+        colliding: "dict[int, tuple[str, object]]" = {}
+        for n in names:
+            prev = claimed.get(n)
+            if prev is not None:
+                colliding.setdefault(id(prev[1]), prev)
+
+        for prev_kind, prev_obj in colliding.values():
+            prev_name = _command_name(prev_obj)
+            if cmd_name not in cmds_path_overridden:
+                # Not the documented CMDS_PATH-overrides-a-base-command story
+                # (that one is reported once via `cmds_path_overridden` below,
+                # after logging is set up) -- a genuine, otherwise-silent
+                # collision between two independently-resolved commands.
+                notices.append(
+                    (
+                        _logging.WARNING,
+                        "command name %r registered by more than one source "
+                        "(%s %r, then %s %r); the last registration wins."
+                        % (
+                            prev_name,
+                            prev_kind,
+                            getattr(prev_obj, "__name__", prev_obj),
+                            kind,
+                            getattr(command, "__name__", command),
+                        ),
+                    )
+                )
+            _deregister_subparser(subparsers, prev_name)
+            for n in list(registry):
+                if registry[n][1] is prev_obj:
+                    del registry[n]
+            for n in list(claimed):
+                if claimed[n][1] is prev_obj:
+                    del claimed[n]
 
         if kind == "class":
             command_cls = _ty.cast(type, command)
@@ -890,6 +1128,8 @@ def app(
                 root_cls,
             )
         registry[cmd_name] = (kind, command)
+        for n in names:
+            claimed[n] = (kind, command)
 
     # Suppress the root's own optional dests on every registered subparser so an
     # option given BEFORE the subcommand (or supplied by the root env/config
@@ -990,6 +1230,19 @@ def app(
         pass
 
     _setup_instance_logging(instance, setup_logging, root_cls)
+
+    # Flush every deferred override/collision notice now that logging is
+    # actually configured (D042) -- an INFO emitted earlier, before any
+    # handler existed, would have been silently lost even under `-vv`
+    # (`logging.lastResort` only prints WARNING and above). The intentional,
+    # documented CMDS_PATH-over-a-base-command override is INFO; anything
+    # else the registration loop collected (two independently-resolved
+    # commands genuinely colliding) is WARNING -- and it alone, not both, so
+    # the documented override no longer warns on every run.
+    for overridden_name in sorted(cmds_path_overridden):
+        _LOGGER.info("CMDS_PATH command %r overrides the built-in", overridden_name)
+    for level, message in notices:
+        _LOGGER.log(level, message)
 
     # Resolve which command was selected. A class command selection yields a
     # constructed instance that IS the command (a Cmd subclass); a module

@@ -39,7 +39,7 @@ import sys as _sys
 import typing as _ty
 from pathlib import Path as _Path
 
-from .args import Cli as _Cli, main as _main
+from .args import AUTO as _AUTO, Cli as _Cli, main as _main
 
 __all__ = ["generate_launchers", "ScaffoldCmd"]
 
@@ -290,18 +290,16 @@ def generate_launchers(
 
 
 class ScaffoldCmd(_Cli):
-    """Generate a run-from-checkout launcher pair for an app (``duho.scaffold`` CLI).
+    """Generate a run-from-checkout launcher pair for an app.
 
-    A :class:`duho.Cli` command (dogfooding duho) exposing
-    :func:`generate_launchers` on the command line::
-
-        python -m duho.scaffold <app> [--root DIR] [--libdir lib] [--python PY] [--force]
-
-    Writes ``bin/<app>`` (POSIX) + ``bin/<app>.cmd`` (Windows) under ``--root``
-    (default: the current directory) and prints each written path.
+    Writes bin/<app> (POSIX) and bin/<app>.cmd (Windows) under --root
+    (default: the current directory) and prints each written path. Usage:
+    python -m duho.scaffold <app> [--root DIR] [--libdir lib] [--python PY] [--force]
     """
 
-    _version_ = "duho.scaffold"
+    _parsername_ = "duho.scaffold"
+    _version_ = _AUTO
+    _distribution_ = "duho"
 
     app: str
     "Importable module name of the app to launch (the <app> in `python -m <app>`)."
@@ -335,10 +333,16 @@ class ScaffoldCmd(_Cli):
         except FileExistsError as exc:
             # generate_launchers documents this as the refusal-to-overwrite
             # signal; the CLI reports it as a one-line error, not a traceback
-            # for an expected, documented condition (R056). The library
-            # function itself keeps raising -- only this CLI wrapper catches it.
+            # for an expected, documented condition. The library function
+            # itself keeps raising -- only this CLI wrapper catches it.
             print(str(exc), file=_sys.stderr)
             print("duho.scaffold: pass --force to overwrite", file=_sys.stderr)
+            return 1
+        except OSError as exc:
+            # Any other filesystem failure (permission denied, a read-only
+            # target, ...) is also an expected, reportable condition for a
+            # CLI -- not a 22-line traceback.
+            print("duho.scaffold: %s" % (exc,), file=_sys.stderr)
             return 1
         for path in written:
             print(path)

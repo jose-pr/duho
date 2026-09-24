@@ -3,7 +3,7 @@
 import typing as _ty
 
 from . import logging as _logging
-from .args import Args, NS, UpdateAction
+from .args import Args, NS, UpdateAction, _command_name as _command_name
 from .logging import parse_loglevels
 
 
@@ -75,8 +75,27 @@ class LoggingArgs(Args):
 
     @property
     def _logger_(self):
-        """Get logger scoped to this parser's name."""
-        return _logging.getLogger(getattr(self, "_logger_name_", self._parsername_))
+        """Get logger scoped to this parser's name.
+
+        Resolved lazily and defensively, rather than
+        ``getattr(self, "_logger_name_", self._parsername_)``: that default
+        argument is evaluated EAGERLY (before the ``getattr`` lookup even
+        runs), so it always read ``self._parsername_`` -- raising
+        ``AttributeError`` for a directly-constructed command whose class
+        parser was never built (a supported pattern), even when
+        ``_logger_name_`` WAS declared and would have made the
+        ``_parsername_`` read unnecessary. It also depended on `_parsername_`
+        being PERSISTED onto the class by parser construction, which duho no
+        longer does. Falls back to ``_command_name(type(self))`` -- the same
+        own-class-dict rule every other subcommand-name reader uses --
+        so a directly-built or freshly-declared command always has a working
+        logger, parsed or not, and a subclass that never declared its own
+        ``_parsername_`` is never misnamed after a sibling's/base's build.
+        """
+        name = getattr(self, "_logger_name_", None)
+        if name is None:
+            name = _command_name(type(self))
+        return _logging.getLogger(name)
 
 
 __all__ = ["LoggingArgs"]

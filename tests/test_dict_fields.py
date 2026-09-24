@@ -120,3 +120,43 @@ def test_dict_config_table(tmp_path):
     cfg.write_text("[labels]\na = 1\nb = 2\n")
     result = duho.parse(ConfigLayered, [], config=cfg)
     assert result.labels == {"a": 1, "b": 2}
+
+
+# --- A005: CLI replaces a layered dict default, like list/set/tuple do ----
+
+
+class DictNonEmptyDefaultArgs(Args):
+    """A dict option with a non-empty class default."""
+
+    opts: "dict[str, str]" = {"a": "1"}
+    "Options"
+    ("--opt",)
+
+
+def test_dict_cli_value_replaces_nonempty_class_default():
+    result = duho.parse(DictNonEmptyDefaultArgs, ["--opt", "b=2"])
+    assert result.opts == {"b": "2"}
+
+
+def test_dict_repeated_flag_still_accumulates_after_replacing():
+    result = duho.parse(DictNonEmptyDefaultArgs, ["--opt", "b=2", "--opt", "c=3"])
+    assert result.opts == {"b": "2", "c": "3"}
+
+
+# --- A054: NS(nargs="*") on a dict field merges each space-separated token
+
+
+class DictNargsStarArgs(Args):
+    """`NS(nargs="*")` on a dict field: argparse passes a LIST of one-pair
+    dicts (one per space-separated KEY=VALUE token) rather than a single
+    dict -- `dict.update()` on the whole list raised a raw ValueError."""
+
+    defs: "Arg[dict, NS(nargs='*')]" = None
+    "Definitions"
+    ("-D",)
+
+
+def test_dict_nargs_star_merges_space_separated_pairs():
+    parser = DictNargsStarArgs._parser_()
+    args = parser.parse_args(["-D", "a=1", "b=2"])
+    assert args.defs == {"a": "1", "b": "2"}

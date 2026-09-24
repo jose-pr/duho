@@ -17,7 +17,7 @@ multi-value for a specific option field.
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Choice, NS
 
 # --- set / set[T] fields -------------------------------------------------
 
@@ -204,22 +204,133 @@ def test_set_option_explicit_nargs_star_restores_space_separated():
 
 class ExplicitListNargsStarArgs(Args):
     """Same explicit `NS(nargs="*")` opt-back, on a `list[T]` field this
-    time (R044 fix-readiness pin): only `set[T]` was ever exercised, so the
-    `list[T]` option silently downgrades to `action="append"` (finding
-    args.py:836, owned by 27_review_fixes/04) and nests instead of
-    flattening. README.md:118 also misdescribes this option as
-    `action="extend"`. Un-xfail this once 04 lands its fix."""
+    time: the option-vs-positional nargs/action shape is now decided from
+    the FINAL flags and nargs once every override is applied, so this
+    explicit opt-back restores space-separated multi-value instead of
+    downgrading to one-value-per-occurrence and nesting."""
 
     xs: "Arg[list[str], NS(nargs='*')]"
     ("--xs",)
 
 
-@pytest.mark.xfail(
-    reason="args.py:836 (finding A-list-nargs, owned by 04_args_collections_shape): "
-    "an explicit NS(nargs='*') on list[T] downgrades to action='append' and "
-    "nests instead of flattening -- R044 fix-readiness pin, un-xfail with 04's fix",
-    strict=True,
-)
 def test_list_option_explicit_nargs_star_restores_space_separated():
     inst = duho.parse(ExplicitListNargsStarArgs, ["--xs", "a", "b", "--xs", "c"])
     assert inst.xs == ["a", "b", "c"]
+
+
+# --- CLI wins over a layered default, for every collection kind (A005) ----
+
+
+class ListNonEmptyDefaultArgs(Args):
+    """A list option with a non-empty class default."""
+
+    paths: "list[str]" = ["default"]
+    ("--paths",)
+
+
+def test_list_cli_value_replaces_nonempty_class_default():
+    inst = duho.parse(ListNonEmptyDefaultArgs, ["--paths", "cli"])
+    assert inst.paths == ["cli"]
+
+
+def test_list_repeated_flag_still_accumulates_after_replacing():
+    inst = duho.parse(ListNonEmptyDefaultArgs, ["--paths", "a", "--paths", "b"])
+    assert inst.paths == ["a", "b"]
+
+
+class EnvListArgs(Args):
+    """A list option layered from an env var."""
+
+    tags: "Arg[list[str], NS(env='DUHO_TEST_A005_TAGS')]" = []
+    ("--tags",)
+
+
+def test_list_cli_value_replaces_env_default(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_A005_TAGS", "fromenv")
+    inst = duho.parse(EnvListArgs, ["--tags", "cli"])
+    assert inst.tags == ["cli"]
+
+
+def test_list_config_value_replaced_by_cli(tmp_path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('paths = ["a", "b"]\n')
+    inst = duho.parse(ListNonEmptyDefaultArgs, ["--paths", "c"], config=cfg)
+    assert inst.paths == ["c"]
+
+
+# --- A006: a zero-token variadic POSITIONAL never crashes or duplicates ---
+
+
+class SetPositionalArgs(Args):
+    """A `set[str]` positional -- a zero-token nargs='*' positional used to
+    crash (`set([<the default set>])`, unhashable)."""
+
+    tags: "set[str]"
+    ("tags",)
+
+
+def test_set_positional_with_zero_tokens_gives_empty_set():
+    inst = duho.parse(SetPositionalArgs, [])
+    assert inst.tags == set()
+
+
+class ListPositionalDefaultArgs(Args):
+    """A `list[str]` positional with a non-empty default -- a zero-token
+    nargs='*' positional used to double it (`['x', 'x']`)."""
+
+    items: "list[str]" = ["x"]
+    ("items",)
+
+
+def test_list_positional_with_zero_tokens_does_not_double_default():
+    inst = duho.parse(ListPositionalDefaultArgs, [])
+    assert inst.items == ["x"]
+
+
+def test_list_positional_with_tokens_replaces_default():
+    inst = duho.parse(ListPositionalDefaultArgs, ["a"])
+    assert inst.items == ["a"]
+
+
+# --- A021: a parser reused across multiple parse_args() calls does not ----
+# --- share (and leak mutations through) a list/set/dict default -----------
+
+
+class MutableDefaultArgs(Args):
+    tags: "list[str]" = []
+    ("--tags",)
+
+
+def test_mutable_default_not_shared_across_parses_of_one_parser():
+    parser = MutableDefaultArgs._parser_()
+    a = parser.parse_args([])
+    b = parser.parse_args([])
+    assert a.tags is not b.tags
+    a.tags.append("leak")
+    c = parser.parse_args([])
+    assert c.tags == []
+
+
+# --- A049: a variadic list positional with Choice() can be omitted --------
+
+
+class ChoiceListPositionalArgs(Args):
+    """A `list[str]` positional restricted to `Choice(...)` -- argparse
+    through 3.13 validated the EMPTY default against `choices` too
+    (bpo-9625), so omitting it raised "invalid choice: []" instead of using
+    the declared empty list."""
+
+    formats: "Arg[list[str], Choice('json', 'csv')]" = []
+    ("formats",)
+
+
+def test_variadic_choice_positional_can_be_omitted():
+    inst = duho.parse(ChoiceListPositionalArgs, [])
+    assert inst.formats == []
+
+
+def test_variadic_choice_positional_still_validates_given_values():
+    inst = duho.parse(ChoiceListPositionalArgs, ["json"])
+    assert inst.formats == ["json"]
+    with pytest.raises(SystemExit):
+        duho.parse(ChoiceListPositionalArgs, ["xml"])

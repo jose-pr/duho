@@ -15,7 +15,7 @@ import sys
 import typing
 
 import duho
-from duho import _introspect
+from duho import Args, _introspect
 
 # --- classes nested under every statement container -------------------------
 # Each is defined at module scope in THIS file (which has a real __file__), so
@@ -424,3 +424,23 @@ def test_mro_docstring_and_flags_resolve_independently():
     bare = _introspect.get_clsargs(_MroBare)["level"]
     assert bare.docstring == "How loud to be"
     assert bare.exprs == [("-l", "--level")]
+
+
+class _Misattr(Args):
+    a: int = 1
+    int  # bare-name Expr (non-literal); must reset docstring attribution
+    "must-not-attach-to-a"
+    ("--a",)
+
+    b: str = "x"
+    "b doc"
+    ("--b",)
+
+
+def test_docstring_not_misattributed_after_a_non_literal_expression():
+    """A bare-name expression statement between a field and a trailing string
+    literal must reset docstring attribution, not let the string attach to
+    the PRECEDING field."""
+    builders = {b.name: b for b in _Misattr._getargs_()}
+    assert builders["a"].help != "must-not-attach-to-a"
+    assert builders["b"].help == "b doc"

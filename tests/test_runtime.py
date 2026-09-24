@@ -877,6 +877,69 @@ def test_run_command_class_command_direct():
     assert run_command(Inline, inst) == 7
 
 
+_MODULE_CMD_NONZERO = '''\
+"""A module command whose main returns a non-zero exit code."""
+
+TRACE = []
+
+
+def init(args):
+    return "ctx"
+
+
+def main(args):
+    return 2
+
+
+def success(ctx, args):
+    TRACE.append("success")
+
+
+def finally_(ctx, args):
+    TRACE.append("finally")
+'''
+
+_MODULE_CMD_RAISES_AND_FINALLY_RAISES = '''\
+"""main raises; finally_ also raises -- the original must propagate."""
+
+
+def init(args):
+    return "ctx"
+
+
+def main(args):
+    raise RuntimeError("original")
+
+
+def success(ctx, args):
+    pass
+
+
+def finally_(ctx, args):
+    raise RuntimeError("from-finally")
+'''
+
+
+def _module_command_from(tmp_path, name, source):
+    (tmp_path / name).write_text(source)
+    return duho.discover_commands(tmp_path)[0]
+
+
+def test_success_not_run_on_nonzero(tmp_path):
+    cmd = _module_command_from(tmp_path, "job.py", _MODULE_CMD_NONZERO)
+    rc = run_command(cmd, object())
+    assert rc == 2
+    assert cmd.module.TRACE == ["finally"]  # success skipped, finally ran
+
+
+def test_finally_does_not_mask_original_exception(tmp_path):
+    cmd = _module_command_from(
+        tmp_path, "job2.py", _MODULE_CMD_RAISES_AND_FINALLY_RAISES
+    )
+    with pytest.raises(RuntimeError, match="original"):
+        run_command(cmd, object())
+
+
 # --------------------------------------------------------------------------
 # run_command delivers the documented "duho" logger fallback (R018)
 # --------------------------------------------------------------------------

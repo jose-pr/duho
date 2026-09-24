@@ -63,6 +63,14 @@ def test_getcolor_missing_colorama_returns_empty(monkeypatch):
     assert _getcolor("red+white") == ""
 
 
+def test_getcolor_ansi_escape_passes_through_without_colorama(monkeypatch):
+    """An already-ANSI-formatted color spec (not a named color) passes
+    through unchanged, even when colorama is unavailable -- it needs no
+    name lookup at all."""
+    monkeypatch.setattr(duho_logging, "_resolve_colorama", lambda: None)
+    assert _getcolor("\033[31m") == "\033[31m"
+
+
 def test_resolve_colorama_handles_a_genuinely_missing_module(monkeypatch):
     """Exercise the real ``except ImportError`` branch in ``_resolve_colorama``.
 

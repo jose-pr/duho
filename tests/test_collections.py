@@ -61,6 +61,20 @@ def test_set_dedups():
     assert args.numbers == {1, 2}
 
 
+class _SetField(Args):
+    tags: set
+    "Tags"
+    ("--tags",)
+
+
+def test_collection_sidecar_not_leaked():
+    """The internal bookkeeping a collection field builds at parse time must
+    not leak onto the parsed instance as a visible attribute."""
+    r = duho.parse(_SetField, ["--tags", "a", "--tags", "b"])
+    assert r.tags == {"a", "b"}
+    assert not any(k.startswith("_duho_items_") for k in vars(r))
+
+
 def test_set_default_empty_when_undeclared():
     """A set field with no explicit default gets an empty set."""
     parser = SetArgs._parser_()

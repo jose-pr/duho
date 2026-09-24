@@ -195,6 +195,19 @@ def test_parser_name():
     assert parser.prog == "SimpleArgs"
 
 
+class _StickyName(Args):
+    x: str = "a"
+    "X"
+    ("--x",)
+
+
+def test_caller_supplied_name_not_persisted():
+    """A one-off `name=` override to `_parser_()` must not stick to the class
+    -- a later `_parser_()` call (with no override) must not inherit it."""
+    _StickyName._parser_(name="alias")
+    assert getattr(_StickyName, "_parsername_", None) != "alias"
+
+
 def test_help_from_docstring():
     """Test that class docstring becomes parser description."""
     parser = SimpleArgs._parser_()

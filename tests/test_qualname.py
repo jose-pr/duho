@@ -36,6 +36,9 @@ class TestRelativeTo:
     def test_relative_to_prefix(self):
         assert PythonName("a.b.c").relative_to(PythonName("a.b")) == "c"
 
+    def test_relative_to_empty_base_returns_self(self):
+        assert PythonName("a.b.c").relative_to(PythonName("")) == "a.b.c"
+
     def test_relative_to_deep_prefix(self):
         assert PythonName("a.b.c.d").relative_to(PythonName("a.b")) == "c.d"
 

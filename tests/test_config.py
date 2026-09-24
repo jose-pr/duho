@@ -186,6 +186,71 @@ def test_value_sources_env_and_default(monkeypatch):
     assert sources["token"] == "default"
 
 
+class _FlagNoDefault(Args):
+    flag: bool
+    "Flag"
+    ("--flag",)
+
+
+def test_value_sources_store_true_default_not_cli():
+    r = duho.parse(_FlagNoDefault, [])
+    assert duho.value_sources(r)["flag"] == "default"
+    r2 = duho.parse(_FlagNoDefault, ["--flag"])
+    assert duho.value_sources(r2)["flag"] == "cli"
+
+
+class _ValueSourcesSub(duho.Cmd):
+    target: str = "dev"
+    "Target"
+    ("--target",)
+
+    def __call__(self):
+        return 0
+
+
+class _ValueSourcesRoot(duho.Cli):
+    _subcommands_ = [_ValueSourcesSub]
+
+    def __call__(self):
+        return 0
+
+
+@pytest.mark.requires_toml
+def test_value_sources_subcommand_config(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[_ValueSourcesSub]\ntarget = "prod"\n')
+    result = duho.parse(_ValueSourcesRoot, ["_ValueSourcesSub"], config=cfg)
+    assert result.target == "prod"
+    assert duho.value_sources(result)["target"] == "config"
+
+
+class _ChildOverrideSub(duho.Cmd):
+    verbose: int = 3
+    "Verbosity"
+    ("--verbose",)
+
+    def __call__(self):
+        return 0
+
+
+class _ChildOverrideRoot(duho.Cli):
+    verbose: int = 0
+    "Verbosity"
+    ("--verbose",)
+
+    _subcommands_ = [_ChildOverrideSub]
+
+    def __call__(self):
+        return 0
+
+
+def test_child_override_default_wins():
+    """A subcommand's own default for a field it re-declares wins over the
+    root's default for that same field name."""
+    r = duho.parse(_ChildOverrideRoot, ["_ChildOverrideSub"])
+    assert r.verbose == 3
+
+
 def test_value_sources_unavailable_returns_empty_dict():
     class Untouched(Args):
         x: str = "y"

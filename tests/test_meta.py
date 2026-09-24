@@ -50,6 +50,39 @@ def test_meta_only_set_fields_merge():
     assert opts == {"help": "h"}
 
 
+def test_meta_dest_is_not_a_field():
+    """Meta has no ``dest`` field: a field's dest is always its declared name,
+
+    so a ``dest=`` override that LOOKS honored but is silently dropped
+    (``NS(dest=...)``'s behavior) is a loud ``TypeError`` here instead.
+    """
+    with pytest.raises(TypeError):
+        Meta(dest="renamed")
+
+
+class MetaFlags(Args):
+    """Meta(flags=...) is the typed, lint-clean alternative to a bare flag tuple."""
+
+    times: Arg[int, Meta(flags=("-n", "--times"))] = 1
+
+
+def test_meta_flags():
+    result = duho.parse(MetaFlags, ["-n", "3"])
+    assert result.times == 3
+
+
+class MetaDefault(Args):
+    """Meta(default=...) works the same as NS(default=...)."""
+
+    count: Arg[int, Meta(default=7)] = 0
+    ("--count",)
+
+
+def test_meta_default():
+    result = duho.parse(MetaDefault, [])
+    assert result.count == 7
+
+
 class MetaConflicts(Args):
     """Meta carries the F2/F3 group metadata too."""
 

@@ -694,11 +694,10 @@ def _load_steps(
     steps: "list[_Step]" = []
     broken_names: "set[str]" = set()
     for nn, name, path, opts in to_import:
-        mod_key = _discovery._unique_module_name(
-            "duho._runpath." + qualname.replace(".", "_") + "." + name
-        )
         try:
-            module = _discovery._import_from_path(mod_key, path)
+            module = _discovery.import_from_path(
+                "duho._runpath." + qualname.replace(".", "_") + "." + name, path
+            )
         except (ImportError, NotImplementedError) as exc:
             broken_names.add(name)
             if selection.step_strict(name, opts.strict):
@@ -1102,10 +1101,9 @@ def _load_lifecycle(
 
     ``None`` means "no lifecycle" -- callers must treat this as byte-identical
     to before this lifecycle existed (no ``ctx``, steps called with ``self``
-    only). When present, imports it the same way steps are imported (unique
-    ``sys.modules`` key via ``discovery._unique_module_name`` +
-    ``discovery._import_from_path``, ending in ``.__main__`` rather than the
-    stale ``._init`` -- D064) and reads the three optional hooks off it.
+    only). When present, imports it the same way steps are imported (the
+    public ``discovery.import_from_path``, ending in ``.__main__`` rather than
+    the stale ``._init`` -- D064) and reads the three optional hooks off it.
 
     Called BEFORE :func:`_load_steps` (D031): a ``__main__.py`` doing
     module-level setup (e.g. adding a sibling ``lib/`` to ``sys.path`` for
@@ -1116,10 +1114,9 @@ def _load_lifecycle(
     path = directory / _LIFECYCLE_FILENAME
     if not path.is_file():
         return None
-    mod_key = _discovery._unique_module_name(
-        "duho._runpath." + qualname.replace(".", "_") + ".__main__"
+    module = _discovery.import_from_path(
+        "duho._runpath." + qualname.replace(".", "_") + ".__main__", path
     )
-    module = _discovery._import_from_path(mod_key, path)
     return _Lifecycle(
         init=getattr(module, "init", None),
         success=getattr(module, "success", None),
@@ -1552,10 +1549,7 @@ def unregister() -> None:
     global _REGISTERED
     if _REGISTERED is None:
         return
-    try:
-        _discovery._PROVIDERS.remove(_REGISTERED)
-    except ValueError:
-        pass
+    _discovery.unregister_command_provider(*_REGISTERED)
     _REGISTERED = None
 
 

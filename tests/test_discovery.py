@@ -538,6 +538,56 @@ def test_latest_provider_wins(tmp_path):
     assert CmdBuilder("steps", d).command == "second"
 
 
+def test_unregister_command_provider_removes_the_exact_pair(tmp_path):
+    """A provider seam consumer (e.g. ``duho.runpath``) can opt back out
+    without reaching into ``_PROVIDERS`` directly."""
+    from duho.discovery import unregister_command_provider
+
+    d = tmp_path / "steps"
+    d.mkdir()
+
+    def always(path):
+        return True
+
+    def builder(p, q):
+        return "matched"
+
+    register_command_provider(always, builder)
+    assert CmdBuilder("steps", d).command == "matched"
+
+    unregister_command_provider(always, builder)
+    with pytest.raises(ImportError):
+        CmdBuilder("steps", d)
+
+
+def test_unregister_command_provider_is_idempotent():
+    """Removing a pair that isn't (or is no longer) registered is a no-op,
+    not an error -- mirroring list.remove's failure mode being swallowed."""
+    from duho.discovery import unregister_command_provider
+
+    unregister_command_provider(lambda p: True, lambda p, q: None)  # must not raise
+
+
+def test_unregister_command_provider_leaves_a_different_pair_alone(tmp_path):
+    """Removing one (predicate, builder) pair never touches an unrelated one
+    stacked on top -- only the exact pair is removed."""
+    from duho.discovery import unregister_command_provider
+
+    d = tmp_path / "steps"
+    d.mkdir()
+
+    def always(path):
+        return True
+
+    register_command_provider(always, lambda p, q: "first")
+    register_command_provider(always, lambda p, q: "second")
+    unregister_command_provider(always, lambda p, q: "second")  # a different closure
+
+    # Both pairs are still registered (a different lambda object never matches
+    # by equality); the newest one is still consulted first.
+    assert CmdBuilder("steps", d).command == "second"
+
+
 def test_cmdbuilder_source_already_a_module(tmp_path):
     """A module object passed as ``source`` is wrapped directly, no import."""
     path = _write(tmp_path, "runme.py", _MODULE_CMD)
@@ -545,6 +595,52 @@ def test_cmdbuilder_source_already_a_module(tmp_path):
     cmd = CmdBuilder("runme", module).command
     assert isinstance(cmd, ModuleCommand)
     assert cmd.main() == "module ran"
+
+
+def test_import_from_path_is_the_public_unique_name_plus_import(tmp_path):
+    """``import_from_path`` is the public counterpart of the
+    ``_unique_module_name`` + ``_import_from_path`` pair this module already
+    used internally -- exposed (D037) so an external command-provider package
+    (``duho.runpath``) never has to reach into either private helper."""
+    from duho.discovery import import_from_path
+
+    path = _write(tmp_path, "runme.py", _MODULE_CMD)
+    module = import_from_path("duho._external.same_base", path)
+    assert module.main() == "module ran"
+    assert module.__name__ in sys.modules
+    assert sys.modules[module.__name__] is module
+
+
+def test_import_from_path_never_clobbers_an_existing_module_of_the_same_base(
+    tmp_path,
+):
+    """Two different files imported under the SAME base name get distinct,
+    non-clobbering sys.modules keys (the ``_unique_module_name`` guarantee)."""
+    from duho.discovery import import_from_path
+
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    first_path = _write(dir_a, "runme.py", _MODULE_CMD)
+    second_path = _write(dir_b, "runme.py", _MODULE_CMD)
+
+    first = import_from_path("duho._external.dup", first_path)
+    second = import_from_path("duho._external.dup", second_path)
+    assert first.__name__ != second.__name__
+    assert sys.modules[first.__name__] is first
+    assert sys.modules[second.__name__] is second
+
+
+def test_import_from_path_reuses_the_module_for_the_same_unchanged_file(tmp_path):
+    """Re-importing the SAME file (unchanged) returns the cached module
+    instead of executing it again under an ever-longer synthesized name."""
+    from duho.discovery import import_from_path
+
+    path = _write(tmp_path, "runme.py", _MODULE_CMD)
+    first = import_from_path("duho._external.reuse", path)
+    second = import_from_path("duho._external.reuse", path)
+    assert first is second
 
 
 def test_cmdbuilder_source_already_a_command(tmp_path):

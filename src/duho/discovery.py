@@ -55,6 +55,8 @@ __all__ = [
     "ModuleCommand",
     "CmdBuilder",
     "register_command_provider",
+    "unregister_command_provider",
+    "import_from_path",
     "discover_commands",
     "discover_entry_points",
     "is_class_command",
@@ -445,6 +447,22 @@ def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
     return module
 
 
+def import_from_path(base_name: str, path: "_Path") -> "_ModuleType":
+    """Import a ``.py`` file at ``path`` under a ``sys.modules`` key derived
+    from ``base_name``, guaranteed not to clobber an existing module of that
+    name (:func:`_unique_module_name`) and reused across repeat imports of
+    the SAME file (see :func:`_import_from_path`).
+
+    Public counterpart of the ``_unique_module_name`` + ``_import_from_path``
+    pair this module already used internally for its own filesystem-based
+    discovery (:class:`CmdBuilder`, :func:`discover_commands`) -- exposed
+    (D037) so an external command-provider package (``duho.runpath`` is the
+    first, and so far only, consumer) can import a ``.py`` file the exact
+    same way without reaching into either private helper directly.
+    """
+    return _import_from_path(_unique_module_name(base_name), path)
+
+
 # --------------------------------------------------------------------------
 # External provider injection hook
 # --------------------------------------------------------------------------
@@ -481,6 +499,26 @@ def register_command_provider(
     registration can take precedence over an earlier one for the same shape.
     """
     _PROVIDERS.insert(0, (predicate, builder))
+
+
+def unregister_command_provider(
+    predicate: "_ty.Callable[[_Path], bool]",
+    builder: "_ty.Callable[[_Path, str], object]",
+) -> None:
+    """Remove a provider previously registered with
+    :func:`register_command_provider` -- the exact ``(predicate, builder)``
+    pair (matched the same way ``list.remove`` would).
+
+    A no-op if that exact pair is not currently registered, so a caller does
+    not need to track whether it already unregistered (D037). Before this,
+    the provider seam had no supported way to opt back out: a consumer
+    needing one (test isolation, a plugin reloading itself) had no choice but
+    to reach into ``_PROVIDERS`` directly.
+    """
+    try:
+        _PROVIDERS.remove((predicate, builder))
+    except ValueError:
+        pass
 
 
 def _match_provider(path: "_Path") -> "_ty.Callable[[_Path, str], object] | None":
@@ -586,8 +624,7 @@ class CmdBuilder:
         # alone would clobber `sys.modules["json"]` for the rest of the
         # process the first time an app builds a command named "json" from a
         # file, even though `json` itself was never imported yet (D005).
-        name = _unique_module_name("duho._cmdbuilder." + self.qualname)
-        module = _import_from_path(name, path)
+        module = import_from_path("duho._cmdbuilder." + self.qualname, path)
         return self._wrap_module(module, stem=path.stem)
 
     def _import_package_at(self, path: "_Path") -> "Command":
@@ -847,11 +884,11 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
         if path.name.startswith("_"):
             continue
         stem = path.stem
-        name = _unique_module_name("duho._discovered." + stem)
         before_modules = set(_sys.modules)
         _sys.path.insert(0, dirstr)
+        module = None
         try:
-            module = _import_from_path(name, path)
+            module = import_from_path("duho._discovered." + stem, path)
         except (ImportError, NotImplementedError) as exc:
             _log_exception(
                 _LOGGER,
@@ -866,8 +903,9 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
                 _sys.path.remove(dirstr)
             except ValueError:  # pragma: no cover - defensive
                 pass
+            own_key = module.__name__ if module is not None else None
             for extra in set(_sys.modules) - before_modules:
-                if extra != name:
+                if extra != own_key:
                     _sys.modules.pop(extra, None)
         commands.extend(_commands_in_module(module, stem=stem))
     return commands

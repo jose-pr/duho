@@ -187,6 +187,9 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
             )
         return _enum_cls[text]
 
+    # Completion reads the canonical names from here; argparse's own
+    # ``choices`` stays unset because it would compare converted members.
+    _factory._duho_choices_ = canonical
     return _factory
 
 

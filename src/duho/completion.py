@@ -28,7 +28,6 @@ the result for the static parse (`_sq` / `_fsq`).
 import argparse as _argparse
 import dataclasses as _dc
 import hashlib as _hashlib
-import inspect as _inspect
 import pathlib as _pathlib
 import shlex as _shlex
 
@@ -241,31 +240,19 @@ def _is_path_type(action: _argparse.Action) -> bool:
 
 
 def _enum_choices(type_factory: object) -> "tuple[str, ...] | None":
-    """Recover ``enum.Enum`` member names from a duho Enum-field factory (C025).
+    """Recover ``enum.Enum`` member names from a duho Enum-field factory.
 
-    duho's Enum branch (``args.py``) sets ``action.choices = None`` and gives
-    the field a resolving factory instead, shaped
-    ``_factory(text, /, _enum_cls=<enum>, _names=<member names>)``. Reading
-    the ``_names`` parameter's default via :mod:`inspect` recovers the member
-    names without a new args.py<->completion.py attribute contract -- the
-    same kind of read-only reliance on a private internal shape `_walk`
-    already has on ``parser._actions``/``_SubParsersAction.choices``
-    elsewhere in this module. This is best-effort: any factory that doesn't
-    match the shape (a plain/custom type's factory) yields ``None``.
+    duho's Enum branch leaves ``action.choices`` unset and gives the field a
+    resolving factory that carries its canonical member names as
+    ``_duho_choices_``. Any other factory (a plain or custom type) yields
+    ``None``.
     """
-    try:
-        params = _inspect.signature(type_factory).parameters
-    except (TypeError, ValueError):
+    names = getattr(type_factory, "_duho_choices_", None)
+    if not isinstance(names, tuple) or not names:
         return None
-    names_param = params.get("_names")
-    if names_param is None:
+    if not all(isinstance(n, str) for n in names):
         return None
-    default = names_param.default
-    if not isinstance(default, tuple) or not default:
-        return None
-    if not all(isinstance(n, str) for n in default):
-        return None
-    return default
+    return names
 
 
 def _choices_tuple(action: _argparse.Action) -> "tuple[str, ...] | None":

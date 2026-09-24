@@ -226,10 +226,7 @@ def _load_module_from_source(tmp_path, name, source):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        pass
+    spec.loader.exec_module(module)
     return module
 
 

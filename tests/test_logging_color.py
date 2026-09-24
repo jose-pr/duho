@@ -1,6 +1,6 @@
-"""Colored custom log levels via add_logging_level(color=...) (Plan 03 T6).
+"""Colored custom log levels via add_logging_level(color=...).
 
-Covers the named-color resolution path (M9): a single ``"red"`` spec and the
+Covers the named-color resolution path: a single ``"red"`` spec and the
 compound ``"red+white"`` fore+back spec both resolve through colorama, and a
 missing colorama degrades to plain (empty) output without crashing.
 
@@ -51,7 +51,7 @@ def test_getcolor_named_single_resolves_with_colorama():
 def test_getcolor_compound_fore_back_resolves():
     colorama = pytest.importorskip("colorama")
     ansi = _getcolor("red+white")
-    # Both the fore and back parts resolve (M9: the '+' form used to be returned
+    # Both the fore and back parts resolve (the '+' form used to be returned
     # verbatim because color.isalpha() rejected it).
     assert ansi == colorama.Fore.RED + colorama.Back.WHITE
 

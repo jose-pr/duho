@@ -103,7 +103,7 @@ class TestList:
         assert Env("ma").list("PORTS", ty=int) == [1, 2, 3]
 
     def test_missing_key_yields_empty_list(self):
-        # New contract (C11): a missing var yields [], not [ty("")]. The old
+        # A missing var yields [], not [ty("")]. The old
         # [""] contract turned a missing CMDS_PATH into [Path(".")] and imported
         # the whole CWD.
         assert Env("ma").list("MISSING") == []
@@ -124,19 +124,20 @@ class TestPaths:
         monkeypatch.setenv("MA_CMDS_PATH", os.pathsep.join(["/a/b", "/c/d"]))
         assert Env("ma").paths("CMDS_PATH") == ["/a/b", "/c/d"]
 
+    @pytest.mark.skipif(
+        _os.pathsep != ";",
+        reason="a drive-letter colon only collides with os.pathsep on Windows",
+    )
     def test_windows_drive_letter_not_split(self, monkeypatch):
-        # The regression: a single absolute path with a drive-letter colon must
-        # come back as ONE entry, never split into a bogus "C" (only reproduces
-        # the mis-split on Windows where os.pathsep is ";", but the assertion is
-        # correct on every platform).
-        import os
-
+        # A single absolute path with a drive-letter colon must come back as
+        # ONE entry, never split into a bogus "C" -- only reproduces on
+        # Windows, where os.pathsep is ";" (on POSIX the colon IS the real
+        # separator, so this scenario doesn't arise there).
         monkeypatch.delenv("PATHSEP", raising=False)
         drive_path = "C:\\Users\\me\\cmds"
         monkeypatch.setenv("MA_CMDS_PATH", drive_path)
         result = Env("ma").paths("CMDS_PATH")
-        if os.pathsep == ";":  # Windows
-            assert result == [drive_path]
+        assert result == [drive_path]
 
     def test_pathsep_override(self, monkeypatch):
         # PATHSEP forces the separator regardless of platform.
@@ -214,7 +215,7 @@ class TestIterAndLen:
         assert len(e) == 3
 
     def test_len_empty(self, monkeypatch):
-        # Ensure no MA_-prefixed vars leak in from the outer environment.
+        # Ensure no ZZ_-prefixed vars leak in from the outer environment.
         for key in list(__import__("os").environ):
             if key.startswith("ZZ_"):
                 monkeypatch.delenv(key, raising=False)
@@ -239,7 +240,7 @@ class TestSetDelItem:
 
 
 class TestMappingProtocol:
-    """MutableMapping surface: pop / popitem / iteration after seeding (T6)."""
+    """MutableMapping surface: pop / popitem / iteration after seeding."""
 
     def test_pop_stored_key(self):
         e = Env("ma", KEY="v")

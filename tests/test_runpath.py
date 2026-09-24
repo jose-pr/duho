@@ -21,7 +21,7 @@ import pytest
 import duho
 from duho import discovery as _discovery
 from duho import runpath
-from duho.discovery import CmdBuilder, discover_commands
+from duho.discovery import CmdBuilder
 from duho.runpath import RunPathCmd, is_runpath_dir, register, unregister
 
 # --------------------------------------------------------------------------
@@ -305,17 +305,14 @@ def test_rcopts_unknown_pattern_errors_strict(tmp_path):
 
 
 def test_failing_step_resilient_continues(tmp_path, caplog):
-    # A plain filename (no `?` suffix) is strict-by-default for THAT step
-    # (restoring the predecessor's hardcoded `RcOptions(strict=True)` base),
-    # independent
-    # of the run-wide --rcopts flag. An explicit `!strict` on --rcopts (CLI,
-    # wins last per the confirmed precedence) overrides every step's own
-    # filename-derived strict setting back to resilient -- this is the
-    # portable way to exercise "resilient continue" (a literal `?` filename
-    # suffix is not a valid Windows path character, so the `?`-suffix override
-    # itself is exercised directly against `_parse_file_modifiers`, see
-    # test_file_modifiers_* below, and end-to-end via `!name` on POSIX-legal
-    # filenames only).
+    # A plain filename (no `;!strict`/`:!strict` modifier) is strict-by-default
+    # for THAT step, independent of the run-wide --rcopts flag. An explicit
+    # `!strict` on --rcopts (CLI, wins last per the confirmed precedence)
+    # overrides every step's own filename-derived strict setting back to
+    # resilient -- this is the portable way to exercise "resilient continue"
+    # end to end. The filename modifier syntax itself (`;`/`:`-separated
+    # tokens, `!` negation) is exercised directly against
+    # `_parse_file_modifiers`, see test_file_modifiers_* below.
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
@@ -713,7 +710,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
     # finally_ always runs; success() is gated on the aggregate outcome (D007)
     # -- a step that failed, even resiliently, means success() does NOT fire,
     # matching discovery.run_command's own "success only on a clean result"
-    # contract (M22).
+    # contract.
     assert "finally" in lines
     assert "success" not in lines
 

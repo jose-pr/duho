@@ -14,8 +14,6 @@ import enum
 import pathlib
 import typing as ty
 
-import pytest
-
 from duho import Arg, Cmd, NS
 from duho.mcp import input_schema_for_command
 

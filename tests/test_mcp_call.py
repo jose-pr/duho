@@ -13,7 +13,7 @@ import typing as ty
 
 import pytest
 
-from duho import Arg, Cli, Cmd, NS
+from duho import Cli, Cmd
 from duho.mcp import UnknownToolError, call_tool
 
 

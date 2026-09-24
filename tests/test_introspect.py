@@ -139,7 +139,8 @@ def test_deeply_nested_class_resolves():
 def _reference_index(filename):
     """The pre-P3 exhaustive walk (iter_child_nodes on every node)."""
     index = {}
-    src = open(filename, encoding="utf-8").read()
+    with open(filename, encoding="utf-8") as f:
+        src = f.read()
     tree = ast.parse(src)
 
     def walk(node, prefix):

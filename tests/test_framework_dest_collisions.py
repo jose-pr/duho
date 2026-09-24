@@ -13,12 +13,10 @@ plain ``command`` dest, which a nested subcommand tree OR a root field named
 ``command`` could silently clobber.
 """
 
-import argparse
-
 import pytest
 
 import duho
-from duho import AUTO, Args, Cli, Cmd
+from duho import Args, Cli, Cmd
 
 
 def test_field_named_help_raises_a_clear_build_time_error():

@@ -3,12 +3,10 @@
 These exercise ``_parser_`` composition (fields, subcommands, help text, type
 conversion) entirely in-process -- they are NOT integration/e2e tests (the real
 child-process ``sys.argv`` path lives in ``test_e2e.py``). Renamed from the
-misleading ``test_integration.py`` (Plan 03 T2).
+misleading ``test_integration.py``.
 """
 
 import argparse
-import io
-import sys
 from duho import Args, LoggingArgs
 
 

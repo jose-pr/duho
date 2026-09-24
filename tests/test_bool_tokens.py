@@ -10,8 +10,6 @@ All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags/env resolve normally.
 """
 
-import os
-
 import pytest
 
 from duho import Arg, Args, NS, _compat

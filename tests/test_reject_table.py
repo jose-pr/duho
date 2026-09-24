@@ -1,4 +1,4 @@
-"""Regression tests for Plan 04 'Rejected candidates' behaviors.
+"""Regression tests for 'Rejected candidates' behaviors.
 
 These candidates were rejected as first-class features because argparse /
 duho already cover them; these tests lock the existing behavior in so a future

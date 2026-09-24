@@ -1,4 +1,4 @@
-"""User-facing error-message contracts in args.py (Plan 03 T5).
+"""User-facing error-message contracts in args.py.
 
 These assert the actual *message text* (not just the exception type) for the
 layered-conversion and build-time errors a user is most likely to hit, so a

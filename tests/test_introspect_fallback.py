@@ -1,4 +1,4 @@
-"""getclsdef fallback robustness (Plan 03 T6).
+"""getclsdef fallback robustness.
 
 Covers the "never raises" contract of ``_introspect.getclsdef``:
 
@@ -61,7 +61,7 @@ class Ciudad(Args):
 
 
 def test_getclsdef_non_ascii_source_parses(tmp_path):
-    """A class defined in a UTF-8 (non-ASCII) source file resolves + scans (M11)."""
+    """A class defined in a UTF-8 (non-ASCII) source file resolves + scans."""
     mod_path = tmp_path / "ciudad_mod.py"
     mod_path.write_text(_UTF8_SOURCE, encoding="utf-8")
 

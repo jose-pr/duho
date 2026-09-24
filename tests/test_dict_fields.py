@@ -62,7 +62,7 @@ def test_dict_missing_equals_errors():
 
 
 def test_dict_default_not_shared_between_parses():
-    """Each parse gets its own dict (copy-on-seed, C7)."""
+    """Each parse gets its own dict (copy-on-seed)."""
     p1 = DictArgs._parser_()
     a1 = p1.parse_args(["--opt", "x=1"])
     a2 = DictArgs._parser_().parse_args([])

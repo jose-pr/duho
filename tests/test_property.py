@@ -1,4 +1,4 @@
-"""Property-based round-trip suites (Plan 03 T7, needs the `hypothesis` dev extra).
+"""Property-based round-trip suites (needs the `hypothesis` dev extra).
 
 Four families of invariants:
 
@@ -8,7 +8,7 @@ Four families of invariants:
 * **duho.expand** -- generated ``[a-b]`` numeric/alpha ranges expand to exactly
   the product of the range sizes and match a naive reference implementation.
 * **text.snakecase** -- output is a lower-case ``[a-z0-9_]*`` string for
-  ASCII-identifier inputs (C13).
+  ASCII-identifier inputs.
 * **parse_loglevels** -- separator soup either shapes into a well-formed
   mapping or raises ``argparse.ArgumentTypeError`` cleanly; nothing else.
 """
@@ -293,7 +293,7 @@ _SNAKE_OK = re.compile(r"^[a-z0-9_]*$")
     )
 )
 def test_snakecase_is_lower_word_string(name):
-    """For ASCII-identifier-ish inputs, snakecase output is [a-z0-9_]* (C13)."""
+    """For ASCII-identifier-ish inputs, snakecase output is [a-z0-9_]*."""
     out = snakecase(name)
     assert _SNAKE_OK.match(out), (name, out)
 

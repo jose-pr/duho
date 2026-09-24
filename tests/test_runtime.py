@@ -394,17 +394,12 @@ def test_class_command_dispatches(tmp_path):
 
 def test_module_command_dispatches_with_init_context(tmp_path):
     """app(root, source=dir, argv=[backup]) runs the module main(ctx-threaded)."""
-    mod = _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
+    _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
     rc = app(Root, source=tmp_path, argv=["backup"], setup_logging=False)
     assert rc == 0
-    # Import the fixture to read its recorded TRACE.
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("_probe_backup", mod)
-    probe = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(probe)
-    # The discovered module ran (its own TRACE); re-importing here is a fresh
-    # module, so assert via the *discovered* module instead:
+    # Read the recorded TRACE off the module discovery already imported --
+    # importing the fixture file again here would be a SEPARATE fresh module,
+    # not the one that actually ran.
     discovered = [
         m
         for name, m in sys.modules.items()
@@ -1678,7 +1673,7 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
     Regression test for the finding that `_register_module_command` built an
     unpatched subparser, so this exact shape (`query <ns> -f <val> <targets...>`)
     raised `unrecognized arguments` even though the same shape on a declarative
-    `Cmd` subcommand already worked via Plan 25's reorder fix.
+    `Cmd` subcommand already worked via the positional-reorder fix.
     """
     _write(tmp_path, "query.py", _MODULE_CMD_QUERY_SHAPED)
     rc = app(
@@ -1802,7 +1797,7 @@ def test_app_threads_config_to_module_declared_args_class(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# D022: app() must keep a subcommand's DELIBERATELY redeclared default (M16),
+# app() must keep a subcommand's DELIBERATELY redeclared default,
 # both for a builtin (`_subcommands_`) and a `source=`-discovered one (whose
 # subparser shares the root's Action objects via `parents=[base_parser]`).
 # --------------------------------------------------------------------------

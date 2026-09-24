@@ -1,7 +1,6 @@
 """Tests for duho.logging module."""
 
 import argparse
-import io
 import logging
 
 import pytest

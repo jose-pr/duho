@@ -8,8 +8,6 @@ Fixtures at module level: AST-based flags/docstring introspection needs a real
 source file (same convention as ``test_agenthelp.py``).
 """
 
-import pytest
-
 from duho import Cli, Cmd, LoggingArgs
 from duho.mcp import describe_tools
 

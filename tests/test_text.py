@@ -131,7 +131,7 @@ class TestSnakeCase:
         assert snakecase("1abc") == "_1abc"
 
     def test_interior_uppercase_lowered_with_underscore(self):
-        # C13 fix: an interior uppercase letter is lowercased WITH an underscore,
+        # An interior uppercase letter is lowercased WITH an underscore,
         # not dropped. "CamelCase" -> "camel_case".
         assert snakecase("CamelCase") == "camel_case"
 

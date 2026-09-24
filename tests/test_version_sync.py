@@ -21,8 +21,10 @@ import duho
 
 _PYPROJECT = Path(__file__).parents[1] / "pyproject.toml"
 
-#: ``version = "X.Y.Z"`` at the start of a line -- anchored with MULTILINE so a
-#: ``version`` key nested in some other table cannot match by accident.
+#: ``version = "X.Y.Z"`` at the start of a line. MULTILINE makes ``^`` match at
+#: every line start, not just the start of the file -- it does not by itself
+#: distinguish this from a same-named key in some other, unindented table;
+#: that's simply not a shape this file's own tables use.
 _VERSION_RE = re.compile(r'^version = "(?P<v>[^"]+)"', re.MULTILINE)
 
 

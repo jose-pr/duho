@@ -1,4 +1,4 @@
-"""Tests for the flag-between-positionals reorder fix (Plan 25).
+"""Tests for the flag-between-positionals reorder fix.
 
 argparse's own greedy positional-run matching (bpo-15112) breaks when an
 optional flag sits BETWEEN a fixed positional and a variable-arity
@@ -167,7 +167,6 @@ def test_repeated_flag_between_positionals():
 def test_typo_flag_still_raises_unrecognized_arguments():
     """A typo'd flag must surface argparse's own honest error, never be
     silently absorbed as phantom positional values."""
-    import argparse
     import pytest
 
     with pytest.raises(SystemExit):

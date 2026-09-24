@@ -191,33 +191,51 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
 
 
 class _CollectionAction(_argparse.Action):
-    """Extend-and-coerce action for ``set``/``tuple`` collection fields.
+    """Extend-and-coerce action for ``list``/``set``/``tuple`` collection
+    fields.
 
-    argparse's built-in ``extend`` action only extends a *list*; there is no
-    native "extend into a set/tuple". This action gathers elements in
-    insertion order across both invocation forms -- repeated flags
-    (``--x a --x b``) and space-separated (``--x a b``) -- then stores the
-    final field value coerced to the target collection type.
+    argparse's built-in ``extend`` action only extends a *list* and starts
+    from whatever is already on the namespace (a layered default), so a CLI
+    occurrence merges onto it instead of replacing it. This action instead
+    starts its sidecar EMPTY on the first call of a parse, so the first CLI
+    occurrence always REPLACES a class/env/config/instance default -- the
+    same "CLI wins" semantics for every collection kind (A005) -- and
+    further occurrences accumulate onto that (repeated flags still add up:
+    ``--x a --x b`` -> both). It gathers elements in insertion order across
+    both invocation forms -- repeated flags (``--x a --x b``) and
+    space-separated (``--x a b``) -- then stores the final field value
+    coerced to the target collection type.
 
     The running elements are kept in insertion order on a private sidecar
     attribute (``_duho_items_<dest>``) so a ``tuple`` field's order is stable
     regardless of how many times the flag appears; ``set`` dedups at coercion.
     The declared collection type is bound at build time as ``_collection_``
-    (``set`` or ``tuple``).
+    (``list``, ``set``, ``tuple``, or ``frozenset``).
     """
 
-    #: Target collection type (``set`` or ``tuple``); bound at construction.
+    #: Target collection type; bound at construction.
     _collection_: type = tuple
 
     def __call__(self, parser, namespace, values, option_string=None):
+        if values is self.default:
+            # A zero-token variable-arity (nargs="*") POSITIONAL: argparse
+            # hands the action's own default object back as `values` when no
+            # tokens were consumed (A006). Coerce a FRESH collection from it
+            # instead of treating it as a user-supplied value -- otherwise a
+            # `set` default crashes (`set([<the default set>])`, unhashable)
+            # and a `list` default gets doubled. The fresh coercion also
+            # means the returned instance never aliases the action's default
+            # object, so a later mutation can't leak into a future parse.
+            setattr(namespace, self.dest, self._collection_(values))
+            return
         sidecar = "_duho_items_" + self.dest
         items = getattr(namespace, sidecar, None)
         if items is None:
             items = []
             setattr(namespace, sidecar, items)
-        if isinstance(values, (list, tuple)):
+        if isinstance(values, (list, tuple, set, frozenset)):
             items.extend(values)
-        else:  # nargs unset / single value -- defensive, not the normal path
+        else:  # nargs unset / single value -- one flag occurrence
             items.append(values)
         setattr(namespace, self.dest, self._collection_(items))
 
@@ -505,7 +523,9 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
     if origin is list or tp is list:
         elem_ty = args[0] if args else str
         factory, choices, metavar = _element_spec(elem_ty, name, "list")
-        return _FieldSpec(factory, choices, metavar, "extend", "*", [], list)
+        return _FieldSpec(
+            factory, choices, metavar, _collection_action(list), "*", [], list
+        )
 
     if origin is set or tp is set:
         elem_ty = args[0] if args else str
@@ -1064,37 +1084,27 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 metavar = spec.metavar
             if spec.action is not None:
                 action = spec.action
+            implicit_nargs = False
             if spec.nargs is not None:
-                nargs = spec.nargs
                 # `_factory_for`'s `list`/`set`/`tuple` branch hardcodes
                 # `nargs="*"`, correct for a POSITIONAL (a trailing variadic
                 # positional is exactly the point of that shape) but not for
-                # an OPTION: a repeatable flag defaults to ONE value per
-                # occurrence (`-f a -f b`), not space-separated multi-value
-                # in one occurrence (`-f a b`) -- downgraded here to
-                # `nargs=None` for the option case ONLY. An EXPLICIT
-                # `NS(nargs=...)` still wins regardless -- that override is
-                # applied AFTER this method returns (see `Argument.from_type`
-                # 's `setattr(builder, k, v)` loop).
-                is_positional = len(flags) == 1 and not flags[0].startswith("-")
-                if nargs == "*" and not is_positional:
-                    nargs = None
-                    if action == "extend":
-                        # stdlib's `_ExtendAction.__call__` does
-                        # `items.extend(values)` UNCONDITIONALLY -- it
-                        # requires `values` to already be a list (i.e.
-                        # requires `nargs` in `"*"`/`"+"`/an int); with
-                        # `nargs=None` argparse hands it a bare scalar,
-                        # which crashes (`TypeError: 'int' object is not
-                        # iterable`, verified this session). `"append"`
-                        # (stdlib `_AppendAction`) natively handles a single
-                        # scalar per occurrence -- switch to it for exactly
-                        # this downgrade. The `_CollectionAction` used for
-                        # set/tuple is NOT stdlib's extend -- it already has
-                        # its own single-value branch (`_CollectionAction
-                        # .__call__`'s `else: items.append(values)`) and
-                        # needs no action change here.
-                        action = "append"
+                # an OPTION, which defaults to ONE value per occurrence
+                # (`-f a -f b`) rather than space-separated multi-value in one
+                # occurrence (`-f a b`). Deciding that here -- before an
+                # explicit `NS(nargs=...)`/`NS(flags=...)` override has even
+                # been applied (`Argument.from_type`'s `setattr` loop runs
+                # AFTER this method returns) -- baked in the type-derived
+                # shape too early: the documented `NS(nargs="*")` opt-back and
+                # a `NS(flags=...)` that makes the field positional were both
+                # unable to change it (A016). The downgrade itself now lives
+                # in `ArgumentBuilder._kwargs`, computed from the FINAL flags
+                # and nargs once every override is known; here we only record
+                # that this `nargs` came from the type ladder (not a user
+                # override) via `implicit_nargs`, so `_kwargs` can tell the
+                # two cases apart.
+                nargs = spec.nargs
+                implicit_nargs = True
             if spec.collection is not None:
                 collection = spec.collection
             if (
@@ -1115,6 +1125,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             action=action,
             nargs=nargs,
             collection=collection,
+            _implicit_nargs_=implicit_nargs,
         )
 
     @classmethod
@@ -1133,6 +1144,27 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 builder = super()._argbuilder_(name, decl, factory or _factory)
                 for k, v in kwargs.items():
                     setattr(builder, k, v)
+                if "nargs" in kwargs:
+                    # An explicit NS(nargs=...)/Meta(nargs=...) override wins
+                    # outright -- clear the "came from the type ladder" marker
+                    # so `_kwargs` never downgrades it back (A016).
+                    builder._implicit_nargs_ = False
+                if builder.split is not None:
+                    # duho.Extend(): compose the split function with the
+                    # field's OWN element factory (already resolved onto
+                    # `builder.type` by `super()._argbuilder_()` above) rather
+                    # than replacing it outright, so a typed collection (e.g.
+                    # `list[int]`) still converts each split part, and the
+                    # natural collection action (list/set/tuple) still runs
+                    # unmodified (A020).
+                    splitter = builder.split
+                    base = builder.type
+
+                    def _extend_factory(text, _splitter=splitter, _base=base):
+                        return [_base(part) for part in _splitter(text)]
+
+                    _extend_factory._duho_extend_base_ = base
+                    builder.type = _extend_factory
                 return builder
 
         return Arg
@@ -1155,6 +1187,28 @@ _TYPE_INCOMPATIBLE_ACTIONS = frozenset(
 #: Actions that require `const=` to be supplied.
 _CONST_REQUIRED_ACTIONS = frozenset({"store_const", "append_const"})
 
+#: Zero-argument (flag-only) actions with no declared default get an
+#: implicit one instead of `required=True` (A051) -- argparse's own natural
+#: resting value for each, so `_effective_default_` agrees.
+_ZERO_ARG_ACTION_DEFAULTS = {
+    "count": 0,
+    "store_const": None,
+    "append_const": None,
+    "store_false": True,
+}
+
+
+def _is_positional(flags: "_ty.Sequence[str]") -> bool:
+    """A flag tuple whose sole entry has no leading ``-`` is a positional.
+
+    The one place this decision is made (A068) -- ``ArgumentBuilder._kwargs``
+    and the ``is_positional`` property below both call this, instead of each
+    re-deriving ``len(flags) == 1 and not flags[0].startswith("-")``
+    independently (and, before this fix, disagreeing with a THIRD copy in
+    ``duho.mcp``).
+    """
+    return len(flags) == 1 and not flags[0].startswith("-")
+
 
 class ArgumentBuilder(_argparse.Namespace):
     name: str
@@ -1176,6 +1230,31 @@ class ArgumentBuilder(_argparse.Namespace):
     #: produce (see :meth:`convert_layered`). ``self.type`` is then the *element*
     #: factory, not the collection factory.
     collection: "_type | None" = None
+    #: ``duho.Extend()``'s split callable, or ``None``. Consumed by
+    #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
+    #: the field's own element type (A020); never read afterwards.
+    split: "_ty.Callable | None" = None
+    #: True when `nargs` came from the type ladder (a `list`/`set`/`tuple`
+    #: field) rather than an explicit `NS(nargs=...)` override. Lets
+    #: `_kwargs` downgrade a repeatable OPTION to one value per occurrence
+    #: without also clobbering a deliberate opt-back into space-separated
+    #: multi-value (A016).
+    _implicit_nargs_: bool = False
+
+    @property
+    def is_positional(self) -> bool:
+        """True when this field's final, post-override flags are positional."""
+        return _is_positional(self.flags)
+
+    @property
+    def is_bare_bool_flag(self) -> bool:
+        """True when this field compiles to a bare ``store_true``/
+        ``BooleanOptionalAction`` flag with no value of its own -- as opposed
+        to a `bool` that carries `choices` (a `Literal[True, False]` field,
+        which must go through `type=`+`choices=` like any other `Literal`) or
+        one with an explicit `action=` override (A068).
+        """
+        return self.type is bool and not self.action and self.choices is None
 
     #: Truthy/falsy strings a layered bool value maps to True/False
     #: (case-insensitive, whitespace-stripped). The one shared table
@@ -1316,13 +1395,34 @@ class ArgumentBuilder(_argparse.Namespace):
             return self._convert_single(raw)
 
         if self.collection is not None:
+            extend_base = getattr(self.type, "_duho_extend_base_", None)
+            if extend_base is not None:
+                # duho.Extend(): `self.type` SPLITS one string into several
+                # elements rather than converting a single one, so it must
+                # NOT be run once per array element like a plain per-element
+                # factory would (A020) -- a *string* raw is the whole thing
+                # to split; a *list/tuple/set* raw (a TOML array) splits each
+                # STRING element and flattens the parts together, widening a
+                # non-string element (already fully typed) via the base
+                # (per-element) factory instead.
+                if isinstance(raw, str):
+                    return self.collection(self.type(raw))
+                if isinstance(raw, (list, tuple, set)):
+                    parts: list = []
+                    for e in raw:
+                        if isinstance(e, str):
+                            parts.extend(self.type(e))
+                        else:
+                            parts.append(self._convert_non_str(e, extend_base))
+                    return self.collection(parts)
+                return self.collection([self._convert_non_str(raw, extend_base)])
             if isinstance(raw, (list, tuple, set)):
                 return self.collection(self._convert_single(e) for e in raw)
             return self.collection([self._convert_single(raw)])
 
         return self._convert_single(raw)
 
-    def _kwargs(self):
+    def _kwargs(self, *, layered: bool = False):
         # NS(kwargs={...}) is the raw escape-hatch override: it must win over
         # every field-derived kwarg (explicit NS(field=...) loses to it), so
         # field derivation writes into `kwargs` first and the raw overrides
@@ -1330,8 +1430,22 @@ class ArgumentBuilder(_argparse.Namespace):
         overrides = dict(getattr(self, "kwargs", None) or {})
         kwargs: dict = {}
 
-        if self.nargs != None:
-            kwargs["nargs"] = self.nargs
+        positional = self.is_positional
+        nargs = self.nargs
+        # A repeatable OPTION's collection nargs="*" (from the type ladder,
+        # not a user override -- `_implicit_nargs_`) defaults to ONE value
+        # per occurrence (`-f a -f b`), not space-separated multi-value in
+        # one occurrence (`-f a b`). Computed here, from the FINAL flags and
+        # nargs once every NS(nargs=...)/NS(flags=...) override is already
+        # applied (both land on `self` before `_kwargs` ever runs), so the
+        # documented `NS(nargs="*")` opt-back and a `NS(flags=...)` override
+        # that makes the field positional both work (A016). `_CollectionAction`
+        # (bound to list/set/tuple/frozenset alike, see A005) already has its
+        # own single-value-per-occurrence branch, so no action swap is needed.
+        if self._implicit_nargs_ and nargs == "*" and not positional:
+            nargs = None
+        if nargs is not None:
+            kwargs["nargs"] = nargs
 
         if self.choices is not None:
             kwargs["choices"] = self.choices
@@ -1342,12 +1456,32 @@ class ArgumentBuilder(_argparse.Namespace):
         if self.default is not _inspect.NOT_DEFINED:
             kwargs["default"] = self.default
 
-        if self.type is bool and not self.action and self.choices is None:
-            # A bare bool becomes a store_true/BooleanOptionalAction flag. But a
-            # `Literal[True, False]` carries choices -- it must go through
-            # type=+choices= like any other Literal, since argparse forbids
-            # choices= on a store_true action (C10).
+        if self.is_bare_bool_flag:
+            # A bare bool becomes a store_true/BooleanOptionalAction flag. A
+            # `Literal[True, False]` (carries choices) or an explicit
+            # action= override is excluded by `is_bare_bool_flag` -- those go
+            # through type=+choices= like any other Literal, since argparse
+            # forbids choices= on a store_true action (C10).
+            no_flag = any(
+                f.startswith("--no-") for f in self.flags if f.startswith("--")
+            )
             if self.default is True:
+                if no_flag:
+                    # BooleanOptionalAction tries to synthesize a --no-<flag>
+                    # pair for a flag that ALREADY starts with --no- -- 3.14+
+                    # rejects that outright, and 3.9-3.13 built the confusing
+                    # --no-verify/--no-no-verify pair (A046). A plain
+                    # store_false under the SAME flag means what a
+                    # True-default --no-* flag always meant: presence sets
+                    # False, absence keeps the True default.
+                    kwargs["action"] = "store_false"
+                else:
+                    kwargs["action"] = _argparse.BooleanOptionalAction
+            elif layered:
+                # A field that can receive True from a layer OTHER than the
+                # CLI (env=, or the owning class has a config source) needs a
+                # way to turn it back off from the command line -- store_true
+                # can only ever SET True, never re-assert False (A025).
                 kwargs["action"] = _argparse.BooleanOptionalAction
             else:
                 kwargs["action"] = "store_true"
@@ -1359,6 +1493,15 @@ class ArgumentBuilder(_argparse.Namespace):
         # will actually be sent to add_argument, not the pre-override value.
         action = overrides.get("action", kwargs.get("action"))
 
+        if action is _argparse.BooleanOptionalAction:
+            # Python 3.14 removed the (already-deprecated) type/choices/
+            # metavar parameters outright (A046) -- drop them here, not only
+            # when duho itself picked the action, so an explicit
+            # NS(action=argparse.BooleanOptionalAction) override is covered
+            # too.
+            kwargs.pop("metavar", None)
+            kwargs.pop("choices", None)
+
         if action not in _TYPE_INCOMPATIBLE_ACTIONS:
             kwargs["type"] = self.type
         else:
@@ -1366,12 +1509,26 @@ class ArgumentBuilder(_argparse.Namespace):
 
         if action == "store_true" and "default" not in kwargs:
             kwargs["default"] = False
+        if action is _argparse.BooleanOptionalAction and "default" not in kwargs:
+            kwargs["default"] = False
+
+        if action == "append" and self.collection not in (None, list):
+            # duho.Append() forces argparse's stdlib "append" action, which
+            # always produces a *list* -- it doesn't compose with a set/tuple
+            # field's own collection action (A020). Fail loud at build time
+            # instead of silently returning the wrong collection type.
+            raise ValueError(
+                f"argument {self.name!r}: duho.Append() does not support a "
+                f"{self.collection.__name__} field (it always produces a "
+                f"list); a repeatable {self.collection.__name__} field "
+                f"already accumulates one value per occurrence without it"
+            )
 
         if action in _CONST_REQUIRED_ACTIONS:
             const = (
                 self.const
                 if self.const is not NOT_DEFINED
-                else kwargs.get("const", NOT_DEFINED)
+                else overrides.get("const", NOT_DEFINED)
             )
             if const is NOT_DEFINED:
                 raise ValueError(
@@ -1383,14 +1540,12 @@ class ArgumentBuilder(_argparse.Namespace):
 
         if action == "version":
             version = (
-                self.version if self.version is not None else kwargs.get("version")
+                self.version if self.version is not None else overrides.get("version")
             )
             if version is not None:
                 kwargs["version"] = version
 
-        flags = self.flags
         dest = self.name
-        positional = len(flags) == 1 and not flags[0].startswith("-")
         if positional:
             dest = None
 
@@ -1398,10 +1553,34 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["dest"] = dest
 
         if positional:
-            # Optional positional (has a real default, nargs unset) needs
-            # nargs="?" -- otherwise argparse makes it required and ignores
-            # the default. argparse also forbids required= on positionals.
-            if "default" in kwargs and "nargs" not in kwargs:
+            if self.choices is not None and kwargs.get("nargs") == "*":
+                # A variadic (nargs="*") positional with `choices=` -- e.g. a
+                # `list[T]` positional through `Choice()`/`NS(choices=...)`,
+                # or a `list[Literal[...]]` positional (whose element choices
+                # bubble up to the field spec too). argparse itself (through
+                # 3.13, bpo-9625) validates the DEFAULT against `choices` too
+                # whenever the positional is omitted -- and does so with the
+                # raw default object, so even `default=SUPPRESS` gets checked
+                # against `choices` and fails (worse than the plain empty
+                # list). Move the membership check into the element factory
+                # instead (mirrors the enforcement a Union/Literal member
+                # already gets, see `_choice_checked`) and drop `choices=`
+                # from `add_argument` for this shape entirely -- so argparse
+                # never validates anything itself here, on any version
+                # (A049). `metavar` still shows the allowed values.
+                if "type" in kwargs:
+                    kwargs["type"] = _choice_checked(kwargs["type"], self.choices)
+                kwargs.pop("choices", None)
+                if kwargs.get("metavar") is None:
+                    kwargs["metavar"] = (
+                        "{" + ",".join(str(c) for c in self.choices) + "}"
+                    )
+            elif "nargs" not in kwargs and (
+                "default" in kwargs or self.required is False
+            ):
+                # An optional positional (a real default, or an Optional[T]
+                # with none at all -- A026) needs nargs="?", otherwise
+                # argparse makes it required and ignores the default.
                 kwargs["nargs"] = "?"
             kwargs.pop("required", None)
         elif action in ("version", "help"):
@@ -1410,30 +1589,55 @@ class ArgumentBuilder(_argparse.Namespace):
         elif self.required is not None:
             kwargs["required"] = self.required
         elif dest is not None:
-            kwargs["required"] = "default" not in kwargs
+            if getattr(self, "conflicts", None):
+                # A mutually-exclusive member with no explicit required= and
+                # no default: argparse forbids a required member inside a
+                # mutex group ("mutually exclusive arguments must be
+                # optional"), so this can never become `required=True` here
+                # -- group-level requiredness is exactly what
+                # `conflicts_required=` expresses instead (A023).
+                kwargs["required"] = False
+            elif action in _ZERO_ARG_ACTION_DEFAULTS and "default" not in kwargs:
+                # A flag-style zero-argument action (count/store_const/
+                # append_const/store_false) with no declared default gets
+                # argparse's own natural resting value instead of becoming a
+                # mandatory flag (A051).
+                kwargs["required"] = False
+                kwargs["default"] = _ZERO_ARG_ACTION_DEFAULTS[action]
+            else:
+                kwargs["required"] = "default" not in kwargs
 
         kwargs.update(overrides)
 
-        # Copy a mutable default so each parser build (and each parse) gets its
-        # OWN list/set/dict. The builder is cached on the class, so without this
-        # every parse would share -- and mutate -- the same object (C7). Covers
-        # both the collection-branch default ([]/set()) and an override default
-        # (e.g. duho.Extend's kwargs `default=[]`). Tuples are immutable.
+        # Copy a mutable default so each parser build gets its OWN list/set/
+        # dict (the builder is cached on the class, so without this every
+        # build would share the same object). A second, per-PARSE copy (for
+        # a parser reused across multiple parse_args() calls, A021) happens
+        # in `_initparser_`'s wrapped `parse_known_args`. Covers both the
+        # collection-branch default ([]/set()) and an override default (e.g.
+        # an explicit Extend(sep, default=[...])). Tuples are immutable.
         default_value = kwargs.get("default")
         if isinstance(default_value, (list, set, dict)):
             kwargs["default"] = _copy.copy(default_value)
 
         return kwargs
 
-    def add_to_parser(self, parser: _argparse.ArgumentParser):
+    def add_to_parser(self, parser: _argparse.ArgumentParser, *, layered: bool = False):
         help = self.help
         if callable(help):  # type: ignore
             help = help()
-        return parser.add_argument(
-            *self.flags,
-            help=help,
-            **self._kwargs(),
-        )
+        kwargs = self._kwargs(layered=layered)
+        action = parser.add_argument(*self.flags, help=help, **kwargs)
+        if isinstance(action, _argparse.BooleanOptionalAction):
+            # 3.9/3.10's BooleanOptionalAction.__init__ unconditionally
+            # appends " (default: %(default)s)" to any non-None help
+            # (removed in 3.11) -- reset to the exact help duho passed in so
+            # an NS(help=argparse.SUPPRESS) flag stays hidden (the identity
+            # check argparse itself uses to hide it) and no literal
+            # "%(default)s" leaks into agent-help JSON on the floor versions
+            # (A047).
+            action.help = help
+        return action
 
     def _effective_default_(self):
         """The value argparse would leave this field at when not supplied.
@@ -1442,8 +1646,16 @@ class ArgumentBuilder(_argparse.Namespace):
         registers (e.g. a ``store_true`` bool resolves to ``False`` even when no
         ``default`` was declared). Returns :data:`NOT_DEFINED` for a required
         field with no default -- callers seeding an instance leave those unset.
+        A non-required OPTION with no declared default (e.g. ``Optional[int]``)
+        resolves to ``None``, matching what argparse itself leaves on the
+        namespace when the flag is absent (A027).
         """
-        return self._kwargs().get("default", NOT_DEFINED)
+        kwargs = self._kwargs()
+        if "default" in kwargs:
+            return kwargs["default"]
+        if kwargs.get("required") is False:
+            return None
+        return NOT_DEFINED
 
 
 class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
@@ -1465,24 +1677,31 @@ class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
 _VARIADIC_NARGS = ("*", "+", "?")
 
 
-def _has_variadic_and_sibling_positional(parser: "_argparse.ArgumentParser") -> bool:
-    """True if ``parser`` has a variable-arity positional AND another positional.
+def _has_variadic_positional(parser: "_argparse.ArgumentParser") -> bool:
+    """True if ``parser`` has at least one variable-arity positional.
 
-    This is the exact shape that breaks under argparse's greedy
-    positional-run matching when an optional flag is placed BETWEEN the two
-    positional groups (verified this session, bare stdlib): the run
-    containing the fixed positional and the variadic one is settled against
-    the argv slice before the NEXT optional token, so the variadic one can
-    close out empty/short and never reopen. A single variadic positional
-    ALONE (no sibling) is unaffected -- verified.
+    Two DIFFERENT argparse papercuts both need this reorder, and between them
+    a single variable-arity positional is already enough to trigger one:
+
+    * A flag placed BETWEEN a variable-arity positional and ANOTHER
+      positional breaks under argparse's greedy positional-run matching
+      (bpo-15112): the run is settled against the argv slice before the next
+      optional token, so the variadic one can close out empty/short and
+      never reopen.
+    * A flag placed anywhere touching a LONE variable-arity positional's own
+      run -- with no sibling positional at all -- ALSO gets swallowed as
+      "unrecognized arguments" (bpo-14191); a previous version of this
+      docstring claimed a lone variadic positional was unaffected, which was
+      not actually true (verified this session, bare stdlib: A067).
+
+    Both shapes are handled by the same reorder pass below, so this only
+    needs to detect "at least one variable-arity positional" -- no sibling
+    required.
 
     The subparsers action itself (``dest="command"``, added by
     ``add_subparsers``) is NOT option-string-bearing either, but it is not a
     user-declared positional field -- excluded explicitly so a root class
     with subcommands and no OTHER declared positional doesn't false-trigger.
-    argparse itself forbids declaring two variable-arity positionals in one
-    parser (raises at ``add_argument`` time), so there is nothing to detect
-    for that combination; it cannot exist.
     """
     positionals = [
         action
@@ -1490,8 +1709,6 @@ def _has_variadic_and_sibling_positional(parser: "_argparse.ArgumentParser") -> 
         if not action.option_strings
         and not isinstance(action, _argparse._SubParsersAction)  # type: ignore[attr-defined]
     ]
-    if len(positionals) < 2:
-        return False
     return any(action.nargs in _VARIADIC_NARGS for action in positionals)
 
 
@@ -1513,7 +1730,7 @@ def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
     def parse_known_args(
         args: "_ty.Sequence[str] | None" = None, namespace: "NS | None" = None
     ):
-        if args is not None and _has_variadic_and_sibling_positional(parser):
+        if args is not None and _has_variadic_positional(parser):
             args = _reorder_argv_for_variadic_positional(parser, list(args))
         return real_parse_known_args(args, namespace)
 
@@ -1535,9 +1752,16 @@ def _reorder_argv_for_variadic_positional(
     positional run is contiguous and never interrupted by a flag, sidestepping
     the greedy-matching papercut this function exists for.
 
+    Recognizes a flag by exact key, by its ``--flag=value`` split, by an
+    attached short-option value (``-fVALUE``), and by an unambiguous
+    ``allow_abbrev`` long-option prefix (``--filt`` for ``--filter``) (A048)
+    -- the same spellings argparse itself accepts, so a flag written that way
+    between two positionals is hoisted exactly like its long/separate-token
+    form is.
+
     **Bails (returns ``argv`` UNCHANGED) on anything it isn't certain about**
-    -- a `-`-prefixed token NOT in the registry (and not a negative-number
-    value the parser itself would accept, per its own
+    -- a `-`-prefixed token NOT recognized by any of the above (and not a
+    negative-number value the parser itself would accept, per its own
     ``_negative_number_matcher``/``_has_negative_number_optionals``), or a
     flag needing a value with none left in ``argv``. This is deliberate: a
     genuine typo (``--filtr`` for ``--filter``) must still surface argparse's
@@ -1551,6 +1775,7 @@ def _reorder_argv_for_variadic_positional(
     has_negative_number_optionals = bool(
         getattr(parser, "_has_negative_number_optionals", [])
     )
+    allow_abbrev = getattr(parser, "allow_abbrev", True)
 
     flags: "list[str]" = []
     positionals: "list[str]" = []
@@ -1570,14 +1795,45 @@ def _reorder_argv_for_variadic_positional(
             break
 
         action = known.get(token)
+        self_contained = False
         if action is None and "=" in token:
             action = known.get(token.split("=", 1)[0])
-            if action is not None:
-                # `--flag=value` is a single self-contained token; no
-                # separate value token to hoist alongside it.
-                flags.append(token)
-                i += 1
-                continue
+            # `--flag=value` is a single self-contained token; no separate
+            # value token to hoist alongside it.
+            self_contained = action is not None
+        if (
+            action is None
+            and token.startswith("--")
+            and allow_abbrev
+            and "=" not in token
+        ):
+            # An unambiguous long-option PREFIX under argparse's own
+            # `allow_abbrev` rule (e.g. `--filt` for `--filter`) -- recognized
+            # only when exactly one ACTION (aliases of the same one still
+            # count as one) has an option string starting with this token.
+            candidates = {
+                id(a): a
+                for opt, a in known.items()
+                if opt.startswith("--") and opt.startswith(token)
+            }
+            if len(candidates) == 1:
+                (action,) = candidates.values()
+        if action is None and len(token) > 2 and token[0] == "-" and token[1] != "-":
+            # An attached short-option value (`-fVALUE`, `-j3`): recognized
+            # only when the two-character prefix maps to a registered short
+            # option that itself takes exactly one value -- a zero-value
+            # action (`-v`, `-h`) cannot absorb a trailing value this way, and
+            # a variadic-nargs one is ambiguous just like the separate-token
+            # case below.
+            short_action = known.get(token[:2])
+            if short_action is not None and short_action.nargs is None:
+                action = short_action
+                self_contained = True
+
+        if self_contained:
+            flags.append(token)
+            i += 1
+            continue
 
         if action is not None:
             zero_value_action = action.nargs == 0 or isinstance(
@@ -1702,10 +1958,19 @@ class Args(_argparse.Namespace):
         # direct instance has the same attribute surface as a parsed one. Only
         # GAPS are filled: passed kwargs (incl. parsed values) always win, and a
         # required field with no default (NOT_DEFINED) is left unset.
+        #
+        # `name not in vars(self)` (rather than `hasattr`) is deliberate: a
+        # field with an explicit CLASS-level default (`files: list = []`) is
+        # already `hasattr`-true via inheritance, which used to skip seeding
+        # entirely -- so a direct instance read the CLASS ATTRIBUTE itself,
+        # and mutating a mutable one (`instance.files.append(...)`) mutated
+        # every other instance and every later parse's default too (A022).
+        # `vars(self)` only sees THIS instance's own attributes, so the gap
+        # still gets filled with `_effective_default_()`'s fresh copy.
         super().__init__(**kwargs)
         for builder in type(self)._getargs_():
             name = builder.name
-            if name in kwargs or hasattr(self, name):
+            if name in kwargs or name in vars(self):
                 continue
             default = builder._effective_default_()
             if default is not NOT_DEFINED:
@@ -1902,12 +2167,33 @@ class Args(_argparse.Namespace):
             # on anything it isn't certain about, so a genuine typo still
             # surfaces argparse's own honest error through the real,
             # UNMODIFIED parse below.
-            if args is not None and _has_variadic_and_sibling_positional(parser):
+            if args is not None and _has_variadic_positional(parser):
                 args = _reorder_argv_for_variadic_positional(parser, list(args))
 
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace
             )
+
+            # A021: per-PARSE mutable-default copy, scoped to THIS parser's
+            # own actions (a subcommand's redeclared fields are a different
+            # action set, handled the same way when ITS OWN wrapped
+            # parse_known_args runs).
+            for _pa in parser._actions:
+                _dest = _pa.dest
+                if _dest is None or _dest is _argparse.SUPPRESS:
+                    continue
+                _default = _pa.default
+                if isinstance(_default, (list, set, dict)) and (
+                    getattr(parsed, _dest, None) is _default
+                ):
+                    # A021: `_kwargs` already gives each parser BUILD its own
+                    # copy of a mutable default, but argparse puts that SAME
+                    # object onto every namespace a REUSED parser produces
+                    # when the field is never touched by this parse -- so two
+                    # `parse_args()` calls on one cached parser would share
+                    # (and, on mutation, leak into each other's) that list/
+                    # set/dict. Break the aliasing once more, per parse.
+                    setattr(parsed, _dest, _copy.copy(_default))
 
             if is_subcommand:
                 # Invoked via argparse._SubParsersAction.__call__, which
@@ -1923,11 +2209,14 @@ class Args(_argparse.Namespace):
 
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
             parser._duho_selected_cls_ = _cls  # type: ignore
-            # Drop the `_CollectionAction` sidecar (`_duho_items_<dest>`) before
+            # Drop the `_CollectionAction`/`UpdateAction` sidecars
+            # (`_duho_items_<dest>` / `_duho_dict_seen_<dest>`) before
             # constructing the instance so this internal bookkeeping never leaks
             # into vars(instance) or the documented clone pattern (M12).
             for _sidecar in [
-                k for k in parsed.__dict__ if k.startswith("_duho_items_")
+                k
+                for k in parsed.__dict__
+                if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
             ]:
                 del parsed.__dict__[_sidecar]
             instance = _cls(**parsed.__dict__)
@@ -1974,12 +2263,35 @@ class Args(_argparse.Namespace):
         # first member, so pre-compute requiredness across all members here and
         # pass it at creation (argparse fixes `required` at group-build time).
         required_by_conflicts: "dict[str, bool]" = {}
+        # A `conflicts=` key must use the SAME `group=` title (or no title)
+        # everywhere it appears -- otherwise members that share a conflicts=
+        # string land in TWO separate mutex groups (one per title) and are no
+        # longer mutually exclusive at all, silently (A024).
+        conflicts_titles: "dict[str, object]" = {}
         for arg in cls._getargs_():
             conflicts = getattr(arg, "conflicts", None)
             if conflicts:
                 required_by_conflicts[conflicts] = required_by_conflicts.get(
                     conflicts, False
                 ) or bool(getattr(arg, "conflicts_required", False))
+                group_title = getattr(arg, "group", None)
+                if conflicts in conflicts_titles:
+                    if conflicts_titles[conflicts] != group_title:
+                        raise ValueError(
+                            f"argument {arg.name!r}: conflicts={conflicts!r} is "
+                            f"declared with group={group_title!r} here but "
+                            f"group={conflicts_titles[conflicts]!r} elsewhere; "
+                            f"every field sharing a conflicts= key must use the "
+                            f"same group= (or none)"
+                        )
+                else:
+                    conflicts_titles[conflicts] = group_title
+
+        # A025: a bool field that can receive True from a layer OTHER than
+        # the CLI needs a way to turn it back off from the command line (see
+        # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
+        # per-field signal; a config source is a per-CLASS one.
+        _has_config_source = getattr(cls, "_config_", None) is not None
 
         # F3: titled argument groups (NS(group="...")), created lazily per title.
         # Persisted on the parser so a parents=[...] merge / subclass override can
@@ -2020,7 +2332,8 @@ class Args(_argparse.Namespace):
             else:
                 group = container
 
-            _action = arg.add_to_parser(group)
+            layered = _has_config_source or bool(getattr(arg, "env", None))
+            _action = arg.add_to_parser(group, layered=layered)
 
         # Expose the built mutually-exclusive groups on the parser so a subclass
         # `_parser_` override can add extra options into a `conflicts=`-built
@@ -2285,36 +2598,41 @@ def command(
 
 
 def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
-    """Create an extend-action argument with optional string splitting.
+    """Create a collection argument whose text is split on ``split`` first.
 
     ``list[str]``'s own default builder sets ``nargs="*"`` (so a plain list
     field accepts both ``--x a --x b`` and ``--x a b``); combined with a
-    ``type`` that SPLITS one token into several (as this factory's ``ty``
-    does), that combination double-collects: argparse gathers ``nargs="*"``
-    tokens first and applies ``type`` to EACH ONE individually, so a token's
-    split result (itself a list, e.g. ``"a,b"`` -> ``["a", "b"]``) is appended
-    to the destination as ONE nested element instead of being flattened --
-    ``--rcopts '!*,build'`` became ``[['!*', 'build']]``, not ``['!*',
-    'build']``. Explicitly overriding ``nargs=None`` here (a single string per
-    flag occurrence, argparse's own default) avoids the double-collection:
-    ``type`` splits that one occurrence into its own list, and argparse's
-    built-in ``extend`` action flattens a list-valued single occurrence into
-    the destination correctly (verified: repeated ``--x a,b --x c`` and a
-    single ``--x a,b`` both produce a flat list, no nested sub-lists).
+    factory that SPLITS one token into several, that combination
+    double-collects: argparse gathers ``nargs="*"`` tokens first and applies
+    the factory to EACH ONE individually, so a token's split result (itself a
+    list, e.g. ``"a,b"`` -> ``["a", "b"]``) would be appended as ONE nested
+    element instead of being flattened -- ``--rcopts '!*,build'`` becoming
+    ``[['!*', 'build']]``, not ``['!*', 'build']``. Explicitly overriding
+    ``nargs=None`` here (a single string per flag occurrence, argparse's own
+    default) avoids the double-collection.
+
+    The split parts are mapped through the field's OWN element factory (so
+    ``Arg[list[int], Extend(",")]`` yields ints, not strings) and fed to
+    whichever collection action the field's declared type already uses --
+    ``list``, ``set``, or ``tuple`` (A020) -- so this composes with a typed
+    or non-list collection instead of forcing a stdlib list-only action. The
+    field's own declared default (or the type ladder's empty collection when
+    none is declared) is used as-is; it is NOT overridden here, so it is kept
+    when the flag is absent and replaced -- like any other collection option
+    -- on the first CLI occurrence (A007).
     """
-    kwargs.setdefault("default", [])
     kwargs.setdefault("nargs", None)
     if isinstance(split, str):
-        ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type: ignore
+        splitter: _ty.Callable[[str], list] = lambda x: x.split(split)  # type: ignore
     else:
 
-        def ty(text: str):
+        def splitter(text: str):
             result = split(text)
             if isinstance(result, list):
                 return result
             return list(result)
 
-    return _argparse.Namespace(type=ty, action="extend", kwargs=kwargs)
+    return _argparse.Namespace(split=splitter, kwargs=kwargs)
 
 
 def Count(**kw):
@@ -2343,19 +2661,42 @@ def Choice(*choices, **kw):
 
 
 class UpdateAction(_argparse.Action):
-    """Action that updates a dict instead of replacing it."""
+    """Action that merges dict occurrences, replacing any layered default on
+    the first CLI occurrence (A005) -- the same "CLI wins" semantics
+    `_CollectionAction` gives list/set/tuple fields.
+    """
 
-    def __call__(  # type: ignore
-        self, parser, namespace, values: dict, option_string=None
-    ):
-        items = getattr(namespace, self.dest, None)
-        # Shallow copy per occurrence: the default/prior value must not be
-        # mutated in place (it may be a shared seeded default), but a deep copy
-        # is wasteful and surprising -- callers want the merged mapping, not
-        # clones of the values (F1). A ``None`` starting value (an explicit
-        # ``= None`` default) is treated as an empty mapping.
-        items = dict(items) if items else {}
-        items.update(values or {})
+    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore
+        sidecar = "_duho_dict_seen_" + self.dest
+        if not getattr(namespace, sidecar, False):
+            # First CLI occurrence of THIS parse: start from an empty dict so
+            # a class/env/config/instance default is REPLACED, not merged
+            # onto (A005) -- matching list/set/tuple's own replace-then-
+            # accumulate semantics.
+            items: dict = {}
+            setattr(namespace, sidecar, True)
+        else:
+            items = getattr(namespace, self.dest, None)
+            items = dict(items) if items else {}
+        if isinstance(values, (list, tuple)) and all(
+            isinstance(v, _ty.Mapping) for v in values
+        ):
+            # NS(nargs="*") on a `dict[str, V]` field (A054): argparse passes
+            # a LIST of one-pair dicts (one per space-separated KEY=VALUE
+            # token, each already converted by the per-token `type=` factory)
+            # rather than a single dict -- merge each in order instead of
+            # handing the whole list to dict.update(), which raises. A plain
+            # single dict (the ordinary nargs=None case), or any other
+            # update()-compatible value a custom `type=` produces (e.g. a
+            # list of `[key, value]` pairs, as `examples/fileinstall.py`
+            # does), is NOT a list of Mappings and falls through unchanged.
+            for one in values:
+                items.update(one)
+        else:
+            # A ``None`` starting value (an explicit ``= None`` default) is
+            # already normalized to ``{}`` above; a single dict occurrence
+            # (F1) merges directly.
+            items.update(values or {})
         setattr(namespace, self.dest, items)
 
 

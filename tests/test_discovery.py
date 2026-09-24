@@ -537,6 +537,66 @@ def test_latest_provider_wins(tmp_path):
     assert CmdBuilder("steps", d).command == "second"
 
 
+def test_cmdbuilder_source_already_a_module(tmp_path):
+    """A module object passed as ``source`` is wrapped directly, no import."""
+    path = _write(tmp_path, "runme.py", _MODULE_CMD)
+    module = _discovery._import_from_path("duho._cmdbuilder.already_a_module", path)
+    cmd = CmdBuilder("runme", module).command
+    assert isinstance(cmd, ModuleCommand)
+    assert cmd.main() == "module ran"
+
+
+def test_cmdbuilder_source_already_a_command(tmp_path):
+    """A ``Cmd`` subclass passed as ``source`` is used as-is."""
+
+    class Deploy(Cmd):
+        """Deploy the thing."""
+
+        def __call__(self):
+            return 0
+
+    assert CmdBuilder("deploy", Deploy).command is Deploy
+
+
+def test_cmdbuilder_source_as_plain_string_path(tmp_path):
+    """A ``source`` given as a bare ``str`` (not a ``Path``) still resolves."""
+    path = _write(tmp_path, "runme.py", _MODULE_CMD)
+    cmd = CmdBuilder("runme", str(path)).command
+    assert isinstance(cmd, ModuleCommand)
+    assert cmd.main() == "module ran"
+
+
+def test_dotted_namespace_package_offered_to_provider_first(tmp_path, monkeypatch):
+    """A dotted import resolving to a namespace-package dir consults providers.
+
+    ``CmdBuilder(qualname)`` with no ``source`` normally imports the dotted
+    name as a package; a namespace package (no ``__init__.py``) has no
+    single origin file, so it is offered to a registered provider FIRST,
+    exactly like a bare filesystem directory would be.
+    """
+    nspkg = tmp_path / "duho_test_nspkg"
+    nspkg.mkdir()
+    _write(nspkg, "01-first.py", _MODULE_CMD)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    sentinel = object()
+    calls = {}
+
+    def predicate(path):
+        return path.name == "duho_test_nspkg"
+
+    def builder(path, qualname):
+        calls["path"] = path
+        calls["qualname"] = qualname
+        return sentinel
+
+    register_command_provider(predicate, builder)
+    result = CmdBuilder("duho_test_nspkg").command
+    assert result is sentinel
+    assert calls["qualname"] == "duho_test_nspkg"
+    sys.modules.pop("duho_test_nspkg", None)
+
+
 # --------------------------------------------------------------------------
 # Integration: discovered commands dispatch through duho.main
 # --------------------------------------------------------------------------

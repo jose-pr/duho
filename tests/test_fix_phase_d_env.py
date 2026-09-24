@@ -46,10 +46,14 @@ def test_autoload_filters_and_coerces(tmp_path, monkeypatch):
     assert isinstance(e["DEBUG"], str)
     # env.bool does not crash on a real bool and reads True.
     assert e.bool("DEBUG") is True
-    # Private/lower-case/dunder module vars are not exposed.
-    assert "_private" not in e._env
-    assert "helper" not in e._env
-    assert not any(k.startswith("__") for k in e._env)
+    # Only the UPPER_CASE, non-underscore module variable is exposed through
+    # the public mapping -- the private helper, the lower-case import alias,
+    # and every dunder are filtered out (checked through the mapping `e`
+    # itself, since autoload seeds `_defaults`, not `_env`).
+    assert "_private" not in e
+    assert "helper" not in e
+    assert not any(k.startswith("_") for k in e)
+    assert set(e) == {"DEBUG"}
 
 
 def test_autoload_false_skips_import(tmp_path, monkeypatch):

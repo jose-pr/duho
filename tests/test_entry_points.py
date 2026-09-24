@@ -103,6 +103,38 @@ def test_discover_entry_points_loads_and_skips_broken(fake_plugins, caplog):
     assert any("broken" in rec.message for rec in caplog.records)
 
 
+def test_discover_entry_points_skips_a_target_that_loads_but_is_not_a_command(
+    tmp_path, monkeypatch, caplog
+):
+    """An entry point that LOADS successfully but isn't a command is skipped.
+
+    Distinct from the "broken" entry point above (which fails to load at
+    all): here the target resolves to a real object -- a plain list -- that
+    is neither a Cmd subclass, a command module, nor a Command.
+    """
+    module_name = "duho_test_plugin_noncmd_mod"
+    _install_fake_distribution(
+        tmp_path,
+        module_name,
+        f"""\
+        [{_GROUP}]
+        junk = {module_name}:RAN
+        """,
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        with caplog.at_level(logging.WARNING, logger="duho"):
+            commands = duho.discover_entry_points(_GROUP)
+        assert commands == []
+        assert any(
+            "junk" in rec.message and "not a command" in rec.message
+            for rec in caplog.records
+        )
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_app_dispatches_class_command_plugin(fake_plugins):
     module = importlib.import_module(fake_plugins)
     module.RAN.clear()

@@ -172,19 +172,30 @@ def test_module_index_matches_reference_walk():
 
 
 def test_framework_bases_have_seeded_constants():
-    # Args/Cmd/Cli carry their OWN empty _duho_constants_ in vars(), so the AST
-    # scan short-circuits for them (never re-parses args.py on a build).
+    # Args/Cmd/Cli/LoggingArgs carry their OWN empty _duho_constants_ in
+    # vars(), so the AST scan short-circuits for all of them (never re-parses
+    # args.py/presets.py on a build).
     assert "_duho_constants_" in vars(duho.Args)
     assert "_duho_constants_" in vars(duho.Cmd)
     assert "_duho_constants_" in vars(duho.Cli)
+    assert "_duho_constants_" in vars(duho.LoggingArgs)
     assert vars(duho.Args)["_duho_constants_"] == {}
+    assert vars(duho.LoggingArgs)["_duho_constants_"] == {}
 
 
-def test_logging_args_preset_still_scanned():
-    # LoggingArgs declares real fields in its class body and must NOT be seeded,
-    # so its flags/docstrings still come through.
+def test_logging_args_preset_is_source_independent():
+    # C007: LoggingArgs used to be deliberately left UNSEEDED so its class
+    # body would be AST-scanned for a trailing docstring + flags-tuple after
+    # each field. It now declares every field's flags/help directly as
+    # NS(...) metadata instead (read from the live Annotated object, not
+    # source), and is seeded like every other framework base -- so its own
+    # -v/-q/--loglevel/--verbose/--quiet keep working even when duho's own
+    # source can't be found (a PyInstaller/.pyc-only/Nuitka build).
     constants = _introspect.get_clsargs_constants(duho.LoggingArgs)
-    assert constants, "LoggingArgs class-body metadata must still be scanned"
+    assert constants == {}
+
+    clsargs = _introspect.get_clsargs(duho.LoggingArgs)
+    assert set(clsargs) == {"loglevels", "verbose", "quiet"}
 
 
 # --- P5: guard the getsource fallback for dynamically-created classes --------

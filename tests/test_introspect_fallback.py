@@ -9,10 +9,19 @@ Covers the "never raises" contract of ``_introspect.getclsdef``:
   ``__file__`` is a zip-internal path) still resolves via the
   ``inspect.getsource`` fallback instead of giving up at the first ``OSError``
   (GH #1).
+
+Also covers C007: without source, a class with annotated fields must WARN
+(not silently DEBUG-log, which duho's own -v/--loglevel can't raise until
+AFTER the parser -- the very thing that lost its shape -- is already built),
+and ``LoggingArgs`` itself (duho's own ``-v``/``-q``/``--loglevel``) must keep
+working even when its own source can't be found (e.g. a PyInstaller/.pyc-only/
+Nuitka build that ships no .py source for duho).
 """
 
 import importlib.util
+import logging
 import sys
+from unittest import mock
 
 from duho import _introspect
 
@@ -119,3 +128,57 @@ def test_getclsdef_falls_back_when_module_index_hits_oserror(tmp_path):
         assert clsargs["target"].exprs == [("target",)]
     finally:
         sys.modules.pop("greet_mod", None)
+
+
+class _NoSourceWithFields:
+    """A real class (defined in this real .py file) used only to have its
+    ``getclsdef`` lookup monkeypatched to ``None``, simulating a frozen/
+    .pyc-only build that ships no source for it (C007)."""
+
+    name: str = "x"
+    "A name."
+
+
+def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):
+    """C007: the diagnostic must be WARNING, not DEBUG -- it fires while the
+    parser is still being built, before an app's own -v/--loglevel could
+    possibly raise the level high enough to see a DEBUG record."""
+    with mock.patch.object(_introspect, "getclsdef", return_value=None):
+        with caplog.at_level(logging.WARNING, logger="duho._introspect"):
+            _introspect.get_clsargs(_NoSourceWithFields)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "_NoSourceWithFields" in r.getMessage() and "no source" in r.getMessage()
+        for r in warnings
+    )
+
+
+def test_loggingargs_flags_survive_a_missing_source(tmp_path):
+    """C007: LoggingArgs seeds `_duho_constants_` itself (like Args/Cmd/Cli),
+    so its own -v/-q/--loglevel flags -- and now --verbose/--quiet too --
+    never depended on an AST scan that a frozen build can't perform. A
+    subclass built the same way (no source at all) must still get them.
+    """
+    import duho
+    from duho import LoggingArgs, Cmd
+
+    with mock.patch.object(_introspect, "getclsdef", return_value=None):
+
+        class _NoSourceApp(LoggingArgs, Cmd):
+            def __call__(self):
+                return 0
+
+        parser = _NoSourceApp._parser_()
+        option_strings = [s for a in parser._actions for s in a.option_strings]
+        assert "-v" in option_strings
+        assert "--verbose" in option_strings
+        assert "-q" in option_strings
+        assert "--quiet" in option_strings
+        assert "--loglevel" in option_strings
+
+        ns = parser.parse_args(["-v", "--loglevel", "x:DEBUG"])
+        assert ns.verbose == 1
+        assert ns.loglevels == {"x": logging.DEBUG}
+        rc = duho.main(_NoSourceApp, [], setup_logging=False)
+        assert rc == 0

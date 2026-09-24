@@ -1,8 +1,16 @@
 """Tests for duho.logging module."""
 
+import argparse
+import io
 import logging
+
+import pytest
+
+import duho
 from duho import (
     add_logging_level,
+    Cli,
+    Cmd,
     DefaultFormatter,
     init_stderr_logging,
     LoggingArgs,
@@ -233,3 +241,354 @@ def test_formatter_does_not_leak_across_handlers():
     first = formatter.format(record)
     second = formatter.format(record)
     assert first == second
+
+
+def test_default_formatter_has_no_dead_levelsize_override_hook():
+    """C058: `_levelsize` was always None (no setter); the dead indirection
+    was removed, so a formatter instance no longer carries the attribute."""
+    formatter = DefaultFormatter()
+    assert not hasattr(formatter, "_levelsize")
+
+
+# --------------------------------------------------------------------------
+# A012/D049: duho.main/duho.app must not skip logging setup just because the
+# DEEPEST selected class (a plain Cmd leaf) has no _set_loglevels_ of its own
+# -- the root class they were called/built with does.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clean_root_logger():
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    saved_level = root.level
+    yield root
+    root.handlers[:] = saved
+    root.setLevel(saved_level)
+
+
+def _expected_verbose_level(verbose=0, quiet=0):
+    """The numeric level -v/-q of the given counts resolves to right now.
+
+    Reads ``duho.logging.VERBOSE_LEVELS`` live (never a hardcoded stdlib
+    level number): other tests in this same process register extra custom
+    levels, which insert into the table and shift index positions between
+    INFO and DEBUG/TRACE -- the same reason ``test_verbosity_contract``
+    above does this.
+    """
+    from duho import logging as duho_logging
+
+    levels = list(duho_logging.VERBOSE_LEVELS.keys())
+    base = levels.index(logging.INFO)
+    index = max(0, min(base + verbose - quiet, len(levels) - 1))
+    return levels[index]
+
+
+class _A012Deploy(Cmd):
+    """A plain Cmd leaf -- no LoggingArgs of its own (the README shape)."""
+
+    def __call__(self):
+        return 0
+
+
+class _A012App(LoggingArgs, Cli):
+    """Root carries LoggingArgs; the dispatched leaf (_A012Deploy) does not."""
+
+    _subcommands_ = [_A012Deploy]
+
+    def __call__(self):
+        return 0
+
+
+def test_main_sets_up_logging_for_a_plain_cmd_leaf_under_a_loggingargs_root(
+    _clean_root_logger,
+):
+    root = _clean_root_logger
+    root.handlers[:] = []
+    logging.getLogger("_A012App").setLevel(logging.WARNING)
+
+    rc = duho.main(_A012App, ["-vv", "_A012Deploy"])
+
+    assert rc == 0
+    assert len(root.handlers) == 1
+    assert logging.getLogger("_A012App").getEffectiveLevel() == _expected_verbose_level(
+        verbose=2
+    )
+
+
+def test_app_sets_up_logging_for_a_plain_cmd_leaf_under_a_loggingargs_root(
+    _clean_root_logger,
+):
+    """Same shape through duho.app -- runtime.py's identical logging tail."""
+    root = _clean_root_logger
+    root.handlers[:] = []
+    logging.getLogger("_A012App").setLevel(logging.WARNING)
+
+    rc = duho.app(_A012App, commands=[_A012Deploy], argv=["-vv", "_A012Deploy"])
+
+    assert rc == 0
+    assert len(root.handlers) == 1
+    assert logging.getLogger("_A012App").getEffectiveLevel() == _expected_verbose_level(
+        verbose=2
+    )
+
+
+def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
+    """The existing (already-working) shape is unaffected: a leaf that IS
+    itself a LoggingArgs still gets its OWN logger name, not the root's."""
+
+    class _A012LoggingLeaf(LoggingArgs, Cmd):
+        def __call__(self):
+            return 0
+
+    class _A012Root(Cli):
+        _subcommands_ = [_A012LoggingLeaf]
+
+        def __call__(self):
+            return 0
+
+    root = logging.getLogger()
+    saved, saved_level = list(root.handlers), root.level
+    root.handlers[:] = []
+    try:
+        # -v/-q are declared on the LEAF here (it IS the LoggingArgs), not
+        # the root, so they must follow the subcommand name.
+        duho.main(_A012Root, ["_A012LoggingLeaf", "-vv"])
+        assert logging.getLogger(
+            "_A012LoggingLeaf"
+        ).getEffectiveLevel() == _expected_verbose_level(verbose=2)
+    finally:
+        root.handlers[:] = saved
+        root.setLevel(saved_level)
+
+
+# --------------------------------------------------------------------------
+# C006: a bare `--loglevel LEVEL` must also raise the app's own logger, not
+# just root -- unless -v/-q was given, in which case -v/-q decides the app's
+# own level and the bare entry only still affects root.
+# --------------------------------------------------------------------------
+
+
+class _C006App(LoggingArgs, Cmd):
+    def __call__(self):
+        return 0
+
+
+def test_bare_loglevel_also_raises_the_apps_own_logger():
+    parser = _C006App._parser_()
+    ns = parser.parse_args(["--loglevel", "DEBUG"])
+    ns._set_loglevels_()
+    try:
+        assert logging.getLogger("_C006App").isEnabledFor(logging.DEBUG)
+        assert logging.getLogger().isEnabledFor(logging.DEBUG)
+    finally:
+        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)
+
+
+def test_explicit_verbose_flag_wins_over_a_bare_loglevel_default():
+    parser = _C006App._parser_()
+    ns = parser.parse_args(["--loglevel", "ERROR", "-v"])
+    expected = _expected_verbose_level(verbose=1)
+    loglevels = ns._set_loglevels_()
+    try:
+        # -v was given, so it decides the app's OWN level, not the bare ""
+        # entry (ERROR) -- the bare entry still applies to root.
+        assert loglevels[""] == logging.ERROR
+        assert logging.getLogger("_C006App").getEffectiveLevel() == expected
+    finally:
+        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)
+
+
+def test_named_loglevel_entry_still_wins_over_the_bare_default():
+    parser = _C006App._parser_()
+    ns = parser.parse_args(["--loglevel", "ERROR,_C006App:DEBUG"])
+    ns._set_loglevels_()
+    try:
+        assert logging.getLogger("_C006App").isEnabledFor(logging.DEBUG)
+    finally:
+        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)
+
+
+# --------------------------------------------------------------------------
+# C009: --loglevel's help/metavar must show the real grammar, and
+# parse_loglevels must validate instead of silently dropping bad input.
+# --------------------------------------------------------------------------
+
+
+def test_loglevel_metavar_and_help_show_the_real_grammar():
+    help_text = _C006App._parser_().format_help()
+    assert "[NAME:]LEVEL[,...]" in help_text
+    assert "Increase verbosity (repeatable)" in help_text
+    assert "Decrease verbosity (repeatable)" in help_text
+
+
+def test_parse_loglevels_is_case_insensitive_and_strips_whitespace():
+    assert parse_loglevels("debug") == {"": logging.DEBUG}
+    assert parse_loglevels(" a : DEBUG , b:info ") == {
+        "a": logging.DEBUG,
+        "b": logging.INFO,
+    }
+
+
+def test_parse_loglevels_accepts_a_numeric_level():
+    assert parse_loglevels("17") == {"": 17}
+    assert parse_loglevels("mod:5") == {"mod": 5}
+
+
+def test_parse_loglevels_raises_on_an_unresolved_entry():
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_loglevels("DEGUB")
+    with pytest.raises(argparse.ArgumentTypeError):
+        # The old (wrong) metavar advertised KEY=VALUE; "=" is not the real
+        # separator, so this must now be reported, not silently dropped.
+        parse_loglevels("mod=DEBUG")
+
+
+def test_verbose_and_quiet_accept_their_long_flag_spellings():
+    """C018/R006: the header/docstring promised --verbose/--quiet; adding the
+    long spellings (rather than correcting the docs) is the chosen fix."""
+    parser = _C006App._parser_()
+    ns = parser.parse_args(["--verbose", "--verbose", "--quiet"])
+    assert ns.verbose == 2
+    assert ns.quiet == 1
+
+
+# --------------------------------------------------------------------------
+# C011: custom-level wrappers and log_exception must attribute records to
+# the CALLER, not to duho/logging.py's own wrapper functions.
+# --------------------------------------------------------------------------
+
+
+def test_custom_level_and_log_exception_attribute_records_to_the_caller(caplog):
+    from duho.logging import log_exception
+
+    add_logging_level("STACKCHK", 22, force=True)
+    logger = logging.getLogger("test_logging_stackcheck")
+
+    # Root-scoped (no `logger=`): `logging.stackchk(...)` below logs through
+    # the true root logger by design, so root's own effective level -- not
+    # just this named logger's -- must be lowered for it to be enabled at
+    # all.
+    with caplog.at_level(1):
+        logger.stackchk("via the Logger method")
+        logging.stackchk("via the module-level function")
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            log_exception(logger, "caught")
+
+    this_func = (
+        test_custom_level_and_log_exception_attribute_records_to_the_caller.__name__
+    )
+    assert len(caplog.records) == 3
+    assert {r.funcName for r in caplog.records} == {this_func}
+
+
+# --------------------------------------------------------------------------
+# C012: add_logging_level must refresh the -v/-q table itself, so a custom
+# level participates in it regardless of whether logging was already
+# configured (previously that refresh only happened inside
+# init_stderr_logging, which main/app skipped once any handler existed).
+# --------------------------------------------------------------------------
+
+
+def test_add_logging_level_refreshes_the_verbose_table_immediately():
+    from duho import logging as duho_logging
+
+    add_logging_level("PRECONFIGURED", 27, force=True)
+    assert 27 in duho_logging.VERBOSE_LEVELS
+    assert "PRECONFIGURED" in duho_logging.VERBOSE_HELP
+
+
+# --------------------------------------------------------------------------
+# C039: add_logging_level's collision guard must also check the LOWER-CASE
+# method name it installs, not just the upper-case level name.
+# --------------------------------------------------------------------------
+
+
+def test_add_logging_level_refuses_to_clobber_an_unrelated_stdlib_name():
+    with pytest.raises(ValueError):
+        add_logging_level("LOG", 33)
+    # The guard must raise BEFORE mutating anything: stdlib's own
+    # `logging.log` is untouched.
+    assert logging.log.__module__ == "logging"
+
+
+def test_add_logging_level_force_replaces_an_earlier_duho_level():
+    add_logging_level("DUPTEST", 26, force=True)
+    first = logging.duptest
+    add_logging_level("DUPTEST", 27, force=True)
+    second = logging.duptest
+    assert first is not second
+    assert logging.DUPTEST == 27
+
+
+# --------------------------------------------------------------------------
+# C040: init_stderr_logging must be idempotent on its own, independent of
+# any caller-side "does the logger already have handlers" guard.
+# --------------------------------------------------------------------------
+
+
+def test_init_stderr_logging_is_idempotent_across_direct_calls(_clean_root_logger):
+    root = _clean_root_logger
+    root.handlers[:] = []
+    init_stderr_logging()
+    init_stderr_logging()
+    assert len(root.handlers) == 1
+
+
+class _C040App(LoggingArgs, Cmd):
+    def __call__(self):
+        return 0
+
+
+def test_main_setup_logging_does_not_stack_handlers_across_repeated_calls(
+    _clean_root_logger,
+):
+    root = _clean_root_logger
+    root.handlers[:] = []
+    duho.main(_C040App, [])
+    count = len(root.handlers)
+    duho.main(_C040App, [])
+    assert len(root.handlers) == count == 1
+
+
+# --------------------------------------------------------------------------
+# C042: _set_loglevels_ must call the (possibly overridden) bound
+# `_verbose_loglevel_`, not hard-code LoggingArgs's own implementation.
+# --------------------------------------------------------------------------
+
+
+class _C042Override(LoggingArgs, Cmd):
+    def __call__(self):
+        return 0
+
+    def _verbose_loglevel_(self):
+        return logging.ERROR
+
+
+def test_set_loglevels_honors_a_verbose_loglevel_override():
+    parser = _C042Override._parser_()
+    ns = parser.parse_args([])
+    loglevels = ns._set_loglevels_()
+    assert loglevels[ns._logger_.name] == logging.ERROR
+
+
+# --------------------------------------------------------------------------
+# C045: duho.logging's forwarding __getattr__ must not masquerade as stdlib
+# logging for dunders (__path__ made it look like a real package).
+# --------------------------------------------------------------------------
+
+
+def test_duho_logging_getattr_rejects_dunders_and_private_names():
+    import duho.logging as duho_logging_mod
+
+    with pytest.raises(AttributeError):
+        duho_logging_mod.__path__
+    with pytest.raises(AttributeError):
+        getattr(duho_logging_mod, "_srcfile")
+    # Public stdlib names still forward correctly.
+    assert duho_logging_mod.getLogger is logging.getLogger

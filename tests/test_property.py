@@ -9,10 +9,11 @@ Four families of invariants:
   the product of the range sizes and match a naive reference implementation.
 * **text.snakecase** -- output is a lower-case ``[a-z0-9_]*`` string for
   ASCII-identifier inputs (C13).
-* **parse_loglevels** -- never raises on separator soup and returns a well-shaped
-  mapping.
+* **parse_loglevels** -- separator soup either shapes into a well-formed
+  mapping or raises ``argparse.ArgumentTypeError`` cleanly; nothing else.
 """
 
+import argparse
 import importlib.util
 import keyword
 import re
@@ -311,8 +312,18 @@ def test_snakecase_lowercases_all_letters(name):
 
 @settings(deadline=None, max_examples=200)
 @given(text=st.text(alphabet=string.ascii_letters + string.digits + ":,", max_size=30))
-def test_parse_loglevels_never_raises_and_shapes(text):
-    result = parse_loglevels(text)
+def test_parse_loglevels_shapes_or_raises_cleanly(text):
+    """C009: an entry that doesn't resolve to a known level name (matched
+    case-insensitively) or an integer now raises
+    ``argparse.ArgumentTypeError`` -- so argparse reports it as a normal
+    "invalid value" usage error -- instead of silently vanishing from the
+    result. Every input therefore either produces a well-shaped dict or
+    raises that one specific, documented exception; nothing else.
+    """
+    try:
+        result = parse_loglevels(text)
+    except argparse.ArgumentTypeError:
+        return
     assert isinstance(result, dict)
     for key, value in result.items():
         assert isinstance(key, str)

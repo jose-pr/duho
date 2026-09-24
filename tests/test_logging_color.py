@@ -3,15 +3,31 @@
 Covers the named-color resolution path (M9): a single ``"red"`` spec and the
 compound ``"red+white"`` fore+back spec both resolve through colorama, and a
 missing colorama degrades to plain (empty) output without crashing.
+
+Also covers C043 (colorama's ``"..._EX"`` bright color names) and C010
+(``init_stderr_logging`` gates ANSI on NO_COLOR/FORCE_COLOR/TTY the same way
+the ``--help`` formatters do, instead of always emitting escape codes).
 """
 
+import io
 import logging
 
 import pytest
 
 import duho.logging as duho_logging
-from duho import add_logging_level
+from duho import add_logging_level, init_stderr_logging
 from duho.logging import DefaultFormatter, _getcolor
+
+
+class _FakeStream(io.StringIO):
+    """A stream whose ``isatty()`` is controllable, unlike a plain StringIO."""
+
+    def __init__(self, isatty=True):
+        super().__init__()
+        self._isatty = isatty
+
+    def isatty(self):
+        return self._isatty
 
 
 def _make_record(level, name="COLORLVL"):
@@ -73,3 +89,73 @@ def test_add_logging_level_missing_colorama_no_crash(monkeypatch):
     formatted = DefaultFormatter("%(levelname)s").format(_make_record(level))
     # No ANSI wrapping when the color resolved to empty.
     assert "\033[" not in formatted
+
+
+def test_getcolor_bright_ex_name_resolves_with_colorama():
+    """C043: colorama's "_EX" bright variants must resolve as NAMES, not be
+    passed through verbatim as literal text (they contain "_", which the old
+    `color.isalpha()` check rejected)."""
+    colorama = pytest.importorskip("colorama")
+    assert _getcolor("lightred_ex") == colorama.Fore.LIGHTRED_EX
+
+
+def test_getcolor_unresolvable_name_is_empty_not_verbatim():
+    pytest.importorskip("colorama")
+    assert _getcolor("not_a_real_color_ex") == ""
+
+
+def _cleanup_logger(name):
+    logger = logging.getLogger(name)
+    logger.handlers[:] = []
+    logger.setLevel(logging.NOTSET)
+
+
+def test_init_stderr_logging_respects_no_color(monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("sys.stderr", _FakeStream(isatty=True))
+    try:
+        logger = init_stderr_logging("t_c010_no_color")
+        rec = logging.LogRecord("t", logging.WARNING, __file__, 1, "hi", (), None)
+        formatted = logger.handlers[-1].format(rec)
+        assert "\033[" not in formatted
+    finally:
+        _cleanup_logger("t_c010_no_color")
+
+
+def test_init_stderr_logging_respects_force_color_on_a_non_tty(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setattr("sys.stderr", _FakeStream(isatty=False))
+    try:
+        logger = init_stderr_logging("t_c010_force_color")
+        rec = logging.LogRecord("t", logging.WARNING, __file__, 1, "hi", (), None)
+        formatted = logger.handlers[-1].format(rec)
+        assert "\033[" in formatted
+    finally:
+        _cleanup_logger("t_c010_force_color")
+
+
+def test_init_stderr_logging_no_color_on_a_plain_non_tty_stream(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setattr("sys.stderr", _FakeStream(isatty=False))
+    try:
+        logger = init_stderr_logging("t_c010_plain")
+        rec = logging.LogRecord("t", logging.WARNING, __file__, 1, "hi", (), None)
+        formatted = logger.handlers[-1].format(rec)
+        assert "\033[" not in formatted
+    finally:
+        _cleanup_logger("t_c010_plain")
+
+
+def test_init_stderr_logging_fixes_the_windows_console_when_color_is_on(monkeypatch):
+    colorama = pytest.importorskip("colorama")
+    calls = []
+    monkeypatch.setattr(colorama, "just_fix_windows_console", lambda: calls.append(1))
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setattr("sys.stderr", _FakeStream(isatty=False))
+    try:
+        init_stderr_logging("t_c010_win_console")
+        assert calls == [1]
+    finally:
+        _cleanup_logger("t_c010_win_console")

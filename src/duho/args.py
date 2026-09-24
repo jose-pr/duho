@@ -46,6 +46,27 @@ _duho_explicit_instance_fields: "dict[int, frozenset]" = {}
 if _ty.TYPE_CHECKING:
     from typing_extensions import Self as _Self  # type: ignore
 
+    class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
+        """Type-checking-only view of the parser ``_parser_`` returns: an
+        ``ArgumentParser`` whose ``parse_args``/``parse_known_args`` are typed
+        as returning ``_T`` (the constructed ``Args``/``Cmd`` instance) instead
+        of a bare ``Namespace``. Never instantiated -- every real parser is a
+        plain ``argparse.ArgumentParser`` with ``parse_known_args`` patched in
+        place (see ``Args._initparser_``); this class exists only so
+        ``-> "_Parser[_Self]"`` return annotations and the one
+        ``typing.cast("_Parser[_Self]", ...)`` describe that shape to a type
+        checker, referenced exclusively through quoted annotations that are
+        never evaluated at runtime."""
+
+        def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type: ignore
+            raise NotImplementedError()
+
+        def parse_known_args(  # type: ignore
+            self, args=None, namespace: "_T | None" = None
+        ) -> tuple[_T, list[str]]:
+            raise NotImplementedError()
+
+
 _type = type
 
 _T = _ty.TypeVar("_T")
@@ -2416,16 +2437,6 @@ class ArgumentBuilder(_argparse.Namespace):
         return NOT_DEFINED
 
 
-class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
-    def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type: ignore
-        raise NotImplementedError()
-
-    def parse_known_args(  # type: ignore
-        self, args=None, namespace: "_T | None" = None
-    ) -> tuple[_T, list[str]]:
-        raise NotImplementedError()
-
-
 #: `nargs` values that make a positional variable-arity -- the shape that
 #: triggers argparse's greedy positional-run-matching papercut (bpo-15112)
 #: when ANOTHER positional sits in the same parser. Verified this session
@@ -2594,16 +2605,10 @@ def _reorder_argv_for_variadic_positional(
             continue
 
         if action is not None:
-            zero_value_action = action.nargs == 0 or isinstance(
-                action,
-                (
-                    _argparse._StoreTrueAction,
-                    _argparse._StoreFalseAction,
-                    _argparse._CountAction,
-                    _argparse._HelpAction,
-                ),
-            )
-            if zero_value_action:
+            # Every zero-value action class (store_true/store_false/count/help)
+            # already reports `nargs == 0` -- no need to also isinstance-check
+            # the specific classes.
+            if action.nargs == 0:
                 flags.append(token)
                 i += 1
                 continue
@@ -2849,7 +2854,6 @@ class Args(_argparse.Namespace):
         subparser: "_argparse._SubParsersAction | None" = None,
         name: "str | None" = None,  # type: ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
-        init=True,
         _inherited_formatter_class_=None,
         _inherited_agent_root_cls_=None,
         **kwargs,
@@ -2862,11 +2866,10 @@ class Args(_argparse.Namespace):
         ``ArgumentParser`` the same way. Registers every declared field
         (:meth:`_getargs_`) plus ``-h``/``--version``/``--print-completion``
         and, if any, the ``_subcommands_`` tree, then calls
-        :meth:`_initparser_` (skipped when ``init=False``) to add them.
-        Override to customize parser construction itself (e.g. a shared
-        ``formatter_class``); override :meth:`_initparser_` instead to add
-        parser-level configuration that doesn't change how the parser object
-        is created.
+        :meth:`_initparser_` to add them. Override to customize parser
+        construction itself (e.g. a shared ``formatter_class``); override
+        :meth:`_initparser_` instead to add parser-level configuration that
+        doesn't change how the parser object is created.
         """
         if subparser:
             method = subparser.add_parser
@@ -2970,14 +2973,13 @@ class Args(_argparse.Namespace):
                 method(name, parents=list(parents), **kwargs),
             )
 
-            if init:
-                cls._initparser_(
-                    parser,
-                    is_subcommand=bool(subparser),
-                    parent_dests=parent_dests,
-                    explicit_prog=explicit_prog,
-                    agent_root_cls=agent_root_cls,
-                )
+            cls._initparser_(
+                parser,
+                is_subcommand=bool(subparser),
+                parent_dests=parent_dests,
+                explicit_prog=explicit_prog,
+                agent_root_cls=agent_root_cls,
+            )
 
             # A private, sandwich-named dest -- never a name a
             # user field could plausibly declare -- so a root field literally
@@ -3033,9 +3035,9 @@ class Args(_argparse.Namespace):
     ):
         """Populate an already-created ``parser`` with this class's own fields.
 
-        Called by :meth:`_parser_` right after creating/attaching the parser
-        (unless it was built with ``init=False``): adds each declared
-        field's argument (respecting ``NS(group=...)``/``NS(conflicts=...)``
+        Called by :meth:`_parser_` right after creating/attaching the parser:
+        adds each declared field's argument (respecting
+        ``NS(group=...)``/``NS(conflicts=...)``
         titled/mutually-exclusive groups), patches ``parse_known_args`` to
         build the final ``Args``/``Cmd`` instance from the raw ``Namespace``,
         and -- for a non-subcommand root -- injects ``--print-completion``

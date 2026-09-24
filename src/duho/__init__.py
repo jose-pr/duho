@@ -4,6 +4,8 @@ Build command-line applications with minimal boilerplate by declaring
 your arguments and commands as Python classes.
 """
 
+import typing as _ty
+
 from .args import (
     Append,
     Args,
@@ -30,7 +32,6 @@ from .args import (
     value_sources,
 )
 from .args import _A as _A
-from .args import _Parser as _Parser
 from .discovery import (
     CmdBuilder,
     Command,
@@ -55,6 +56,9 @@ from .presets import LoggingArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run_command
 from .text import camelcase, expand, gettext, pysafe, snakecase
+
+if _ty.TYPE_CHECKING:
+    from .args import _Parser as _Parser
 
 __version__ = "0.5.4"
 

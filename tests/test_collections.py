@@ -200,3 +200,26 @@ class ExplicitNargsStarArgs(Args):
 def test_set_option_explicit_nargs_star_restores_space_separated():
     inst = duho.parse(ExplicitNargsStarArgs, ["--s", "1", "2", "2"])
     assert inst.s == {1, 2}
+
+
+class ExplicitListNargsStarArgs(Args):
+    """Same explicit `NS(nargs="*")` opt-back, on a `list[T]` field this
+    time (R044 fix-readiness pin): only `set[T]` was ever exercised, so the
+    `list[T]` option silently downgrades to `action="append"` (finding
+    args.py:836, owned by 27_review_fixes/04) and nests instead of
+    flattening. README.md:118 also misdescribes this option as
+    `action="extend"`. Un-xfail this once 04 lands its fix."""
+
+    xs: "Arg[list[str], NS(nargs='*')]"
+    ("--xs",)
+
+
+@pytest.mark.xfail(
+    reason="args.py:836 (finding A-list-nargs, owned by 04_args_collections_shape): "
+    "an explicit NS(nargs='*') on list[T] downgrades to action='append' and "
+    "nests instead of flattening -- R044 fix-readiness pin, un-xfail with 04's fix",
+    strict=True,
+)
+def test_list_option_explicit_nargs_star_restores_space_separated():
+    inst = duho.parse(ExplicitListNargsStarArgs, ["--xs", "a", "b", "--xs", "c"])
+    assert inst.xs == ["a", "b", "c"]

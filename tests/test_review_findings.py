@@ -35,9 +35,28 @@ def test_docstring_percent_does_not_crash_parser_build():
     parser = _PercentApp._parser_()
     text = parser.format_help()
     assert parser is not None
-    # The subcommand help renders the literal text (argparse un-escapes %%).
+    # argparse only %-unescapes `help=` text (subcommand listing), never
+    # `description=` (a standalone command's own --help uses description=).
+    # A loose "%files" substring check passes even on a doubled "%%files",
+    # which is what the subcommand's own help renders below (R044
+    # fix-readiness pin) -- assert the exact line instead.
+    assert "RPM %files list" in text
+
+
+@pytest.mark.xfail(
+    reason="args.py:1492 (finding A029-adjacent %-escaping, owned by whichever "
+    "plan touches _initparser_'s description= construction): the same "
+    "'%' -> '%%' escaping meant for argparse's help= interpolation is also "
+    "applied to a class's own description=, which argparse never "
+    "%-interpolates -- a standalone command's own --help shows a doubled "
+    "'%%files'. R044 fix-readiness pin; un-xfail once that escaping is "
+    "scoped to help= only.",
+    strict=True,
+)
+def test_own_percent_help_is_not_doubled():
     sub_help = _PercentDoc._parser_().format_help()
-    assert "%files" in sub_help
+    assert "RPM %files list" in sub_help
+    assert "%%" not in sub_help
 
 
 def test_docstring_percent_help_runs():

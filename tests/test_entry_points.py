@@ -19,6 +19,7 @@ import textwrap
 import pytest
 
 import duho
+from duho import _compat
 
 # A plugin module exposing a class command (a Cmd subclass) and a module-command
 # entrypoint, plus a broken entry-point target that does not exist.
@@ -122,6 +123,40 @@ def test_app_dispatches_module_command_plugin(fake_plugins):
 
 def test_missing_group_yields_no_commands():
     assert duho.discover_entry_points("duho_no_such_group_zzz.commands") == []
+
+
+def test_duplicated_distribution_dedupes_entry_points(tmp_path, monkeypatch):
+    """C035: a distribution visible TWICE on sys.path (user site + venv, a
+    stray checkout's ``.egg-info``/``.dist-info`` on ``PYTHONPATH``) used to
+    return every entry point twice on Python 3.9 only -- 3.10+'s own
+    ``entry_points()`` already de-duplicates by distribution name. Doubled
+    entry points also made ``duho.app`` log a spurious "registered by more
+    than one source" WARNING on every invocation, help included."""
+    module_name = "duho_test_plugin_dup_mod"
+    site_a = tmp_path / "site_a"
+    site_b = tmp_path / "site_b"
+    site_a.mkdir()
+    site_b.mkdir()
+    entry_points_txt = f"""\
+        [{_GROUP}]
+        hello = {module_name}:HelloCmd
+        """
+    # Two copies of the SAME distribution (same normalized name + version),
+    # each on its own sys.path entry.
+    _install_fake_distribution(site_a, module_name, entry_points_txt)
+    _install_fake_distribution(site_b, module_name, entry_points_txt)
+
+    monkeypatch.syspath_prepend(str(site_b))
+    monkeypatch.syspath_prepend(str(site_a))
+    importlib.invalidate_caches()
+    try:
+        entry_points = _compat.iter_entry_points(_GROUP)
+        assert sorted(ep.name for ep in entry_points) == ["hello"]  # not doubled
+
+        commands = duho.discover_entry_points(_GROUP)
+        assert sorted(duho.discovery._command_name(c) for c in commands) == ["hello"]
+    finally:
+        sys.modules.pop(module_name, None)
 
 
 def test_entry_points_lazy_import():

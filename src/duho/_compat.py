@@ -27,7 +27,8 @@ BOOL_FALSE: frozenset = frozenset({"0", "false", "no", "off", "n", "f", ""})
 def get_level_names_mapping() -> dict[str, int]:
     """Get mapping of level names to level integers.
 
-    Fallback for Python < 3.10 which lacks getLevelNamesMapping.
+    Fallback for Python < 3.11, which lacks getLevelNamesMapping (added in
+    3.11, not 3.10 -- C063).
     """
     if hasattr(_logging, "getLevelNamesMapping"):
         return _logging.getLevelNamesMapping()
@@ -40,9 +41,20 @@ def iter_entry_points(group: str) -> "list":
     Bridges the two ``importlib.metadata.entry_points`` shapes:
 
     * **3.10+** -- ``entry_points(group=...)`` accepts a ``group`` keyword and
-      returns a selectable view of the matching entry points.
-    * **3.9** -- ``entry_points()`` takes no arguments and returns a ``dict``
-      keyed by group name; select ``group`` out of it.
+      returns a selectable view of the matching entry points, already
+      de-duplicated by distribution: when the same distribution name is
+      visible more than once on ``sys.path`` (user site + venv, a stray
+      ``.egg-info``/``.dist-info`` left in the CWD or on ``PYTHONPATH``), only
+      the first copy found contributes its entry points.
+    * **3.9** -- ``entry_points()`` takes no arguments, returns a plain
+      ``dict`` keyed by group name, and does NOT de-duplicate by
+      distribution. Left as-is, a duplicated distribution returned every
+      entry point twice, which made ``duho.app``'s M6 collision registry log
+      a bogus "registered by more than one source" WARNING on every
+      invocation, help included (C035). Mirrors 3.10+'s own dedup here:
+      iterate distributions directly, skip one whose normalized name was
+      already seen (first copy on ``sys.path`` wins, matching 3.10+), and
+      collect only the matching group's entry points from what's left.
 
     ``importlib.metadata`` is imported lazily *inside* this helper (never at
     module top) so a plain ``import duho`` never pays its import cost -- only an
@@ -54,8 +66,22 @@ def iter_entry_points(group: str) -> "list":
     try:
         return list(_md.entry_points(group=group))
     except TypeError:
-        # Python 3.9: entry_points() takes no kwargs and returns {group: [...]}.
-        return list(_md.entry_points().get(group, []))
+        # Python 3.9 fallback (see docstring above).
+        import re as _re
+
+        seen_names: "set[str]" = set()
+        result: "list" = []
+        for dist in _md.distributions():
+            name = (dist.metadata or {}).get("Name")
+            if name:
+                normalized = _re.sub(r"[-_.]+", "-", name).lower()
+                if normalized in seen_names:
+                    continue
+                seen_names.add(normalized)
+            for ep in dist.entry_points:
+                if ep.group == group:
+                    result.append(ep)
+        return result
 
 
 __all__ = [

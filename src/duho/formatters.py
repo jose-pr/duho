@@ -97,16 +97,16 @@ class ColorHelpFormatter(_argparse.HelpFormatter):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._duho_color = _color_enabled()
+        self._duho_color_ = _color_enabled()
 
     def start_section(self, heading):
-        if self._duho_color and heading is not None:
+        if self._duho_color_ and heading is not None:
             heading = f"{_HEADING_CODE}{heading}{_RESET}"
         super().start_section(heading)
 
     def _format_action_invocation(self, action):
         text = super()._format_action_invocation(action)
-        if self._duho_color and text:
+        if self._duho_color_ and text:
             return f"{_FLAG_CODE}{text}{_RESET}"
         return text
 

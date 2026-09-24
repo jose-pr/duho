@@ -22,6 +22,25 @@ from . import _compat as _compat
 
 _T = _ty.TypeVar("_T")
 
+#: Alias for the builtin, used in annotations that live in the SAME class body
+#: as a method named ``bool`` (see :meth:`Env.bool`). Under PEP 649 lazy
+#: annotations (Python 3.14+), an UNQUOTED ``bool`` written directly in that
+#: class body would resolve to the class-scope name -- the ``Env.bool`` method
+#: itself -- rather than the builtin type, because the annotate function's
+#: scope sees the class namespace being built. Referencing this module-level
+#: alias instead sidesteps the shadow entirely, on every Python version.
+_bool = bool
+
+#: A prefix is only ever auto-loaded as a companion-module name after this
+#: matches its NORMALISED form (upper-cased, ``-`` -> ``_``, trailing ``_``
+#: ensured -- see ``__init__``). Restricting autoload to ``[A-Za-z0-9_]``
+#: keeps a dotted prefix like ``"my.app"`` (normalised to ``"MY.APP_"``) from
+#: importing an unrelated top-level package (``my``) while looking for
+#: ``my.app_env`` (D053).
+_VALID_PREFIX_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+)
+
 __all__ = ["Env"]
 
 
@@ -47,10 +66,30 @@ class Env(_abc.MutableMapping):
     ``sys.path`` (which normally includes the current working directory), so a
     hostile ``<prefix>env.py`` in the CWD would run its module body. Pass
     ``autoload=False`` to disable the import entirely if the prefix is not fully
-    under your control.
+    under your control. Autoload is skipped outright (no import attempted) for
+    an EMPTY prefix -- ``Env("")`` would otherwise autoload a top-level module
+    literally named ``env``, a very common name for a project's own settings
+    module -- and for a prefix whose normalised form contains any character
+    outside ``[A-Za-z0-9_]`` (e.g. ``Env("my.app")``, which would otherwise
+    import the unrelated top-level package ``my`` while resolving
+    ``my.app_env``). Only the companion module's OWN absence is swallowed: an
+    ``ImportError``/``ModuleNotFoundError`` raised *by code inside* an existing
+    companion module (a typo, or a stdlib module missing on the 3.9 floor such
+    as ``tomllib``) propagates instead of silently dropping every shipped
+    default.
+
+    **``MutableMapping`` semantics.** ``del env[key]`` / ``env.pop(key)`` on a
+    key served from ``os.environ`` or the companion defaults records an
+    in-object tombstone -- it is NEVER written back to the real process
+    environment -- so the key reads as absent for the rest of this ``Env``'s
+    lifetime (until an explicit ``env[key] = value`` write clears the
+    tombstone again). This keeps the stdlib ``MutableMapping`` mixins
+    (``pop``/``popitem``/``clear``, all built on ``__delitem__``+``__iter__``)
+    internally consistent: a key that is ``in`` the mapping can always be
+    ``pop()``-ed, and ``clear()`` always empties it.
     """
 
-    def __init__(self, prefix: str, autoload: bool = True, **env: object) -> None:
+    def __init__(self, prefix: str, autoload: _bool = True, **env: object) -> None:
         prefix = prefix.upper().replace("-", "_")
         if prefix and not prefix.endswith("_"):
             prefix += "_"
@@ -66,13 +105,28 @@ class Env(_abc.MutableMapping):
         #: Kept separate from `self._env` so `__getitem__` can consult
         #: `os.environ` BEFORE falling back to this layer.
         self._defaults: "dict[str, object]" = {}
-        if autoload:
+        #: Tombstones: keys explicitly `del`eted that are still visible via
+        #: `os.environ`/`self._defaults` (an override in `self._env` is
+        #: removed outright instead -- see `__delitem__`). Makes the
+        #: `MutableMapping` surface (`pop`/`clear`/`popitem`/`in`) consistent
+        #: WITHOUT ever mutating the real process environment (D054).
+        self._deleted: "set[str]" = set()
+        if autoload and prefix and _VALID_PREFIX_CHARS.issuperset(prefix):
+            modname = f"{prefix.lower()}env"
             try:
-                module = _importlib.import_module(f"{prefix.lower()}env")
-            except ImportError:
-                # A missing companion module is normal, not an error: an app may
-                # or may not ship a "<prefix>env.py" of defaults.
-                pass
+                module = _importlib.import_module(modname)
+            except ModuleNotFoundError as exc:
+                # A missing companion module is normal, not an error: an app
+                # may or may not ship a "<prefix>env.py" of defaults. Narrowed
+                # to the companion's OWN absence (its name, or a missing
+                # PARENT package of it for a dotted prefix) -- anything else
+                # (a plain `ImportError`, or a `ModuleNotFoundError` for some
+                # OTHER name raised by code inside an existing companion
+                # module) propagates instead of silently discarding every
+                # shipped default (D028).
+                missing = exc.name or ""
+                if missing != modname and not modname.startswith(missing + "."):
+                    raise
             else:
                 for key, value in vars(module).items():
                     # Only real settings: skip dunders/private and lower-case
@@ -88,6 +142,8 @@ class Env(_abc.MutableMapping):
     def __getitem__(self, key: str) -> str:
         if key in self._env:
             return self._env[key]
+        if key in self._deleted:
+            raise KeyError(key)
         envkey = f"{self.prefix}{key}"
         if envkey in _os.environ:
             return _os.environ[envkey]
@@ -95,9 +151,28 @@ class Env(_abc.MutableMapping):
 
     def __setitem__(self, key: str, value: object) -> None:
         self._env[key] = str(value)
+        # A fresh explicit write always un-deletes: setting a key back after
+        # `del env[key]` must make it visible again.
+        self._deleted.discard(key)
 
     def __delitem__(self, key: str) -> None:
-        del self._env[key]
+        if key in self._env:
+            del self._env[key]
+            return
+        # Not an explicit override: this key (if it exists at all) is served
+        # from `os.environ`/`self._defaults`. NEVER mutate the real process
+        # environment -- record a tombstone that `__getitem__`/`__iter__`
+        # honour instead, so `pop()`/`clear()`/`popitem()` (the stdlib
+        # `MutableMapping` mixins, built on `__delitem__`+`__iter__`) see the
+        # key as gone without touching `os.environ` (D054). Raise `KeyError`
+        # only when the key is not visible from ANY layer, matching a normal
+        # mapping's `del`.
+        envkey = f"{self.prefix}{key}"
+        if key in self._deleted or (
+            envkey not in _os.environ and key not in self._defaults
+        ):
+            raise KeyError(key)
+        self._deleted.add(key)
 
     def __iter__(self) -> "_ty.Iterator[str]":
         seen: "set[str]" = set()
@@ -107,11 +182,11 @@ class Env(_abc.MutableMapping):
         for key in _os.environ:
             if key.startswith(self.prefix):
                 stripped = key[len(self.prefix) :]
-                if stripped not in seen:
+                if stripped not in seen and stripped not in self._deleted:
                     seen.add(stripped)
                     yield stripped
         for key in self._defaults:
-            if key not in seen:
+            if key not in seen and key not in self._deleted:
                 yield key
 
     def __len__(self) -> int:
@@ -120,7 +195,7 @@ class Env(_abc.MutableMapping):
 
     # -- Typed accessors --------------------------------------------------
 
-    def bool(self, key: str) -> bool:
+    def bool(self, key: str) -> _bool:
         """Return ``key`` interpreted as a boolean.
 
         Truthy values (case-insensitive, whitespace-stripped) are
@@ -160,6 +235,23 @@ class Env(_abc.MutableMapping):
         separator when set (``sep = os.environ.get("PATHSEP") or os.pathsep``),
         so a caller can force a separator regardless of platform. Missing/empty
         yields ``[]``, exactly like :meth:`list`.
+
+        An empty or whitespace-only SEGMENT -- from a leading, trailing, or
+        doubled separator (the common ``X="$X:/extra"`` append idiom run while
+        ``X`` was unset) -- is dropped BEFORE ``ty`` ever sees it, and is never
+        treated as the current directory. This is deliberately unlike POSIX
+        ``$PATH``, where an empty entry means the CWD: here, an empty CMDS_PATH
+        segment used to become ``ty("")`` -- ``Path("")`` is ``Path(".")`` --
+        which glob-imported and executed every file in the CWD (D001/security).
+        A caller who genuinely wants the current directory writes it
+        explicitly as a ``"."`` segment, which IS still honoured. Note this
+        method does NOT delegate to :meth:`list` -- ``list``'s generic contract
+        (arbitrary ``sep``/``ty``, e.g. ``env.list("PORTS", ty=int)``) is left
+        unchanged, since dropping empty items there is a separate, unrelated
+        decision for non-path lists.
         """
         sep = _os.environ.get("PATHSEP") or _os.pathsep
-        return self.list(key, sep=sep, ty=ty)
+        raw = self.get(key, "")
+        if not raw:
+            return []
+        return [ty(part) for part in raw.split(sep) if part.strip()]

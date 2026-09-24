@@ -1,5 +1,6 @@
 """Tests for duho.env.Env (prefixed environment accessor)."""
 
+import os as _os
 import pathlib
 
 import pytest
@@ -156,6 +157,44 @@ class TestPaths:
         monkeypatch.delenv("MA_CMDS_PATH", raising=False)
         assert Env("ma").paths("CMDS_PATH") == []
 
+    def test_empty_segments_are_dropped_leading_trailing_doubled(self, monkeypatch):
+        """D001 (security): a leading, trailing, or doubled separator must NOT
+        produce an empty path segment. An empty segment used to become
+        ``ty("")`` -- ``Path("")`` is ``Path(".")`` -- silently meaning the
+        current directory (unlike here; unlike POSIX ``$PATH`` too). On this
+        box ``os.pathsep`` is ``;``; the assertions don't hard-code it.
+        """
+        import os
+
+        monkeypatch.delenv("PATHSEP", raising=False)
+        sep = os.pathsep
+        real = "/real/cmds"
+        cases = {
+            "leading": f"{sep}{real}",
+            "trailing": f"{real}{sep}",
+            "doubled": f"{real}{sep}{sep}{real}",
+            "only_sep": sep,
+            "only_sep_x2": sep + sep,
+        }
+        for label, value in cases.items():
+            monkeypatch.setenv("MA_CMDS_PATH", value)
+            result = Env("ma").paths("CMDS_PATH", ty=pathlib.Path)
+            assert pathlib.Path("") not in result, f"{label}: {result!r}"
+            assert pathlib.Path(".") not in result, f"{label}: {result!r}"
+        # The real path is still recovered from the leading/trailing/doubled
+        # cases (only the empty segments are dropped, not the real one).
+        monkeypatch.setenv("MA_CMDS_PATH", f"{sep}{real}{sep}")
+        assert Env("ma").paths("CMDS_PATH") == [real]
+        # The separator-only cases yield nothing at all.
+        monkeypatch.setenv("MA_CMDS_PATH", sep)
+        assert Env("ma").paths("CMDS_PATH") == []
+
+    def test_explicit_dot_segment_is_still_honored(self, monkeypatch):
+        """Unlike an EMPTY segment, an explicit '.' segment is real content
+        and must still be returned -- dropping empties must not overreach."""
+        monkeypatch.setenv("MA_CMDS_PATH", ".")
+        assert Env("ma").paths("CMDS_PATH", ty=pathlib.Path) == [pathlib.Path(".")]
+
 
 class TestIterAndLen:
     def test_iter_dedupes_env_over_environ(self, monkeypatch):
@@ -210,26 +249,50 @@ class TestMappingProtocol:
         e = Env("ma")
         assert e.pop("NOPE", "fallback") == "fallback"
 
-    def test_pop_environ_backed_key_is_read_only(self, monkeypatch):
-        """environ is a read-only underlay: pop of an environ-only key raises.
+    def test_pop_environ_backed_key_tombstones_without_touching_os_environ(
+        self, monkeypatch
+    ):
+        """``pop()`` on an environ-backed key succeeds via an in-object tombstone.
 
-        ``__delitem__`` only removes from the local store, so
-        ``MutableMapping.pop`` (which reads then deletes) reads the environ value
-        successfully but the delete raises ``KeyError`` -- the environ layer is
-        not mutable through ``Env``. This documents the 01-D2 decision: only keys
-        set locally (kwargs / ``__setitem__``) are pop-able.
+        The real process environment is never mutated: ``os.environ`` still has
+        the key afterward, but THIS ``Env`` no longer reports it -- until a fresh
+        explicit write clears the tombstone again.
         """
         monkeypatch.setenv("MA_HOST", "example.com")
         e = Env("ma")
         assert e["HOST"] == "example.com"  # readable
+        assert e.pop("HOST", "dflt") == "example.com"
+        assert "HOST" not in e
+        assert _os.environ["MA_HOST"] == "example.com"  # os.environ untouched
         with pytest.raises(KeyError):
-            e.pop("HOST", "dflt")  # but not deletable/poppable
+            e["HOST"]
+        # An explicit write after the tombstone makes the key visible again.
+        e["HOST"] = "again"
+        assert e["HOST"] == "again"
+
+    def test_pop_missing_entirely_raises(self):
+        """A key absent from every layer still raises, tombstone or not."""
+        e = Env("ma", autoload=False)
+        with pytest.raises(KeyError):
+            e.pop("NOPE")
 
     def test_popitem_removes_a_seeded_pair(self):
         e = Env("ma", ONLY="one")
         key, value = e.popitem()
         assert (key, value) == ("ONLY", "one")
         assert "ONLY" not in e
+
+    def test_clear_empties_an_environ_backed_env(self, monkeypatch):
+        """``clear()`` must actually empty the mapping, environ-backed keys included."""
+        monkeypatch.setenv("MA_HOST", "example.com")
+        monkeypatch.setenv("MA_PORT", "8080")
+        e = Env("ma", LOCAL="1")
+        assert len(e) == 3
+        e.clear()
+        assert len(e) == 0
+        assert list(e) == []
+        # os.environ itself is untouched.
+        assert _os.environ["MA_HOST"] == "example.com"
 
     def test_iteration_after_seeding_dedupes(self, monkeypatch):
         monkeypatch.setenv("MA_FROM_ENVIRON", "1")
@@ -313,3 +376,88 @@ class TestCompanionModuleAutoload:
         monkeypatch.syspath_prepend(str(tmp_path))
         e = Env("precd")
         assert "ONLYMODULE" in list(e)
+
+    def test_broken_companion_module_import_error_propagates(
+        self, monkeypatch, tmp_path
+    ):
+        """D028: an ImportError raised INSIDE an existing companion module
+        (not the companion's own absence) must propagate, not be swallowed.
+
+        ``from os import no_such_name`` raises a plain ``ImportError`` (not a
+        ``ModuleNotFoundError`` for the companion's own name), so the narrowed
+        ``except ModuleNotFoundError`` in ``Env.__init__`` never catches it.
+        """
+        module = tmp_path / "prece_env.py"
+        module.write_text("from os import no_such_name_at_all\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        with pytest.raises(ImportError):
+            Env("prece")
+
+    def test_broken_companion_module_missing_dependency_propagates(
+        self, monkeypatch, tmp_path
+    ):
+        """D028: a companion module's OWN failed import (e.g. a stdlib module
+        missing on the 3.9 floor, or any other missing dependency) must
+        propagate -- it is a different name than the companion module itself,
+        so it is not mistaken for "no companion module shipped"."""
+        module = tmp_path / "precf_env.py"
+        module.write_text("import duho_totally_missing_dep_xyz\nDEBUG = '1'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        with pytest.raises(ModuleNotFoundError):
+            Env("precf")
+
+
+class TestAutoloadSkippedForUnsafePrefix:
+    """D053: autoload never runs for a prefix that would import something
+    other than a genuine ``<prefix>env`` companion module."""
+
+    def test_empty_prefix_does_not_autoload(self, monkeypatch, tmp_path):
+        """``Env("")`` must NOT import a bare top-level ``env`` module -- a
+        very common name for a project's own settings module."""
+        module = tmp_path / "env.py"
+        module.write_text("SIDE_EFFECT = True\nDEBUG = 'yes'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        import sys
+
+        monkeypatch.delitem(sys.modules, "env", raising=False)
+        e = Env("")
+        assert "env" not in sys.modules
+        assert e._defaults == {}
+
+    def test_dotted_prefix_does_not_autoload(self, monkeypatch, tmp_path):
+        """``Env("my.app")`` must NOT import the unrelated top-level package
+        ``my`` while looking for ``my.app_env`` -- the dot survives prefix
+        normalisation (only ``-`` is replaced), so this is a real risk."""
+        pkg = tmp_path / "my"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("SIDE_EFFECT = True\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        import sys
+
+        monkeypatch.delitem(sys.modules, "my", raising=False)
+        e = Env("my.app")
+        assert "my" not in sys.modules
+        assert e._defaults == {}
+
+    def test_plain_prefix_still_autoloads(self, monkeypatch, tmp_path):
+        """Sanity check: a normal, valid prefix is unaffected by the guard."""
+        module = tmp_path / "plainapp_env.py"
+        module.write_text("DEBUG = 'yes'\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        e = Env("plainapp")
+        assert e["DEBUG"] == "yes"
+
+
+class TestBoolAnnotationNotShadowed:
+    """D055: on Python 3.14 (PEP 649 lazy annotations), a class body defining
+    a method named ``bool`` next to a ``bool``-typed annotation must not have
+    that annotation resolve to the method itself."""
+
+    def test_get_type_hints_resolve_to_builtin_bool(self):
+        import typing
+
+        hints = typing.get_type_hints(Env.__init__)
+        assert hints["autoload"] is bool
+
+        method_hints = typing.get_type_hints(Env.bool)
+        assert method_hints["return"] is bool

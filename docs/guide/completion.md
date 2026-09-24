@@ -66,6 +66,13 @@ The generator walks the built parser tree, so it knows everything duho knows:
 - **Paths** — a `pathlib.Path`-typed field gets the shell's native file and
   directory completion.
 
+## Known limitation
+
+bash's `compgen -W` splits a candidate word list on whitespace: a choice
+value containing a space or a quote (`"eu west"`) completes as separate
+words there. zsh and fish do not have this limitation and offer such a
+value as one candidate; PowerShell inserts it as a single quoted literal.
+
 ## Regenerating
 
 The script is a snapshot of your CLI's shape. Regenerate it when you add or

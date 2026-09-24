@@ -3151,6 +3151,21 @@ def print_agent_help(cls, file=None) -> None:
     _agenthelp.print_agent_help(cls, file=file)
 
 
+def _setup_instance_logging(instance, setup_logging: bool) -> None:
+    """Initialize stderr logging + apply verbosity for a parsed instance
+    (A072): the identical block ``duho.main`` and ``duho.app`` each ran
+    inline. A no-op unless `setup_logging` is true AND the instance provides
+    ``_set_loglevels_`` (i.e. mixes in ``LoggingArgs``); stderr logging is
+    only initialized when the root logger has no handlers yet, so a caller
+    that already configured logging is never overridden.
+    """
+    if setup_logging and hasattr(instance, "_set_loglevels_"):
+        root = _logging_module.getLogger()
+        if not root.handlers:
+            _duho_logging.init_stderr_logging()
+        instance._set_loglevels_()
+
+
 def _maybe_await(result):
     """Drive a coroutine result to completion, returning its value (F4).
 
@@ -3198,11 +3213,7 @@ def main(
     _apply_layers(parser, cls, config=config)
     instance = parser.parse_args(argv)
 
-    if setup_logging and hasattr(instance, "_set_loglevels_"):
-        root = _logging_module.getLogger()
-        if not root.handlers:
-            _duho_logging.init_stderr_logging()
-        instance._set_loglevels_()
+    _setup_instance_logging(instance, setup_logging)
 
     run = getattr(instance, "__call__", None)
     if run is None:

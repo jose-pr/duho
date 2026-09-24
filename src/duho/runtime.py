@@ -54,6 +54,7 @@ from .args import (
     _maybe_await as _maybe_await,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
     _resolve_config_dict as _resolve_config_dict,
+    _setup_instance_logging as _setup_instance_logging,
     _stash_layer_state as _stash_layer_state,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
@@ -889,11 +890,7 @@ def app(
     except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
         pass
 
-    if setup_logging and hasattr(instance, "_set_loglevels_"):
-        root_logger = _logging.getLogger()
-        if not root_logger.handlers:
-            _duho_logging.init_stderr_logging()
-        instance._set_loglevels_()  # type: ignore[attr-defined]
+    _setup_instance_logging(instance, setup_logging)
 
     # Resolve which command was selected. A class command selection yields a
     # constructed instance that IS the command (a Cmd subclass); a module command

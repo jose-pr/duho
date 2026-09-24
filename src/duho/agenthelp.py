@@ -181,13 +181,48 @@ def _choices(action, decl):
     return None
 
 
-def _describe_option(action, clsargs, builders):
+def _expand_action_help(action, prog: str) -> str:
+    """Expand ``%(default)s``-style placeholders in ``action.help``,
+    matching what argparse itself shows in ``--help``.
+
+    ``action.help`` is stored as an argparse HELP TEMPLATE (``%(default)s``,
+    ``%(prog)s``, ...), `%`-expanded by ``HelpFormatter._expand_help`` only at
+    RENDER time -- copying it verbatim (as this document otherwise would)
+    leaked the raw placeholder text (``"API token (default: %(default)s)"``)
+    into the agent document instead of the actual value. A literal ``%`` in
+    help text is ALSO escaped to ``%%`` at the source (``Args._escape_help``)
+    specifically so it survives this same expansion unharmed;
+    mirror argparse's own ``_expand_help`` (params from ``vars(action)`` plus
+    ``prog``, SUPPRESS values dropped, callables reduced to ``__name__``,
+    ``choices`` joined) with a raw (``%%``-unescaped) fallback if expansion
+    fails for any reason -- this is best-effort documentation output, never
+    something that should raise.
+    """
+    text = action.help
+    if not text:
+        return ""
+    params = dict(vars(action), prog=prog)
+    for key in list(params):
+        if params[key] is _argparse.SUPPRESS:
+            del params[key]
+    for key in list(params):
+        if hasattr(params[key], "__name__"):
+            params[key] = params[key].__name__
+    if params.get("choices") is not None:
+        params["choices"] = ", ".join(str(c) for c in params["choices"])
+    try:
+        return text % params
+    except (KeyError, ValueError, TypeError):
+        return text.replace("%%", "%")
+
+
+def _describe_option(action, clsargs, builders, prog: str):
     dest = action.dest
     builder = builders.get(dest)
     info = {
         "names": list(action.option_strings),
         "dest": dest,
-        "help": action.help or "",
+        "help": _expand_action_help(action, prog),
         "type": _type_of(dest, clsargs, action),
         "required": bool(getattr(action, "required", False)),
         "takes_value": action.nargs != 0,
@@ -205,11 +240,11 @@ def _describe_option(action, clsargs, builders):
     return info
 
 
-def _describe_positional(action, clsargs, builders):
+def _describe_positional(action, clsargs, builders, prog: str):
     dest = action.dest
     return {
         "name": dest,
-        "help": action.help or "",
+        "help": _expand_action_help(action, prog),
         "type": _type_of(dest, clsargs, action),
         "nargs": action.nargs,
         "required": action.nargs not in ("?", "*"),
@@ -326,9 +361,13 @@ def describe_parser(
         spec["name"] = name
         spec["aliases"] = list(aliases or [])
     spec["prog"] = parser.prog
-    # The stored description is ``%%``-escaped for argparse's own %-expansion
-    # (see ``Args._parser_``); un-double it for the raw agent document.
-    spec["description"] = (parser.description or "").replace("%%", "%").strip()
+    # `parser.description` holds the RAW (pre-expansion) text -- it is
+    # only ``%%``-escaped at the source when it literally contains a
+    # `%(prog)` placeholder (`Args._escape_description`), matching argparse's
+    # own rule that a description is `%`-formatted only in that same case.
+    # Un-escaping it UNCONDITIONALLY here (an earlier fix did) corrupted a
+    # description that genuinely contains a literal `%%`; read it as stored.
+    spec["description"] = (parser.description or "").strip()
     if root:
         version = None
         if cls is not None:
@@ -349,9 +388,11 @@ def describe_parser(
             subparsers_action = action
             continue
         if action.option_strings:
-            options.append(_describe_option(action, clsargs, builders))
+            options.append(_describe_option(action, clsargs, builders, parser.prog))
         else:
-            positionals.append(_describe_positional(action, clsargs, builders))
+            positionals.append(
+                _describe_positional(action, clsargs, builders, parser.prog)
+            )
     spec["options"] = options
     spec["positionals"] = positionals
     spec["conflicts"] = _conflict_groups(builders)

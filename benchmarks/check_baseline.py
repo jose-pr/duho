@@ -8,14 +8,18 @@ Measures this interpreter's gated metrics and compares them to
     median exceeds its baseline by more than ``WARM_THRESHOLD`` (1.5x);
   * **startup deltas** (duho's added cost over bare python, from
     ``bench_startup``): fail if a delta exceeds its baseline by more than
-    ``STARTUP_THRESHOLD`` (1.3x). The delta normalizes out runner speed, so a
-    tighter bound is safe.
+    ``STARTUP_THRESHOLD`` (1.3x). The delta cancels the fixed per-process
+    overhead shared by both sides of the subtraction, not the machine's clock
+    speed -- it is meaningful here only because a baseline and its comparison
+    run are both produced on the same CI runner image (see bench_startup.py).
 
 Thresholds are deliberately generous -- CI runner timing noise is real -- so a
 trip means a structural regression, not jitter. When the baseline has no entry
 for the running Python version, the check is SKIPPED (exit 0) with a note, so a
 version without a committed baseline never spuriously fails; add one with
-``update_baseline.py``.
+``update_baseline.py`` run on the SAME kind of machine that will be compared
+against it (ideally: from the CI benchmark job's own artifacts, not a
+contributor's laptop -- see benchmarks/README.md).
 
     python benchmarks/check_baseline.py
     python benchmarks/check_baseline.py -n 15    # startup samples

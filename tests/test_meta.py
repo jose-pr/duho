@@ -100,6 +100,21 @@ def test_meta_conflicts_required():
     assert parser.parse_args(["--a"]).a is True
 
 
+# --- Foreign Annotated metadata is tolerated, not a crash -----------------
+
+
+class _AnnotatedForeignStr(Args):
+    """A bare str in the Annotated metadata (neither NS nor Meta)."""
+
+    n: Arg[int, "a positive int"] = 1
+    ("--n",)
+
+
+def test_foreign_str_metadata_builds_and_parses():
+    assert duho.parse(_AnnotatedForeignStr, ["--n", "5"]).n == 5
+    assert duho.parse(_AnnotatedForeignStr, []).n == 1
+
+
 # --- PEP-727 Doc duck-typing --------------------------------------------
 
 

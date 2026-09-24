@@ -73,6 +73,24 @@ def test_literal_choices_reject():
         parser.parse_args(["--mode", "turbo"])
 
 
+class _OptLiteralArgs(Args):
+    """A Literal field wrapped in Optional."""
+
+    mode: "ty.Optional[ty.Literal['fast', 'slow']]"
+    "Mode"
+    ("--mode",)
+
+
+def test_optional_literal_accepts_a_declared_choice():
+    r = duho.parse(_OptLiteralArgs, ["--mode", "fast"])
+    assert r.mode == "fast"
+
+
+def test_optional_literal_rejects_an_undeclared_choice():
+    with pytest.raises(SystemExit):
+        duho.parse(_OptLiteralArgs, ["--mode", "nope"])
+
+
 def test_enum_choices_by_name():
     """Enum fields accept the member name and produce the Enum member."""
     parser = EnumArgs._parser_()

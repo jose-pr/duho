@@ -1,6 +1,7 @@
 """Tests for duho.cli.args module."""
 
 import argparse
+import datetime
 import enum
 import sys
 import typing as ty
@@ -131,6 +132,36 @@ def test_union_types():
     args = parser.parse_args(["--value", "not_a_number"])
     assert args.value == "not_a_number"
     assert isinstance(args.value, str)
+
+
+class _OptListInt(Args):
+    nums: "ty.Optional[ty.List[int]]"
+    "Numbers"
+    ("--nums",)
+
+
+def test_optional_list_int_multi():
+    # A list-as-option field takes ONE value per occurrence -- repeat the
+    # flag for more (`--nums 1 --nums 2`), not space-separated in one
+    # occurrence (which is reserved for the POSITIONAL case).
+    r = parse(_OptListInt, ["--nums", "1", "--nums", "2"])
+    assert r.nums == [1, 2]
+
+
+def test_optional_list_int_single_token():
+    # A naive Optional element factory would char-split "123" -> ['1','2','3'];
+    # here it is a single-element list [123].
+    r = parse(_OptListInt, ["--nums", "123"])
+    assert r.nums == [123]
+
+
+def test_union_with_collection_member_is_build_error():
+    class _BadUnion(Args):
+        x: ty.Union[ty.List[int], str]
+        ("--x",)
+
+    with pytest.raises(ValueError):
+        _BadUnion._parser_()
 
 
 def test_union_enum_resolves_by_name():
@@ -1027,6 +1058,24 @@ def test_direct_instance_does_not_share_class_level_mutable_default():
     assert parse(DirectListDefaultArgs, []).files == []
 
 
+class _NoDefaultListArgs(Args):
+    """A field with NO declared default at all (required, list[int])."""
+
+    items: "ty.List[int]"
+    "Items"
+    ("--items",)
+
+
+def test_no_default_list_field_is_not_shared_across_parses():
+    """Two separate parse() calls of a required list field must never share
+    the same underlying list object."""
+    a = parse(_NoDefaultListArgs, [])
+    a.items.append(99)
+    b = parse(_NoDefaultListArgs, [])
+    assert b.items == []
+    assert _NoDefaultListArgs().items == []
+
+
 # --- shared positional/bare-bool detection (A068) ---
 
 
@@ -1063,3 +1112,93 @@ def test_is_bare_bool_flag_excludes_literal_bool():
     builders = {b.name: b for b in IsPositionalArgs._getargs_()}
     assert builders["bare_bool"].is_bare_bool_flag is True
     assert builders["literal_bool"].is_bare_bool_flag is False
+
+
+class _LiteralBoolArgs(Args):
+    flag: "ty.Literal[True, False]" = False
+    "Flag"
+    ("--flag",)
+
+
+def test_literal_bool_builds_and_roundtrips_end_to_end():
+    # A naive store_true + choices= combination is an argparse TypeError at
+    # build time; the field must go through type=+choices= instead.
+    parser = _LiteralBoolArgs._parser_()
+    assert parser is not None
+    r = parse(_LiteralBoolArgs, ["--flag", "True"])
+    assert r.flag is True
+
+
+# --- ClassVar / Final are skipped, never a flag --------------------------
+
+
+class _WithClassVar(Args):
+    count: ty.ClassVar[int] = 0
+    active: bool = False
+    "Active"
+    ("--active",)
+
+
+def test_classvar_field_is_not_a_flag():
+    help_text = _WithClassVar._parser_().format_help()
+    assert "--count" not in help_text
+    r = parse(_WithClassVar, [])
+    assert r.count == 0
+    assert r.active is False
+
+
+# --- date/datetime factories -----------------------------------------------
+
+
+class _WhenArgs(Args):
+    when: datetime.date
+    "When"
+    ("--when",)
+
+
+def test_date_factory():
+    r = parse(_WhenArgs, ["--when", "2026-07-19"])
+    assert r.when == datetime.date(2026, 7, 19)
+
+
+def test_date_bad_value_is_argparse_error():
+    with pytest.raises(SystemExit):
+        parse(_WhenArgs, ["--when", "not-a-date"])
+
+
+class _OptWhenArgs(Args):
+    when: "ty.Optional[datetime.datetime]"
+    "When"
+    ("--when",)
+
+
+def test_optional_datetime_factory():
+    r = parse(_OptWhenArgs, ["--when", "2026-07-19T10:30:00"])
+    assert r.when == datetime.datetime(2026, 7, 19, 10, 30, 0)
+
+
+# --- declaration-shape build errors -----------------------------------------
+
+
+def test_set_flags_container_is_build_error():
+    class _SetFlags(Args):
+        verbose: int = 0
+        {"-v"}  # noqa: B018 - deliberate misuse under test
+
+    with pytest.raises(ValueError):
+        _SetFlags._parser_()
+
+
+class _SuppressSecond(Args):
+    hidden: Arg[int, NS(help="x"), argparse.SUPPRESS] = 0
+    ("--hidden",)
+
+    shown: int = 1
+    "Shown"
+    ("--shown",)
+
+
+def test_suppress_honored_as_second_metadata_item():
+    names = {b.name for b in _SuppressSecond._getargs_()}
+    assert "hidden" not in names
+    assert "shown" in names

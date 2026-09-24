@@ -437,24 +437,34 @@ def test_filter_removed_after_run_no_leak(capture_handler):
 
 
 def test_concurrent_records_never_cross_tag(capture_handler):
-    """Under concurrency every record's prefix matches the target that emitted it."""
+    """Under concurrency every record's prefix matches the target that emitted it.
+
+    The target that emitted each record is embedded in the message body
+    itself (not just inferred from the set of valid targets), so a
+    TargetPrefixFilter that tags a record with the WRONG target is actually
+    caught here -- comparing only "is the prefix some valid target name"
+    would still pass if current_target leaked across threads.
+    """
     log = logging.getLogger("duho.worker")
 
     def func(t):
         for i in range(4):
             time.sleep(0.001)
-            log.info("step-%d", i)
+            log.info("%s-step-%d", t, i)
         return 0
 
     targets = ["t%02d" % i for i in range(10)]
     run_targets(func, targets, max_workers=6)
 
-    # 10 targets x 4 messages, all prefixed, each matching a real target.
+    # 10 targets x 4 messages, all prefixed, each matching the target that
+    # actually emitted it.
     assert len(capture_handler.messages) == 40
     for msg in capture_handler.messages:
         assert msg.startswith("["), msg
         prefix = msg[1 : msg.index("]")]
-        assert prefix in targets, msg
+        body = msg[msg.index("]") + 1 :].strip()
+        embedded_target = body.split("-step-", 1)[0]
+        assert prefix == embedded_target, msg
 
 
 def test_current_target_is_none_outside_a_run():

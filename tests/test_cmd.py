@@ -79,7 +79,7 @@ def test_bare_args_still_parses_as_data():
     """The split keeps Args usable as pure data via duho.parse."""
     inst = duho.parse(DataOnly, ["--value", "7"])
     assert inst.value == 7
-    assert not callable(getattr(inst, "__call__", None)) or not isinstance(inst, Cmd)
+    assert not isinstance(inst, Cmd)
 
 
 # --- Cmd subclass that implements no __call__ -------------------------------

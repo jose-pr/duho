@@ -100,17 +100,19 @@ class VerboseCommand(LoggingArgs):
 def test_verbose_to_loglevel():
     """Test converting verbose count to log level."""
     parser = VerboseCommand._parser_()
+    levels = list(duho.logging.VERBOSE_LEVELS.keys())
+    base = levels.index(logging.INFO)
 
-    # No -v: use INFO
+    # No -v/-q: the base level is INFO.
     args = parser.parse_args([])
     level = args._verbose_loglevel_()
-    assert level is not None
+    assert level == logging.INFO
 
-    # -v: higher level
+    # One -v steps exactly one entry MORE verbose than the base level.
     args = parser.parse_args(["-v"])
     level_verbose = args._verbose_loglevel_()
-    # Should be different from no-verbose case
-    assert level_verbose is not None
+    assert level_verbose == levels[base + 1]
+    assert level_verbose != level
 
 
 class SimpleLoggingCommand(LoggingArgs):
@@ -125,8 +127,10 @@ def test_logging_args_set_loglevels():
     args = parser.parse_args(["--loglevel", "DEBUG"])
     loglevels = args._set_loglevels_()
 
-    # Should return a dict of level assignments
-    assert isinstance(loglevels, dict)
+    # The bare "--loglevel DEBUG" applies to both the default ("") key and
+    # this command's own logger, and is actually installed on that logger.
+    assert loglevels == {"": logging.DEBUG, args._logger_.name: logging.DEBUG}
+    assert logging.getLogger(args._logger_.name).level == logging.DEBUG
 
 
 class VerbosityContractCommand(LoggingArgs):

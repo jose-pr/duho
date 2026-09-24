@@ -161,9 +161,10 @@ def test_mixed_positional_and_flags():
     parser = TransformArgs._parser_()
     args = parser.parse_args(["data.csv", "result.json", "--format", "xml"])
 
-    # Check positional args (dest may differ from field name)
-    assert hasattr(args, "input_file") or hasattr(args, "input")
-    assert hasattr(args, "output_file") or hasattr(args, "output")
+    # The positional's own literal name ("input"/"output") is the dest, not
+    # the field name it's declared on (`input_file`/`output_file`).
+    assert args.input == "data.csv"
+    assert args.output == "result.json"
     assert args.format == "xml"
 
 

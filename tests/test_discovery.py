@@ -18,7 +18,6 @@ import duho
 from duho import Cmd
 from duho.discovery import (
     CmdBuilder,
-    Command,
     ModuleCommand,
     discover_commands,
     is_class_command,
@@ -215,9 +214,11 @@ def test_class_command_satisfies_protocol():
         def __call__(self):
             return 0
 
-    # runtime_checkable Protocol: a Cmd subclass has _parsername_ (once parsed
-    # or via the class rule) and __call__.
-    assert hasattr(MyCmd, "__call__")
+    # A class command is usable exactly as the Command protocol promises:
+    # constructible with no arguments, and calling the instance runs the
+    # overridden body (not just present via inheritance).
+    instance = MyCmd()
+    assert instance() == 0
 
 
 # --------------------------------------------------------------------------

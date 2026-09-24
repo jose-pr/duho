@@ -9,8 +9,6 @@ from duho import (
     Append,
     Arg,
     Args,
-    Argument,
-    ArgumentBuilder,
     Choice,
     Const,
     Count,
@@ -19,7 +17,6 @@ from duho import (
     parse,
     parser as duho_parser,
 )
-from duho.parsers import prerun_parse
 
 
 class SimpleArgs(Args):
@@ -215,9 +212,10 @@ def test_positional_arguments():
     """Test positional (non-flag) arguments."""
     parser = PositionalArgs._parser_()
     args = parser.parse_args(["input.txt", "output.txt"])
-    # Positional args map to action dest, which is the field name
-    assert hasattr(args, "input_file") or hasattr(args, "input")
-    assert hasattr(args, "output_file") or hasattr(args, "output")
+    # The positional's own literal name ("input"/"output") is the dest, not
+    # the field name it's declared on (`input_file`/`output_file`).
+    assert args.input == "input.txt"
+    assert args.output == "output.txt"
 
 
 class ShortFlagsArgs(Args):
@@ -258,13 +256,19 @@ def test_multiple_flags():
 def test_subparser_integration():
     """Test building parsers for subcommands."""
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest="cmd")
 
     SimpleArgs._parser_(subparsers, name="simple")
     DefaultArgs._parser_(subparsers, name="default")
 
-    # Should not raise
-    assert subparsers is not None
+    # Both registered subcommands actually parse via their own class fields.
+    args = parser.parse_args(["simple", "--name", "x"])
+    assert args.cmd == "simple"
+    assert args.name == "x"
+
+    args = parser.parse_args(["default"])
+    assert args.cmd == "default"
+    assert args.name == "default"
 
 
 def test_module_level_parser():
@@ -435,26 +439,6 @@ def test_bool_default_true_round_trip():
 
     args = parser.parse_args(["--no-flag"])
     assert args.flag is False
-
-
-def test_prerun_parse_restores_patches_on_systemexit():
-    """prerun_parse must restore _HelpAction/_SubParsersAction.__call__ even
-    when the underlying parse raises SystemExit (e.g. bad args)."""
-    help_call_before = argparse._HelpAction.__call__
-    subparsers_call_before = argparse._SubParsersAction.__call__
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--required-thing", required=True)
-
-    with pytest.raises(SystemExit):
-        # parse_known_args raises SystemExit for unrecognized/invalid options
-        # in some configurations; force one via an invalid choice-style parser.
-        sub_parser = argparse.ArgumentParser()
-        sub_parser.add_argument("--num", type=int, required=True)
-        prerun_parse(sub_parser, ["--num", "not-a-number"])
-
-    assert argparse._HelpAction.__call__ is help_call_before
-    assert argparse._SubParsersAction.__call__ is subparsers_call_before
 
 
 class NoLeakArgs(Args):

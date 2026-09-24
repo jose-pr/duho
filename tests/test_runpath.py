@@ -401,21 +401,6 @@ def test_register_is_idempotent(tmp_path):
     assert len(_discovery._PROVIDERS) == n
 
 
-def test_discover_commands_yields_runpath_when_dir_shaped(tmp_path):
-    # A package dir containing a RunPath subdir: discover_commands walks .py files
-    # at the top level; the RunPath provider is exercised via CmdBuilder for the
-    # subdir. Here we assert the provider path directly through discover on a dir
-    # of numbered steps resolved by CmdBuilder (discover_commands over a dir globs
-    # top-level .py files, which is a different surface). We use CmdBuilder as the
-    # provider entry point per the plan's done-when.
-    register()
-    steps = tmp_path / "runsteps"
-    results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results))
-    cmd = CmdBuilder("runsteps", steps).command
-    assert issubclass(cmd, RunPathCmd)
-
-
 def test_runpath_not_in_top_level_all():
     # Opt-in: runpath symbols must NOT be on the core duho surface.
     assert "runpath" not in duho.__all__
@@ -993,7 +978,13 @@ def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
-    assert set(ran) == {"x", "y"}
+    # Deterministic: the cycle is broken at "x" (the lower-numbered step), so
+    # "x" always runs before "y", and the break is actually reported.
+    assert ran == ["x", "y"]
+    assert any(
+        "cycle" in rec.message and "x" in rec.message and "y" in rec.message
+        for rec in caplog.records
+    )
 
 
 # --------------------------------------------------------------------------

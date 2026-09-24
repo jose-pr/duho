@@ -436,17 +436,32 @@ def test_main_none_return_maps_to_zero():
 
 
 def test_main_setup_logging_false_leaves_handlers_unchanged():
-    """setup_logging=False must not add handlers to the root logger."""
+    """setup_logging=False must not add handlers to the root logger, nor
+    apply the -v/-q/--loglevel-derived level to any logger.
+
+    Comparing root.handlers alone can't fail under pytest: pytest's own
+    logging plugin already keeps a fixed set of handlers on root regardless
+    of what duho does, so a regression that ignores setup_logging entirely
+    would still show the same handler count. Also check the OTHER effect the
+    flag gates -- the parsed instance's own logger level -- which pytest does
+    not otherwise touch.
+    """
     root = logging.getLogger()
-    before = len(root.handlers)
+    handlers_before = list(root.handlers)
+    root_level_before = root.level
 
     class LoggedApp(LoggingArgs, Cmd):
         def __call__(self):
             return None
 
+    app_logger = logging.getLogger("LoggedApp")
+    app_level_before = app_logger.level
+
     rc = duho.main(LoggedApp, [], setup_logging=False)
     assert rc == 0
-    assert len(root.handlers) == before
+    assert root.handlers == handlers_before
+    assert root.level == root_level_before
+    assert app_logger.level == app_level_before
 
 
 def test_main_systemexit_propagates():

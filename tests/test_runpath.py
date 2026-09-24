@@ -185,6 +185,25 @@ def test_required_missing_step_errors_strict(tmp_path):
         _run(steps, rcopts=["strict"])
 
 
+def test_required_step_disabled_by_rcopts_warns_resilient(tmp_path, caplog):
+    """A REQUIRED dependency that EXISTS but is disabled via rcopts selection
+    (not merely missing) is a resilient warning, same as a missing one."""
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-build.py", _record_step("build", results))
+    _write_step(
+        steps,
+        "20-deploy.py",
+        _record_step("deploy", results, extra='REQUIRED = ["build"]'),
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        _run(steps, rcopts=["!*", "deploy"])
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "deploy" in messages and "build" in messages
+
+
 # --------------------------------------------------------------------------
 # --rcopts selection
 # --------------------------------------------------------------------------
@@ -351,6 +370,34 @@ def test_failing_step_strict_stops(tmp_path):
         _run(steps, rcopts=["strict"])
     # `ok` ran before the failure; `after` never ran (strict re-raised).
     assert _read_results(tmp_path / "results.txt") == ["ok"]
+
+
+def test_import_error_step_skipped_resilient(tmp_path, caplog):
+    """An import failure on a step marked resilient is skipped, not fatal."""
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-good.py", _record_step("good", results))
+    _write_step(
+        steps,
+        "20-broken;!strict.py",
+        "import a_module_that_does_not_exist_xyz\ndef main(args): pass\n",
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["good"]
+    assert any("broken" in r.getMessage() for r in caplog.records)
+
+
+def test_syntax_error_step_always_surfaces(tmp_path):
+    """A SyntaxError is a bug, not an environmental failure -- never swallowed,
+    even on a step that would otherwise be treated resiliently."""
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-bad.py", "def main(args)\n    pass\n")  # missing colon
+    with pytest.raises(SyntaxError):
+        _run(steps)
 
 
 # --------------------------------------------------------------------------

@@ -285,6 +285,18 @@ def test_non_int_return_logged_without_traceback(caplog):
     assert caplog.records[0].exc_info is None
 
 
+def test_non_int_return_from_one_target_does_not_abort_the_others():
+    """A non-int return is isolated to its own target, not fatal to the run."""
+
+    def func(target):
+        if target == "bad":
+            return "not-an-int"
+        return 0
+
+    rc = run_targets(func, ["a", "bad", "b"], max_workers=2)
+    assert rc == 1
+
+
 # --------------------------------------------------------------------------
 # run_targets: input validation
 # --------------------------------------------------------------------------

@@ -25,7 +25,7 @@ import pytest
 
 import duho
 from duho.discovery import ModuleCommand
-from duho.runtime import app, run_command
+from duho.runtime import _resolve_commands, app, run_command
 
 # --------------------------------------------------------------------------
 # Fixture-file helpers
@@ -951,6 +951,18 @@ def test_dispatch_can_fan_out_over_targets(tmp_path):
 # --------------------------------------------------------------------------
 # CMDS_PATH extends _subcommands_ (it does not replace them)
 # --------------------------------------------------------------------------
+
+
+def test_resolve_commands_without_cmds_path_does_not_import_cwd(tmp_path, monkeypatch):
+    """A missing CMDS_PATH env value must never glob-import the CWD."""
+    # A canary module that raises on import if duho ever glob-imports the CWD.
+    (tmp_path / "canary.py").write_text("raise RuntimeError('CWD import happened')\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CANARY_CMDS_PATH", raising=False)
+
+    env = duho.env.Env("canary")  # no CANARY_CMDS_PATH set
+    assert _resolve_commands(None, None, None, env) == []
+
 
 _MODULE_CMD_GREET = '''\
 """A discovered command."""

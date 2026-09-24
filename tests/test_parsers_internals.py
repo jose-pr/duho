@@ -1,13 +1,12 @@
-"""Direct unit tests for duho.parsers helpers (Plan 03 T1).
+"""Direct unit tests for duho.parsers helpers.
 
 Covers the helper functions and the per-instance surgery invariants that
-``prerun_parse`` relies on, complementing the M1/M20 regression tests in
-``test_fix_phase_d_parsers.py`` (no overlap):
+``prerun_parse`` relies on:
 
 * ``pop_action`` / ``insert_action`` / ``add_help_argument`` exercised directly;
-* the surgery is restored even on an EXCEPTION path forced mid-parse -- the
-  invariant is "no ``argparse`` class attribute differs after the call" AND every
-  per-instance ``__class__`` swap is undone.
+* the surgery never mutates ``argparse``'s own classes -- proven on both the
+  clean-success path and an EXCEPTION path forced mid-parse -- and every
+  per-instance ``__class__`` swap is undone either way.
 """
 
 import argparse
@@ -307,3 +306,64 @@ def test_subparser_required_flag_restored_after_call():
     assert sub_action.required is True
     prerun_parse(parser, [])  # missing subcommand must NOT error
     assert sub_action.required is True  # restored
+
+
+# --------------------------------------------------------------------------
+# prerun_parse on a clean (non-exception) run
+# --------------------------------------------------------------------------
+
+
+def test_prerun_parse_leaves_argparse_classes_untouched_on_success():
+    help_before = argparse._HelpAction.__call__
+    sub_before = argparse._SubParsersAction.__call__
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flag")
+    subs = parser.add_subparsers(dest="command")
+    child = subs.add_parser("go")
+    child.add_argument("--n", type=int)
+
+    # A parser WITH subparsers must return globals and never mutate the classes.
+    result = prerun_parse(parser, ["--flag", "x", "go", "--n", "3"])
+    assert result.flag == "x"
+    assert argparse._HelpAction.__call__ is help_before
+    assert argparse._SubParsersAction.__call__ is sub_before
+    # The action instance's class is restored, not left as the relaxed subclass.
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            assert type(action) is argparse._SubParsersAction
+
+
+def test_prerun_parse_help_does_not_exit_and_restores():
+    help_before = argparse._HelpAction.__call__
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flag")
+    # --help must NOT SystemExit during the prepass.
+    result = prerun_parse(parser, ["--help"])
+    assert result is not None
+    assert argparse._HelpAction.__call__ is help_before
+    # The parser's own help still works afterwards (class restored).
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--help"])
+
+
+def test_prerun_parse_sequential_calls_do_not_interfere():
+    """Two prerun_parse calls on the SAME parser see independent results."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flag")
+    subs = parser.add_subparsers(dest="command")
+    subs.add_parser("go")
+    a = prerun_parse(parser, ["--flag", "1", "go"])
+    b = prerun_parse(parser, ["--flag", "2", "go"])
+    assert a.flag == "1"
+    assert b.flag == "2"
+
+
+def test_pop_action_removes_flag_from_format_help_but_keeps_others():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gone", help="should disappear")
+    parser.add_argument("--kept", help="stays")
+    pop_action(parser, "gone")
+    help_text = parser.format_help()
+    assert "--gone" not in help_text
+    assert "--kept" in help_text

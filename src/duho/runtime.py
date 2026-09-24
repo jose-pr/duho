@@ -25,8 +25,10 @@ behaviors clients rely on are reproduced on that path:
   ``Args`` class, added directly) -- it is never itself constructed as a duho
   class, unlike a class command.
 * **Nested-help suppression** -- the optional two-pass prepass uses the existing
-  :func:`duho.parsers.prerun_parse`, which already relaxes ``_HelpAction`` and
-  subparser validation for the prepass and restores them. No hand-patching.
+  :func:`duho.parsers.prerun_parse` (``quiet=True``), which detaches the
+  subparsers action and silences every terminal action (help, version,
+  print-completion, help-agents) and any parse error for the duration of the
+  call, restoring all of it before returning. No hand-patching.
 * **``register`` hook** -- a module command may define ``register(parser, args)``
   (or the arity-tolerant ``register(parser, args, logger)``) to add arguments
   directly on the argparse object of its subcommand.
@@ -711,21 +713,29 @@ def app(
 
     # A prepass parsed root instance is offered to module ``register`` hooks so a
     # hook that wants the already-parsed globals can read them. It is a
-    # best-effort, help-suppressed prepass (nested-help gotcha handled by the
-    # existing prerun_parse); most register hooks ignore it and add static args.
+    # best-effort prepass: `prerun_parse` detaches `parser`'s subparsers action
+    # for the call (restoring it before returning, so registration below still
+    # sees it) -- which is what makes this safe to run even when `root` already
+    # has built-in `_subcommands_` (previously a KeyError('#cls') here, from the
+    # relaxed subparsers action re-entering this same parser's own patched
+    # parse_known_args and double-popping the selection marker -- D016) -- and
+    # `quiet=True` so a required/unknown-arg error, and every terminal action
+    # (--version, --print-completion, --help-agents, -h/--help), stays fully
+    # silent here; the real parse below is what actually reports/prints,
+    # exactly once (D017). Most register hooks ignore the parsed globals
+    # entirely and just add static args.
     prepass_args: object = None
     if any(_is_module_command(c) for c in resolved_commands):
         try:
             from .parsers import prerun_parse as _prerun_parse
 
-            prepass_args = _prerun_parse(parser, argv)
+            prepass_args = _prerun_parse(parser, argv, quiet=True)
         except SystemExit:
-            # The prepass is advisory (help is disabled inside prerun_parse, so a
-            # SystemExit here is never a user-requested --help). A required- or
-            # unknown-arg exit must not abort the whole app: degrade to no prepass
-            # and let the real parse below report errors authoritatively (C5).
+            # A required- or unknown-arg error (raised silently, since
+            # quiet=True) must not abort the whole app: degrade to no prepass
+            # and let the real parse below report it authoritatively (C5).
             prepass_args = None
-        except Exception:  # pragma: no cover - prepass is advisory only
+        except Exception:
             # Fully swallowed by design, which also hides a genuinely broken
             # parser from the author; DUHO_TRACEBACK=1 surfaces it at DEBUG.
             _duho_logging.log_exception(

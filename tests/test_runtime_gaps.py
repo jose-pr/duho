@@ -259,6 +259,117 @@ def test_register_3arg_logger_fallback_to_duho(tmp_path):
 # --------------------------------------------------------------------------
 
 
+_MODULE_REG_READS_GLOBAL = '''\
+"""A module command whose register reads a root global."""
+
+SEEN = {}
+
+
+def register(parser, args):
+    SEEN["args"] = args
+    SEEN["region"] = getattr(args, "region", "<missing>")
+
+
+def main(args):
+    return 0
+'''
+
+
+class _BuiltinHello(Cmd):
+    """A builtin subcommand, so the root already has `_subcommands_`."""
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+class RootWithBuiltins(Cmd):
+    """A root with a real subparsers action already attached (D016)."""
+
+    region: str = "us"
+    "Which region"
+    ("--region",)
+
+    _subcommands_ = [_BuiltinHello]
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_register_hook_sees_real_globals_when_root_has_builtin_subcommands(tmp_path):
+    """D016: the advisory prepass used to always fail with `KeyError('#cls')`
+    when the root already has `_subcommands_` (a real subparsers action
+    already exists by prepass time) -- silently swallowed at DEBUG, so every
+    module `register` hook got `args=None` instead of the parsed globals."""
+    _write(tmp_path, "region_probe.py", _MODULE_REG_READS_GLOBAL)
+    rc = app(
+        RootWithBuiltins,
+        source=tmp_path,
+        argv=["--region", "eu", "region-probe"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.")
+        and name.endswith("region_probe")
+        and hasattr(m, "SEEN")
+    ][0]
+    assert discovered.SEEN["args"] is not None
+    assert discovered.SEEN["region"] == "eu"
+
+
+# --------------------------------------------------------------------------
+# D017: the advisory prepass must never itself print/exit for real
+# --------------------------------------------------------------------------
+
+
+class VersionedRoot(duho.Cli):
+    """A Cli root with --version and --print-completion, and no builtins."""
+
+    _version_ = "9.9.9"
+    _completion_ = True
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_version_prints_once_with_a_module_command_present(tmp_path, capsys):
+    """`--version` used to print twice through `duho.app` whenever a module
+    command triggers the advisory prepass -- the prepass's OWN
+    `_VersionAction` printed for real (only `-h`/`--help` was silenced), then
+    the real parse printed again."""
+    _write(tmp_path, "hello.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            VersionedRoot,
+            source=tmp_path,
+            argv=["--version"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert out.count("9.9.9") == 1
+
+
+def test_print_completion_emits_exactly_one_script(tmp_path, capsys):
+    """`--print-completion` used to run for real during the advisory prepass
+    too (before any subcommand was registered), then again on the real
+    parse -- writing two concatenated scripts, the first incomplete."""
+    _write(tmp_path, "hello.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            VersionedRoot,
+            source=tmp_path,
+            argv=["--print-completion", "bash"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert out.count("# bash completion for") == 1
+    assert "hello" in out  # the ONE script includes the discovered subcommand
+
+
 def test_non_dict_subcommand_config_table_tolerated(tmp_path):
     """A `[subcommand]` config entry that is a scalar (not a table) is ignored."""
     _write(tmp_path, "deploy.py", _CLASS_CMD)
@@ -299,16 +410,48 @@ class RequiredRoot(duho.LoggingArgs, Cmd):
         return 0
 
 
-def test_prepass_systemexit_is_swallowed_real_parse_reports(tmp_path):
+def test_prepass_systemexit_is_swallowed_real_parse_reports(tmp_path, capsys):
     """A bad required global with a module command present: the advisory prepass
-    hits SystemExit (swallowed), and the real parse reports the error (C5)."""
+    hits SystemExit (swallowed, silently -- quiet=True), and the real parse
+    reports the error exactly once, authoritatively (C5/D017/R038).
+
+    R038: asserting only `pytest.raises(SystemExit)` (as this test used to)
+    cannot tell the fixed code from the bug -- an UNSWALLOWED prepass error
+    also raises SystemExit here, just with the wrong (or doubled) message.
+    Pinning `exc.value.code == 2` and that the error text appears ONCE closes
+    that gap.
+    """
     _write(tmp_path, "backup.py", _MODULE_MAIN)
-    # --token given a non-int: prerun_parse's parse errors (SystemExit) and is
-    # swallowed; the authoritative parse below then exits 2.
-    with pytest.raises(SystemExit):
+    # --token given a non-int: prerun_parse's quiet parse errors (silently)
+    # and is swallowed; the authoritative parse below then exits 2, reporting
+    # the error exactly once.
+    with pytest.raises(SystemExit) as excinfo:
         app(
             RequiredRoot,
             source=tmp_path,
             argv=["--token", "notanint", "backup"],
             setup_logging=False,
         )
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert err.count("invalid int value") == 1
+
+
+def test_prepass_does_not_preempt_subcommand_help(tmp_path, capsys):
+    """R038/D017: `<module-cmd> --help` with a required root global must show
+    the SUBCOMMAND's help, not a spurious "arguments are required" error from
+    the advisory prepass (which used to run for real, print its own error,
+    and only THEN let the real parse show help)."""
+    _write(tmp_path, "backup.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            RequiredRoot,
+            source=tmp_path,
+            argv=["backup", "--help"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out, err = capsys.readouterr()
+    assert "arguments are required" not in err
+    assert err == ""
+    assert "backup" in out

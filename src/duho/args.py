@@ -3794,15 +3794,18 @@ def parse_globals(
     Builds ``cls``'s root parser (``cls._parser_(**parser_kwargs)``), applies
     the same env/config/class-default layers ``duho.main``/``duho.parse`` do
     (``config`` overrides ``cls._config_``; precedence CLI > env > config >
-    class default -- A015), and parses ``argv`` with help suppressed and
-    subcommand validation relaxed, so a consumer can resolve config-file-driven
-    command search paths (or any other global, including one backed by
-    ``NS(env=...)`` or only made non-required by a layer) BEFORE building/
-    committing to the full subcommand parser. This is the documented, public
-    form of the internal prepass ``duho.app`` already runs -- it wraps
+    class default -- A015), and parses ``argv`` with help/version/print-
+    completion suppressed and subcommand descent skipped entirely, so a
+    consumer can resolve config-file-driven command search paths (or any
+    other global, including one backed by ``NS(env=...)`` or only made
+    non-required by a layer) BEFORE building/committing to the full
+    subcommand parser. This is the documented, public form of the internal
+    prepass ``duho.app`` already runs -- it wraps
     :func:`duho.parsers.prerun_parse` verbatim rather than reimplementing the
-    ``_HelpAction``/subparser patching (which ``prerun_parse`` performs and
-    restores in a ``finally``).
+    subparser-detach/terminal-action patching it performs and restores in a
+    ``finally`` (A073: this used to duplicate a buggy, dead-branch version of
+    that same detach here; ``prerun_parse`` now does it once, correctly, for
+    every caller).
 
     Returns the parsed root instance with globals set. Subcommand arguments are
     NOT validated in this pass: a missing subcommand does not error, and an
@@ -3819,21 +3822,6 @@ def parse_globals(
 
     parser = cls._parser_(**parser_kwargs)
     _apply_layers(parser, cls, config=config)
-    # A globals-only parse must not descend into the subcommand tree. Building
-    # cls._parser_() materializes any ``_subcommands_`` as a real subparsers
-    # action; leaving it in place makes even a globals-only ``prerun_parse``
-    # re-enter the root parser's patched ``parse_known_args`` for any trailing
-    # token (a subcommand name OR an unknown flag after the globals), which
-    # double-pops the internal "#cls" marker and raises KeyError. Dropping the
-    # subparsers action makes trailing tokens plain unrecognized extras (which
-    # ``prerun_parse`` discards) -- the same shape ``duho.app``'s prepass gets by
-    # running before it adds subparsers.
-    for action in list(parser._actions):
-        if isinstance(action, _argparse._SubParsersAction):
-            parser._actions.remove(action)
-            subparsers_group = getattr(parser, "_subparsers", None)
-            if subparsers_group is not None and action in subparsers_group._actions:
-                subparsers_group._actions.remove(action)
     return _prerun_parse(parser, argv)
 
 

@@ -349,3 +349,14 @@ class OverriddenHelp(Cmd):
 def test_explicit_help_override_wins_over_the_docstring():
     schema = input_schema_for_command(OverriddenHelp)
     assert schema["properties"]["label"]["description"] == "the OVERRIDE text"
+
+
+def test_iso_format_schema_types_match_the_args_ladders_own_set():
+    """``mcp._ISO_FORMATS`` is built from ``args._ISOFORMAT_FACTORIES``'s own
+    keys (A070), not a second, independently hand-kept type list -- adding an
+    ISO type to one ladder without the other now fails loudly here instead of
+    the MCP schema silently disagreeing with what the CLI itself accepts."""
+    import duho.args as args_mod
+    import duho.mcp as mcp_mod
+
+    assert set(mcp_mod._ISO_FORMATS) == set(args_mod._ISOFORMAT_FACTORIES)

@@ -492,6 +492,57 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
     return _scalar_spec(factory)
 
 
+def _enum_spec(tp: type) -> "_FieldSpec":
+    """Spec for an ``enum.Enum`` annotation: a choose-by-name factory (A053)
+    plus a ``{member,...}`` metavar built from the same canonical names."""
+    names = tuple(member.name for member in tp)
+    metavar = "{" + ",".join(names) + "}"
+    return _FieldSpec(
+        _enum_name_factory(tp), None, metavar, None, None, NOT_DEFINED, None
+    )
+
+
+def _dict_spec(key_ty, val_ty, name: str) -> "_FieldSpec":
+    """Spec for a ``dict[K, V]`` annotation: ``KEY=VALUE`` tokens merged via
+    :class:`UpdateAction`. Bare ``dict`` == ``dict[str, str]``. Only ``str``
+    keys are supported (a CLI token's key half is always text); rejected
+    loudly at build time otherwise.
+    """
+    if key_ty is not str:
+        raise ValueError(
+            f"argument {name!r}: dict key type must be str, got {key_ty!r} "
+            f"(a CLI KEY=VALUE token's key is always text)"
+        )
+    val_factory, _val_choices, _val_metavar = _element_spec(val_ty, name, "dict value")
+    return _FieldSpec(
+        _KVFactory(name, val_factory), None, "KEY=VALUE", UpdateAction, None, {}, dict
+    )
+
+
+def _sequence_spec(
+    collection: type, elem_ty, name: str, what: str, default
+) -> "_FieldSpec":
+    """Spec for a homogeneous ``list``/``set``/``frozenset``/variadic
+    ``tuple[T, ...]`` annotation.
+
+    ``list``/``set``/``frozenset``/``tuple`` differ only in their collection
+    type, its empty default value, and the :class:`_CollectionAction`
+    subclass bound to it -- the element factory/choices/metavar ladder and
+    ``"*"`` nargs are identical across all four, so this is the one place
+    that wiring is written (A070).
+    """
+    factory, choices, metavar = _element_spec(elem_ty, name, what)
+    return _FieldSpec(
+        factory,
+        choices,
+        metavar,
+        _collection_action(collection),
+        "*",
+        default,
+        collection,
+    )
+
+
 #: ``typing.TypeAliasType`` only exists on 3.12+ (PEP 695); ``None`` on the
 #: 3.9 floor, where the attribute-probe branch below simply never matches.
 _TypeAliasType = getattr(_ty, "TypeAliasType", None)
@@ -583,38 +634,19 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
         return _literal_spec(args)
 
     if isinstance(tp, type) and issubclass(tp, _enum.Enum):
-        names = tuple(member.name for member in tp)
-        metavar = "{" + ",".join(names) + "}"
-        return _FieldSpec(
-            _enum_name_factory(tp), None, metavar, None, None, NOT_DEFINED, None
-        )
+        return _enum_spec(tp)
 
     if origin is list or tp is list:
         elem_ty = args[0] if args else str
-        factory, choices, metavar = _element_spec(elem_ty, name, "list")
-        return _FieldSpec(
-            factory, choices, metavar, _collection_action(list), "*", [], list
-        )
+        return _sequence_spec(list, elem_ty, name, "list", [])
 
     if origin is set or tp is set:
         elem_ty = args[0] if args else str
-        factory, choices, metavar = _element_spec(elem_ty, name, "set")
-        return _FieldSpec(
-            factory, choices, metavar, _collection_action(set), "*", set(), set
-        )
+        return _sequence_spec(set, elem_ty, name, "set", set())
 
     if origin is frozenset or tp is frozenset:
         elem_ty = args[0] if args else str
-        factory, choices, metavar = _element_spec(elem_ty, name, "frozenset")
-        return _FieldSpec(
-            factory,
-            choices,
-            metavar,
-            _collection_action(frozenset),
-            "*",
-            frozenset(),
-            frozenset,
-        )
+        return _sequence_spec(frozenset, elem_ty, name, "frozenset", frozenset())
 
     if origin is tuple or tp is tuple:
         # Only variadic homogeneous ``tuple[T, ...]`` and bare ``tuple``
@@ -626,35 +658,14 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
                 f"variadic homogeneous tuple, or bare tuple"
             )
         elem_ty = args[0] if args else str
-        factory, choices, metavar = _element_spec(elem_ty, name, "tuple")
-        return _FieldSpec(
-            factory, choices, metavar, _collection_action(tuple), "*", (), tuple
-        )
+        return _sequence_spec(tuple, elem_ty, name, "tuple", ())
 
     if origin is dict or tp is dict:
         # ``dict[K, V]`` -- ``KEY=VALUE`` tokens merged via ``UpdateAction``.
-        # Bare ``dict`` == ``dict[str, str]``. Only ``str`` keys are supported
-        # (a CLI token's key half is always text); reject anything else loudly
-        # at build time.
+        # Bare ``dict`` == ``dict[str, str]``.
         key_ty = args[0] if args else str
         val_ty = args[1] if len(args) > 1 else str
-        if key_ty is not str:
-            raise ValueError(
-                f"argument {name!r}: dict key type must be str, got {key_ty!r} "
-                f"(a CLI KEY=VALUE token's key is always text)"
-            )
-        val_factory, _val_choices, _val_metavar = _element_spec(
-            val_ty, name, "dict value"
-        )
-        return _FieldSpec(
-            _KVFactory(name, val_factory),
-            None,
-            "KEY=VALUE",
-            UpdateAction,
-            None,
-            {},
-            dict,
-        )
+        return _dict_spec(key_ty, val_ty, name)
 
     try:
         is_isoformat = tp in _ISOFORMAT_FACTORIES

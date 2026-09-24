@@ -117,6 +117,7 @@ from . import parsers as _parsers
 from .args import ArgumentBuilder as _ArgumentBuilder
 from .args import Cmd as _Cmd
 from .args import _apply_layers as _apply_layers
+from .args import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
 from .args import _command_name as _command_name
 from .args import _escape_help as _escape_help
 from .args import _raw_config_values as _raw_config_values
@@ -153,14 +154,21 @@ _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 _SERVER_NAME = "duho.mcp"
 _SERVER_VERSION = _DUHO_VERSION
 
-#: ISO-format stdlib types (mirrors ``args._ISOFORMAT_FACTORIES``) mapped to a
-#: JSON Schema ``format`` hint. All three collapse to ``"type": "string"`` --
-#: same as ``pathlib.Path`` -- since JSON Schema has no native date type.
-_ISO_FORMATS = {
+#: JSON Schema ``format`` hint for each ISO-format stdlib type. All three
+#: collapse to ``"type": "string"`` -- same as ``pathlib.Path`` -- since JSON
+#: Schema has no native date type.
+_ISO_FORMAT_NAMES = {
     _datetime.date: "date",
     _datetime.datetime: "date-time",
     _datetime.time: "time",
 }
+
+#: The actual lookup used below, built from ``args._ISOFORMAT_FACTORIES``'s
+#: own KEYS (A070) rather than a second, independently hand-kept type list --
+#: adding/removing an ISO type there now surfaces here as a loud ``KeyError``
+#: (a missing format name) instead of the MCP schema silently disagreeing
+#: with what the CLI itself accepts.
+_ISO_FORMATS = {tp: _ISO_FORMAT_NAMES[tp] for tp in _ISOFORMAT_FACTORIES}
 
 #: Scalar Python type -> JSON Schema ``"type"`` name, shared by the Literal
 #: branch and the final scalar fallback of :func:`_schema_for_type`.

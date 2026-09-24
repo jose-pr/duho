@@ -836,114 +836,24 @@ def _apply_app_config_layers(
             _apply_default_layers_one(sub_parser, args_cls, sub_table)
 
 
-def app(
-    root: "type | None" = None,
-    *,
-    commands: "_ty.Sequence[_Command] | None" = None,
-    source: "str | _Path | None" = None,
-    entry_points: "str | None" = None,
-    argv: "_ty.Sequence[str] | None" = None,
-    name: "str | None" = None,
-    description: "str | None" = None,
-    env: "_Env | None" = None,
-    config: "str | _Path | None" = None,
-    setup_logging: bool = True,
-    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
-) -> int:
-    """Build a multi-command app, parse ``argv``, and dispatch one command.
+def _prepare_app_parser(
+    root: "type | None",
+    name: "str | None",
+    description: "str | None",
+    config: "str | _Path | None",
+    argv: "_ty.Sequence[str] | None",
+    resolved_commands: "list[_Command]",
+) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type, dict, object]":
+    """Build :func:`app`'s top-level parser and run its advisory prepass.
 
-    ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
-    global options (``None`` -> a bare data root, for an app whose commands all
-    come from discovery). The BASE command set is resolved by precedence
-    (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
-    ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
-    ``env.paths("CMDS_PATH", ty=Path)`` then ALWAYS merges on top of whichever
-    base was used -- a layer, not a branch reachable only when no other source
-    is given -- extending the base rather than replacing it, with a discovered
-    command overriding a same-named base command (logged, never silent).
-
-    **Additive, not exclusive (D025).** ``root``'s own declared
-    ``_subcommands_`` are ALWAYS registered too (``app`` reuses the
-    subparsers action ``root_cls._parser_()`` already built for them), no
-    matter what ``commands``/``source``/``entry_points`` was passed --
-    passing one of those does not remove or replace a root's built-ins, it
-    only adds alongside them (see :func:`_resolve_commands` for the exact
-    contract). Give ``root`` no ``_subcommands_`` of its own (or pass
-    ``root=None``) for an app whose ONLY commands are the ones explicitly
-    resolved here.
-
-    ``entry_points`` is an installed-distribution entry-point **group** name
-    (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
-    installed distribution is loaded and registered as a subcommand, so a
-    separately-installed plugin package can contribute commands without the app
-    knowing about it. Loading is resilient -- a broken plugin warns and is
-    skipped, the rest still load. ``importlib.metadata`` is imported lazily, so
-    an app that does not use ``entry_points=`` never pays its import cost.
-
-    Each command is registered under a ``title="command"`` subparsers action:
-
-    * a **class command** via its own ``_parser_(subparsers, parents=[root])`` --
-      the shipped path, so ``"#cls"`` deepest-selection and any nested
-      ``_subcommands_`` keep working, with global options inherited via
-      ``parents=``;
-    * a **module command** as a subparser (help/description from the module
-      docstring), inheriting global options via ``parents=``; if the module
-      defines ``register(parser, args)`` (or ``register(parser, args, logger)``)
-      it is called so the module adds its own arguments directly.
-
-    Parsing goes through the root parser's patched ``parse_known_args`` (from
-    ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and
-    the layered instance construction all apply. When ``setup_logging``,
-    stderr logging is initialised and verbosity applied -- identical to
-    ``duho.main``, including its fallback for a plain ``Cmd`` command
-    selected under a ``LoggingArgs`` root (see ``_setup_instance_logging``).
-
-    **Config/env thread-down.** Before parsing, env/config-file defaults are
-    layered onto the root and every class command's fields (precedence CLI > env
-    > config > class default): ``config`` (or, if omitted, a ``Cli`` root's
-    ``_config_``) is loaded once; its top-level keys apply to the root and each
-    ``[<subcommand>]`` table to that command. This is app()'s analogue of the
-    ``_apply_default_layers`` call ``duho.main``/``duho.parse`` make -- needed
-    here because commands come from sources not reachable via
-    ``root._subcommands_``. The resolved ``env`` (if any) is attached to the
-    dispatched instance as the sandwich-named ``_env_`` handle, so a command can
-    read app-wide settings via ``self._env_``.
-
-    The selected command is dispatched via :func:`run_command`; its int return is
-    this function's return (success -> ``0``, a ``main`` returning ``2`` ->
-    ``2``). Discovery is resilient: a single unimportable command drops out with a
-    warning and the rest still run.
-
-    **The ``dispatch`` seam.** ``app`` owns discovery, parser build, command
-    registration, config/env thread-down, parsing, and logging setup. The final
-    "run the one selected command" step is the ONE point a consumer can override:
-    pass ``dispatch`` to replace it. The callable receives the resolved
-    :class:`~duho.discovery.Command` (a ``Cmd`` subclass for a class command; the
-    :class:`~duho.discovery.ModuleCommand` for a module command) and the parsed
-    ``instance``, and must return an ``int`` exit code, which becomes ``app``'s
-    return. A dispatch may call :func:`run_command` itself (the default when
-    ``dispatch is None``), fan the command out over targets via
-    :mod:`duho.fanout`, build a per-invocation context threaded ahead of args, or
-    anything else -- everything ``app`` already resolved (the same ``command`` and
-    ``instance`` the default path would run) is reused rather than re-derived. When
-    ``dispatch`` is ``None`` the behavior is byte-identical to calling
-    :func:`run_command` directly, so existing callers are unaffected.
+    Returns ``(parser, base_parser, root_cls, raw_config, prepass_args)``.
+    Everything here happens BEFORE any command is actually registered:
+    building the parser pair (:func:`_build_parser`), resolving and stashing
+    the root's own config-layer slice, and -- only when at least one resolved
+    command is a module command -- running the best-effort prepass that
+    offers a module ``register`` hook the already-parsed globals. Split out
+    of :func:`app` (D044); no behavior change, the full suite is the guard.
     """
-    run = dispatch if dispatch is not None else run_command
-    # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
-    # Collected rather than logged immediately: at this point in `app()` no
-    # logging handler has been installed yet, so an immediate `_LOGGER.info`
-    # would be emitted into the void (D042) -- flushed once, below, after
-    # `_setup_instance_logging` actually runs. Also used to recognize, in the
-    # registration loop below, that a registry collision for the SAME name is
-    # this very (intentional, already-accounted-for) override, not a second,
-    # independent one worth its own warning.
-    cmds_path_overridden: "set[str]" = set()
-    resolved_commands = _resolve_commands(
-        root, commands, source, env, entry_points, overridden=cmds_path_overridden
-    )
-    notices: "list[tuple[int, str]]" = []
-
     parser, base_parser, root_cls = _build_parser(root, name, description)
 
     # Resolve the config table ONCE (A011/A058 -- a not-yet-created class-level
@@ -991,6 +901,28 @@ def app(
                 level=_logging.DEBUG,
             )
             prepass_args = None
+
+    return parser, base_parser, root_cls, raw_config, prepass_args
+
+
+def _register_commands(
+    root: "type | None",
+    resolved_commands: "list[_Command]",
+    parser: "_argparse.ArgumentParser",
+    base_parser: "_argparse.ArgumentParser",
+    root_cls: type,
+    prepass_args: object,
+    cmds_path_overridden: "set[str]",
+) -> "tuple[_argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]]":
+    """Register every resolved command on ``parser`` and resolve collisions.
+
+    Returns ``(subparsers, registry, notices)``. ``registry`` (PRIMARY names
+    only) is later consumed by :func:`_apply_app_config_layers`; ``notices``
+    collects override/collision log records for :func:`app` to flush once
+    logging is actually configured (D042). Split out of :func:`app` (D044);
+    no behavior change, the full suite is the guard.
+    """
+    notices: "list[tuple[int, str]]" = []
 
     # Map each subcommand name to (kind, command) in ONE registry so registration
     # and dispatch agree. A name registered twice (e.g. a module command and a
@@ -1131,6 +1063,24 @@ def app(
         for n in names:
             claimed[n] = (kind, command)
 
+    return subparsers, registry, notices
+
+
+def _finalize_command_tree(
+    parser: "_argparse.ArgumentParser",
+    subparsers: "_argparse._SubParsersAction",
+    root_cls: type,
+    registry: "dict[str, tuple[str, object]]",
+    raw_config: dict,
+) -> "list[_argparse.Action]":
+    """Suppress inherited root defaults and thread config/env layers down.
+
+    Returns ``required_root_actions`` -- the root's own required-global
+    actions un-required here (D023) so a value given AFTER the subcommand, or
+    supplied by config/env, is not rejected; :func:`app` re-checks these
+    against the parsed instance once parsing is done. Split out of
+    :func:`app` (D044); no behavior change, the full suite is the guard.
+    """
     # Suppress the root's own optional dests on every registered subparser so an
     # option given BEFORE the subcommand (or supplied by the root env/config
     # layer) is not clobbered by the child's inherited default (C4). This is the
@@ -1203,6 +1153,28 @@ def app(
     # parsers actually built here. See `_apply_app_config_layers`.
     _apply_app_config_layers(root_cls, subparsers, registry, raw_config)
 
+    return required_root_actions
+
+
+def _run_app(
+    parser: "_argparse.ArgumentParser",
+    argv: "_ty.Sequence[str] | None",
+    env: "_Env | None",
+    setup_logging: bool,
+    root_cls: type,
+    required_root_actions: "list[_argparse.Action]",
+    cmds_path_overridden: "set[str]",
+    notices: "list[tuple[int, str]]",
+    run: "_ty.Callable[[_Command, object], int]",
+) -> int:
+    """Parse ``argv``, finish per-invocation setup, and dispatch one command.
+
+    The real ``parse_args`` call, the D023 required-global re-check,
+    attaching ``_env_``, logging setup, flushing the deferred override/
+    collision notices (D042), and resolving + running the selected command
+    (module vs class). Split out of :func:`app` (D044); no behavior change,
+    the full suite is the guard.
+    """
     instance = parser.parse_args(argv)
 
     # D023 (continued): a root required global un-required above must still
@@ -1275,3 +1247,141 @@ def app(
             f"commands"
         )
     return run(_ty.cast(_Command, type(instance)), instance)
+
+
+def app(
+    root: "type | None" = None,
+    *,
+    commands: "_ty.Sequence[_Command] | None" = None,
+    source: "str | _Path | None" = None,
+    entry_points: "str | None" = None,
+    argv: "_ty.Sequence[str] | None" = None,
+    name: "str | None" = None,
+    description: "str | None" = None,
+    env: "_Env | None" = None,
+    config: "str | _Path | None" = None,
+    setup_logging: bool = True,
+    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
+) -> int:
+    """Build a multi-command app, parse ``argv``, and dispatch one command.
+
+    ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
+    global options (``None`` -> a bare data root, for an app whose commands all
+    come from discovery). The BASE command set is resolved by precedence
+    (:func:`_resolve_commands`): ``commands`` > ``discover_commands(source)`` >
+    ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
+    ``env.paths("CMDS_PATH", ty=Path)`` then ALWAYS merges on top of whichever
+    base was used -- a layer, not a branch reachable only when no other source
+    is given -- extending the base rather than replacing it, with a discovered
+    command overriding a same-named base command (logged, never silent).
+
+    **Additive, not exclusive (D025).** ``root``'s own declared
+    ``_subcommands_`` are ALWAYS registered too (``app`` reuses the
+    subparsers action ``root_cls._parser_()`` already built for them), no
+    matter what ``commands``/``source``/``entry_points`` was passed --
+    passing one of those does not remove or replace a root's built-ins, it
+    only adds alongside them (see :func:`_resolve_commands` for the exact
+    contract). Give ``root`` no ``_subcommands_`` of its own (or pass
+    ``root=None``) for an app whose ONLY commands are the ones explicitly
+    resolved here.
+
+    ``entry_points`` is an installed-distribution entry-point **group** name
+    (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
+    installed distribution is loaded and registered as a subcommand, so a
+    separately-installed plugin package can contribute commands without the app
+    knowing about it. Loading is resilient -- a broken plugin warns and is
+    skipped, the rest still load. ``importlib.metadata`` is imported lazily, so
+    an app that does not use ``entry_points=`` never pays its import cost.
+
+    Each command is registered under a ``title="command"`` subparsers action:
+
+    * a **class command** via its own ``_parser_(subparsers, parents=[root])`` --
+      the shipped path, so ``"#cls"`` deepest-selection and any nested
+      ``_subcommands_`` keep working, with global options inherited via
+      ``parents=``;
+    * a **module command** as a subparser (help/description from the module
+      docstring), inheriting global options via ``parents=``; if the module
+      defines ``register(parser, args)`` (or ``register(parser, args, logger)``)
+      it is called so the module adds its own arguments directly.
+
+    Parsing goes through the root parser's patched ``parse_known_args`` (from
+    ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and
+    the layered instance construction all apply. When ``setup_logging``,
+    stderr logging is initialised and verbosity applied -- identical to
+    ``duho.main``, including its fallback for a plain ``Cmd`` command
+    selected under a ``LoggingArgs`` root (see ``_setup_instance_logging``).
+
+    **Config/env thread-down.** Before parsing, env/config-file defaults are
+    layered onto the root and every class command's fields (precedence CLI > env
+    > config > class default): ``config`` (or, if omitted, a ``Cli`` root's
+    ``_config_``) is loaded once; its top-level keys apply to the root and each
+    ``[<subcommand>]`` table to that command. This is app()'s analogue of the
+    ``_apply_default_layers`` call ``duho.main``/``duho.parse`` make -- needed
+    here because commands come from sources not reachable via
+    ``root._subcommands_``. The resolved ``env`` (if any) is attached to the
+    dispatched instance as the sandwich-named ``_env_`` handle, so a command can
+    read app-wide settings via ``self._env_``.
+
+    The selected command is dispatched via :func:`run_command`; its int return is
+    this function's return (success -> ``0``, a ``main`` returning ``2`` ->
+    ``2``). Discovery is resilient: a single unimportable command drops out with a
+    warning and the rest still run.
+
+    **The ``dispatch`` seam.** ``app`` owns discovery, parser build, command
+    registration, config/env thread-down, parsing, and logging setup. The final
+    "run the one selected command" step is the ONE point a consumer can override:
+    pass ``dispatch`` to replace it. The callable receives the resolved
+    :class:`~duho.discovery.Command` (a ``Cmd`` subclass for a class command; the
+    :class:`~duho.discovery.ModuleCommand` for a module command) and the parsed
+    ``instance``, and must return an ``int`` exit code, which becomes ``app``'s
+    return. A dispatch may call :func:`run_command` itself (the default when
+    ``dispatch is None``), fan the command out over targets via
+    :mod:`duho.fanout`, build a per-invocation context threaded ahead of args, or
+    anything else -- everything ``app`` already resolved (the same ``command`` and
+    ``instance`` the default path would run) is reused rather than re-derived. When
+    ``dispatch`` is ``None`` the behavior is byte-identical to calling
+    :func:`run_command` directly, so existing callers are unaffected.
+    """
+    run = dispatch if dispatch is not None else run_command
+    # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
+    # Collected rather than logged immediately: at this point in `app()` no
+    # logging handler has been installed yet, so an immediate `_LOGGER.info`
+    # would be emitted into the void (D042) -- flushed once `_run_app` has set
+    # up logging. Also used by `_register_commands` to recognize that a
+    # registry collision for the SAME name is this very (intentional,
+    # already-accounted-for) override, not a second, independent one worth
+    # its own warning.
+    cmds_path_overridden: "set[str]" = set()
+    resolved_commands = _resolve_commands(
+        root, commands, source, env, entry_points, overridden=cmds_path_overridden
+    )
+
+    parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
+        root, name, description, config, argv, resolved_commands
+    )
+
+    subparsers, registry, notices = _register_commands(
+        root,
+        resolved_commands,
+        parser,
+        base_parser,
+        root_cls,
+        prepass_args,
+        cmds_path_overridden,
+    )
+
+    required_root_actions = _finalize_command_tree(
+        parser, subparsers, root_cls, registry, raw_config
+    )
+
+    return _run_app(
+        parser,
+        argv,
+        env,
+        setup_logging,
+        root_cls,
+        required_root_actions,
+        cmds_path_overridden,
+        notices,
+        run,
+    )

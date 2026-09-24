@@ -77,7 +77,7 @@ import typing as _ty
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import agenthelp as _agenthelp
-from .args import Cmd as _Cmd
+from .args import Cmd as _Cmd, _command_name as _command_name
 from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command
 
@@ -362,7 +362,11 @@ def _iter_subcommands(
         subparser = entry["parser"]
         names = entry["names"]
         sub_cls = getattr(subparser, "_duho_cls_", None)
-        canonical = getattr(sub_cls, "_parsername_", None) if sub_cls else None
+        # `_command_name` reads a class's OWN `_parsername_` only
+        # (never one inherited from a base it subclasses) -- consistent with
+        # every other subcommand-name reader, so an MCP tool name never
+        # silently collapses onto a shared base's name either.
+        canonical = _command_name(sub_cls) if sub_cls else None
         if canonical not in names:
             canonical = names[0]
         yield canonical, subparser
@@ -382,7 +386,8 @@ def _walk_command_tree(root_cls: type) -> "_ty.Iterator[tuple]":
     per call.
     """
     parser = root_cls._parser_()
-    root_name = getattr(root_cls, "_parsername_", None) or root_cls.__name__
+    # Same own-class-dict `_command_name` rule as everywhere else.
+    root_name = _command_name(root_cls)
     seen: "set" = set()
 
     def _walk(node_parser, dotted_parts):

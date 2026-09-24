@@ -41,9 +41,16 @@ from pathlib import Path as _Path
 from types import ModuleType as _ModuleType
 
 from . import _compat as _compat
-from .args import Args as _Args, Cmd as _Cmd
+from .args import Args as _Args, Cmd as _Cmd, _command_name as _command_name
 from .logging import log_exception as _log_exception
 from .qualname import PythonName as _PythonName
+
+# `_command_name` used to be a byte-for-byte copy of `args._command_name`
+# (itself re-derived a THIRD time in `runtime.py` and inlined again in
+# `mcp.py`) -- imported directly instead, so there is exactly one definition
+# (the own-class-dict rule lives there) shared by every reader that needs
+# a command's subcommand name: `args.py` itself, `runtime.py`, `mcp.py`, and
+# `presets.LoggingArgs._logger_`.
 
 __all__ = [
     "Command",
@@ -541,18 +548,6 @@ def _commands_in_module(
         name = _resolved_module_name(module, stem=stem)
         commands.append(_ty.cast(Command, ModuleCommand(module, name=name)))
     return commands
-
-
-def _command_name(command: object) -> str:
-    """Resolve a command's subcommand name, for sorting/dedup.
-
-    Class commands: ``_parsername_`` if set, else the class name (the same rule
-    ``args.py``'s ``_parser_`` applies). Module commands: their resolved
-    ``_parsername_``.
-    """
-    if is_class_command(command):
-        return getattr(command, "_parsername_", None) or command.__name__  # type: ignore[union-attr]
-    return getattr(command, "_parsername_", "")
 
 
 def _looks_like_path(source: object) -> bool:

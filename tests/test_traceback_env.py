@@ -157,7 +157,9 @@ def _run_steps(directory, caplog, monkeypatch, tb):
     instance = cmd_cls()
     instance.rcopts = []
     with caplog.at_level(logging.ERROR, logger="duho.runpath"):
-        assert instance() == 0  # resilient: the failing step does not abort
+        assert (
+            instance() == 1
+        )  # resilient: the run continues, but the failed step sets the exit code
     return [
         r for r in caplog.records if "step exploded" in r.getMessage() or r.exc_info
     ]

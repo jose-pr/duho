@@ -51,6 +51,8 @@ from .args import (
     Cmd as _Cmd,
     _apply_default_layers_one as _apply_default_layers_one,
     _apply_layers as _apply_layers,
+    _escape_description as _escape_description,
+    _escape_help as _escape_help,
     _maybe_await as _maybe_await,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
     _resolve_config_dict as _resolve_config_dict,
@@ -61,6 +63,7 @@ from .args import (
 from .discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
+    _command_name as _command_name,
     _noop as _discovery_noop,
     discover_commands as _discover_commands,
     discover_entry_points as _discover_entry_points,
@@ -78,12 +81,13 @@ _LOGGER = _logging.getLogger(__name__)
 #: output, so its records must not be attributed to `duho.runtime`.
 _HOOK_LOGGER = _logging.getLogger("duho")
 
-
-def _command_name(command: object) -> str:
-    """Resolve a command's subcommand name (class or module command)."""
-    if _is_class_command(command):
-        return getattr(command, "_parsername_", None) or command.__name__  # type: ignore[union-attr]
-    return getattr(command, "_parsername_", "")
+# `_command_name` used to be a byte-for-byte copy of
+# `discovery._command_name` (the same "`_parsername_` if set, else the class
+# name" rule was ALSO inlined again in `args.py` and `mcp.py`); imported from
+# `discovery` above instead so there is exactly one copy for this module and
+# `discovery` to share, rather than two definitions that could silently drift
+# apart (the import direction only allows it this way round: `discovery.py`
+# already imports from `.args`, so `args.py`/`mcp.py` still keep their own).
 
 
 def run_command(
@@ -309,7 +313,15 @@ def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None"
         return None
     if issubclass(args_cls, root_cls):
         return args_cls
-    return type("_Args", (args_cls, root_cls), {})
+    # Seed an empty `_duho_constants_` in the synthesized namespace, the
+    # same reason `Cmd`/`Cli` (and `duho.command()`) seed one on
+    # themselves. `type(...)` gives this class `__module__` = wherever `type`
+    # was actually called from -- `duho.runtime` -- so without a seed,
+    # `_class_constants` would AST-parse `runtime.py` itself looking for a
+    # `_Args` ClassDef that was never there, on every module command that
+    # declares its own `Args` (a real, measured cold-start cost this class
+    # has no source body to justify paying).
+    return type("_Args", (args_cls, root_cls), {"_duho_constants_": {}})
 
 
 def _add_module_declared_fields(
@@ -383,16 +395,38 @@ def _register_module_command(
     the 2-arg call). This lets a module written against the 3-arg shape work
     without change while staying fully backward-compatible with 2-arg hooks.
     """
-    module = command.module
-    doc = (getattr(module, "__doc__", None) or "").strip()
-    help_text = doc.splitlines()[0] if doc else ""
+    # Read `command.description`/`command.help` (the `ModuleCommand`
+    # properties already deriving exactly this from `module.__doc__`) rather
+    # than re-deriving it here from `module.__doc__` a second time -- one
+    # source of truth for what a module command's docstring means.
+    # `help=` is ALWAYS `%`-expanded by argparse (crashing subparser
+    # registration itself on 3.14 for every OTHER command too, not just this
+    # one, the moment any command file's docstring has a stray `%`); escape
+    # it the same way a class command's docstring already is.
+    # `description=` is left as-is: argparse only `%`-formats it when it
+    # contains a literal `%(prog)`, so escaping unconditionally would show a
+    # literal `%` doubled in this command's own `--help`.
     parser = subparsers.add_parser(
         command._parsername_,
         parents=[base_parser],
-        help=help_text,
-        description=doc,
+        help=_escape_help(command.help),
+        description=_escape_description(command.description),
         add_help=True,
     )
+    # Mark this subparser's selection with a PRIVATE, per-parser dest
+    # rather than relying on the shared `command`/`_duho_command_` subparsers
+    # dest to name it. That dest is shared with every nested `_subcommands_`
+    # tree (a class command's own subparsers) AND any root field a user
+    # happens to declare -- `app()`'s dispatch used to read it via
+    # `getattr(instance, "command", None)`, so a nested `remote list` class
+    # subcommand silently ran the top-level `list.py` module command instead
+    # (same dest, same name), and a root `--command` field's value was
+    # overwritten by whichever subcommand ran. `set_defaults` only applies
+    # when THIS subparser is the one argparse actually selected, so `app()`
+    # can now identify "a module command was chosen, and this is which one"
+    # directly, with no dependence on any dest a user or a nested tree could
+    # ever collide with.
+    parser.set_defaults(_duho_module_command_=command)
 
     args_cls = _module_args_cls(command, root_cls)
     if args_cls is not None:
@@ -717,8 +751,15 @@ def app(
     # entry so the later one wins.
     subparsers = _existing_subparsers(parser)
     if subparsers is None:
+        # A private dest -- matches the one a class root's own
+        # static `_subcommands_` tree uses (`Args._parser_`) -- so a root
+        # field a user happens to name `command` is never silently
+        # overwritten by subcommand selection. Dispatch below no longer reads
+        # this dest at all (a module command is identified by its own
+        # `_duho_module_command_` marker instead); it exists purely so
+        # argparse can enforce "a subcommand is required".
         subparsers = parser.add_subparsers(
-            title="command", dest="command", required=True
+            title="command", dest="_duho_command_", required=True
         )
     else:
         # Names the root's own `_parser_` already wired up. Re-registering one
@@ -893,15 +934,17 @@ def app(
     _setup_instance_logging(instance, setup_logging)
 
     # Resolve which command was selected. A class command selection yields a
-    # constructed instance that IS the command (a Cmd subclass); a module command
-    # selection leaves ``instance`` as the root instance and names the module via
-    # the ``command`` dest.
-    selected_name = getattr(instance, "command", None)
-    entry = registry.get(selected_name) if selected_name else None
-    module_command = (
-        _ty.cast(_ModuleCommand, entry[1])
-        if entry is not None and entry[0] == "module"
-        else None
+    # constructed instance that IS the command (a Cmd subclass); a module
+    # command selection leaves ``instance`` as the root instance, identified
+    # by the private ``_duho_module_command_`` marker its OWN subparser set
+    # via ``set_defaults`` -- NOT by any shared ``command``/
+    # ``_duho_command_`` dest, which a nested ``_subcommands_`` tree sharing
+    # a subcommand's name, or a root field a user happens to call ``command``,
+    # could otherwise silently redirect dispatch through. ``pop`` (mirroring
+    # the ``"#cls"`` sidecar convention) keeps this framework bookkeeping out
+    # of ``vars(instance)``.
+    module_command = _ty.cast(
+        "_ModuleCommand | None", vars(instance).pop("_duho_module_command_", None)
     )
 
     if module_command is not None:

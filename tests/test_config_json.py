@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+from conftest import subprocess_env
 import duho
 from duho import Arg, Cli, Cmd, NS
 
@@ -127,5 +128,7 @@ def test_json_import_is_lazy():
     import subprocess
 
     code = "import sys, duho; print('json' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

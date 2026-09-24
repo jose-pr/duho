@@ -18,6 +18,8 @@ import textwrap
 
 import pytest
 
+from conftest import subprocess_env
+
 import duho
 from duho import _compat
 
@@ -166,5 +168,7 @@ def test_entry_points_lazy_import():
     code = "import sys, duho; print('importlib.metadata' in sys.modules)"
     import subprocess
 
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

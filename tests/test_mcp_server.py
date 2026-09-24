@@ -17,6 +17,7 @@ import sys
 
 import pytest
 
+from conftest import subprocess_env
 from duho import Cli, Cmd
 from duho.mcp import _resolve_app, main, serve
 
@@ -235,17 +236,12 @@ def test_python_dash_m_end_to_end(tmp_path):
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         + "\n"
     )
-    env = {"PYTHONPATH": str(tmp_path)}
-    import os
-
-    full_env = dict(os.environ)
-    full_env["PYTHONPATH"] = str(tmp_path)
     proc = subprocess.run(
         [sys.executable, "-m", "duho.mcp", "mcp_e2e_app:App"],
         input=request,
         capture_output=True,
         text=True,
-        env=full_env,
+        env=subprocess_env(extra_path=tmp_path),
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
@@ -266,23 +262,31 @@ def test_duho_agenthelp_is_lazy_until_first_attribute_access():
         "duho.agenthelp\n"
         "print('duho.agenthelp' in sys.modules)\n"
     )
-    out = subprocess.check_output([sys.executable, "-c", code], text=True).splitlines()
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    ).splitlines()
     assert out == ["False", "True"]
 
 
 def test_plain_import_duho_still_lazy_about_json():
     code = "import sys, duho; print('json' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"
 
 
 def test_plain_import_duho_still_lazy_about_importlib_metadata():
     code = "import sys, duho; print('importlib.metadata' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"
 
 
 def test_import_duho_mcp_alone_does_not_load_json():
     code = "import sys, duho.mcp; print('json' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

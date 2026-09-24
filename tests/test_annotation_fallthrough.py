@@ -66,9 +66,10 @@ def test_unsupported_generic_origin_raises_at_build_time():
 
 
 # --------------------------------------------------------------------------
-# Annotated nested inside a Union (e.g. Optional[Arg[int, NS(...)]]) -- a
-# clear build-time error instead of a bare TypeError from an unhashable-
-# metadata dict lookup, or silently dropping the metadata.
+# Annotated nested inside a Union (e.g. Optional[Arg[int, NS(...)]]): the
+# single Annotated member's metadata is lifted out of the Union and applied
+# to the field, rather than crashing with a bare TypeError from an
+# unhashable-metadata dict lookup or silently dropping the metadata (C037).
 # --------------------------------------------------------------------------
 
 from duho import Arg, NS  # noqa: E402
@@ -79,19 +80,29 @@ class _NestedAnnotatedArgs(Args):
     ("--n",)
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 10),
-    reason="on 3.9, typing.Union.__getitem__ itself eagerly hashes its "
-    "members (_remove_dups_flatten -> set(params)) and raises its own "
-    "unhashable-Namespace TypeError before duho's _factory_for ever runs "
-    "-- not a case duho's ladder can intercept",
-)
-def test_nested_annotated_in_union_raises_clear_build_time_error():
-    with pytest.raises(ValueError) as excinfo:
-        _NestedAnnotatedArgs._parser_()
-    msg = str(excinfo.value)
-    assert "n" in msg
-    assert "Annotated" in msg or "Arg[" in msg
+def test_nested_annotated_in_union_lifts_metadata_and_works():
+    if sys.version_info < (3, 10):
+        # On 3.9, `typing.Union.__getitem__` itself eagerly hashes its
+        # members (`_remove_dups_flatten` -> `set(params)`) the moment the
+        # annotation is evaluated, before duho's own resolution ever runs --
+        # and `Arg[int, NS(...)]`'s `NS(...)` metadata isn't hashable. Not a
+        # case duho's ladder can intercept earlier than that; it still
+        # surfaces as a clear, field-named error rather than a bare,
+        # unattributed one.
+        with pytest.raises(TypeError, match="n"):
+            _NestedAnnotatedArgs._parser_()
+        return
+    parser = _NestedAnnotatedArgs._parser_()
+    assert parser.parse_args(["--n", "5"]).n == 5
+    assert parser.parse_args([]).n is None
+
+
+def test_nested_annotated_in_union_env_binding_still_applies(monkeypatch):
+    if sys.version_info < (3, 10):
+        pytest.skip("see test_nested_annotated_in_union_lifts_metadata_and_works")
+    monkeypatch.setenv("ANNOT_N", "9")
+    inst = duho.parse(_NestedAnnotatedArgs, [])
+    assert inst.n == 9
 
 
 # --------------------------------------------------------------------------
@@ -152,3 +163,52 @@ def test_pep695_type_alias_scalar_field_converts():
 def test_pep695_type_alias_list_field_converts():
     inst = duho.parse(_Pep695NamesArgs, ["--name", "a", "--name", "b"])
     assert inst.names == ["a", "b"]
+
+
+# --------------------------------------------------------------------------
+# C037: a PEP 695 alias WRAPPING Annotated (`type Port = Annotated[int,
+# NS(...)]`) must unwrap through `__value__` -- the bare alias case above
+# never carried metadata, so it never exercised this.
+# --------------------------------------------------------------------------
+
+if hasattr(ty, "TypeAliasType"):
+    PortWithMeta = ty.TypeAliasType(
+        "PortWithMeta", ty.Annotated[int, NS(metavar="PORT")]
+    )
+
+    class _Pep695AnnotatedAliasArgs(Args):
+        port: "PortWithMeta" = 8080
+        ("--port",)
+
+
+@pytest.mark.skipif(
+    not hasattr(ty, "TypeAliasType"), reason="PEP 695 type aliases need 3.12+"
+)
+def test_pep695_type_alias_wrapping_annotated_unwraps_metadata():
+    parser = _Pep695AnnotatedAliasArgs._parser_()
+    action = next(a for a in parser._actions if a.dest == "port")
+    assert action.metavar == "PORT"
+    inst = duho.parse(_Pep695AnnotatedAliasArgs, ["--port", "9090"])
+    assert inst.port == 9090
+
+
+# --------------------------------------------------------------------------
+# C037: more than one Annotated member inside a Union is ambiguous -- a
+# field-named error, never a silent pick of one or a crash naming nobody.
+# --------------------------------------------------------------------------
+
+
+class _AmbiguousUnionArgs(Args):
+    n: "ty.Union[Arg[int, NS(metavar='A')], Arg[str, NS(metavar='B')]]" = None
+    ("--n",)
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 10),
+    reason="on 3.9, typing.Union.__getitem__ itself eagerly hashes its "
+    "members before duho's own resolution ever runs (see "
+    "test_nested_annotated_in_union_lifts_metadata_and_works)",
+)
+def test_union_with_two_annotated_members_raises_clear_error():
+    with pytest.raises(TypeError, match="n"):
+        _AmbiguousUnionArgs._parser_()

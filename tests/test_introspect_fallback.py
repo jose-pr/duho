@@ -182,3 +182,91 @@ def test_loggingargs_flags_survive_a_missing_source(tmp_path):
         assert ns.loglevels == {"x": logging.DEBUG}
         rc = duho.main(_NoSourceApp, [], setup_logging=False)
         assert rc == 0
+
+
+# --- C013: a BOM or a PEP 263 encoding cookie must not lose flags/docstrings -
+
+
+_BOM_SOURCE = '''\
+"""A module saved as UTF-8 WITH a byte-order mark."""
+import duho
+from duho import Args
+
+
+class BomApp(Args):
+    """Config with a BOM."""
+
+    name: str = "x"
+    "The name"
+    ("-n", "--name")
+'''
+
+
+def test_module_index_bom_source_keeps_flags_and_docstring(tmp_path):
+    """A UTF-8-with-BOM source file (Notepad, PowerShell 5.1 -Encoding UTF8,
+    "UTF-8 with signature") used to raise SyntaxError on U+FEFF from a plain
+    `read_text(encoding="utf-8")`, which is not an OSError -- getclsdef gave
+    up before ever trying the inspect.getsource fallback, silently dropping
+    every flag/docstring (C013)."""
+    mod_path = tmp_path / "bom_mod.py"
+    mod_path.write_bytes(b"\xef\xbb\xbf" + _BOM_SOURCE.encode("utf-8"))
+
+    spec = importlib.util.spec_from_file_location("bom_mod", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["bom_mod"] = module
+    try:
+        spec.loader.exec_module(module)
+        node = _introspect.getclsdef(module.BomApp)
+        assert node is not None and node.name == "BomApp"
+
+        clsargs = _introspect.get_clsargs(module.BomApp)
+        assert clsargs["name"].docstring == "The name"
+        assert clsargs["name"].exprs == [("-n", "--name")]
+
+        parser = module.BomApp._parser_()
+        option_strings = {s for a in parser._actions for s in a.option_strings}
+        assert {"-n", "--name"} <= option_strings
+    finally:
+        sys.modules.pop("bom_mod", None)
+
+
+_LATIN1_SOURCE = (
+    "# -*- coding: latin-1 -*-\n"
+    '"""M\xf3dulo con un coment\xe1rio n\xe3o-ASCII."""\n'
+    "import duho\n"
+    "from duho import Args\n"
+    "\n"
+    "\n"
+    "class LatinApp(Args):\n"
+    '    """Configura\xe7\xe3o em latin-1."""\n'
+    "\n"
+    "    level: int = 0\n"
+    '    "N\xedvel de log"\n'
+    '    ("--level", "-l")\n'
+)
+
+
+def test_module_index_latin1_cookie_source_keeps_flags_and_docstring(tmp_path):
+    """A PEP 263 `# -*- coding: latin-1 -*-` source with real non-ASCII bytes
+    used to raise UnicodeDecodeError from a plain `read_text(encoding="utf-8")`
+    -- also not an OSError, also skipping the getsource fallback (C013)."""
+    mod_path = tmp_path / "latin1_mod.py"
+    mod_path.write_bytes(_LATIN1_SOURCE.encode("latin-1"))
+
+    spec = importlib.util.spec_from_file_location("latin1_mod", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["latin1_mod"] = module
+    try:
+        spec.loader.exec_module(module)
+        node = _introspect.getclsdef(module.LatinApp)
+        assert node is not None and node.name == "LatinApp"
+
+        clsargs = _introspect.get_clsargs(module.LatinApp)
+        assert clsargs["level"].docstring == "N\xedvel de log"
+        assert clsargs["level"].exprs == [("--level", "-l")]
+
+        parser = module.LatinApp._parser_()
+        option_strings = {s for a in parser._actions for s in a.option_strings}
+        assert {"-l", "--level"} <= option_strings
+    finally:
+        sys.modules.pop("latin1_mod", None)

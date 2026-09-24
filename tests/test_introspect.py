@@ -10,6 +10,8 @@ seeded to skip scanning.
 """
 
 import ast
+import importlib.util
+import sys
 import typing
 
 import duho
@@ -232,3 +234,193 @@ def test_dynamic_class_build_skips_getsource(monkeypatch):
         generated._parser_()
 
     assert calls == [], "getsource must not be called for dynamic classes (P5)"
+
+
+# --- C014: the same qualname defined twice (if/else, try/except) must pick --
+# --- the branch Python actually ran, never just "the last one in the file" --
+
+_DUP_QUALNAME_SOURCE = '''\
+"""Two classes each declared twice under the same qualname."""
+import sys
+
+import duho
+from duho import Args
+
+
+if sys.version_info >= (3, 0):
+
+    class Cond(Args):
+        """Live branch."""
+
+        name: str = "x"
+        ("-n", "--name")
+
+else:  # pragma: no cover - never taken; source only
+
+    class Cond(Args):
+        """Dead branch."""
+
+        name: str = "y"
+        ("-N", "--dead-name")
+
+
+try:
+    import json  # noqa: F401 - always succeeds; the except branch is dead
+
+    class Tried(Args):
+        """Live via try."""
+
+        mode: str = "a"
+        ("--rich-mode",)
+
+except ImportError:  # pragma: no cover - never taken; source only
+
+    class Tried(Args):
+        """Dead via except."""
+
+        mode: str = "b"
+        ("--fallback-mode",)
+'''
+
+
+def test_duplicate_qualname_if_else_picks_the_live_branch(tmp_path):
+    """`Cond` is declared once under `if` (the branch that actually runs) and
+    again under `else` (dead code, later in the file). Indexing both under
+    the same qualname used to let the LATER (dead) ClassDef silently
+    overwrite the live one; `getclsdef` must pick the one whose `lineno`
+    matches `inspect.getsourcelines(cls)` -- the branch Python actually
+    executed (C014)."""
+    mod_path = tmp_path / "dupmod.py"
+    mod_path.write_text(_DUP_QUALNAME_SOURCE, encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location("dupmod", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["dupmod"] = module
+    try:
+        spec.loader.exec_module(module)
+
+        node = _introspect.getclsdef(module.Cond)
+        assert node is not None and node.name == "Cond"
+        assert ast.get_docstring(node) == "Live branch."
+
+        clsargs = _introspect.get_clsargs(module.Cond)
+        assert clsargs["name"].exprs == [("-n", "--name")]
+
+        parser = module.Cond._parser_()
+        option_strings = {s for a in parser._actions for s in a.option_strings}
+        assert {"-n", "--name"} <= option_strings
+        assert "-N" not in option_strings
+        assert "--dead-name" not in option_strings
+    finally:
+        sys.modules.pop("dupmod", None)
+
+
+def test_duplicate_qualname_try_except_picks_the_live_branch(tmp_path):
+    """Same as above for a `try`/`except ImportError` fallback shape -- the
+    `except` branch never runs (the import always succeeds), but its
+    ClassDef comes LAST in the file and used to win (C014)."""
+    mod_path = tmp_path / "dupmod2.py"
+    mod_path.write_text(_DUP_QUALNAME_SOURCE, encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location("dupmod2", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["dupmod2"] = module
+    try:
+        spec.loader.exec_module(module)
+
+        node = _introspect.getclsdef(module.Tried)
+        assert node is not None and node.name == "Tried"
+        assert ast.get_docstring(node) == "Live via try."
+
+        clsargs = _introspect.get_clsargs(module.Tried)
+        assert clsargs["mode"].exprs == [("--rich-mode",)]
+
+        parser = module.Tried._parser_()
+        option_strings = {s for a in parser._actions for s in a.option_strings}
+        assert "--rich-mode" in option_strings
+        assert "--fallback-mode" not in option_strings
+    finally:
+        sys.modules.pop("dupmod2", None)
+
+
+# --- C015: a private field's unresolvable annotation must never crash a ------
+# --- public field's own resolution -------------------------------------------
+
+
+def _make_class_with_unresolvable_private_annotation():
+    class _LocalOnlyType:
+        """Visible only inside this function -- not a module global."""
+
+    class _WithBadPrivate(duho.Args):
+        """A public field alongside a private one whose annotation can only
+        be resolved with access to this function's own locals."""
+
+        public: str = "ok"
+        ("--public",)
+
+        _cache_: "_LocalOnlyType" = None
+
+    return _WithBadPrivate
+
+
+def test_private_field_unresolvable_annotation_does_not_crash_public_fields():
+    cls = _make_class_with_unresolvable_private_annotation()
+    clsargs = _introspect.get_clsargs(cls)
+    assert "public" in clsargs
+    assert clsargs["public"].exprs == [("--public",)]
+    # The private field never becomes CLI-visible metadata regardless.
+    assert "_cache_" not in clsargs
+
+    parser = cls._parser_()
+    ns = parser.parse_args(["--public", "x"])
+    assert ns.public == "x"
+
+
+# --- C036: a subclass overriding only flags (or only help) still inherits ---
+# --- the base's help (or flags) -- never flattened, positional element 0 ----
+
+
+class _MroBase(duho.Args):
+    """Base declaring both help and flags."""
+
+    level: int = 0
+    "How loud to be"
+    ("-l", "--level")
+
+
+class _MroFlagsOnly(_MroBase):
+    """Overrides only the flags."""
+
+    level: int = 1
+    ("-L",)
+
+
+class _MroHelpOnly(_MroBase):
+    """Overrides only the help text."""
+
+    level: int = 2
+    "New help"
+
+
+class _MroBare(_MroBase):
+    """Overrides neither -- inherits both."""
+
+    level: int = 3
+
+
+def test_mro_docstring_and_flags_resolve_independently():
+    base = _introspect.get_clsargs(_MroBase)["level"]
+    assert base.docstring == "How loud to be"
+    assert base.exprs == [("-l", "--level")]
+
+    flags_only = _introspect.get_clsargs(_MroFlagsOnly)["level"]
+    assert flags_only.docstring == "How loud to be"  # inherited from the base
+    assert flags_only.exprs == [("-L",)]  # overridden
+
+    help_only = _introspect.get_clsargs(_MroHelpOnly)["level"]
+    assert help_only.docstring == "New help"  # overridden
+    assert help_only.exprs == [("-l", "--level")]  # inherited from the base
+
+    bare = _introspect.get_clsargs(_MroBare)["level"]
+    assert bare.docstring == "How loud to be"
+    assert bare.exprs == [("-l", "--level")]

@@ -371,3 +371,43 @@ def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
         setup_logging=False,
     )
     assert rc == "region=cli replicas=1 env=False"
+
+
+# --------------------------------------------------------------------------
+# A global option declared on the root is not shadowed by a subcommand that
+# inherits the same field
+# --------------------------------------------------------------------------
+
+
+class _GlobalOptionRoot(Cmd):
+    db: str = None
+    ("--db",)
+
+
+class _GlobalOptionSub(_GlobalOptionRoot):
+    def __call__(self):
+        return 0
+
+
+class _GlobalOptionApp(_GlobalOptionRoot, Cli):
+    _subcommands_ = [_GlobalOptionSub]
+
+    def __call__(self):
+        return 0
+
+
+def test_global_option_before_subcommand_survives():
+    parser = _GlobalOptionApp._parser_()
+    # Given BEFORE the subcommand -- previously clobbered to None by the
+    # child's inherited --db default. Now preserved.
+    assert parser.parse_args(["--db", "X", "_GlobalOptionSub"]).db == "X"
+
+
+def test_global_option_after_subcommand_still_works():
+    parser = _GlobalOptionApp._parser_()
+    assert parser.parse_args(["_GlobalOptionSub", "--db", "Y"]).db == "Y"
+
+
+def test_global_option_absent_uses_root_default():
+    parser = _GlobalOptionApp._parser_()
+    assert parser.parse_args(["_GlobalOptionSub"]).db is None

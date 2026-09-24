@@ -17,7 +17,7 @@ import textwrap
 import pytest
 
 import duho
-from duho import Args, Cmd, LoggingArgs, command
+from duho import Args, Cli, Cmd, LoggingArgs, command
 
 # --- Cmd.__call__ dispatch + direct callability ----------------------------
 
@@ -258,3 +258,94 @@ def test_cmd_from_real_fixture_file_dispatches(tmp_path):
         assert duho.main(mod.FileCmd, ["--count", "5"], setup_logging=False) == 105
     finally:
         sys.modules.pop("fixture_cmd", None)
+
+
+# --- A literal "%" in a docstring must not crash parser build --------------
+
+
+class _PercentDoc(Cmd):
+    """Dump the DB into a manifest (e.g. an RPM %files list)."""
+
+    def __call__(self):
+        return 0
+
+
+class _PercentApp(Cli):
+    _subcommands_ = [_PercentDoc]
+
+    def __call__(self):
+        return 0
+
+
+def test_docstring_percent_does_not_crash_parser_build():
+    # A literal "%" in a Cmd docstring used to raise ValueError("badly formed
+    # help string") from argparse's own _check_help at add_parser time.
+    parser = _PercentApp._parser_()
+    text = parser.format_help()
+    assert parser is not None
+    # argparse only %-unescapes `help=` text (subcommand listing), never
+    # `description=` (a standalone command's own --help uses description=).
+    # A loose "%files" substring check would pass even on a doubled
+    # "%%files" -- assert the exact line instead.
+    assert "RPM %files list" in text
+
+
+def test_own_percent_help_is_not_doubled():
+    sub_help = _PercentDoc._parser_().format_help()
+    assert "RPM %files list" in sub_help
+    assert "%%" not in sub_help
+
+
+def test_docstring_percent_help_runs():
+    with pytest.raises(SystemExit) as exc:
+        duho.main(_PercentApp, ["--help"])
+    assert exc.value.code == 0
+
+
+# --- Direct construction seeds declared field defaults ----------------------
+
+
+class _DirectConstructFlags(Cmd):
+    verbose: bool  # ("--verbose",) store_true, implicit default False
+    ("--verbose",)
+    name: str = "world"
+    ("--name",)
+    count: int = 3
+    ("--count",)
+
+    def __call__(self):
+        return 0
+
+
+def test_direct_construction_seeds_bool_default():
+    inst = _DirectConstructFlags()
+    # store_true bool with no assigned default -> False, even without argv.
+    assert inst.verbose is False
+    assert inst.name == "world"
+    assert inst.count == 3
+
+
+def test_direct_construction_passed_values_win():
+    inst = _DirectConstructFlags(verbose=True, name="x")
+    assert inst.verbose is True
+    assert inst.name == "x"
+    assert inst.count == 3  # still seeded
+
+
+def test_parsed_values_not_shadowed_by_seeding():
+    # The parse path constructs cls(**parsed.__dict__); seeding must fill only
+    # gaps, never overwrite a parsed value.
+    parser = _DirectConstructFlags._parser_()
+    inst = parser.parse_args(["--verbose", "--name", "y", "--count", "9"])
+    assert inst.verbose is True
+    assert inst.name == "y"
+    assert inst.count == 9
+
+
+def test_self_clone_via_get_kwargs_has_full_surface():
+    # The documented self-cloning pattern: type(self)(**self._get_kwargs()).
+    inst = _DirectConstructFlags(name="z")
+    clone = type(inst)(**dict(inst._get_kwargs()))
+    assert clone.verbose is False
+    assert clone.name == "z"
+    assert clone.count == 3

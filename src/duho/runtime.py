@@ -20,9 +20,10 @@ behaviors clients rely on are reproduced on that path:
   ``parents=[<root parser>]`` so global/root options appear on each subcommand.
 * **Shared namespace** -- class commands already carry the ``"#cls"``
   deepest-selection contract (``_initparser_``), which yields one merged instance
-  of the deepest selected class. Module commands don't declare their own args, so
-  the parsed instance is the root instance (plus any fields a module ``register``
-  hook added directly).
+  of the deepest selected class. A module command's parsed instance stays the
+  ROOT instance (plus any fields a module ``register`` hook, or its own declared
+  ``Args`` class, added directly) -- it is never itself constructed as a duho
+  class, unlike a class command.
 * **Nested-help suppression** -- the optional two-pass prepass uses the existing
   :func:`duho.parsers.prerun_parse`, which already relaxes ``_HelpAction`` and
   subparser validation for the prepass and restores them. No hand-patching.

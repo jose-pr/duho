@@ -7,11 +7,14 @@ golden files, because argparse formatter internals vary across 3.9-3.13.
 """
 
 import argparse
+import re
+import sys
+import typing as ty
 
 import pytest
 
 import duho
-from duho import Args
+from duho import Arg, Args, NS
 
 
 class DefaultsApp(Args):
@@ -42,6 +45,63 @@ def test_defaults_formatter_skips_false_and_required():
     # store_true default False -> no suffix; required field has no default -> none.
     assert "(default: False)" not in help_text
     assert "(default: None)" not in help_text
+
+
+# --------------------------------------------------------------------------
+# C041: empty sized containers are noise too, same as None/""/False
+# --------------------------------------------------------------------------
+
+
+class ContainerDefaultsApp(duho.LoggingArgs, Args):
+    """A list field, plus LoggingArgs' own dict-default --loglevel."""
+
+    _help_formatter_ = duho.DefaultsFormatter
+
+    tags: ty.List[str] = []
+    "Tags"
+    ("--tags",)
+
+
+def test_defaults_formatter_skips_empty_containers():
+    help_text = ContainerDefaultsApp._parser_().format_help()
+    assert "(default: [])" not in help_text
+    assert "(default: {})" not in help_text
+
+
+# --------------------------------------------------------------------------
+# C001: DefaultsFormatter shows only the CLASS default, never a live
+# env/config value, for human --help too
+# --------------------------------------------------------------------------
+
+
+class SecretHelpApp(Args):
+    """App with an env-bound secret shown by DefaultsFormatter."""
+
+    _help_formatter_ = duho.DefaultsFormatter
+
+    token: Arg[str, NS(env="DUHO_TEST_FORMATTERS_SECRET")] = ""
+    "Auth token"
+    ("--token",)
+
+    def __call__(self):
+        return 0
+
+
+def test_defaults_formatter_redacts_env_secret_on_human_help(monkeypatch, capsys):
+    monkeypatch.setenv("DUHO_TEST_FORMATTERS_SECRET", "human-s3cr3t-value")
+    with pytest.raises(SystemExit):
+        duho.main(SecretHelpApp, ["--help"])
+    out = capsys.readouterr().out
+    assert "human-s3cr3t-value" not in out
+    assert "(from env DUHO_TEST_FORMATTERS_SECRET)" in out
+
+
+def test_defaults_formatter_shows_class_default_without_secret(monkeypatch, capsys):
+    monkeypatch.delenv("DUHO_TEST_FORMATTERS_SECRET", raising=False)
+    with pytest.raises(SystemExit):
+        duho.main(SecretHelpApp, ["--help"])
+    out = capsys.readouterr().out
+    assert "(from env" not in out
 
 
 class ColorApp(Args):
@@ -75,6 +135,56 @@ def test_no_color_beats_force_color(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     help_text = ColorApp._parser_().format_help()
     assert "\033[" not in help_text
+
+
+# --------------------------------------------------------------------------
+# C016: colored help never misaligns (pre-3.14) or double-colors (3.14+)
+# --------------------------------------------------------------------------
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class ColorAlignApp(duho.LoggingArgs, Args):
+    """A short+long flag alongside LoggingArgs' own --loglevel -- the shape
+    that showed ragged columns pre-fix (a short invocation on one line, a
+    longer one wrapping and shifting the help column)."""
+
+    _help_formatter_ = duho.ColorHelpFormatter
+
+    name: str = "x"
+    "The name"
+    ("-n", "--name")
+
+    tags: ty.List[str] = []
+    "Tags"
+    ("--tags",)
+
+
+def test_color_help_alignment_matches_plain_help_when_forced(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PYTHON_COLORS", raising=False)
+    colored = ColorAlignApp._parser_().format_help()
+    # `formatter_class=argparse.HelpFormatter` opts OUT of duho's own
+    # coloring, but not necessarily argparse's native one (a 3.14+
+    # `ArgumentParser`'s own `color` default is independent of which
+    # formatter class is used) -- strip both sides so the comparison is
+    # about LAYOUT, the thing C016 was actually about.
+    plain = ColorAlignApp._parser_(formatter_class=argparse.HelpFormatter).format_help()
+    assert _ANSI.sub("", colored) == _ANSI.sub("", plain)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="argparse native color is 3.14+")
+def test_color_help_alignment_matches_plain_with_native_color_disabled(monkeypatch):
+    # duho defers entirely to argparse's own color on 3.14+ (never nests its
+    # own codes around argparse's native theme); with that native color also
+    # switched off (`PYTHON_COLORS=0`), the whole line is plain either way.
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    colored = ColorAlignApp._parser_().format_help()
+    plain = ColorAlignApp._parser_(formatter_class=argparse.HelpFormatter).format_help()
+    assert _ANSI.sub("", colored) == _ANSI.sub("", plain)
 
 
 class ComposedApp(Args):

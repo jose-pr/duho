@@ -4,7 +4,7 @@ import argparse as _argparse
 import typing as _ty
 
 
-def pop_action(parser: _argparse.ArgumentParser, name: str):
+def pop_action(parser: _argparse.ArgumentParser, name: str) -> _argparse.Action:
     """Remove an action from a parser by destination name.
 
     Removes the action from the parser's action list, its option-string map,
@@ -38,7 +38,7 @@ def insert_action(
     parser: _argparse.ArgumentParser,
     action: _argparse.Action,
     index: "int | None" = None,
-):
+) -> None:
     """Insert an action into a parser (optionally at a given index).
 
     ``index=None`` (the default) APPENDS. The previous default, ``-1``, used
@@ -64,7 +64,7 @@ def insert_action(
         group._group_actions.append(action)
 
 
-def add_help_argument(parser: _argparse.ArgumentParser):
+def add_help_argument(parser: _argparse.ArgumentParser) -> _argparse.Action:
     """Add a help argument to a parser."""
     return parser.add_argument(
         "-h",
@@ -127,7 +127,7 @@ class _RelaxedSubParsersAction(_argparse._SubParsersAction):
             getattr(namespace, _argparse._UNRECOGNIZED_ARGS_ATTR).extend(arg_strings)
 
 
-def disable_subparser_check(action: _argparse._SubParsersAction):
+def disable_subparser_check(action: _argparse._SubParsersAction) -> None:
     """Relax name validation on THIS ``_SubParsersAction`` instance.
 
     Per-instance surgery: swaps only this action's class to
@@ -153,7 +153,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction):
     action._duho_disable_depth_ = depth + 1  # type: ignore[attr-defined]
 
 
-def enable_subparser_check(action: _argparse._SubParsersAction):
+def enable_subparser_check(action: _argparse._SubParsersAction) -> None:
     """Restore the class + choices saved by :func:`disable_subparser_check`.
 
     Reentrant (C034): only the call that brings the depth counter back to
@@ -243,7 +243,7 @@ def prerun_parse(
     argv: "_ty.Sequence[str] | None" = None,
     *,
     quiet: bool = False,
-):
+) -> "_argparse.Namespace":
     """Parse arguments without a subcommand descent or any print-and-exit
     side effect.
 

@@ -44,6 +44,12 @@ import typing as _ty
 from . import _compat as _compat
 from . import _introspect as _introspect
 
+if _ty.TYPE_CHECKING:
+    # Function-local (not module-top) in the runtime code below, to avoid a
+    # circular import (`args.py` imports THIS module lazily); safe here since
+    # `TYPE_CHECKING` is always False at runtime.
+    from .args import Args as _Args
+
 __all__ = [
     "SCHEMA",
     "DEFAULT_ENV",
@@ -77,7 +83,9 @@ _DEFAULT_EXIT_CODES = {
 }
 
 
-def agent_help_requested(env_name=None, environ=None):
+def agent_help_requested(
+    env_name: "str | None" = None, environ: "_ty.Mapping[str, str] | None" = None
+) -> bool:
     """True when the trigger env var (default ``AGENT_HELP``) is set truthy.
 
     ``env_name`` defaults to :data:`DEFAULT_ENV`; ``environ`` defaults to
@@ -505,8 +513,14 @@ def stash_default_provenance(parser, cls=None) -> None:
 
 
 def describe_parser(
-    parser, *, root=False, root_cls=None, name=None, aliases=None, _seen=None
-):
+    parser: "_argparse.ArgumentParser",
+    *,
+    root: bool = False,
+    root_cls: "type[_Args] | None" = None,
+    name: "str | None" = None,
+    aliases: "_ty.Sequence[str] | None" = None,
+    _seen: "set | None" = None,
+) -> "dict":
     """Describe one built ``ArgumentParser`` (and its subtree) as plain data.
 
     ``root`` adds the document-level keys (schema tag, version, exit codes,
@@ -628,7 +642,7 @@ def describe_parser(
     return spec
 
 
-def describe(cls, argv=None):
+def describe(cls: "type[_Args]", argv: "_ty.Sequence[str] | None" = None) -> "dict":
     """Build ``cls``'s parser and return its agent-help document (a dict).
 
     Standalone counterpart to the ``--help-agents`` flag / ``AGENT_HELP`` trigger:
@@ -640,7 +654,7 @@ def describe(cls, argv=None):
     return describe_parser(parser, root=True, root_cls=cls)
 
 
-def render(spec):
+def render(spec: "dict") -> str:
     """Serialise an agent-help document to a JSON string (trailing newline).
 
     ``json`` is imported lazily (not at module top) so ``import duho`` never pays
@@ -661,7 +675,9 @@ def render(spec):
     return _json.dumps(spec, indent=2, ensure_ascii=True) + "\n"
 
 
-def print_agent_help(cls, file=None):
+def print_agent_help(
+    cls: "type[_Args]", file: "_ty.Optional[_ty.TextIO]" = None
+) -> None:
     """Print ``cls``'s agent-help JSON document to ``file`` (default stdout).
 
     Written via :func:`duho._compat.write_machine` (C008/O042): raw UTF-8

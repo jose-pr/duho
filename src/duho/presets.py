@@ -8,7 +8,7 @@ from .args import Args, NS, UpdateAction, _command_name as _command_name
 from .logging import parse_loglevels
 
 
-def _apply_loglevels(ns, default_logger: str) -> dict:
+def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     """Apply parsed ``loglevels``/``verbose``/``quiet`` fields to loggers.
 
     Module-level (A012/D049) so it works on ANY object carrying
@@ -124,7 +124,7 @@ class LoggingArgs(Args):
         ),
     ] = 0
 
-    def _verbose_loglevel_(self):
+    def _verbose_loglevel_(self) -> int:
         """Convert verbose/quiet count to a NUMERIC log level.
 
         ``VERBOSE_LEVELS`` is keyed by int, so this returns the level number
@@ -136,12 +136,12 @@ class LoggingArgs(Args):
         index = max(0, min(index, len(levels) - 1))
         return levels[index]
 
-    def _set_loglevels_(self):
+    def _set_loglevels_(self) -> "dict[str, int]":
         """Apply parsed log levels to loggers."""
         return _apply_loglevels(self, self._logger_.name)
 
     @property
-    def _logger_(self):
+    def _logger_(self) -> "_logging.Logger":
         """Get logger scoped to this parser's name.
 
         Resolved lazily and defensively, rather than

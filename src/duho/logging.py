@@ -92,7 +92,9 @@ def _getcolor(color: str):
     return color
 
 
-def add_logging_level(name: str, level: int, force=False, color: "str | None" = None):
+def add_logging_level(
+    name: str, level: int, force: bool = False, color: "str | None" = None
+) -> None:
     """Register a custom log level.
 
     Installs ``NAME``/``name`` on both the ``logging`` module and
@@ -205,7 +207,7 @@ VERBOSE_HELP = ""
 _LEVELSIZE = 4
 
 
-def initverbose():
+def initverbose() -> None:
     """Initialize verbose level mappings."""
     global VERBOSE_LEVELS, VERBOSE_HELP, _LEVELSIZE
 
@@ -233,7 +235,9 @@ def initverbose():
     VERBOSE_HELP = ", ".join([aliases[0] for aliases in VERBOSE_LEVELS.values()])
 
 
-def parse_loglevels(text: str, itemdivider: str = ",", valkey_separator=":"):
+def parse_loglevels(
+    text: str, itemdivider: str = ",", valkey_separator: str = ":"
+) -> "dict[str, int]":
     """Parse a ``[NAME:]LEVEL[,NAME:LEVEL...]`` log level specification.
 
     ``LEVEL`` is matched case-insensitively against the registered level
@@ -275,7 +279,9 @@ def parse_loglevels(text: str, itemdivider: str = ",", valkey_separator=":"):
 _STDERR_HANDLER_TAG = "_duho_stderr_handler_"
 
 
-def init_stderr_logging(name=None, level: "int | None" = None):
+def init_stderr_logging(
+    name: "str | None" = None, level: "int | None" = None
+) -> "_logging.Logger":
     """Initialize logging to stderr with color support.
 
     Idempotent (C040): a repeat call on the same logger (directly, or via

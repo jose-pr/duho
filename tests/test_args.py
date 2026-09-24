@@ -16,6 +16,7 @@ from duho import (
     Count,
     Extend,
     NS,
+    parse,
     parser as duho_parser,
 )
 from duho.parsers import prerun_parse
@@ -695,6 +696,47 @@ def test_positional_never_gets_required_kwarg():
         assert "required" not in kwargs
 
 
+class OptionalTypedPositionalNoDefaultArgs(Args):
+    """An `Optional[T]` positional with NO explicit default. `Optional[T]`
+    means "not required" for an option; a positional with no default used to
+    stay required anyway (A026)."""
+
+    target: "ty.Optional[int]"
+    "Target"
+    ("target",)
+
+
+def test_optional_positional_without_default_is_not_required():
+    parser = OptionalTypedPositionalNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.target is None
+
+    args = parser.parse_args(["3"])
+    assert args.target == 3
+
+
+class OptionalNoDefaultOptionNoAssignArgs(Args):
+    """Same shape, declared with no `= None` assignment at all."""
+
+    timeout: "ty.Optional[int]"
+    "Timeout"
+    ("--timeout",)
+
+
+def test_effective_default_is_none_for_non_required_option_without_default():
+    """`_effective_default_()` used to return NOT_DEFINED here, so a direct
+    instance had no attribute at all, although a parsed one gets None
+    (A027)."""
+    [builder] = [
+        b
+        for b in OptionalNoDefaultOptionNoAssignArgs._getargs_()
+        if b.name == "timeout"
+    ]
+    assert builder._effective_default_() is None
+    inst = OptionalNoDefaultOptionNoAssignArgs()
+    assert inst.timeout is None
+
+
 # --- argument helper factories (Count/Append/Const/Choice) ---
 
 
@@ -713,6 +755,89 @@ def test_count_helper():
 
     args = parser.parse_args([])
     assert args.verbose == 0
+
+
+class CountNoDefaultArgs(Args):
+    """Same as the README's `Arg[int, Count()]` row, with NO `= 0` default --
+    Count/Const/store_false with no declared default used to become a
+    mandatory option (A051)."""
+
+    verbose: Arg[int, Count()]
+    "Verbosity"
+    ("-v", "--verbose")
+
+
+def test_count_with_no_default_is_not_required():
+    parser = CountNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.verbose == 0
+
+    args = parser.parse_args(["-vv"])
+    assert args.verbose == 2
+
+
+class StoreFalseNoDefaultArgs(Args):
+    """A `store_false` action with no declared default."""
+
+    keep: Arg[bool, NS(action="store_false")]
+    "Keep"
+    ("--no-keep",)
+
+
+def test_store_false_with_no_default_is_not_required():
+    parser = StoreFalseNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.keep is True
+
+    args = parser.parse_args(["--no-keep"])
+    assert args.keep is False
+
+
+class ConstNoDefaultArgs(Args):
+    """A `store_const` field (via Const()) with no declared default."""
+
+    mode: Arg[str, Const("fast")]
+    "Mode"
+    ("--fast",)
+
+
+def test_const_with_no_default_is_not_required():
+    parser = ConstNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.mode is None
+
+    args = parser.parse_args(["--fast"])
+    assert args.mode == "fast"
+
+
+class RawKwargsConstArgs(Args):
+    """`const=` supplied through the raw NS(kwargs={...}) escape hatch must
+    still be seen by the store_const/append_const build-time check (A052)."""
+
+    fast: Arg[int, NS(kwargs={"action": "store_const", "const": 5})] = 0
+    "Fast mode"
+    ("--fast",)
+
+
+def test_const_via_raw_kwargs_escape_hatch():
+    parser = RawKwargsConstArgs._parser_()
+    args = parser.parse_args(["--fast"])
+    assert args.fast == 5
+
+
+class RawKwargsVersionArgs(Args):
+    """`version=` supplied through the raw NS(kwargs={...}) escape hatch."""
+
+    dummy: Arg[str, NS(kwargs={"action": "version", "version": "9.9"})] = None
+    "Version"
+    ("--ver",)
+
+
+def test_version_via_raw_kwargs_escape_hatch(capsys):
+    parser = RawKwargsVersionArgs._parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--ver"])
+    assert "9.9" in capsys.readouterr().out
 
 
 class AppendArgs(Args):
@@ -754,6 +879,107 @@ def test_extend_helper_flattens_across_repeated_occurrences():
     assert args.opts == ["a", "b", "c"]
 
 
+class ExtendNonEmptyDefaultArgs(Args):
+    """A declared non-empty default used to be silently discarded regardless
+    of whether the flag was ever given (A007): Extend() put its own
+    `default=[]` into the raw kwargs= escape hatch, which always wins."""
+
+    paths: Arg[list, Extend(":")] = ["/usr/bin"]
+    "Search path"
+    ("--path",)
+
+
+def test_extend_keeps_declared_default_when_flag_absent():
+    inst = parse(ExtendNonEmptyDefaultArgs, [])
+    assert inst.paths == ["/usr/bin"]
+    # A direct instance sees the same default (Args.__init__ seeds it too).
+    assert ExtendNonEmptyDefaultArgs().paths == ["/usr/bin"]
+
+
+def test_extend_cli_value_replaces_declared_default():
+    inst = parse(ExtendNonEmptyDefaultArgs, ["--path", "a:b"])
+    assert inst.paths == ["a", "b"]
+
+
+class ExtendIntArgs(Args):
+    """Extend() on a typed list[int] must convert the split parts through
+    the element factory instead of leaving them as strings (A020)."""
+
+    nums: Arg["list[int]", Extend(",")] = []
+    "Numbers"
+    ("--nums",)
+
+
+def test_extend_composes_with_element_factory():
+    inst = parse(ExtendIntArgs, ["--nums", "1,2"])
+    assert inst.nums == [1, 2]
+    assert all(isinstance(n, int) for n in inst.nums)
+
+
+class ExtendSetArgs(Args):
+    """Extend() on a set field must produce a set, not a list (A020)."""
+
+    tags: Arg["set[str]", Extend(",")] = set()
+    "Tags"
+    ("--tags",)
+
+
+def test_extend_on_set_field_produces_a_set_and_dedups():
+    inst = parse(ExtendSetArgs, ["--tags", "a,b", "--tags", "a"])
+    assert inst.tags == {"a", "b"}
+    assert isinstance(inst.tags, set)
+
+
+class ExtendEnvArgs(Args):
+    """An Extend() field layered from an env var (A020c)."""
+
+    paths: Arg[list, Extend(":"), NS(env="DUHO_TEST_A020_PATH")] = []
+    "Search path"
+    ("--path",)
+
+
+def test_extend_env_value_is_split_not_nested(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_A020_PATH", "a:b")
+    inst = parse(ExtendEnvArgs, [])
+    assert inst.paths == ["a", "b"]
+
+
+class ExtendConfigArgs(Args):
+    """An Extend() field sourced from a TOML value (A020c)."""
+
+    paths: Arg[list, Extend(",")] = []
+    "Search path"
+    ("--path",)
+
+
+def test_extend_config_string_value_is_split(tmp_path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('paths = "a,b"\n')
+    inst = parse(ExtendConfigArgs, [], config=cfg)
+    assert inst.paths == ["a", "b"]
+
+
+def test_extend_config_array_values_are_split_and_flattened(tmp_path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('paths = ["a,b", "c"]\n')
+    inst = parse(ExtendConfigArgs, [], config=cfg)
+    assert inst.paths == ["a", "b", "c"]
+
+
+class AppendSetArgs(Args):
+    """Append() forces argparse's stdlib list-only "append" action, which
+    does not compose with a set field's own collection action (A020)."""
+
+    tags: Arg["set[str]", Append()] = set()
+    "Tags"
+    ("--tags",)
+
+
+def test_append_on_set_field_raises_at_build_time():
+    with pytest.raises(ValueError, match="set"):
+        AppendSetArgs._parser_()
+
+
 class ConstHelperArgs(Args):
     """mode: Arg[str, Const('fast')] sets the const value on presence."""
 
@@ -786,3 +1012,68 @@ def test_choice_helper():
 
     with pytest.raises(SystemExit):
         parser.parse_args(["--mode", "c"])
+
+
+# --- direct instance construction (Args()) ---
+
+
+class DirectListDefaultArgs(Args):
+    """A field with an explicit CLASS-level mutable default."""
+
+    files: "list[str]" = []
+    "Files"
+    ("--file",)
+
+
+def test_direct_instance_does_not_share_class_level_mutable_default():
+    """Mutating a directly-built instance's list field used to mutate the
+    CLASS ATTRIBUTE itself (A022): `hasattr(self, name)` is already True for
+    a field with a class-level default, so `Args.__init__` skipped seeding a
+    fresh copy onto the instance, and the instance just read the class
+    attribute by inheritance."""
+    a = DirectListDefaultArgs()
+    assert "files" in vars(a)
+    assert a.files is not DirectListDefaultArgs.files
+
+    a.files.append("leak")
+    assert DirectListDefaultArgs.files == []
+    assert DirectListDefaultArgs().files == []
+    assert parse(DirectListDefaultArgs, []).files == []
+
+
+# --- shared positional/bare-bool detection (A068) ---
+
+
+class IsPositionalArgs(Args):
+    option_field: str = "x"
+    "An option"
+    ("--option-field",)
+
+    positional_field: str
+    "A positional"
+    ("positional_field",)
+
+    bare_bool: bool = False
+    "A bare bool -- a store_true flag"
+    ("--bare-bool",)
+
+    literal_bool: "ty.Literal[True, False]" = True
+    "A Literal[True, False] field -- NOT a bare bool flag (carries choices)"
+    ("--literal-bool",)
+
+
+def test_is_positional_property_matches_flags():
+    builders = {b.name: b for b in IsPositionalArgs._getargs_()}
+    assert builders["option_field"].is_positional is False
+    assert builders["positional_field"].is_positional is True
+
+
+def test_is_bare_bool_flag_excludes_literal_bool():
+    """A `Literal[True, False]` field carries `choices` and must go through
+    type=+choices= like any other Literal -- it is NOT a bare store_true/
+    BooleanOptionalAction flag, even though its declared type is `bool`-ish
+    (A068 -- this is the exact disagreement duho.mcp independently re-derived
+    and got wrong)."""
+    builders = {b.name: b for b in IsPositionalArgs._getargs_()}
+    assert builders["bare_bool"].is_bare_bool_flag is True
+    assert builders["literal_bool"].is_bare_bool_flag is False

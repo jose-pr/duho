@@ -14,7 +14,7 @@ import typing as ty
 import pytest
 
 from duho import Arg, Cli, Cmd, NS
-from duho.mcp import call_tool
+from duho.mcp import UnknownToolError, call_tool
 
 
 class Color(enum.Enum):
@@ -189,10 +189,19 @@ def test_list_return_is_passed_through_as_json():
 # --------------------------------------------------------------------------
 
 
-def test_unknown_tool_name_is_error():
-    result = call_tool(Toolbox, "Toolbox.NoSuchTool", {})
-    assert result["isError"] is True
-    assert "unknown tool" in result["content"][0]["text"]
+def test_unknown_tool_name_raises_unknown_tool_error():
+    # An unknown tool name is a malformed REQUEST, not a broken command --
+    # call_tool raises so `serve()` can map it to a JSON-RPC -32602 error
+    # response instead of a tool result.
+    with pytest.raises(UnknownToolError, match="unknown tool"):
+        call_tool(Toolbox, "Toolbox.NoSuchTool", {})
+
+
+def test_calling_a_namespace_node_raises_unknown_tool_error():
+    # Toolbox itself always requires a subcommand -- it can never dispatch,
+    # so it is refused the same way an unknown name is.
+    with pytest.raises(UnknownToolError):
+        call_tool(Toolbox, "Toolbox", {})
 
 
 # --------------------------------------------------------------------------

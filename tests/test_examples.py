@@ -71,7 +71,9 @@ def test_fileinstall_main_install_returns_0():
 def test_mcp_app_describes_fileinstall_as_tools():
     tools = duho.mcp.describe_tools(mcp_app.FileInstall)
     names = {t["name"] for t in tools}
-    assert names == {"FileInstall", "FileInstall.install"}
+    # "FileInstall" itself is a namespace (its own subcommand is mandatory),
+    # so it is not listed as a callable tool.
+    assert names == {"FileInstall.install"}
     install = next(t for t in tools if t["name"] == "FileInstall.install")
     assert "source" in install["inputSchema"]["properties"]
     assert "destination" in install["inputSchema"]["properties"]

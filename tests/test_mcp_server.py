@@ -86,7 +86,9 @@ def test_tools_list_returns_the_describe_tools_shape():
     )
     tools = responses[0]["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert names == {"Server", "Server.Ping"}
+    # "Server" itself is a namespace (its own subcommand is mandatory), so it
+    # is not listed as a callable tool.
+    assert names == {"Server.Ping"}
     for tool in tools:
         assert set(tool) == {"name", "description", "inputSchema"}
 
@@ -198,6 +200,17 @@ def test_main_with_no_args_reports_usage(capsys):
     assert "usage" in captured.err
 
 
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_main_help_flag_reports_usage_without_trying_to_resolve_it(capsys, flag):
+    # "-h"/"--help" used to be handed straight to `_resolve_app` as an <app>
+    # spec, which always failed with a confusing "could not resolve" error.
+    rc = main([flag])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "usage" in captured.err
+    assert "could not resolve" not in captured.err
+
+
 # --------------------------------------------------------------------------
 # python -m duho.mcp <app> end-to-end (real subprocess)
 # --------------------------------------------------------------------------
@@ -238,12 +251,23 @@ def test_python_dash_m_end_to_end(tmp_path):
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert names == {"App", "App.Ping"}
+    assert names == {"App.Ping"}
 
 
 # --------------------------------------------------------------------------
 # Zero-eager-import contract: duho.mcp existing must not affect `import duho`
 # --------------------------------------------------------------------------
+
+
+def test_duho_agenthelp_is_lazy_until_first_attribute_access():
+    code = (
+        "import sys, duho\n"
+        "print('duho.agenthelp' in sys.modules)\n"
+        "duho.agenthelp\n"
+        "print('duho.agenthelp' in sys.modules)\n"
+    )
+    out = subprocess.check_output([sys.executable, "-c", code], text=True).splitlines()
+    assert out == ["False", "True"]
 
 
 def test_plain_import_duho_still_lazy_about_json():

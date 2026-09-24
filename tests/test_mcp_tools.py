@@ -64,7 +64,9 @@ def _by_name(tools):
 def test_every_node_gets_a_tool_namespaced_parent_child():
     tools = describe_tools(App)
     names = {t["name"] for t in tools}
-    assert names == {"App", "App.Deploy", "App.Rollback"}
+    # "App" itself is a namespace: it always requires a subcommand, so it can
+    # never be dispatched and is not listed as a callable tool.
+    assert names == {"App.Deploy", "App.Rollback"}
 
 
 def test_flat_app_with_no_subcommands_has_one_tool():
@@ -97,19 +99,29 @@ def test_tool_spec_has_name_description_input_schema():
     assert "environment" in deploy["inputSchema"]["required"]
 
 
-def test_root_tool_describes_roots_own_fields():
+def test_namespace_root_is_not_listed_but_its_fields_reach_children():
     tools = _by_name(describe_tools(App))
-    root = tools["App"]
-    assert root["description"] == "My multi-command app."
-    # LoggingArgs' own fields (verbose/quiet/loglevels) are real duho fields on
-    # the root -- they show up on the root's own schema.
-    assert "verbose" in root["inputSchema"]["properties"]
+    assert "App" not in tools
+    # A namespace root (its own subcommand is mandatory) is not itself a
+    # callable tool, but its own fields -- here LoggingArgs' verbose/quiet/
+    # loglevels -- must still be reachable: they are merged into every
+    # descendant's own schema, since MCP has no separate way to call the
+    # root first and supply them.
+    deploy = tools["App.Deploy"]
+    assert "verbose" in deploy["inputSchema"]["properties"]
+    assert "environment" in deploy["inputSchema"]["properties"]
 
 
-def test_leaf_tool_with_no_fields_has_empty_schema():
+def test_leaf_tool_with_no_fields_of_its_own_inherits_ancestor_fields():
     tools = _by_name(describe_tools(App))
     rollback = tools["App.Rollback"]
-    assert rollback["inputSchema"]["properties"] == {}
+    # Rollback declares no fields of its own, but its namespace ancestor
+    # App's own (LoggingArgs) fields are merged in.
+    assert set(rollback["inputSchema"]["properties"]) == {
+        "verbose",
+        "quiet",
+        "loglevels",
+    }
     assert rollback["inputSchema"]["required"] == []
 
 

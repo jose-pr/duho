@@ -86,6 +86,55 @@ def test_union_factory_exhaustion_message():
     assert "could not convert 'definitely-not-a-number' using any of" in msg
 
 
+def test_union_factory_exhaustion_message_reaches_the_user(capsys):
+    # A user never calls `action.type(...)` directly -- go through the real
+    # argparse path and check the message actually printed to stderr (A018:
+    # argparse only preserves a factory's own message for ArgumentTypeError,
+    # otherwise it substitutes its own generic "invalid <x> value").
+    with pytest.raises(SystemExit):
+        duho.parse(_UnionArgs, ["--value", "definitely-not-a-number"])
+    err = capsys.readouterr().err
+    assert "could not convert 'definitely-not-a-number' using any of" in err
+
+
+# --------------------------------------------------------------------------
+# dict[str, V] KEY=VALUE factory errors -> readable text, not an object repr
+# --------------------------------------------------------------------------
+
+
+class _DictArgs(Args):
+    """A dict[str, str] field."""
+
+    opt: "ty.Dict[str, str]" = None
+    "String-valued options"
+    ("-D",)
+
+
+def test_dict_missing_equals_message_reaches_the_user(capsys):
+    # Previously argparse printed a bare `_KVFactory` object repr and address
+    # instead of the crafted "expected KEY=VALUE" message (A018).
+    with pytest.raises(SystemExit):
+        duho.parse(_DictArgs, ["-D", "noequals"])
+    err = capsys.readouterr().err
+    assert "expected KEY=VALUE" in err
+    assert "noequals" in err
+    assert "_KVFactory object at" not in err
+
+
+class _MixedLiteralArgs(Args):
+    """A mixed-type Literal field."""
+
+    mix: "ty.Literal['auto', 1]" = "auto"
+    ("--mix",)
+
+
+def test_mixed_literal_exhaustion_message_reaches_the_user(capsys):
+    with pytest.raises(SystemExit):
+        duho.parse(_MixedLiteralArgs, ["--mix", "zzz"])
+    err = capsys.readouterr().err
+    assert "could not convert 'zzz' using any of" in err
+
+
 # --------------------------------------------------------------------------
 # Fixed-length tuple annotation -> build-time error naming the field
 # --------------------------------------------------------------------------

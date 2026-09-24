@@ -1192,18 +1192,67 @@ class ArgumentBuilder(_argparse.Namespace):
 
         A string always runs through ``self.type`` (the CLI text factory), so a
         bad value raises exactly the error argparse would. A non-string raw
-        (TOML int/float/bool/date/list-element) is kept as-is when it is already
-        an instance of the factory's type; otherwise it is passed through the
-        factory (``timeout: float`` receiving TOML int ``30`` -> ``30.0``). A
-        factory that cannot accept a non-string (e.g. ``date.fromisoformat``,
-        which only takes ``str``) raises ``TypeError`` for an already-typed TOML
-        value -- that value is then kept unchanged.
+        (TOML int/float/bool/date/list-element) goes through
+        :meth:`_convert_non_str` (A017).
         """
         factory = self.type
         if isinstance(raw, str):
             return factory(raw)
+        return self._convert_non_str(raw, factory)
+
+    def _convert_non_str(self, raw, factory):
+        """Shared lossless-widening rule for a non-string raw value (A017).
+
+        Used by both :meth:`_convert_single` (``self.type``) and
+        :meth:`convert_layered`'s dict-table branch (the per-value factory,
+        which is NOT ``self.type`` there -- ``self.type`` is the
+        ``_KVFactory`` wrapper) -- so a ``dict[str, V]`` table value widens
+        exactly like a scalar ``V`` field would, instead of skipping this
+        rule entirely.
+
+        A raw value already an instance of the factory's type is kept as-is
+        (``timeout: float`` receiving TOML int ``30`` widens to ``30.0``
+        below, not here, since ``30`` is not already a ``float``). Otherwise:
+
+        * ``bool`` is rejected for any factory except an actual bool
+          factory -- ``bool`` subclasses ``int``, so ``isinstance(True, int)``
+          is ``True``; without this check a TOML ``port = true`` silently
+          stayed ``True`` in an ``int`` field.
+        * ``list``/``tuple``/``dict``/``set``/``frozenset`` is rejected for a
+          scalar field -- previously ``str(["a", "b"])`` silently stringified
+          a list instead of rejecting it (the factory call itself never
+          raises for ``str``).
+        * ``float`` -> ``int`` is rejected when it has a fractional part
+          (``int(1.5)`` truncates instead of erroring); the reverse (``int``
+          widening to ``float``) is always lossless and stays allowed via the
+          final factory-call fallback.
+        * anything else: the factory itself decides, and a ``TypeError`` (a
+          factory that flatly cannot accept a non-string, e.g.
+          ``date.fromisoformat``) keeps the raw value unchanged -- documented,
+          deliberate behavior, not a bug (a native TOML/JSON date in a date
+          field, for example).
+        """
+        if isinstance(raw, bool):
+            if factory is bool or factory is _bool_from_text:
+                return raw
+            raise ValueError(
+                f"{raw!r} is a boolean but the field expects "
+                f"{getattr(factory, '__name__', factory)!r}"
+            )
+        if isinstance(raw, (list, tuple, dict, set, frozenset)):
+            raise ValueError(
+                f"{raw!r} is a {type(raw).__name__}, which cannot widen to "
+                f"{getattr(factory, '__name__', factory)!r}"
+            )
         if isinstance(factory, type) and isinstance(raw, factory):
             return raw
+        if isinstance(raw, float) and factory is int:
+            if not raw.is_integer():
+                raise ValueError(
+                    f"{raw!r} has a fractional part; converting to int "
+                    f"would lose precision"
+                )
+            return int(raw)
         try:
             return factory(raw)
         except TypeError:
@@ -1259,7 +1308,10 @@ class ArgumentBuilder(_argparse.Namespace):
                 value_factory = getattr(self.type, "value_factory", str)
                 result: dict = {}
                 for k, v in raw.items():
-                    result[str(k)] = value_factory(v) if isinstance(v, str) else v
+                    if isinstance(v, str):
+                        result[str(k)] = value_factory(v)
+                    else:
+                        result[str(k)] = self._convert_non_str(v, value_factory)
                 return result
             return self._convert_single(raw)
 

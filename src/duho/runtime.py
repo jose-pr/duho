@@ -49,9 +49,11 @@ from .args import (
     Args as _Args,
     Cmd as _Cmd,
     _apply_default_layers_one as _apply_default_layers_one,
-    _load_config as _load_config,
+    _apply_layers as _apply_layers,
     _maybe_await as _maybe_await,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
+    _resolve_config_dict as _resolve_config_dict,
+    _stash_layer_state as _stash_layer_state,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from .discovery import (
@@ -242,16 +244,18 @@ def _register_class_command(
     subparsers: "_argparse._SubParsersAction",
     command: type,
     base_parser: "_argparse.ArgumentParser",
-) -> None:
+) -> "_argparse.ArgumentParser":
     """Register a class command under ``subparsers`` with parent-arg inheritance.
 
     Delegates to the class's own ``_parser_(subparsers, parents=[base_parser])``:
     this reuses the shipped registration path (which installs the ``"#cls"``
     deepest-selection ``parse_known_args`` on the subparser and recurses into any
     nested ``_subcommands_``), while ``parents=`` makes the root/global options
-    appear on the subcommand too.
+    appear on the subcommand too. Returns the built subparser so the caller can
+    link it to the app's root (``_duho_parent_parser_``, D021/A037) for the
+    lazy env/config layering and provenance-merge machinery in ``args.py``.
     """
-    command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
+    return command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
 
 
 def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
@@ -524,57 +528,49 @@ def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) 
 
 
 def _apply_app_config_layers(
-    parser: "_argparse.ArgumentParser",
     root_cls: type,
     subparsers: "_argparse._SubParsersAction",
-    class_command_names: "dict[str, type]",
+    registry: "dict[str, tuple[str, object]]",
     raw_config: dict,
 ) -> None:
     """Thread env/config-file defaults down a ``Cli`` app's command tree.
 
-    ``duho.main``/``duho.parse`` route through ``_apply_default_layers``, which
-    walks a *statically declared* ``_subcommands_`` tree. ``app`` instead
-    registers commands from precedence-resolved sources (``commands`` /
-    ``discover_commands(source)`` / env), so its subcommand parsers are NOT
-    reachable via ``root_cls._subcommands_``. This helper reproduces the same
-    layering against the parsers ``app`` actually built:
+    ``duho.main``/``duho.parse``/``duho.parse_globals`` route through
+    ``args._apply_layers``, which stashes a class's own (and, recursively,
+    every STATICALLY declared ``_subcommands_`` descendant's own) config-table
+    slice on its parser, deferring actual conversion to that parser's own
+    ``_initparser_``-patched ``parse_known_args`` (A033/A028/R020). ``app``
+    registers commands from precedence-resolved sources instead of a static
+    tree, so its top-level subcommand parsers are not reachable that way --
+    this re-stashes against the parsers ``app`` actually built:
 
-    * the root TOML keys (top-level table) apply to ``root_cls``'s own fields on
-      ``parser``;
-    * each **class command**'s ``[<subcommand-name>]`` table applies to that
-      command's fields on its own subparser (looked up in the live
-      ``subparsers.choices``).
+    * a **class command** (and, via that SAME recursive stash, any of ITS OWN
+      nested ``_subcommands_`` -- D021) is threaded the normal lazy way,
+      since its subparser IS built through ``_parser_``/``_initparser_``
+      (``_register_class_command`` already links it to the app root via
+      ``_duho_parent_parser_``, so its provenance merges upward too);
+    * a **module command** with a declared ``args_cls`` (D021/D022 -- since
+      0.4.1 a module command may declare a module-level ``Args`` class) has NO
+      ``_initparser_`` hook at all (its subparser is a deliberately bare
+      stdlib one -- see this module's own docstring), so its table is applied
+      EAGERLY, immediately, the pre-27 way.
 
-    Module commands declare no duho fields, so config tables don't apply to them
-    (a module reads its own settings via ``env``/its ``register`` hook). Config
-    is loaded ONCE. ``config`` (explicit arg) overrides ``root_cls._config_``,
-    mirroring ``duho.main``. Precedence stays CLI > env > config > class default,
-    and a supplied value un-requires its field, exactly as in ``args.py``.
-
-    ``raw_config`` is the already-loaded TOML table (``app`` loads it once so the
-    root layering can also run before the advisory prepass -- see C5).
+    ``raw_config`` is the already-loaded TOML table (``app`` loads it once so
+    the root layering can also run before the advisory prepass -- C5).
     """
-    # Root fields: top-level keys + root env(NS(env=...)) defaults.
-    _apply_default_layers_one(parser, root_cls, raw_config)
-
-    # Class commands: each gets its own [<name>] table applied to its subparser.
     choices = subparsers.choices or {}
-    for name, command_cls in class_command_names.items():
+    for name, (kind, command) in registry.items():
         sub_parser = choices.get(name)
         if sub_parser is None:
             continue
-        sub_table = raw_config.get(name)
+        sub_table = raw_config.get(name) if raw_config else None
         sub_table = sub_table if isinstance(sub_table, dict) else {}
-        _apply_default_layers_one(sub_parser, command_cls, sub_table)
-        # Merge the class command's provenance up into the root parser so
-        # `value_sources` (which reads the root via `_duho_last_parser_`) sees a
-        # config value on a subcommand field instead of mislabeling it (C14).
-        parser._duho_value_sources_.update(  # type: ignore[attr-defined]
-            getattr(sub_parser, "_duho_value_sources_", {})
-        )
-        parser._duho_merged_defaults_.update(  # type: ignore[attr-defined]
-            getattr(sub_parser, "_duho_merged_defaults_", {})
-        )
+        if kind == "class":
+            _stash_layer_state(sub_parser, command, sub_table)
+            continue
+        args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
+        if args_cls is not None:
+            _apply_default_layers_one(sub_parser, args_cls, sub_table)
 
 
 def app(
@@ -665,17 +661,17 @@ def app(
 
     parser, base_parser, root_cls = _build_parser(root, name, description)
 
-    # Load the config table ONCE and apply the root-level layers up front, BEFORE
-    # the advisory prepass. This lets a required global supplied by config/env
-    # reach the prepass parse so it does not hard-exit with a usage error (C5);
-    # `_apply_app_config_layers` re-applies it (idempotent) alongside each class
-    # command's own table after registration.
-    config_path = config if config is not None else getattr(root_cls, "_config_", None)
-    config_loader = getattr(root_cls, "_config_loader_", None)
-    raw_config: dict = (
-        _load_config(config_path, config_loader) if config_path is not None else {}
-    )
-    _apply_default_layers_one(parser, root_cls, raw_config)
+    # Resolve the config table ONCE (A011/A058 -- a not-yet-created class-level
+    # `_config_` is skipped, not a crash) and stash the root's own slice on
+    # `parser` up front, BEFORE the advisory prepass. Actual conversion is
+    # deferred to `parser`'s own `_initparser_`-patched `parse_known_args`
+    # (A033/A028/R020), which the prepass below already triggers -- so a
+    # required global supplied by config/env still reaches it and does not
+    # hard-exit with a usage error (C5). `_apply_app_config_layers` (called
+    # after registration) re-stashes it (idempotent) alongside each command's
+    # own table.
+    raw_config: dict = _resolve_config_dict(root_cls, config)
+    _stash_layer_state(parser, root_cls, raw_config)
 
     # A prepass parsed root instance is offered to module ``register`` hooks so a
     # hook that wants the already-parsed globals can read them. It is a
@@ -778,7 +774,12 @@ def app(
 
         if kind == "class":
             command_cls = _ty.cast(type, command)
-            _register_class_command(subparsers, command_cls, base_parser)
+            child_parser = _register_class_command(subparsers, command_cls, base_parser)
+            # A037/R021: link this class command's own parser to the app root
+            # so its (and, recursively, any of ITS OWN nested subcommands')
+            # provenance merges upward once actually selected -- the same
+            # mechanism the static `_subcommands_` tree gets in `Args._parser_`.
+            child_parser._duho_parent_parser_ = parser  # type: ignore[attr-defined]
         else:
             _register_module_command(
                 subparsers,
@@ -794,9 +795,30 @@ def app(
     # layer) is not clobbered by the child's inherited default (C4). This is the
     # `app()` analogue of the suppression `Args._parser_` performs for a static
     # `_subcommands_` tree.
-    root_dests = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+    root_builders = {b.name: b for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+    root_dests = set(root_builders)
+    # D022: pass each root field's EFFECTIVE default so `_suppress_inherited_defaults`
+    # keeps a child's DELIBERATELY redeclared default (M16) instead of suppressing
+    # it back to the root's -- `Args._parser_` already does this for the static
+    # `_subcommands_` tree; app()'s own C4 call site had not.
+    root_defaults = {n: b._effective_default_() for n, b in root_builders.items()}
+    # D023: a required global given AFTER the subcommand is otherwise rejected --
+    # `parents=[base_parser]` copies the root's option ACTIONS onto every child
+    # (shared objects, not copies), so un-requiring only the child's copy below
+    # leaves the ROOT's own separate action (built when `parser` itself was
+    # constructed) still `required=True`; that one is never "seen" when the flag
+    # arrives in the subcommand's argv slice, so argparse reports it missing.
+    # Un-require the root's own copies here and enforce presence AFTER the real
+    # parse instead (root value, child value, or a config/env layer all count).
+    required_root_actions = [
+        a
+        for a in parser._actions
+        if a.dest in root_dests and a.option_strings and getattr(a, "required", False)
+    ]
+    for action in required_root_actions:
+        action.required = False
     for sub_parser in (subparsers.choices or {}).values():
-        _suppress_inherited_defaults(sub_parser, root_dests)
+        _suppress_inherited_defaults(sub_parser, root_dests, root_defaults)
         # `parents=[base_parser]` copies EVERY root option onto each subparser,
         # including *required* globals. `_suppress_inherited_defaults` skips
         # required actions (correct for the static tree, whose children don't
@@ -813,21 +835,50 @@ def app(
             ):
                 action.required = False
                 action.default = _argparse.SUPPRESS
+        # D022 (continued): a `commands=`/`source=` class command's subparser
+        # shares the root's Action OBJECTS via `parents=[base_parser]` --
+        # `_suppress_inherited_defaults` correctly leaves a differing child
+        # default alone, but the shared action's OWN `.default` still needs
+        # setting to THAT child's value (a static `_subcommands_` child, built
+        # with its own dedicated actions, already gets this for free above).
+        command_cls = getattr(sub_parser, "_duho_cls_", None)
+        if command_cls is not None and command_cls is not root_cls:
+            child_defaults = {
+                b.name: b._effective_default_() for b in command_cls._getargs_()
+            }
+            differing = {
+                n: v
+                for n, v in child_defaults.items()
+                if n in root_defaults and v != root_defaults[n]
+            }
+            if differing:
+                sub_parser.set_defaults(**differing)
 
     # Thread env/config-file defaults down the app's command tree (a Cli root's
     # `_config_`, or an explicit `config`, plus each command's NS(env=...)
-    # fields). This is app()'s analogue of the `_apply_default_layers` call that
+    # fields). This is app()'s analogue of the `args._apply_layers` call that
     # `duho.main`/`duho.parse` make; app() resolves commands from sources that
     # aren't reachable via `root._subcommands_`, so it layers against the
     # parsers actually built here. See `_apply_app_config_layers`.
-    class_commands_by_name = {
-        n: _ty.cast(type, obj) for n, (k, obj) in registry.items() if k == "class"
-    }
-    _apply_app_config_layers(
-        parser, root_cls, subparsers, class_commands_by_name, raw_config
-    )
+    _apply_app_config_layers(root_cls, subparsers, registry, raw_config)
 
     instance = parser.parse_args(argv)
+
+    # D023 (continued): a root required global un-required above must still
+    # have ended up with a real value from SOMEWHERE (the root itself, a child
+    # given the flag after the subcommand, or a config/env layer) -- report it
+    # the same way argparse's own required-arguments check would.
+    missing_required = [
+        a for a in required_root_actions if getattr(instance, a.dest, None) is None
+    ]
+    if missing_required:
+        parser.error(
+            "the following arguments are required: "
+            + ", ".join(
+                a.option_strings[0] if a.option_strings else a.dest
+                for a in missing_required
+            )
+        )
 
     # Make the resolved app-wide `Env` reachable from the dispatched command via
     # the sandwich-named `_env_` handle (never a user field). A command reads

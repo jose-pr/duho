@@ -324,14 +324,17 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
 
 
 def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
-    """An explicit ``config=`` to app() overrides the root's ``_config_``."""
+    """An explicit ``config=`` to app() overrides the root's ``_config_``
+    (R037): both are set here to REAL files with DIFFERENT values, so a
+    refactor that let ``_config_`` shadow ``config=`` would fail this."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
+    (tmp_path / "class-attr.toml").write_text('[Deploy]\nregion = "from-class-attr"\n')
     (tmp_path / "override.toml").write_text('[Deploy]\nregion = "us-east"\n')
 
     class MyApp(Cli):
-        _config_ = None
+        _config_ = str(tmp_path / "class-attr.toml")
 
         def __call__(self):
             return 0
@@ -346,9 +349,9 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     assert rc == "region=us-east replicas=1 env=False"
 
 
-def test_app_cli_dispatches_two_self_registered_command_files(tmp_path):
-    """End-to-end: a Cli root with commands discovered from a dir dispatches
-    each; CLI overrides still win over config."""
+def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
+    """End-to-end: a Cli root with a command discovered from a dir dispatches
+    it; CLI overrides still win over config."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)

@@ -1070,3 +1070,252 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
     assert discovered.SEEN["ns"] == "user"
     assert discovered.SEEN["filter"] == "username=root"
     assert discovered.SEEN["targets"] == ["nas1"]
+
+
+# --------------------------------------------------------------------------
+# D021: app() must thread env/config down to a class command's OWN nested
+# `_subcommands_`, and to a module command's declared `Args` class -- not
+# only to the root and top-level class commands.
+# --------------------------------------------------------------------------
+
+_CLASS_CMD_NESTED_D021 = '''\
+"""Remote operations."""
+from duho import Cmd, Arg, NS
+
+
+class Push(Cmd):
+    """Push to a remote."""
+
+    url: "Arg[str, NS(env='DUHO_TEST_D021_URL')]" = "default-url"
+    "Target url"
+    ("--url",)
+
+    def __call__(self):
+        return "push " + self.url
+
+
+class Remote(Cmd):
+    """Remote command group."""
+
+    _subcommands_ = [Push]
+
+    def __call__(self):  # pragma: no cover - not dispatched directly
+        return 0
+'''
+
+
+def test_app_threads_env_to_nested_class_subcommand(tmp_path, monkeypatch):
+    _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
+    monkeypatch.setenv("DUHO_TEST_D021_URL", "from-env")
+    rc = app(Root, source=tmp_path, argv=["Remote", "Push"], setup_logging=False)
+    monkeypatch.delenv("DUHO_TEST_D021_URL", raising=False)
+    assert rc == "push from-env"
+
+
+def test_app_threads_config_to_nested_class_subcommand(tmp_path):
+    _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
+    cfg = tmp_path / "app.toml"
+    cfg.write_text('[Remote.Push]\nurl = "from-config"\n')
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["Remote", "Push"],
+        config=str(cfg),
+        setup_logging=False,
+    )
+    assert rc == "push from-config"
+
+
+_MODULE_CMD_ARGS_ENV_D021 = '''\
+"""A module command whose declared Args field is backed by env/config."""
+from duho import Arg, NS
+
+SEEN = {}
+
+
+class Args:
+    token: "Arg[str, NS(env='DUHO_TEST_D021_MODTOKEN')]" = "unset"
+    "Auth token"
+    ("--token",)
+
+
+def main(args):
+    SEEN["token"] = args.token
+    return None
+'''
+
+
+def _discovered_module(name):
+    return [
+        m
+        for mod_name, m in sys.modules.items()
+        if mod_name.startswith("duho._discovered.") and mod_name.endswith(name)
+    ][0]
+
+
+def test_app_threads_env_to_module_declared_args_class(tmp_path, monkeypatch):
+    _write(tmp_path, "modtok.py", _MODULE_CMD_ARGS_ENV_D021)
+    monkeypatch.setenv("DUHO_TEST_D021_MODTOKEN", "from-env")
+    rc = app(Root, source=tmp_path, argv=["modtok"], setup_logging=False)
+    monkeypatch.delenv("DUHO_TEST_D021_MODTOKEN", raising=False)
+    assert rc == 0
+    assert _discovered_module("modtok").SEEN["token"] == "from-env"
+
+
+def test_app_threads_config_to_module_declared_args_class(tmp_path):
+    _write(tmp_path, "modtok.py", _MODULE_CMD_ARGS_ENV_D021)
+    cfg = tmp_path / "app.toml"
+    cfg.write_text('[modtok]\ntoken = "from-config"\n')
+    rc = app(
+        Root, source=tmp_path, argv=["modtok"], config=str(cfg), setup_logging=False
+    )
+    assert rc == 0
+    assert _discovered_module("modtok").SEEN["token"] == "from-config"
+
+
+# --------------------------------------------------------------------------
+# D022: app() must keep a subcommand's DELIBERATELY redeclared default (M16),
+# both for a builtin (`_subcommands_`) and a `source=`-discovered one (whose
+# subparser shares the root's Action objects via `parents=[base_parser]`).
+# --------------------------------------------------------------------------
+
+
+class _DeployBuiltinD022(duho.Cmd):
+    """A builtin subcommand redeclaring `region` with its own default."""
+
+    region: str = "eu"
+    ("--region",)
+
+    def __call__(self):
+        return "region=" + self.region
+
+
+class _RegionRootBuiltinD022(duho.Cli):
+    """A root whose OWN `region` default differs from its builtin child's."""
+
+    region: str = "us"
+    ("--region",)
+
+    _subcommands_ = [_DeployBuiltinD022]
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+def test_app_builtin_subcommand_keeps_redeclared_default():
+    rc = app(_RegionRootBuiltinD022, argv=["_DeployBuiltinD022"], setup_logging=False)
+    assert rc == "region=eu"
+
+
+class _RegionRootD022(duho.Cli):
+    """A `commands=`/`source=`-only root -- no builtin `_subcommands_`."""
+
+    region: str = "us"
+    ("--region",)
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+_CLASS_CMD_REGION_OVERRIDE_D022 = '''\
+"""Deploy with its own region default, different from the app root's."""
+from duho import Cmd
+
+
+class Deploy(Cmd):
+    """Deploy somewhere."""
+
+    region: str = "eu"
+    "Target region"
+    ("--region",)
+
+    def __call__(self):
+        return "region=" + self.region
+'''
+
+
+def test_app_discovered_class_command_keeps_redeclared_default(tmp_path):
+    _write(tmp_path, "deploy.py", _CLASS_CMD_REGION_OVERRIDE_D022)
+    rc = app(_RegionRootD022, source=tmp_path, argv=["Deploy"], setup_logging=False)
+    assert rc == "region=eu"
+
+
+# --------------------------------------------------------------------------
+# D023: a required global given AFTER the subcommand must be accepted, just
+# like one given before it -- for both a module and a class command.
+# --------------------------------------------------------------------------
+
+
+class _TokenRootD023(duho.Cli):
+    """A root with a REQUIRED global (no class default)."""
+
+    token: int
+    "Auth token"
+    ("--token",)
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+_MODULE_CMD_BACKUP_D023 = '''\
+"""Backup command."""
+
+
+def main(args):
+    return "token=" + str(args.token)
+'''
+
+_CLASS_CMD_BACKUP_D023 = '''\
+"""Backup command (class)."""
+from duho import Cmd
+
+
+class BackupCls(Cmd):
+    """Backup, as a class command."""
+
+    def __call__(self):
+        return "token=" + str(self.token)
+'''
+
+
+def test_app_required_global_after_module_subcommand(tmp_path):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["backup", "--token", "5"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_required_global_after_class_subcommand(tmp_path):
+    _write(tmp_path, "backupcls.py", _CLASS_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["BackupCls", "--token", "5"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_required_global_before_subcommand_still_works(tmp_path):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["--token", "5", "backup"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_missing_required_global_reports_clear_error(tmp_path, capsys):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    with pytest.raises(SystemExit) as exc:
+        app(_TokenRootD023, source=tmp_path, argv=["backup"], setup_logging=False)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--token" in err
+    assert "required" in err

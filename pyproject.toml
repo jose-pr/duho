@@ -46,8 +46,7 @@ Repository = "https://github.com/jose-pr/duho"
 # readable from site-packages via importlib.resources without the repo.
 # src/duho/AGENTS.md is included automatically by living in the package
 # dir; README.md needs the force-include below to also land inside the
-# installed package. There is no committed repo-root AGENTS.md -- working
-# notes live only in the private, gitignored .agents/AGENTS.md.
+# installed package. There is no committed repo-root AGENTS.md.
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "duho/README.md"
 

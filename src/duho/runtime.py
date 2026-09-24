@@ -48,6 +48,7 @@ import typing as _ty
 from pathlib import Path as _Path
 
 from . import logging as _duho_logging
+from . import parsers as _parsers
 from .args import (
     Args as _Args,
     Cmd as _Cmd,
@@ -728,36 +729,8 @@ def _build_parser(
     # under every subcommand and make its `command` argument required again
     # ("Root greet ... {hello} ... error: the following arguments are required:
     # command"). Drop it; only optionals should flow downward.
-    _strip_subparsers(base_parser)
+    _parsers.strip_subparsers(base_parser)
     return parser, base_parser, root_cls
-
-
-def _strip_subparsers(parser: "_argparse.ArgumentParser") -> None:
-    """Remove any subparsers action from ``parser`` (used for parent donors)."""
-    subs = [
-        a
-        for a in parser._actions  # type: ignore[attr-defined]
-        if isinstance(a, _argparse._SubParsersAction)  # type: ignore[attr-defined]
-    ]
-    for action in subs:
-        parser._actions.remove(action)  # type: ignore[attr-defined]
-        for group in parser._action_groups:  # type: ignore[attr-defined]
-            if action in group._group_actions:  # type: ignore[attr-defined]
-                group._group_actions.remove(action)  # type: ignore[attr-defined]
-
-
-def _existing_subparsers(
-    parser: "_argparse.ArgumentParser",
-) -> "_argparse._SubParsersAction | None":
-    """The parser's already-registered subparsers action, if it has one.
-
-    A root class carrying ``_subcommands_`` gets one from its own ``_parser_``;
-    argparse permits only a single subparsers action per parser, so callers must
-    reuse it instead of adding another."""
-    for action in parser._actions:  # type: ignore[attr-defined]
-        if isinstance(action, _argparse._SubParsersAction):  # type: ignore[attr-defined]
-            return action
-    return None
 
 
 def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) -> None:
@@ -963,7 +936,7 @@ def _register_commands(
     # also take discovered commands (CMDS_PATH being additive depends on this).
     # Re-registering a name is safe: `_deregister_subparser` drops the earlier
     # entry so the later one wins.
-    subparsers = _existing_subparsers(parser)
+    subparsers = _parsers.find_subparsers(parser)
     if subparsers is None:
         # A private dest -- matches the one a class root's own
         # static `_subcommands_` tree uses (`Args._parser_`) -- so a root

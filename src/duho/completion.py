@@ -31,6 +31,8 @@ import hashlib as _hashlib
 import pathlib as _pathlib
 import shlex as _shlex
 
+from . import parsers as _parsers
+
 __all__ = [
     "CompletionOption",
     "CompletionPositional",
@@ -279,10 +281,9 @@ def _walk(
     """
     spec = CompletionSpec(prog=prog or parser.prog, path=path)
 
-    subparsers_action = None
+    subparsers_action = _parsers.find_subparsers(parser)
     for action in parser._actions:
-        if isinstance(action, _argparse._SubParsersAction):
-            subparsers_action = action
+        if action is subparsers_action:
             continue
         if getattr(action, "help", None) is _argparse.SUPPRESS:
             # Hidden from --help; keep it hidden from completion too (C049).

@@ -17,6 +17,7 @@ from typing import Annotated as Arg
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import logging as _duho_logging
+from . import parsers as _parsers
 
 _LOGGER = _logging.getLogger(__name__)
 
@@ -1518,10 +1519,7 @@ def _stash_layer_state(
     subcommands = getattr(cls, "_subcommands_", None)
     if not subcommands:
         return
-    subparsers_action = next(
-        (a for a in parser._actions if isinstance(a, _argparse._SubParsersAction)),
-        None,
-    )
+    subparsers_action = _parsers.find_subparsers(parser)
     if subparsers_action is None:
         return
     choices = subparsers_action.choices or {}

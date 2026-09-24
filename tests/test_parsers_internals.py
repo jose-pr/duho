@@ -13,16 +13,19 @@ import argparse
 
 import pytest
 
+from duho import Cli, Cmd
 from duho.parsers import (
-    _existing_subparsers,
     _restore_subparsers,
-    _strip_subparsers,
     add_help_argument,
+    command_name,
     disable_subparser_check,
     enable_subparser_check,
+    find_subparsers,
     insert_action,
     pop_action,
     prerun_parse,
+    strip_subparsers,
+    unique_subcommands,
 )
 
 # --------------------------------------------------------------------------
@@ -266,17 +269,17 @@ def test_strip_and_restore_subparsers_removes_from_the_actual_group_list():
     the SAME list object as ``parser._actions`` (already emptied by the first
     removal), so the second removal was always a dead branch and the action
     stayed in its OWN group's ``_group_actions`` (what ``format_help`` walks).
-    ``_strip_subparsers`` removes it from the real owning group instead, and
+    ``strip_subparsers`` removes it from the real owning group instead, and
     ``_restore_subparsers`` puts it back in the exact same spot."""
     parser = argparse.ArgumentParser()
     subs = parser.add_subparsers(dest="command")
     subs.add_parser("go")
-    action = _existing_subparsers(parser)
+    action = find_subparsers(parser)
     assert action is not None
     owning_group = next(g for g in parser._action_groups if action in g._group_actions)
     group_index = owning_group._group_actions.index(action)
 
-    saved = _strip_subparsers(parser)
+    saved = strip_subparsers(parser)
     assert action not in parser._actions
     assert action not in owning_group._group_actions
     assert "{go}" not in parser.format_help()
@@ -290,7 +293,7 @@ def test_strip_and_restore_subparsers_removes_from_the_actual_group_list():
 def test_strip_subparsers_is_a_noop_without_one():
     parser = argparse.ArgumentParser()
     parser.add_argument("--flag")
-    assert _strip_subparsers(parser) is None
+    assert strip_subparsers(parser) is None
     _restore_subparsers(parser, None)  # must not raise
     assert [a.dest for a in parser._actions if a.dest != "help"] == ["flag"]
 
@@ -367,3 +370,110 @@ def test_pop_action_removes_flag_from_format_help_but_keeps_others():
     help_text = parser.format_help()
     assert "--gone" not in help_text
     assert "--kept" in help_text
+
+
+# --------------------------------------------------------------------------
+# command_name / unique_subcommands -- the shared parser-tree walk
+# --------------------------------------------------------------------------
+
+
+def test_command_name_matches_the_canonical_args_rule():
+    """``parsers.command_name`` forwards to ``duho.args._command_name`` (the
+    one shared rule), rather than a second, independent implementation."""
+    import duho.args as args_mod
+
+    class Named(Cmd):
+        _parsername_ = "my-name"
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Undeclared(Named):
+        pass
+
+    assert command_name(Named) == args_mod._command_name(Named) == "my-name"
+    assert (
+        command_name(Undeclared) == args_mod._command_name(Undeclared) == "Undeclared"
+    )
+
+
+def test_unique_subcommands_dedups_aliases_by_identity():
+    """argparse registers each alias as an extra ``choices`` key pointing at
+    the SAME subparser object; ``unique_subcommands`` yields it once, under
+    its canonical name, with the other names as ``aliases``."""
+
+    class Deploy(Cmd):
+        _parseraliases_ = ["d", "dep"]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Rollback(Cmd):
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class App(Cli):
+        _subcommands_ = [Deploy, Rollback]
+
+    parser = App._parser_()
+    results = list(unique_subcommands(parser))
+    by_name = {canonical: aliases for canonical, aliases, _sub in results}
+    assert len(results) == 2
+    assert set(by_name["Deploy"]) == {"d", "dep"}
+    assert by_name["Rollback"] == ()
+
+
+def test_unique_subcommands_seen_set_prevents_double_yield_across_calls():
+    class Deploy(Cmd):
+        _parseraliases_ = ["d"]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class App(Cli):
+        _subcommands_ = [Deploy]
+
+    parser = App._parser_()
+    seen: set = set()
+    first = list(unique_subcommands(parser, seen=seen))
+    second = list(unique_subcommands(parser, seen=seen))
+    assert len(first) == 1
+    assert second == []
+
+
+def test_unique_subcommands_is_the_one_shared_walk_used_by_agenthelp_and_mcp():
+    """D048/O029/C056: both modules used to carry their own hand-written copy
+    of this exact alias-grouping walk, free to silently drift apart. Both now
+    call through this one function instead."""
+    import duho.agenthelp as agenthelp_mod
+    import duho.mcp as mcp_mod
+    import duho.parsers as parsers_mod
+
+    assert not hasattr(agenthelp_mod, "_iter_subcommands")
+    assert not hasattr(mcp_mod, "_iter_subcommands")
+
+    class Deploy(Cmd):
+        _parseraliases_ = ["d", "dep"]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class App(Cli):
+        _version_ = "1.0"
+        _subcommands_ = [Deploy]
+
+    calls = []
+    real = parsers_mod.unique_subcommands
+
+    def _spy(parser, seen=None):
+        calls.append(parser)
+        return real(parser, seen=seen)
+
+    parsers_mod.unique_subcommands = _spy
+    try:
+        agenthelp_mod.describe(App)
+        mcp_mod.describe_tools(App)
+    finally:
+        parsers_mod.unique_subcommands = real
+
+    assert len(calls) >= 2

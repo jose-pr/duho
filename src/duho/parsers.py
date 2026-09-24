@@ -174,23 +174,38 @@ def enable_subparser_check(action: _argparse._SubParsersAction) -> None:
         del action._duho_disable_depth_
 
 
-def _existing_subparsers(
+def find_subparsers(
     parser: _argparse.ArgumentParser,
 ) -> "_argparse._SubParsersAction | None":
-    """``parser``'s subparsers action, if it has one."""
+    """``parser``'s subparsers action, if it has one.
+
+    The one lookup every parser-tree walker needs (a parser can carry at most
+    one, since argparse itself raises on a second ``add_subparsers()`` call);
+    shared here instead of a hand-written ``for action in parser._actions:
+    isinstance(...)`` loop repeated at each call site (D048).
+    """
     for action in parser._actions:
         if isinstance(action, _argparse._SubParsersAction):
             return action
     return None
 
 
-def _strip_subparsers(parser: _argparse.ArgumentParser):
-    """Detach ``parser``'s subparsers action (if any), returning what
+def strip_subparsers(parser: _argparse.ArgumentParser):
+    """Detach ``parser``'s subparsers action (if any) from BOTH ``_actions``
+    and whichever argument group it belongs to, returning what
     :func:`_restore_subparsers` needs to put it back in the exact same place.
+
+    Removing only from ``_actions`` (a past, buggy shortcut this replaces --
+    D048) leaves the action listed in its owning group's ``_group_actions``,
+    which ``format_help``/usage formatting renders from -- so a caller that
+    stripped it for good (e.g. a subcommand's ``parents=`` donor parser, which
+    never wants the whole app's command tree inherited downward) still showed
+    it in help. Safe for a PERMANENT removal too: just discard the returned
+    handle instead of passing it to :func:`_restore_subparsers`.
 
     Returns ``None`` when ``parser`` has no subparsers action.
     """
-    action = _existing_subparsers(parser)
+    action = find_subparsers(parser)
     if action is None:
         return None
     actions_index = parser._actions.index(action)
@@ -208,13 +223,81 @@ def _strip_subparsers(parser: _argparse.ArgumentParser):
 
 
 def _restore_subparsers(parser: _argparse.ArgumentParser, saved) -> None:
-    """Undo :func:`_strip_subparsers`; a no-op for its ``None`` result."""
+    """Undo :func:`strip_subparsers`; a no-op for its ``None`` result."""
     if saved is None:
         return
     action, actions_index, group, group_index = saved
     parser._actions.insert(actions_index, action)
     if group is not None:
         group._group_actions.insert(group_index, action)
+
+
+def command_name(command) -> str:
+    """Re-export of ``duho.args._command_name``, the one canonical
+    subcommand-naming rule (a class's OWN ``_parsername_`` if it declares one
+    -- checked through the class's own ``__dict__``, never inherited -- else
+    its class name).
+
+    Exposed here so a parser-tree consumer that only needs naming/subparser
+    utilities (this module) does not also have to import ``duho.args``
+    directly. Forwards lazily, function-local (rather than a top-level
+    import), because ``args.py`` itself imports this module for
+    :func:`prerun_parse` -- a top-level import the other way would cycle.
+    """
+    from . import args as _args
+
+    return _args._command_name(command)
+
+
+def unique_subcommands(
+    parser: _argparse.ArgumentParser, seen: "set | None" = None
+) -> "_ty.Iterator[tuple]":
+    """Yield ``(canonical_name, aliases, subparser)`` once per DISTINCT
+    subcommand of ``parser``.
+
+    argparse registers every alias as an extra ``choices`` key pointing at
+    the SAME subparser object; entries are grouped by ``id(subparser)`` and
+    each is yielded once, under its canonical name -- the subcommand class's
+    own :func:`command_name` if it is one of the registered names, else the
+    first-seen key. ``aliases`` is every OTHER registered name for that same
+    subparser (empty when there are none).
+
+    ``seen`` is the caller's running set of already-yielded subparser ids,
+    threaded through a whole-tree walk (pass the same set into a recursive
+    call) so a subparser reached under multiple paths is never yielded twice;
+    omit it (the default) for a single-level call. Previously copied by hand,
+    with the same grouping/tie-break logic, by ``duho.agenthelp`` and
+    ``duho.mcp`` (O029/C056) -- a fix to canonical-name selection used to have
+    to land in both copies to not silently diverge.
+    """
+    if seen is None:
+        seen = set()
+    subparsers_action = find_subparsers(parser)
+    if subparsers_action is None:
+        return
+
+    grouped: "dict" = {}
+    order: "list" = []
+    for choice_name, subparser in (subparsers_action.choices or {}).items():
+        key = id(subparser)
+        if key not in grouped:
+            grouped[key] = {"parser": subparser, "names": []}
+            order.append(key)
+        grouped[key]["names"].append(choice_name)
+
+    for key in order:
+        if key in seen:
+            continue
+        seen.add(key)
+        entry = grouped[key]
+        subparser = entry["parser"]
+        names = entry["names"]
+        sub_cls = getattr(subparser, "_duho_cls_", None)
+        canonical = command_name(sub_cls) if sub_cls else None
+        if canonical not in names:
+            canonical = names[0]
+        aliases = tuple(n for n in names if n != canonical)
+        yield canonical, aliases, subparser
 
 
 def _is_terminal_action(action: _argparse.Action) -> bool:
@@ -250,7 +333,7 @@ def prerun_parse(
     An advisory, throwaway pre-parse of ``parser``'s ROOT-level options only:
 
     * Any subparsers action is DETACHED for the duration of the call (see
-      :func:`_strip_subparsers`) and restored exactly afterward. A subcommand
+      :func:`strip_subparsers`) and restored exactly afterward. A subcommand
       name -- or anything after it -- becomes an ordinary unrecognized
       trailing token instead of re-entering the parser's own (possibly
       duho-patched) ``parse_known_args``, whatever it is. This is what makes
@@ -285,7 +368,7 @@ def prerun_parse(
     (subparsers action included) before this returns or raises -- safe for
     repeated and nested calls, since nothing here is shared state (C034).
     """
-    saved_subparsers = _strip_subparsers(parser)
+    saved_subparsers = strip_subparsers(parser)
 
     terminal_actions = [a for a in parser._actions if _is_terminal_action(a)]
     saved_classes = [(a, a.__class__) for a in terminal_actions]
@@ -317,4 +400,8 @@ __all__ = [
     "disable_subparser_check",
     "enable_subparser_check",
     "prerun_parse",
+    "find_subparsers",
+    "strip_subparsers",
+    "unique_subcommands",
+    "command_name",
 ]

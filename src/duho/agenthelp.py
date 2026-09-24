@@ -43,6 +43,7 @@ import typing as _ty
 
 from . import _compat as _compat
 from . import _introspect as _introspect
+from . import parsers as _parsers
 
 if _ty.TYPE_CHECKING:
     # Function-local (not module-top) in the runtime code below, to avoid a
@@ -577,10 +578,9 @@ def describe_parser(
 
     options = []
     positionals = []
-    subparsers_action = None
+    subparsers_action = _parsers.find_subparsers(parser)
     for action in parser._actions:
-        if isinstance(action, _argparse._SubParsersAction):
-            subparsers_action = action
+        if action is subparsers_action:
             continue
         if action.option_strings:
             options.append(
@@ -597,32 +597,19 @@ def describe_parser(
     subcommands = []
     if subparsers_action is not None:
         # argparse registers alias names as extra keys pointing at the SAME
-        # subparser object; group by identity so each command is described once.
-        grouped = {}
-        order = []
-        for choice_name, subparser in (subparsers_action.choices or {}).items():
-            key = id(subparser)
-            if key not in grouped:
-                grouped[key] = {"parser": subparser, "names": []}
-                order.append(key)
-            grouped[key]["names"].append(choice_name)
-        for key in order:
-            if key in _seen:
-                continue
-            _seen.add(key)
-            subparser = grouped[key]["parser"]
-            names = grouped[key]["names"]
-            sub_cls = getattr(subparser, "_duho_cls_", None)
-            canonical = getattr(sub_cls, "_parsername_", None) if sub_cls else None
-            if canonical not in names:
-                canonical = names[0]
-            alias_names = [n for n in names if n != canonical]
+        # subparser object; `unique_subcommands` groups by identity so each
+        # command is described once, under one canonical name (D048/O029/C056:
+        # previously a hand-copy of this exact grouping, kept separately in
+        # `duho.mcp`, that could silently diverge from this one).
+        for canonical, alias_names, subparser in _parsers.unique_subcommands(
+            parser, seen=_seen
+        ):
             subcommands.append(
                 describe_parser(
                     subparser,
                     root=False,
                     name=canonical,
-                    aliases=alias_names,
+                    aliases=list(alias_names),
                     _seen=_seen,
                 )
             )

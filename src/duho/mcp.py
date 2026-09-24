@@ -113,6 +113,7 @@ from . import __version__ as _DUHO_VERSION
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import agenthelp as _agenthelp
+from . import parsers as _parsers
 from .args import ArgumentBuilder as _ArgumentBuilder
 from .args import Cmd as _Cmd
 from .args import _apply_layers as _apply_layers
@@ -426,56 +427,6 @@ def input_schema_for_command(cls: "type[_Cmd]") -> "dict":
 # --------------------------------------------------------------------------
 
 
-def _iter_subcommands(
-    parser: "_argparse.ArgumentParser", _seen: "set"
-) -> "_ty.Iterator[tuple]":
-    """Yield ``(canonical_name, subparser)`` once per DISTINCT subcommand of ``parser``.
-
-    Mirrors ``duho.agenthelp.describe_parser``'s alias-dedup-by-identity
-    exactly: argparse registers every alias as an extra ``choices`` key
-    pointing at the SAME subparser object, so entries are grouped by
-    ``id(subparser)`` and each is yielded exactly once, under its canonical
-    name (the subcommand class's own ``_parsername_`` if it is one of the
-    registered names, else the first-seen key -- same tie-break
-    ``describe_parser`` uses). ``_seen`` is the caller's running set of
-    already-yielded subparser ids, threaded through the whole tree walk so a
-    subparser reached twice is not described twice.
-    """
-    subparsers_action = None
-    for action in parser._actions:
-        if isinstance(action, _argparse._SubParsersAction):
-            subparsers_action = action
-            break
-    if subparsers_action is None:
-        return
-
-    grouped: "dict" = {}
-    order: "list" = []
-    for choice_name, subparser in (subparsers_action.choices or {}).items():
-        key = id(subparser)
-        if key not in grouped:
-            grouped[key] = {"parser": subparser, "names": []}
-            order.append(key)
-        grouped[key]["names"].append(choice_name)
-
-    for key in order:
-        if key in _seen:
-            continue
-        _seen.add(key)
-        entry = grouped[key]
-        subparser = entry["parser"]
-        names = entry["names"]
-        sub_cls = getattr(subparser, "_duho_cls_", None)
-        # `_command_name` reads a class's OWN `_parsername_` only
-        # (never one inherited from a base it subclasses) -- consistent with
-        # every other subcommand-name reader, so an MCP tool name never
-        # silently collapses onto a shared base's name either.
-        canonical = _command_name(sub_cls) if sub_cls else None
-        if canonical not in names:
-            canonical = names[0]
-        yield canonical, subparser
-
-
 class _Node:
     """One node of a root class's cached command tree.
 
@@ -529,7 +480,7 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
     def _walk(parser, cls, dotted_parts, own_name, ancestors):
         node = _Node(".".join(dotted_parts), own_name, parser, cls, ancestors)
         nodes[node.dotted_name] = node
-        for canonical, subparser in _iter_subcommands(parser, seen):
+        for canonical, _aliases, subparser in _parsers.unique_subcommands(parser, seen):
             sub_cls = getattr(subparser, "_duho_cls_", None)
             _walk(
                 subparser,
@@ -557,10 +508,10 @@ def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
     node is not published as an MCP tool at all (its fields are still merged
     into every descendant's schema by :func:`_input_schema_for_node`).
     """
-    for action in parser._actions:
-        if isinstance(action, _argparse._SubParsersAction):
-            return bool(getattr(action, "required", False))
-    return False
+    subparsers_action = _parsers.find_subparsers(parser)
+    if subparsers_action is None:
+        return False
+    return bool(getattr(subparsers_action, "required", False))
 
 
 def _drop_layer_satisfied(

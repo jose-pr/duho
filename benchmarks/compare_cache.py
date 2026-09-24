@@ -15,6 +15,7 @@ the ratio shows how much the caches save a warm caller.
 
     python benchmarks/compare_cache.py
 """
+
 import statistics
 import sys
 import timeit
@@ -32,6 +33,7 @@ REPEAT = 5
 
 class SimpleArgs(Args):
     """Simple argument set."""
+
     name: str
     ("--name",)
     count: int = 1
@@ -40,6 +42,7 @@ class SimpleArgs(Args):
 
 class ComplexArgs(Args):
     """Complex argument set with many fields."""
+
     name: str
     ("--name",)
     version: str = "1.0.0"
@@ -94,17 +97,23 @@ def main():
         ca = sample(lambda c=cls: duho.parser(c), CACHED_INNER)
         results[label] = (un, ca)
 
-        print(f"{label + ' cold':22s} {un['median_ms']:10.4f} "
-              f"{un['min_ms']:10.4f} {un['max_ms']:10.4f}")
-        print(f"{label + ' warm':22s} {ca['median_ms']:10.4f} "
-              f"{ca['min_ms']:10.4f} {ca['max_ms']:10.4f}")
+        print(
+            f"{label + ' cold':22s} {un['median_ms']:10.4f} "
+            f"{un['min_ms']:10.4f} {un['max_ms']:10.4f}"
+        )
+        print(
+            f"{label + ' warm':22s} {ca['median_ms']:10.4f} "
+            f"{ca['min_ms']:10.4f} {ca['max_ms']:10.4f}"
+        )
 
     print()
     for label, (un, ca) in results.items():
         if ca["median_ms"]:
-            print(f"{label}: warm is {un['median_ms'] / ca['median_ms']:.0f}x the "
-                  f"cold build ({un['median_ms']:.2f} ms cold -> {ca['median_ms']:.3f} "
-                  f"ms warm, median)")
+            print(
+                f"{label}: warm is {un['median_ms'] / ca['median_ms']:.0f}x the "
+                f"cold build ({un['median_ms']:.2f} ms cold -> {ca['median_ms']:.3f} "
+                f"ms warm, median)"
+            )
     return 0
 
 

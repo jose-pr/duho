@@ -1,7 +1,13 @@
 """Tests for duho.logging module."""
 
 import logging
-from duho import add_logging_level, DefaultFormatter, init_stderr_logging, LoggingArgs, parse_loglevels
+from duho import (
+    add_logging_level,
+    DefaultFormatter,
+    init_stderr_logging,
+    LoggingArgs,
+    parse_loglevels,
+)
 
 
 def test_add_logging_level():
@@ -58,6 +64,7 @@ def test_parse_loglevels_multiple():
 
 class MyCommand(LoggingArgs):
     """Command with logging."""
+
     name: str
     "Name to process"
     ("--name",)
@@ -78,6 +85,7 @@ def test_logging_args_integration():
 
 class VerboseCommand(LoggingArgs):
     """Test command for verbose logging."""
+
     pass
 
 
@@ -99,6 +107,7 @@ def test_verbose_to_loglevel():
 
 class SimpleLoggingCommand(LoggingArgs):
     """Simple logging command."""
+
     pass
 
 
@@ -114,6 +123,7 @@ def test_logging_args_set_loglevels():
 
 class VerbosityContractCommand(LoggingArgs):
     """Command used to pin down the verbose/quiet -> loglevel contract."""
+
     pass
 
 

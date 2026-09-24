@@ -13,6 +13,7 @@ A "warm" metric is a build/parse whose duho caches (`_duho_constants_`,
 every cache first, reproducing what a fresh CLI *invocation* pays. Only warm
 metrics are stable enough to gate CI on; cold numbers are reported for insight.
 """
+
 import enum
 import statistics
 import timeit
@@ -21,7 +22,6 @@ import typing as ty
 import duho
 from duho import Args, Cli, Cmd
 from duho import _introspect
-
 
 # ---------------------------------------------------------------------------
 # Sample workloads
@@ -208,8 +208,17 @@ def warm_metrics() -> "dict":
         "parse.complex": sample(
             lambda: complex_.parse_args(
                 [
-                    "--name", "app", "--version", "2.0.0", "--output", "out.txt",
-                    "--verbose", "--config", "app.yml", "--workers", "8",
+                    "--name",
+                    "app",
+                    "--version",
+                    "2.0.0",
+                    "--output",
+                    "out.txt",
+                    "--verbose",
+                    "--config",
+                    "app.yml",
+                    "--workers",
+                    "8",
                 ]
             ),
             PARSE_INNER,
@@ -250,9 +259,7 @@ def cold_metrics() -> "dict":
         drop_caches(cls)
         duho.parser(cls)
 
-    metrics["cold.build.complex"] = sample(
-        lambda: cold_build(ComplexArgs), COLD_INNER
-    )
+    metrics["cold.build.complex"] = sample(lambda: cold_build(ComplexArgs), COLD_INNER)
     for n in (10, 50):
         root = make_tree(n)
 

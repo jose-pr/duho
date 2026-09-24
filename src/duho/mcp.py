@@ -321,7 +321,9 @@ def input_schema_for_command(cls: type) -> "dict":
 # --------------------------------------------------------------------------
 
 
-def _iter_subcommands(parser: "_argparse.ArgumentParser", _seen: "set") -> "_ty.Iterator[tuple]":
+def _iter_subcommands(
+    parser: "_argparse.ArgumentParser", _seen: "set"
+) -> "_ty.Iterator[tuple]":
     """Yield ``(canonical_name, subparser)`` once per DISTINCT subcommand of ``parser``.
 
     Mirrors ``duho.agenthelp.describe_parser``'s alias-dedup-by-identity
@@ -475,7 +477,9 @@ def _input_schema_from_parser(parser: "_argparse.ArgumentParser") -> "dict":
 _SIMPLE_TYPE_NAMES = {str: "string", int: "integer", float: "number", bool: "boolean"}
 
 
-def _tool_spec(name: str, parser: "_argparse.ArgumentParser", cls: "type | None") -> "dict":
+def _tool_spec(
+    name: str, parser: "_argparse.ArgumentParser", cls: "type | None"
+) -> "dict":
     """Build one MCP ``{name, description, inputSchema}`` tool spec for a node."""
     description = (parser.description or "").replace("%%", "%").strip()
     if cls is not None:
@@ -503,7 +507,10 @@ def describe_tools(root_cls: type) -> "list[dict]":
     arguably informative (distinguishes "this is a namespace" from "this is a
     leaf action") rather than a bug.
     """
-    return [_tool_spec(name, parser, cls) for name, parser, cls in _walk_command_tree(root_cls)]
+    return [
+        _tool_spec(name, parser, cls)
+        for name, parser, cls in _walk_command_tree(root_cls)
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -622,8 +629,7 @@ def call_tool(root_cls: type, name: str, arguments: "dict | None") -> "dict":
     if cls is None:
         return _text_result(
             "tool %r is a module command; duho.mcp v1 only supports calling "
-            "Cmd/Cli class commands (it can still be listed via tools/list)"
-            % (name,),
+            "Cmd/Cli class commands (it can still be listed via tools/list)" % (name,),
             is_error=True,
         )
 
@@ -642,7 +648,9 @@ def call_tool(root_cls: type, name: str, arguments: "dict | None") -> "dict":
                 )
                 return _text_result(message, is_error=True)
             result = _run_command(cls, instance)
-    except Exception as exc:  # noqa: BLE001 - one broken command must not crash the server
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - one broken command must not crash the server
         # The client only ever sees "Type: message"; the stack that says WHERE
         # the command broke exists nowhere else, so log it server-side too
         # (traceback under DUHO_TRACEBACK=1).
@@ -776,7 +784,11 @@ def serve(root_cls: type, *, stdin: object = None, stdout: object = None) -> int
         except ValueError:
             _write_message(
                 stream_out,
-                {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}},
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "parse error"},
+                },
             )
             continue
         response = _handle_request(root_cls, request)
@@ -800,7 +812,9 @@ def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     try:
         root_cls = _resolve_app(args[0])
     except Exception as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
-        print("duho.mcp: could not resolve app %r: %s" % (args[0], exc), file=_sys.stderr)
+        print(
+            "duho.mcp: could not resolve app %r: %s" % (args[0], exc), file=_sys.stderr
+        )
         return 1
     return serve(root_cls)
 

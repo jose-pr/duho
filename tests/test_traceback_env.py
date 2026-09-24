@@ -17,7 +17,6 @@ import pytest
 
 from duho.logging import TRACEBACK_ENV, log_exception, traceback_enabled
 
-
 # --------------------------------------------------------------------------
 # traceback_enabled: the env-var contract
 # --------------------------------------------------------------------------
@@ -159,7 +158,9 @@ def _run_steps(directory, caplog, monkeypatch, tb):
     instance.rcopts = []
     with caplog.at_level(logging.ERROR, logger="duho.runpath"):
         assert instance() == 0  # resilient: the failing step does not abort
-    return [r for r in caplog.records if "step exploded" in r.getMessage() or r.exc_info]
+    return [
+        r for r in caplog.records if "step exploded" in r.getMessage() or r.exc_info
+    ]
 
 
 def test_runpath_step_failure_gains_traceback(tmp_path, caplog, monkeypatch):

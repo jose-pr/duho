@@ -157,9 +157,7 @@ def _run_one(
         try:
             return 0 if result is None else int(result)
         except (TypeError, ValueError):
-            logger.exception(
-                "target %r returned non-int %r", target, result
-            )
+            logger.exception("target %r returned non-int %r", target, result)
             return 1
     finally:
         current_target.reset(token)
@@ -243,9 +241,7 @@ def fan_out_command(
 
     def _run_for(target: object) -> int:
         instance = make_instance(target)
-        return _run_command(
-            _ty.cast("_ty.Any", command), instance, context=context
-        )
+        return _run_command(_ty.cast("_ty.Any", command), instance, context=context)
 
     return run_targets(
         _run_for,

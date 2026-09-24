@@ -141,12 +141,7 @@ def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
     defaults to the class name) applies only to the Install subcommand's
     fields, not to the root App's fields."""
     cfg = tmp_path / "duho.toml"
-    cfg.write_text(
-        "verbose = true\n"
-        "\n"
-        "[Install]\n"
-        'target = "from-config"\n'
-    )
+    cfg.write_text("verbose = true\n" "\n" "[Install]\n" 'target = "from-config"\n')
     result = duho.parse(App, ["Install"], config=cfg)
     assert result.target == "from-config"
     # Root-level key still applies via the top-level table.
@@ -155,10 +150,7 @@ def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
 
 def test_subcommand_config_table_does_not_leak_to_root(tmp_path):
     cfg = tmp_path / "duho.toml"
-    cfg.write_text(
-        "[Install]\n"
-        'target = "from-config"\n'
-    )
+    cfg.write_text("[Install]\n" 'target = "from-config"\n')
     result = duho.parse(App, ["Install"], config=cfg)
     assert result.target == "from-config"
 

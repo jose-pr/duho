@@ -599,9 +599,8 @@ def _order_steps(
             # A cycle (or steps mutually blocked). Under strict this is an error;
             # in the resilient default emit the rest in priority order so ordering
             # is deterministic and always terminates.
-            message = (
-                "duho.runpath: unresolved REQUIRED cycle among %s"
-                % ", ".join(s.name for s in remaining)
+            message = "duho.runpath: unresolved REQUIRED cycle among %s" % ", ".join(
+                s.name for s in remaining
             )
             if strict:
                 raise ValueError(message)
@@ -686,7 +685,11 @@ class _Selection:
             # An explicit `enable`/`!enable` token wins over the leading
             # `!` when both are present (the token is more specific); absent
             # a token, the leading `!` alone decides.
-            enabled = (not bang_disabled) if pattern_opts.enabled is None else pattern_opts.enabled
+            enabled = (
+                (not bang_disabled)
+                if pattern_opts.enabled is None
+                else pattern_opts.enabled
+            )
             strict_override = pattern_opts.strict if raw_tokens else None
             patterns.append((pattern, enabled, strict_override))
         return cls(patterns, strict, strict_explicit)
@@ -940,14 +943,16 @@ class RunPathCmd(_Cmd):
         # Warn (or error, under strict) on REQUIRED naming a missing step.
         present = set(names)
         enabled = {
-            step.name for step in steps if selection.decide(step.name, step.file_enabled)
+            step.name
+            for step in steps
+            if selection.decide(step.name, step.file_enabled)
         }
         for step in steps:
             missing = [dep for dep in step.required if dep not in present]
             if missing:
-                message = (
-                    "duho.runpath: step %r REQUIRED missing step(s): %s"
-                    % (step.name, ", ".join(missing))
+                message = "duho.runpath: step %r REQUIRED missing step(s): %s" % (
+                    step.name,
+                    ", ".join(missing),
                 )
                 if selection.strict:
                     raise ValueError(message)
@@ -981,17 +986,13 @@ class RunPathCmd(_Cmd):
                 # depends on ctx, so there is no meaningful resilient partial
                 # init -- log then re-raise unconditionally, regardless of
                 # --rcopts strict.
-                _log_exception(
-                    logger, "__main__.py init() failed: %s", exc
-                )
+                _log_exception(logger, "__main__.py init() failed: %s", exc)
                 raise
 
         try:
             for step in steps:
                 if not selection.decide(step.name, step.file_enabled):
-                    logger.debug(
-                        "skipping disabled step %s", step.name
-                    )
+                    logger.debug("skipping disabled step %s", step.name)
                     continue
                 logger.info("running step %s", step.name)
                 try:

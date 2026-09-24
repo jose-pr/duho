@@ -26,7 +26,6 @@ from duho.discovery import (
 )
 from duho import discovery as _discovery
 
-
 # --------------------------------------------------------------------------
 # Fixture-file helpers
 # --------------------------------------------------------------------------
@@ -193,9 +192,14 @@ def _restore_providers():
 
 
 def _names(commands):
-    return [c._parsername_ if is_module_command(c)
+    return [
+        (
+            c._parsername_
+            if is_module_command(c)
             else (getattr(c, "_parsername_", None) or c.__name__)
-            for c in commands]
+        )
+        for c in commands
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -282,15 +286,13 @@ def test_module_command_default_lifecycle_hooks(tmp_path):
 
 
 def test_module_command_uses_defined_hooks(tmp_path):
-    src = _MODULE_CMD + textwrap.dedent(
-        '''
+    src = _MODULE_CMD + textwrap.dedent("""
         def init(args=None):
             return {"ctx": 1}
 
         def success(ctx, args=None):
             return "ok"
-        '''
-    )
+        """)
     path = _write(tmp_path, "hooked.py", src)
     cmd = CmdBuilder("hooked", path).command
     assert cmd.init() == {"ctx": 1}
@@ -376,13 +378,11 @@ def test_multiple_commands_per_module(tmp_path):
 
 
 def test_module_with_both_class_and_module_command(tmp_path):
-    src = _CLASS_CMD_DEPLOY + textwrap.dedent(
-        '''
+    src = _CLASS_CMD_DEPLOY + textwrap.dedent("""
 
         def main(args=None):
             return "module entry"
-        '''
-    )
+        """)
     _write(tmp_path, "both.py", src)
     commands = discover_commands(tmp_path)
     names = sorted(_names(commands))
@@ -548,7 +548,10 @@ def test_discovered_class_command_dispatches(flat_cmds):
     commands = discover_commands(flat_cmds)
     deploy = next(c for c in commands if getattr(c, "__name__", "") == "Deploy")
     # A discovered class command is a normal Cmd: dispatches through duho.main.
-    assert duho.main(deploy, ["--env", "staging"], setup_logging=False) == "deployed staging"
+    assert (
+        duho.main(deploy, ["--env", "staging"], setup_logging=False)
+        == "deployed staging"
+    )
 
 
 def test_discovered_commands_usable_as_subcommands(flat_cmds):

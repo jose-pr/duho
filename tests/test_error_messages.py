@@ -16,7 +16,6 @@ import pytest
 import duho
 from duho import Arg, Args, NS
 
-
 # --------------------------------------------------------------------------
 # Bad env value -> ValueError naming the variable and the field
 # --------------------------------------------------------------------------

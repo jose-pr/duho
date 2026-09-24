@@ -15,7 +15,6 @@ from duho import logging as _duho_logging
 from duho.qualname import DotQualNamed
 from duho.text import camelcase, snakecase
 
-
 # -- C13: snakecase ----------------------------------------------------------
 
 

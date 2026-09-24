@@ -7,7 +7,6 @@ import pytest
 from duho.env import Env
 from duho.runtime import _resolve_commands
 
-
 # -- C11: missing CMDS_PATH must not glob-import the CWD ----------------------
 
 

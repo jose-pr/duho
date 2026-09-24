@@ -31,7 +31,7 @@ def _pyproject_version() -> str:
     if not _PYPROJECT.is_file():
         pytest.skip("no pyproject.toml (running against an installed package)")
     match = _VERSION_RE.search(_PYPROJECT.read_text(encoding="utf-8"))
-    assert match is not None, f"no `version = \"...\"` line in {_PYPROJECT}"
+    assert match is not None, f'no `version = "..."` line in {_PYPROJECT}'
     return match.group("v")
 
 

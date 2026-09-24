@@ -16,7 +16,6 @@ import pytest
 import duho
 from duho import NS, Arg, Args
 
-
 # -- C6: recurse Union members through the branch ladder ----------------------
 
 

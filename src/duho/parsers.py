@@ -98,7 +98,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction):
     restore. No ``argparse`` class attribute is mutated (M1).
     """
     action._duho_saved_ = (action.__class__, action.choices)  # type: ignore[attr-defined]
-    action.choices = None  # type:ignore
+    action.choices = None  # type: ignore
     action._duho_action_called = False  # type: ignore[attr-defined]
     action.__class__ = _RelaxedSubParsersAction
 

@@ -46,7 +46,7 @@ def test_bash_choices_neutralize_command_substitution():
     # expands its word list) cannot run the substitution.
     assert "\\$(touch pwned)" in script
     # And the raw, unescaped command substitution must NOT appear in a word list.
-    assert "-W \"$(touch pwned)" not in script
+    assert '-W "$(touch pwned)' not in script
 
 
 def test_zsh_choice_single_quote_escaped():
@@ -121,9 +121,7 @@ def test_bash_completion_does_not_execute_hostile_choice(tmp_path):
             action.choices = (f"$(touch {marker})", "safe")
     script = completion.bash(parser)
 
-    harness = script + (
-        "\nCOMP_WORDS=(_Attack --mode \"\")\nCOMP_CWORD=2\n_Attack\n"
-    )
+    harness = script + ('\nCOMP_WORDS=(_Attack --mode "")\nCOMP_CWORD=2\n_Attack\n')
     subprocess.run([bash_path, "-c", harness], capture_output=True, text=True)
     assert not marker.exists()
 

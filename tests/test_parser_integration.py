@@ -14,6 +14,7 @@ from duho import Args, LoggingArgs
 
 class DeployArgs(Args):
     """Deploy the application to a server."""
+
     environment: str
     "Target environment (prod, staging, dev)"
     ("--env", "-e")
@@ -60,6 +61,7 @@ def test_deploy_short_flags():
 
 class ServeArgs(Args):
     """Start development server."""
+
     host: str = "localhost"
     ("--host",)
 
@@ -69,6 +71,7 @@ class ServeArgs(Args):
 
 class BuildArgs(Args):
     """Build the project."""
+
     output: str
     "Output directory"
     ("--output",)
@@ -108,6 +111,7 @@ def test_help_output():
 
 class AppConfig(LoggingArgs):
     """Application configuration."""
+
     config_file: str
     "Path to config file"
     ("--config",)
@@ -126,12 +130,9 @@ def test_complex_workflow():
     parser = AppConfig._parser_()
 
     # Simulate real CLI usage
-    args = parser.parse_args([
-        "--config", "app.yaml",
-        "-o", "results.txt",
-        "-c",
-        "-v", "-v"
-    ])
+    args = parser.parse_args(
+        ["--config", "app.yaml", "-o", "results.txt", "-c", "-v", "-v"]
+    )
 
     assert args.config_file == "app.yaml"
     assert args.output == "results.txt"
@@ -141,6 +142,7 @@ def test_complex_workflow():
 
 class TransformArgs(Args):
     """Transform input data."""
+
     input_file: str
     "Input file"
     ("input",)
@@ -179,6 +181,7 @@ def test_error_handling_missing_required():
 
 class TypedArgs(Args):
     """Arguments with type conversion."""
+
     count: int
     "Number of items"
     ("--count",)

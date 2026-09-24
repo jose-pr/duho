@@ -38,19 +38,19 @@ class LoggingArgs(Args):
         dict[str, int], NS(type=parse_loglevels, action=UpdateAction)
     ] = {}
     "Log Levels"
-    ("--loglevel",)  # type:ignore
+    ("--loglevel",)  # type: ignore
 
     verbose: _ty.Annotated[
         int, NS(action="count", help=lambda: _logging.VERBOSE_HELP)
     ] = 0
     "Verbose level"
-    ("-v",)  # type:ignore
+    ("-v",)  # type: ignore
 
     quiet: _ty.Annotated[
         int, NS(action="count", help="Decrease verbosity (repeatable)")
     ] = 0
     "Quiet level"
-    ("-q",)  # type:ignore
+    ("-q",)  # type: ignore
 
     def _verbose_loglevel_(self):
         """Convert verbose/quiet count to a NUMERIC log level.

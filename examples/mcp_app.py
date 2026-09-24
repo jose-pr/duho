@@ -52,6 +52,7 @@ that is the honest, documented behavior, not a bug). A command that wants
 visible ``tools/call`` output should ``print(...)`` it (like the schema
 docstring's own worked example implies) or return a JSON-serialisable value.
 """
+
 import sys
 
 import duho

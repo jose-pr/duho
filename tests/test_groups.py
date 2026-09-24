@@ -11,7 +11,6 @@ import pytest
 
 from duho import Arg, Args, NS
 
-
 # --- F2: required mutually-exclusive groups ------------------------------
 
 

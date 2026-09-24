@@ -53,6 +53,7 @@ Run it::
     python examples/discovery_app.py greet World            # label == "from-config"
     DISCOVERY_APP_LABEL=from-env python examples/discovery_app.py greet World
 """
+
 import sys
 from pathlib import Path
 
@@ -107,7 +108,9 @@ class DiscoveryAppArgs(LoggingArgs):
         if self.format == "json":
             import json
 
-            return json.dumps({"label": self.label, "tags": self.tags, "message": message})
+            return json.dumps(
+                {"label": self.label, "tags": self.tags, "message": message}
+            )
         tag_suffix = f" [{','.join(self.tags)}]" if self.tags else ""
         return f"[{self.label}]{tag_suffix} {message}"
 

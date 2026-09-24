@@ -5,12 +5,25 @@ import enum
 import sys
 import typing as ty
 import pytest
-from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, Extend, NS, parser as duho_parser
+from duho import (
+    Append,
+    Arg,
+    Args,
+    Argument,
+    ArgumentBuilder,
+    Choice,
+    Const,
+    Count,
+    Extend,
+    NS,
+    parser as duho_parser,
+)
 from duho.parsers import prerun_parse
 
 
 class SimpleArgs(Args):
     """A simple argument set."""
+
     name: str
     "The name parameter"
     ("--name",)
@@ -18,6 +31,7 @@ class SimpleArgs(Args):
 
 class OptionalArgs(Args):
     """Arguments with optional fields."""
+
     name: str
     "Required name"
     ("--name",)
@@ -29,6 +43,7 @@ class OptionalArgs(Args):
 
 class DefaultArgs(Args):
     """Arguments with defaults."""
+
     name: str = "default"
     "Name with default"
     ("--name",)
@@ -40,6 +55,7 @@ class DefaultArgs(Args):
 
 class UnionArgs(Args):
     """Arguments with union types."""
+
     value: ty.Union[int, str]
     "Can be int or str"
     ("--value",)
@@ -130,6 +146,7 @@ def test_union_enum_resolves_by_name():
 
     class UnionEnumArgs(Args):
         """Arguments with a union of an enum and str."""
+
         col: ty.Union[Color, str]
         "Can be a Color name or an arbitrary string"
         ("--col",)
@@ -183,6 +200,7 @@ def test_required_vs_optional():
 
 class PositionalArgs(Args):
     """Test positional arguments."""
+
     input_file: str
     "Input file to process"
     ("input",)
@@ -203,6 +221,7 @@ def test_positional_arguments():
 
 class ShortFlagsArgs(Args):
     """Test short flag syntax."""
+
     verbose: bool = False
     "Verbose output"
     ("-v",)
@@ -210,6 +229,7 @@ class ShortFlagsArgs(Args):
 
 class MultiFlag(Args):
     """Arguments with multiple flag names."""
+
     verbose: int = 0
     "Verbosity level"
     ("-v", "--verbose")
@@ -256,6 +276,7 @@ def test_module_level_parser():
 
 class GrandparentArgs(Args):
     """Grandparent docstring."""
+
     shared: str = "gp"
     "Shared field from grandparent"
     ("--shared",)
@@ -287,6 +308,7 @@ def test_multi_base_ancestry_docstring():
 
 class UnderscoreFieldArgs(Args):
     """Underscore-prefixed annotated names are skipped from discovery."""
+
     _secret: str = "x"
     "Should never become a flag"
     ("--secret",)
@@ -313,6 +335,7 @@ class MethodNameMixin(Args):
 
 class MethodCollisionArgs(MethodNameMixin):
     """Field name collides with an inherited plain method."""
+
     count: int
     "Count field colliding with inherited method"
     ("--count",)
@@ -350,6 +373,7 @@ def test_pep604_union_type_conversion():
 
     class Pep604UnionArgs(Args):
         """Arguments with a PEP 604 union type."""
+
         value: eval("int | str")
         "Can be int or str"
         ("--value",)
@@ -373,6 +397,7 @@ def test_pep604_optional_not_required():
 
     class Pep604OptionalArgs(Args):
         """Arguments with a PEP 604 optional type."""
+
         count: eval("int | None") = None
         "Optional count"
         ("--count",)
@@ -391,6 +416,7 @@ def test_pep604_optional_not_required():
 
 class BoolDefaultTrueArgs(Args):
     """Arguments with a bool field defaulting to True."""
+
     flag: bool = True
     "A flag defaulting to True"
     ("--flag",)
@@ -432,6 +458,7 @@ def test_prerun_parse_restores_patches_on_systemexit():
 
 class NoLeakArgs(Args):
     """Arguments used to confirm #cls does not leak into the instance."""
+
     name: str = "x"
     "Name"
     ("--name",)
@@ -449,6 +476,7 @@ def test_no_hash_cls_leak_in_parsed_instance():
 
 class ImplicitFlagFromDocstringArgs(Args):
     """A field with a docstring but no flag tuple derives --count from the name."""
+
     count: ty.Optional[int] = None
     "Optional count"
 
@@ -465,6 +493,7 @@ def test_implicit_flag_derived_from_name_with_docstring():
 
 class ImplicitFlagNoDocstringArgs(Args):
     """A field with neither docstring nor flag tuple still derives --workers."""
+
     workers: int = 4
 
 
@@ -479,6 +508,7 @@ def test_implicit_flag_derived_from_name_no_docstring():
 
 class UnderscoreToDashArgs(Args):
     """A field with underscores in its name, no flag tuple, dashes when derived."""
+
     dry_run: bool = False
 
 
@@ -497,6 +527,7 @@ def test_implicit_flag_underscore_to_dash():
 
 class KwargsOverrideArgs(Args):
     """NS(kwargs={...}) must win over explicit NS(field=...) values."""
+
     mode: Arg[str, NS(required=True, kwargs={"required": False, "default": "x"})] = None
     "Mode with conflicting required flags"
     ("--mode",)
@@ -511,6 +542,7 @@ def test_kwargs_dict_overrides_explicit_field():
 
 class StoreConstArgs(Args):
     """store_const action requires and forwards const=."""
+
     mode: Arg[str, Const("fast")] = "slow"
     "Mode flag"
     ("--fast",)
@@ -530,6 +562,7 @@ def test_store_const_without_const_raises():
 
     class BadConstArgs(Args):
         """Missing const for store_const."""
+
         mode: Arg[str, NS(action="store_const")] = None
         "Mode flag missing const"
         ("--fast",)
@@ -541,6 +574,7 @@ def test_store_const_without_const_raises():
 def test_action_version_forwards_version_and_suppresses_type():
     class VersionArgs(Args):
         """Class exercising a manual version action."""
+
         ver: Arg[str, NS(action="version", version="myprog 1.2.3")] = None
         "Show version"
         ("--show-version",)
@@ -574,6 +608,7 @@ def test_type_incompatible_actions_suppress_type_kwarg():
 
 class RequiredPositionalArgs(Args):
     """A single required positional argument."""
+
     src: str
     "Source path"
     ("src",)
@@ -590,6 +625,7 @@ def test_required_positional():
 
 class OptionalPositionalArgs(Args):
     """A positional with a real default becomes optional (nargs='?')."""
+
     dst: str = "-"
     "Destination path"
     ("dst",)
@@ -614,6 +650,7 @@ def test_optional_positional_uses_nargs_question_mark():
 
 class TwoPositionalsArgs(Args):
     """Two positionals preserve declaration order."""
+
     src: str
     "Source"
     ("src",)
@@ -636,6 +673,7 @@ def test_two_positionals_preserve_order():
 
 class PositionalNargsPlusArgs(Args):
     """A positional bound to nargs='+' via Arg[list, NS(nargs='+')]."""
+
     files: Arg[list, NS(nargs="+")]
     "Files to process"
     ("files",)
@@ -662,6 +700,7 @@ def test_positional_never_gets_required_kwarg():
 
 class CountArgs(Args):
     """verbose: Arg[int, Count()] counts repeated -v flags."""
+
     verbose: Arg[int, Count()] = 0
     "Verbosity"
     ("-v", "--verbose")
@@ -678,6 +717,7 @@ def test_count_helper():
 
 class AppendArgs(Args):
     """tags: Arg[list, Append()] accumulates repeated --tags flags."""
+
     tags: Arg[list, Append()] = []
     "Tags"
     ("--tags",)
@@ -691,6 +731,7 @@ def test_append_helper():
 
 class ExtendArgs(Args):
     """opts: Arg[list, Extend(',')] splits each occurrence on `,` and flattens."""
+
     opts: Arg[list, Extend(",")] = []
     "Options"
     ("--opts",)
@@ -715,6 +756,7 @@ def test_extend_helper_flattens_across_repeated_occurrences():
 
 class ConstHelperArgs(Args):
     """mode: Arg[str, Const('fast')] sets the const value on presence."""
+
     mode: Arg[str, Const("fast")] = "slow"
     "Mode"
     ("--fast",)
@@ -731,6 +773,7 @@ def test_const_helper():
 
 class ChoiceArgs(Args):
     """mode: Arg[str, Choice('a', 'b')] restricts accepted values."""
+
     mode: Arg[str, Choice("a", "b")] = "a"
     "Mode"
     ("--mode",)

@@ -54,7 +54,12 @@ def _run(*requests):
 
 def test_initialize_responds_with_protocol_and_server_info():
     rc, responses = _run(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
     )
     assert rc == 0
     assert len(responses) == 1
@@ -102,7 +107,12 @@ def test_tools_call_dispatches_and_returns_call_tool_result():
 
 def test_full_scripted_conversation():
     rc, responses = _run(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         {
@@ -137,7 +147,11 @@ def test_unknown_method_gets_method_not_found():
 
 
 def test_blank_lines_are_skipped():
-    stdin = io.StringIO("\n\n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n\n")
+    stdin = io.StringIO(
+        "\n\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        + "\n\n"
+    )
     stdout = io.StringIO()
     serve(Server, stdin=stdin, stdout=stdout)
     responses = _lines(stdout.getvalue())
@@ -204,7 +218,10 @@ def test_python_dash_m_end_to_end(tmp_path):
         '    """E2E app."""\n'
         "    _subcommands_ = [Ping]\n"
     )
-    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}) + "\n"
+    request = (
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+        + "\n"
+    )
     env = {"PYTHONPATH": str(tmp_path)}
     import os
 

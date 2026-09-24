@@ -119,15 +119,18 @@ def test_formatter_inherited_by_subcommands():
 
     parser = Root._parser_()
     subparsers_action = next(
-        a for a in parser._actions
-        if isinstance(a, argparse._SubParsersAction)
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
     )
     sub_parser = subparsers_action.choices["Sub"]
     assert "(default: x)" in sub_parser.format_help()
 
 
 def test_formatters_are_helpformatter_subclasses():
-    for f in (duho.DefaultsFormatter, duho.ColorHelpFormatter, duho.ColorDefaultsFormatter):
+    for f in (
+        duho.DefaultsFormatter,
+        duho.ColorHelpFormatter,
+        duho.ColorDefaultsFormatter,
+    ):
         assert issubclass(f, argparse.HelpFormatter)
 
 

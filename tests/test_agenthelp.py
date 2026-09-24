@@ -25,8 +25,13 @@ import pytest
 
 import duho
 from duho import Arg, Cli, Cmd, LoggingArgs, NS
-from duho.agenthelp import SCHEMA, agent_help_requested, describe, describe_parser, render
-
+from duho.agenthelp import (
+    SCHEMA,
+    agent_help_requested,
+    describe,
+    describe_parser,
+    render,
+)
 
 # --------------------------------------------------------------------------
 # Fixtures: a multi-command app exercising the full field surface

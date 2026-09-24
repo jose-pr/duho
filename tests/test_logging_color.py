@@ -16,8 +16,13 @@ from duho.logging import DefaultFormatter, _getcolor
 
 def _make_record(level, name="COLORLVL"):
     return logging.LogRecord(
-        name="t", level=level, pathname=__file__, lineno=1,
-        msg="hello", args=(), exc_info=None,
+        name="t",
+        level=level,
+        pathname=__file__,
+        lineno=1,
+        msg="hello",
+        args=(),
+        exc_info=None,
     )
 
 

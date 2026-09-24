@@ -149,9 +149,7 @@ def test_flag_equals_value_form_between_positionals():
 
 
 def test_repeated_flag_between_positionals():
-    result = duho.parse(
-        QueryArgs, ["user", "-f", "a=1", "-f", "b=2", "nas1"]
-    )
+    result = duho.parse(QueryArgs, ["user", "-f", "a=1", "-f", "b=2", "nas1"])
     assert result.ns == "user"
     assert result.targets == ["nas1"]
     assert result.filters == ["a=1", "b=2"]

@@ -21,6 +21,7 @@ regression gate).
 
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import shutil
 import statistics
@@ -100,7 +101,10 @@ def main(argv=None):
     print("=== Duho discovery (%d command files, min-of-%d) ===" % (args.files, args.n))
     print(
         "discover_commands(dir): min %.3f ms  median %.3f ms"
-        % (m["discover_%d.min_ms" % args.files], m["discover_%d.median_ms" % args.files])
+        % (
+            m["discover_%d.min_ms" % args.files],
+            m["discover_%d.median_ms" % args.files],
+        )
     )
     print(
         "app() discover+dispatch 1 cmd: min %.3f ms  median %.3f ms"

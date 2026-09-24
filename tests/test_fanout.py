@@ -26,7 +26,6 @@ import duho
 import duho.fanout as fanout
 from duho.fanout import current_target, run_targets, target_logging
 
-
 # --------------------------------------------------------------------------
 # run_targets: exit-code aggregation
 # --------------------------------------------------------------------------
@@ -73,7 +72,9 @@ def test_empty_targets_returns_zero_without_calling_reducer():
 def test_custom_aggregate_reducer():
     """A custom reducer overrides the default max policy."""
     # Sum policy instead of max.
-    rc = run_targets(lambda t: {"a": 1, "b": 2, "c": 3}[t], ["a", "b", "c"], aggregate=sum)
+    rc = run_targets(
+        lambda t: {"a": 1, "b": 2, "c": 3}[t], ["a", "b", "c"], aggregate=sum
+    )
     assert rc == 6
 
 
@@ -106,8 +107,10 @@ def test_exception_in_one_target_does_not_abort_others(caplog):
     # The failing target surfaced as a nonzero aggregate (default code 1).
     assert rc == 1
     # And the failure was logged (not silently swallowed).
-    assert any("boom" in rec.getMessage() or "failed" in rec.getMessage()
-               for rec in caplog.records)
+    assert any(
+        "boom" in rec.getMessage() or "failed" in rec.getMessage()
+        for rec in caplog.records
+    )
 
 
 # --------------------------------------------------------------------------
@@ -196,9 +199,7 @@ def test_filter_removed_after_run_no_leak(capture_handler):
         not isinstance(f, fanout.TargetPrefixFilter) for f in capture_handler.filters
     )
     root = logging.getLogger()
-    assert all(
-        not isinstance(f, fanout.TargetPrefixFilter) for f in root.filters
-    )
+    assert all(not isinstance(f, fanout.TargetPrefixFilter) for f in root.filters)
     # A post-run log line is unprefixed.
     log.info("after")
     assert capture_handler.messages[-1] == "after"

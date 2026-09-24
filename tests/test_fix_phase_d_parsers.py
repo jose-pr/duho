@@ -8,7 +8,6 @@ import duho
 from duho import Arg, Cli, Cmd
 from duho.parsers import pop_action, prerun_parse
 
-
 # -- M1: no argparse class-global mutation, works with a subparser tree -------
 
 

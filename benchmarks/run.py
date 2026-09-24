@@ -20,6 +20,7 @@ Warm metrics (caches populated) are the ones CI regression-gates -- see
 check_baseline.py. Cold metrics reproduce the real per-invocation cost and are
 reported for insight, not gated (they are dominated by ast.parse noise).
 """
+
 import argparse
 import json
 import platform

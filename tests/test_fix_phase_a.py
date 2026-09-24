@@ -12,7 +12,6 @@ import pytest
 import duho
 from duho import NS, Arg, Args
 
-
 # -- A1: bool env conversion (C1) --------------------------------------------
 
 

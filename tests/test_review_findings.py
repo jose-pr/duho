@@ -12,7 +12,6 @@ import pytest
 import duho
 from duho import Arg, Args, Cli, Cmd, NS
 
-
 # -- Finding 1: docstring % ---------------------------------------------------
 
 

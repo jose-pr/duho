@@ -20,7 +20,7 @@ NOT_DEFINED = _inspect.NOT_DEFINED
 _NONETYPE = type(None)
 
 if _ty.TYPE_CHECKING:
-    from typing_extensions import Self as _Self  # type:ignore
+    from typing_extensions import Self as _Self  # type: ignore
 
 _type = type
 
@@ -227,7 +227,7 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
         # Mixed-type Literal: try each declared literal's own type, but only
         # accept a conversion that round-trips to one of the declared values (a
         # naive "first type that doesn't raise" would let str('1') shadow int(1)).
-        def factory(text: str, /, _literals=tuple(args)):  # type:ignore[misc]
+        def factory(text: str, /, _literals=tuple(args)):  # type: ignore[misc]
             for lit in _literals:
                 try:
                     candidate = type(lit)(text)
@@ -235,9 +235,7 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
                     continue
                 if candidate == lit:
                     return candidate
-            raise ValueError(
-                f"could not convert {text!r} using any of {_literals}"
-            )
+            raise ValueError(f"could not convert {text!r} using any of {_literals}")
 
     return _FieldSpec(factory, tuple(args), None, None, None, NOT_DEFINED, None)
 
@@ -279,9 +277,7 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
                 return f(text)
             except (TypeError, ValueError):
                 pass
-        raise ValueError(
-            f"could not convert {text!r} using any of {_factories}"
-        )
+        raise ValueError(f"could not convert {text!r} using any of {_factories}")
 
     return _scalar_spec(factory)
 
@@ -314,9 +310,7 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
 
     if origin is set or tp is set:
         elem_ty = args[0] if args else str
-        return _FieldSpec(
-            elem_ty, None, None, _collection_action(set), "*", set(), set
-        )
+        return _FieldSpec(elem_ty, None, None, _collection_action(set), "*", set(), set)
 
     if origin is tuple or tp is tuple:
         # Only variadic homogeneous ``tuple[T, ...]`` and bare ``tuple``
@@ -501,7 +495,7 @@ def _install_agent_help(parser, cls, is_subcommand):
     3. On the top-level parser only, when ``_agent_help_ = True``, add the opt-in
        ``--help-agents`` flag (guarded against a duplicate dest).
     """
-    parser._duho_cls_ = cls  # type:ignore[attr-defined]
+    parser._duho_cls_ = cls  # type: ignore[attr-defined]
 
     env_name = getattr(cls, "_agent_help_env_", None)
     for action in parser._actions:
@@ -509,8 +503,8 @@ def _install_agent_help(parser, cls, is_subcommand):
             action, _AgentHelpAction
         ):
             action.__class__ = _AgentHelpAction
-            action._duho_agent_cls = cls  # type:ignore[attr-defined]
-            action._duho_agent_env = env_name  # type:ignore[attr-defined]
+            action._duho_agent_cls = cls  # type: ignore[attr-defined]
+            action._duho_agent_env = env_name  # type: ignore[attr-defined]
 
     if not is_subcommand and getattr(cls, "_agent_help_", False):
         existing_dests = {action.dest for action in parser._actions}
@@ -592,10 +586,10 @@ def _load_config(
                 ) from exc
 
     try:
-        import tomllib as _toml  # type:ignore[import-not-found]
+        import tomllib as _toml  # type: ignore[import-not-found]
     except ImportError:
         try:
-            import tomli as _toml  # type:ignore[import-not-found,no-redef]
+            import tomli as _toml  # type: ignore[import-not-found,no-redef]
         except ImportError:
             raise RuntimeError(
                 "duho: reading a config file requires a TOML backend. "
@@ -686,8 +680,8 @@ def _apply_default_layers_one(
             if action.dest in merged:
                 action.required = False
 
-    parser._duho_value_sources_ = sources  # type:ignore[attr-defined]
-    parser._duho_merged_defaults_ = merged  # type:ignore[attr-defined]
+    parser._duho_value_sources_ = sources  # type: ignore[attr-defined]
+    parser._duho_merged_defaults_ = merged  # type: ignore[attr-defined]
 
 
 def _apply_default_layers(
@@ -717,11 +711,11 @@ def _apply_default_layers(
         # `_duho_last_parser_`, so without this a config value on a SUBcommand
         # field is invisible there and gets mislabeled "cli" (C14).
         if parser_ is not parser:
-            parser._duho_value_sources_.update(  # type:ignore[attr-defined]
-                parser_._duho_value_sources_  # type:ignore[attr-defined]
+            parser._duho_value_sources_.update(  # type: ignore[attr-defined]
+                parser_._duho_value_sources_  # type: ignore[attr-defined]
             )
-            parser._duho_merged_defaults_.update(  # type:ignore[attr-defined]
-                parser_._duho_merged_defaults_  # type:ignore[attr-defined]
+            parser._duho_merged_defaults_.update(  # type: ignore[attr-defined]
+                parser_._duho_merged_defaults_  # type: ignore[attr-defined]
             )
         subcommands = getattr(cls_, "_subcommands_", None)
         if not subcommands:
@@ -730,11 +724,7 @@ def _apply_default_layers(
         # registered on parser_; find it and look up by the subcommand's
         # registered name (its _parsername_, set during _parser_()).
         subparsers_action = next(
-            (
-                a
-                for a in parser_._actions
-                if isinstance(a, _argparse._SubParsersAction)
-            ),
+            (a for a in parser_._actions if isinstance(a, _argparse._SubParsersAction)),
             None,
         )
         if subparsers_action is None:
@@ -782,8 +772,8 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 f"argument {name!r}: flags must be given as a list or tuple, "
                 f"not a set {flags_expr!r} (a set has no guaranteed order)"
             )
-        flags = flags_expr if flags_expr is not None else (
-            "--" + name.replace("_", "-"),
+        flags = (
+            flags_expr if flags_expr is not None else ("--" + name.replace("_", "-"),)
         )
         required = None
         choices = None
@@ -854,7 +844,10 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                         action = "append"
             if spec.collection is not None:
                 collection = spec.collection
-            if spec.default is not _inspect.NOT_DEFINED and default is _inspect.NOT_DEFINED:
+            if (
+                spec.default is not _inspect.NOT_DEFINED
+                and default is _inspect.NOT_DEFINED
+            ):
                 default = spec.default
 
         return ArgumentBuilder(
@@ -1068,7 +1061,11 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["default"] = False
 
         if action in _CONST_REQUIRED_ACTIONS:
-            const = self.const if self.const is not NOT_DEFINED else kwargs.get("const", NOT_DEFINED)
+            const = (
+                self.const
+                if self.const is not NOT_DEFINED
+                else kwargs.get("const", NOT_DEFINED)
+            )
             if const is NOT_DEFINED:
                 raise ValueError(
                     f"argument {self.name!r}: action={action!r} requires const="
@@ -1078,7 +1075,9 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["const"] = self.const
 
         if action == "version":
-            version = self.version if self.version is not None else kwargs.get("version")
+            version = (
+                self.version if self.version is not None else kwargs.get("version")
+            )
             if version is not None:
                 kwargs["version"] = version
 
@@ -1121,7 +1120,7 @@ class ArgumentBuilder(_argparse.Namespace):
 
     def add_to_parser(self, parser: _argparse.ArgumentParser):
         help = self.help
-        if callable(help):  # type:ignore
+        if callable(help):  # type: ignore
             help = help()
         return parser.add_argument(
             *self.flags,
@@ -1141,10 +1140,10 @@ class ArgumentBuilder(_argparse.Namespace):
 
 
 class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
-    def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type:ignore
+    def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type: ignore
         raise NotImplementedError()
 
-    def parse_known_args(  # type:ignore
+    def parse_known_args(  # type: ignore
         self, args=None, namespace: "_T | None" = None
     ) -> tuple[_T, list[str]]:
         raise NotImplementedError()
@@ -1211,7 +1210,7 @@ def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
             args = _reorder_argv_for_variadic_positional(parser, list(args))
         return real_parse_known_args(args, namespace)
 
-    parser.parse_known_args = parse_known_args  # type:ignore
+    parser.parse_known_args = parse_known_args  # type: ignore
 
 
 def _reorder_argv_for_variadic_positional(
@@ -1450,7 +1449,7 @@ class Args(_argparse.Namespace):
     def _parser_(
         cls,
         subparser: "_argparse._SubParsersAction | None" = None,
-        name: "str | None" = None,  # type:ignore
+        name: "str | None" = None,  # type: ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         init=True,
         **kwargs,
@@ -1474,8 +1473,10 @@ class Args(_argparse.Namespace):
         # ``getattr(Deploy, "_parsername_")`` returns the base's ``"Args"`` and
         # mis-names the subcommand ("invalid choice: 'Deploy' (choose from
         # 'Args')"). A real user root/subcommand class persists normally.
-        _is_framework_base = (
-            cls.__module__ == __name__ and cls.__name__ in ("Args", "Cmd", "Cli")
+        _is_framework_base = cls.__module__ == __name__ and cls.__name__ in (
+            "Args",
+            "Cmd",
+            "Cli",
         )
         if (
             not caller_supplied_name
@@ -1499,7 +1500,9 @@ class Args(_argparse.Namespace):
             kwargs.setdefault("formatter_class", help_formatter)
         if subparser:
             docstring = _doc
-            kwargs.setdefault("help", docstring.strip().splitlines()[0] if docstring.strip() else "")
+            kwargs.setdefault(
+                "help", docstring.strip().splitlines()[0] if docstring.strip() else ""
+            )
             # Subcommand aliases (argparse's add_parser accepts `aliases`; the
             # top-level ArgumentParser does not, so only apply when nested).
             aliases = getattr(cls, "_parseraliases_", None)
@@ -1537,9 +1540,10 @@ class Args(_argparse.Namespace):
                 # on the app root styles the whole subcommand tree consistently.
                 # A child with its OWN ``_help_formatter_`` (already applied by its
                 # ``_parser_``) is left untouched.
-                if help_formatter is not None and getattr(
-                    sub, "_help_formatter_", None
-                ) is None:
+                if (
+                    help_formatter is not None
+                    and getattr(sub, "_help_formatter_", None) is None
+                ):
                     child.formatter_class = help_formatter
 
         return parser
@@ -1611,7 +1615,7 @@ class Args(_argparse.Namespace):
                 return parsed, unk
 
             _cls: "type[_ty.Self]" = parsed.__dict__.pop("#cls")
-            parser._duho_selected_cls_ = _cls  # type:ignore
+            parser._duho_selected_cls_ = _cls  # type: ignore
             # Drop the `_CollectionAction` sidecar (`_duho_items_<dest>`) before
             # constructing the instance so this internal bookkeeping never leaks
             # into vars(instance) or the documented clone pattern (M12).
@@ -1627,10 +1631,10 @@ class Args(_argparse.Namespace):
             # _apply_default_layers) that produced instances of this class.
             # Per-class, not per-instance -- keeps Args instances themselves
             # free of framework bookkeeping in vars()/__dict__.
-            _cls._duho_last_parser_ = parser  # type:ignore[attr-defined]
+            _cls._duho_last_parser_ = parser  # type: ignore[attr-defined]
             return instance, unk
 
-        parser.parse_known_args = parse_known_args  # type:ignore
+        parser.parse_known_args = parse_known_args  # type: ignore
         exclusive_groups = exclusive_groups or {}
 
         version = _resolve_version(cls)
@@ -1673,9 +1677,9 @@ class Args(_argparse.Namespace):
         # F3: titled argument groups (NS(group="...")), created lazily per title.
         # Persisted on the parser so a parents=[...] merge / subclass override can
         # reuse them, mirroring `exclusive_groups`.
-        titled_groups: "dict[str, object]" = getattr(
-            parser, "_duho_titled_groups_", None
-        ) or {}
+        titled_groups: "dict[str, object]" = (
+            getattr(parser, "_duho_titled_groups_", None) or {}
+        )
 
         actions_by_dest = {action.dest: action for action in parser._actions}
         for arg in cls._getargs_():
@@ -1689,9 +1693,7 @@ class Args(_argparse.Namespace):
             # (F3) when NS(group=...) is set, else the parser itself.
             if group_title is not None:
                 if group_title not in titled_groups:
-                    titled_groups[group_title] = parser.add_argument_group(
-                        group_title
-                    )
+                    titled_groups[group_title] = parser.add_argument_group(group_title)
                 container = titled_groups[group_title]
             else:
                 container = parser
@@ -1723,7 +1725,7 @@ class Args(_argparse.Namespace):
             existing.update(exclusive_groups)
         else:
             parser.exclusive_groups = exclusive_groups
-        parser._duho_titled_groups_ = titled_groups  # type:ignore[attr-defined]
+        parser._duho_titled_groups_ = titled_groups  # type: ignore[attr-defined]
 
         # Agent help: stash the class for the emitter, make --help env-aware, and
         # add the opt-in --help-agents flag. See `_install_agent_help`.
@@ -1996,7 +1998,7 @@ def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
     kwargs.setdefault("default", [])
     kwargs.setdefault("nargs", None)
     if isinstance(split, str):
-        ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type:ignore
+        ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type: ignore
     else:
 
         def ty(text: str):
@@ -2035,7 +2037,8 @@ def Choice(*choices, **kw):
 
 class UpdateAction(_argparse.Action):
     """Action that updates a dict instead of replacing it."""
-    def __call__(  # type:ignore
+
+    def __call__(  # type: ignore
         self, parser, namespace, values: dict, option_string=None
     ):
         items = getattr(namespace, self.dest, None)
@@ -2181,9 +2184,7 @@ def parse(
     _apply_default_layers(parser, cls, config)
     field_names = {builder.name for builder in cls._getargs_()}
     overrides = {
-        name: value
-        for name, value in vars(spec).items()
-        if name in field_names
+        name: value for name, value in vars(spec).items() if name in field_names
     }
     parser.set_defaults(**overrides)
     # set_defaults() alone doesn't satisfy argparse's required= check (it's

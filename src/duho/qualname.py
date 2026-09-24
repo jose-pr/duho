@@ -35,9 +35,7 @@ class QualName:
         return self.qualjoin(self.parts[:-1])
 
     @classmethod
-    def _qualparts(
-        cls, *parts: "str | _ty.Iterable[str] | QualName"
-    ) -> "list[str]":
+    def _qualparts(cls, *parts: "str | _ty.Iterable[str] | QualName") -> "list[str]":
         _parts: "list[str]" = []
         for part in parts:
             if hasattr(part, "parts"):
@@ -86,7 +84,7 @@ class QualName:
         # Slice by the length of the (validated) prefix, NOT ``idx + 1``: an empty
         # base leaves the loop unentered, and ``idx + 1`` then dropped the first
         # part instead of returning self unchanged (M19).
-        return self.qualjoin(*parts[len(other):])
+        return self.qualjoin(*parts[len(other) :])
 
     def camelcase(
         self,
@@ -136,9 +134,7 @@ class PythonName(DotQualNamed):
     """A dotted name whose parts are Python-safe (via :func:`duho.text.pysafe`)."""
 
     @classmethod
-    def new(
-        cls, *parts: "str | QualName", sanitize: bool = True
-    ) -> "PythonName":
+    def new(cls, *parts: "str | QualName", sanitize: bool = True) -> "PythonName":
         name = cls.qualjoin(*parts)
         if sanitize:
             name = _text.pysafe(name)

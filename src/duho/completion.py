@@ -150,7 +150,9 @@ def _takes_value(action: _argparse.Action) -> bool:
     return action.nargs != 0
 
 
-def _walk(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> CompletionSpec:
+def _walk(
+    parser: _argparse.ArgumentParser, prog: "str | None" = None
+) -> CompletionSpec:
     """Recursively turn a built ArgumentParser into a CompletionSpec.
 
     Pure data, no shell strings -- shared by all three emitters below.
@@ -233,47 +235,53 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     # command path, or `myapp --env prod deploy` builds cmd_path "prod deploy"
     # and no completion matches (M8).
     value_flags = sorted(
-        {f for spec in _all_specs(root) for opt in spec.options if opt.takes_value for f in opt.flags}
+        {
+            f
+            for spec in _all_specs(root)
+            for opt in spec.options
+            if opt.takes_value
+            for f in opt.flags
+        }
     )
     value_flags_pat = " ".join(value_flags)
 
     lines: "list[str]" = []
     lines.append(f"# bash completion for {root_prog}")
     lines.append(f"_{func}() {{")
-    lines.append('    local cur prev words cword')
-    lines.append('    COMPREPLY=()')
+    lines.append("    local cur prev words cword")
+    lines.append("    COMPREPLY=()")
     lines.append('    cur="${COMP_WORDS[COMP_CWORD]}"')
     lines.append('    prev="${COMP_WORDS[COMP_CWORD-1]}"')
-    lines.append('')
-    lines.append('    # Walk COMP_WORDS to find which (sub)command we are in,')
-    lines.append('    # skipping option flags AND the value that follows a')
-    lines.append('    # value-taking flag.')
+    lines.append("")
+    lines.append("    # Walk COMP_WORDS to find which (sub)command we are in,")
+    lines.append("    # skipping option flags AND the value that follows a")
+    lines.append("    # value-taking flag.")
     lines.append(f'    local value_flags=" {value_flags_pat} "')
     lines.append('    local cmd_path=""')
-    lines.append('    local i=1')
-    lines.append('    local skip_next=0')
-    lines.append('    while [ $i -lt $COMP_CWORD ]; do')
+    lines.append("    local i=1")
+    lines.append("    local skip_next=0")
+    lines.append("    while [ $i -lt $COMP_CWORD ]; do")
     lines.append('        local w="${COMP_WORDS[i]}"')
-    lines.append('        if [ $skip_next -eq 1 ]; then')
-    lines.append('            skip_next=0')
-    lines.append('        else')
+    lines.append("        if [ $skip_next -eq 1 ]; then")
+    lines.append("            skip_next=0")
+    lines.append("        else")
     lines.append('            case "$w" in')
-    lines.append('                -*)')
+    lines.append("                -*)")
     lines.append('                    case "$value_flags" in')
     lines.append('                        *" $w "*) skip_next=1 ;;')
-    lines.append('                    esac')
-    lines.append('                    ;;')
+    lines.append("                    esac")
+    lines.append("                    ;;")
     lines.append('                *) cmd_path="${cmd_path} $w" ;;')
-    lines.append('            esac')
-    lines.append('        fi')
-    lines.append('        i=$((i + 1))')
-    lines.append('    done')
+    lines.append("            esac")
+    lines.append("        fi")
+    lines.append("        i=$((i + 1))")
+    lines.append("    done")
     lines.append('    cmd_path="$(echo "$cmd_path" | xargs)"')
-    lines.append('')
+    lines.append("")
 
     for spec in _all_specs(root):
         opts = sorted({f for opt in spec.options for f in opt.flags})
-        key = spec.prog[len(root_prog):].strip()
+        key = spec.prog[len(root_prog) :].strip()
         lines.append(f'    if [ "$cmd_path" = {_bashq(key)} ]; then')
 
         # prev-based value completion (choices/paths) for this command.
@@ -284,14 +292,18 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
                 flag_pattern = "|".join(opt.flags)
                 if opt.choices:
                     words = _bash_wordlist(list(opt.choices))
-                    lines.append(f'            {flag_pattern})')
-                    lines.append(f'                COMPREPLY=( $(compgen -W {words} -- "$cur") )')
-                    lines.append('                return 0 ;;')
+                    lines.append(f"            {flag_pattern})")
+                    lines.append(
+                        f'                COMPREPLY=( $(compgen -W {words} -- "$cur") )'
+                    )
+                    lines.append("                return 0 ;;")
                 elif opt.is_path:
-                    lines.append(f'            {flag_pattern})')
-                    lines.append('                COMPREPLY=( $(compgen -f -- "$cur") )')
-                    lines.append('                return 0 ;;')
-            lines.append('        esac')
+                    lines.append(f"            {flag_pattern})")
+                    lines.append(
+                        '                COMPREPLY=( $(compgen -f -- "$cur") )'
+                    )
+                    lines.append("                return 0 ;;")
+            lines.append("        esac")
 
         candidates = list(opts)
         candidates.extend(sorted(spec.subcommands))
@@ -304,12 +316,12 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
             lines.append(f'        COMPREPLY=( $(compgen -W {words} -- "$cur") )')
         else:
             lines.append('        COMPREPLY=( $(compgen -f -- "$cur") )')
-        lines.append('        return 0')
-        lines.append('    fi')
+        lines.append("        return 0")
+        lines.append("    fi")
 
-    lines.append('}')
-    lines.append(f'complete -F _{func} {_bashq(root_prog)}')
-    lines.append('')
+    lines.append("}")
+    lines.append(f"complete -F _{func} {_bashq(root_prog)}")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -403,7 +415,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     lines.append("")
 
     for spec in _all_specs(root):
-        key = spec.prog[len(root_prog):].strip()
+        key = spec.prog[len(root_prog) :].strip()
         lines.append(f'    if [[ "$cmd_path" == {_sq(key)} ]]; then')
         lines.extend(_zsh_arguments_block(spec, indent="        "))
         lines.append("        return")
@@ -411,7 +423,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 
     lines.append("}")
     lines.append("")
-    lines.append(f"_{func} \"$@\"")
+    lines.append(f'_{func} "$@"')
     lines.append("")
     return "\n".join(lines)
 
@@ -424,7 +436,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 def _fish_condition(spec: CompletionSpec, root: CompletionSpec) -> "str | None":
     """Build a `__fish_seen_subcommand_from` condition chain locating `spec`
     within the tree rooted at `root`, or None for the root command itself."""
-    key = spec.prog[len(root.prog):].strip()
+    key = spec.prog[len(root.prog) :].strip()
     if not key:
         return None
     parts = key.split()
@@ -466,12 +478,18 @@ def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
             # A single-dash MULTI-char flag (e.g. ``-rc``) is an old-style flag:
             # fish's ``-s`` is for a single character only, so use ``-o`` (M2/fish).
             short_flags = [
-                f for f in opt.flags
-                if not f.startswith("--") and f.startswith("-") and len(f.lstrip("-")) == 1
+                f
+                for f in opt.flags
+                if not f.startswith("--")
+                and f.startswith("-")
+                and len(f.lstrip("-")) == 1
             ]
             old_flags = [
-                f for f in opt.flags
-                if not f.startswith("--") and f.startswith("-") and len(f.lstrip("-")) > 1
+                f
+                for f in opt.flags
+                if not f.startswith("--")
+                and f.startswith("-")
+                and len(f.lstrip("-")) > 1
             ]
             parts = [f"complete -c {prog_q}"] + cond_args
             for lf in long_flags:
@@ -563,9 +581,7 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
     lines.append("")
     lines.append("    $elements = @($commandAst.CommandElements)")
-    lines.append(
-        "    $valueFlags = @(" + ", ".join(_psq(f) for f in value_flags) + ")"
-    )
+    lines.append("    $valueFlags = @(" + ", ".join(_psq(f) for f in value_flags) + ")")
     lines.append("")
     lines.append("    # Reconstruct the (sub)command path from the non-flag words,")
     lines.append("    # skipping the value that follows a value-taking flag.")
@@ -601,7 +617,7 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
 
     first = True
     for spec in _all_specs(root):
-        key = spec.prog[len(root_prog):].strip()
+        key = spec.prog[len(root_prog) :].strip()
         cond = "if" if first else "elseif"
         first = False
         lines.append(f"    {cond} ($cmdPath -eq {_psq(key)}) {{")

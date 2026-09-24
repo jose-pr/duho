@@ -19,7 +19,6 @@ import pytest
 import duho
 from duho import Args, Cmd, LoggingArgs, command
 
-
 # --- Cmd.__call__ dispatch + direct callability ----------------------------
 
 

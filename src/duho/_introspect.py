@@ -152,7 +152,7 @@ def _class_constants(cls: type) -> "dict[str, list]":
         return {}
 
     if "_duho_constants_" in vars(cls):
-        return cls._duho_constants_  # type:ignore
+        return cls._duho_constants_  # type: ignore
 
     if cls.__module__ in _SKIP_MODULES:
         result: "dict[str, list]" = {}
@@ -175,7 +175,9 @@ def _class_constants(cls: type) -> "dict[str, list]":
             for node in clsdef.body:
                 if isinstance(node, (_ast.Assign, _ast.AnnAssign)):
                     if isinstance(node, _ast.Assign):
-                        if len(node.targets) == 1 and isinstance(node.targets[0], _ast.Name):
+                        if len(node.targets) == 1 and isinstance(
+                            node.targets[0], _ast.Name
+                        ):
                             argument = node.targets[0].id
                         else:
                             argument = None
@@ -258,7 +260,7 @@ def _looks_like_a_resolved_type(value: object) -> bool:
 
 def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
     if "_duho_clsargs_" in vars(cls):
-        return cls._duho_clsargs_  # type:ignore
+        return cls._duho_clsargs_  # type: ignore
 
     typehints = _ty.get_type_hints(cls, include_extras=True)
     constants = get_clsargs_constants(cls)
@@ -321,4 +323,11 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
     return args
 
 
-__all__ = ["getclsdef", "NotDefined", "NOT_DEFINED", "ClsArgDeclaration", "get_clsargs", "get_clsargs_constants"]
+__all__ = [
+    "getclsdef",
+    "NotDefined",
+    "NOT_DEFINED",
+    "ClsArgDeclaration",
+    "get_clsargs",
+    "get_clsargs_constants",
+]

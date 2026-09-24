@@ -9,7 +9,6 @@ import pytest
 import duho
 from duho import Args, Cmd, LoggingArgs
 
-
 # --- Literal & Enum -> choices -----------------------------------------
 
 
@@ -239,9 +238,7 @@ class AutoVersionDistArgs(Args):
 
 def test_auto_version_resolves(monkeypatch, capsys):
     """AUTO resolves via importlib.metadata.version and adds --version."""
-    monkeypatch.setattr(
-        "importlib.metadata.version", lambda dist: "9.9.9"
-    )
+    monkeypatch.setattr("importlib.metadata.version", lambda dist: "9.9.9")
     parser = AutoVersionArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
     assert "--version" in flags

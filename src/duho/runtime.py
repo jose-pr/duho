@@ -231,7 +231,9 @@ def _resolve_commands(
     elif entry_points is not None:
         base = _discover_entry_points(entry_points)
     else:
-        base = list(getattr(root, "_subcommands_", []) or []) if root is not None else []
+        base = (
+            list(getattr(root, "_subcommands_", []) or []) if root is not None else []
+        )
 
     return _merge_discovered(base, _cmds_path_commands(env))
 
@@ -479,7 +481,8 @@ def _build_parser(
 def _strip_subparsers(parser: "_argparse.ArgumentParser") -> None:
     """Remove any subparsers action from ``parser`` (used for parent donors)."""
     subs = [
-        a for a in parser._actions  # type: ignore[attr-defined]
+        a
+        for a in parser._actions  # type: ignore[attr-defined]
         if isinstance(a, _argparse._SubParsersAction)  # type: ignore[attr-defined]
     ]
     for action in subs:
@@ -503,9 +506,7 @@ def _existing_subparsers(
     return None
 
 
-def _deregister_subparser(
-    subparsers: "_argparse._SubParsersAction", name: str
-) -> None:
+def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) -> None:
     """Remove a previously-registered subparser ``name`` from ``subparsers``.
 
     argparse's ``add_parser`` raises ``ArgumentError('conflicting subparser')``
@@ -516,7 +517,8 @@ def _deregister_subparser(
     """
     subparsers._name_parser_map.pop(name, None)  # type: ignore[attr-defined]
     subparsers._choices_actions = [  # type: ignore[attr-defined]
-        a for a in subparsers._choices_actions  # type: ignore[attr-defined]
+        a
+        for a in subparsers._choices_actions  # type: ignore[attr-defined]
         if getattr(a, "dest", None) != name
     ]
 
@@ -567,10 +569,10 @@ def _apply_app_config_layers(
         # Merge the class command's provenance up into the root parser so
         # `value_sources` (which reads the root via `_duho_last_parser_`) sees a
         # config value on a subcommand field instead of mislabeling it (C14).
-        parser._duho_value_sources_.update(  # type:ignore[attr-defined]
+        parser._duho_value_sources_.update(  # type: ignore[attr-defined]
             getattr(sub_parser, "_duho_value_sources_", {})
         )
-        parser._duho_merged_defaults_.update(  # type:ignore[attr-defined]
+        parser._duho_merged_defaults_.update(  # type: ignore[attr-defined]
             getattr(sub_parser, "_duho_merged_defaults_", {})
         )
 
@@ -732,7 +734,8 @@ def app(
             if _command_name(c)
         }
         resolved_commands = [
-            c for c in resolved_commands
+            c
+            for c in resolved_commands
             if not (
                 _command_name(c) in preregistered
                 and builtin_by_name.get(_command_name(c)) is c

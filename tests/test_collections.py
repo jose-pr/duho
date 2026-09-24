@@ -19,7 +19,6 @@ import pytest
 import duho
 from duho import Arg, Args, NS
 
-
 # --- set / set[T] fields -------------------------------------------------
 
 

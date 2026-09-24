@@ -6,9 +6,9 @@ import typing as _ty
 from ._compat import get_level_names_mapping
 
 if _ty.TYPE_CHECKING:
-    from logging import *  # type:ignore
+    from logging import *  # type: ignore
 
-    import colorama as _colorama  # type:ignore
+    import colorama as _colorama  # type: ignore
 
     TRACE: int
 
@@ -32,9 +32,9 @@ def _resolve_colorama():
     global _color
     if _color is False:
         try:
-            import colorama as _colorama  # type:ignore
+            import colorama as _colorama  # type: ignore
         except ImportError:
-            _colorama = None  # type:ignore
+            _colorama = None  # type: ignore
         _color = _colorama
     return _color
 
@@ -71,7 +71,7 @@ def _getcolor(color: str):
     return color
 
 
-def add_logging_level(name: str, level: int, force=False, color: 'str | None' = None):
+def add_logging_level(name: str, level: int, force=False, color: "str | None" = None):
     """Register a custom log level."""
     name = name.upper()
     if hasattr(_logging, name) and not force:
@@ -95,8 +95,9 @@ def add_logging_level(name: str, level: int, force=False, color: 'str | None' = 
     setattr(_logging, name, log_root)
 
 
-class DefaultFormatter(_logging.Formatter):  # type:ignore
+class DefaultFormatter(_logging.Formatter):  # type: ignore
     """Log formatter with colored output."""
+
     COLORS: dict[int, str] = {
         _logging.DEBUG: _asicode(34),  # Fore.BLUE
         _logging.INFO: _asicode(32),  # Fore.GREEN
@@ -113,7 +114,7 @@ class DefaultFormatter(_logging.Formatter):  # type:ignore
         style: "_logging._FormatStyle" = "%",
         validate=True,
     ) -> None:
-        self._levelsize: 'int | None' = None
+        self._levelsize: "int | None" = None
         super().__init__(fmt, datefmt, style, validate)
 
     def format(self, record):
@@ -126,7 +127,7 @@ class DefaultFormatter(_logging.Formatter):  # type:ignore
         return super().format(record)
 
 
-VERBOSE_LEVELS: 'dict[int, list[str]]' = {}
+VERBOSE_LEVELS: "dict[int, list[str]]" = {}
 VERBOSE_HELP = ""
 _LEVELSIZE = 4
 
@@ -168,7 +169,7 @@ def parse_loglevels(text: str, itemdivider: str = ",", valkey_separator=":"):
     return levels
 
 
-def init_stderr_logging(name=None, level: 'int | None' = None):
+def init_stderr_logging(name=None, level: "int | None" = None):
     """Initialize logging to stderr with color support."""
     initverbose()
     handler = _logging.StreamHandler(_sys.stderr)

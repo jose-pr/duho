@@ -9,7 +9,6 @@ import duho
 import duho.completion as completion
 from duho import Args
 
-
 # --- Fixtures: a 2-level subcommand app with a choice field + Path field --
 
 

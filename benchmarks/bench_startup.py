@@ -18,6 +18,7 @@ it is comparable across machines and is what check_baseline.py gates on.
 
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import json
 import platform
@@ -70,10 +71,22 @@ def measure(n):
 
     return {
         "abs": {
-            "python_pass": {"min_ms": round(base_min, 2), "median_ms": round(base_med, 2)},
-            "import_argparse": {"min_ms": round(argp_min, 2), "median_ms": round(argp_med, 2)},
-            "import_duho": {"min_ms": round(duho_min, 2), "median_ms": round(duho_med, 2)},
-            "e2e_build_parse": {"min_ms": round(e2e_min, 2), "median_ms": round(e2e_med, 2)},
+            "python_pass": {
+                "min_ms": round(base_min, 2),
+                "median_ms": round(base_med, 2),
+            },
+            "import_argparse": {
+                "min_ms": round(argp_min, 2),
+                "median_ms": round(argp_med, 2),
+            },
+            "import_duho": {
+                "min_ms": round(duho_min, 2),
+                "median_ms": round(duho_med, 2),
+            },
+            "e2e_build_parse": {
+                "min_ms": round(e2e_min, 2),
+                "median_ms": round(e2e_med, 2),
+            },
         },
         # The gated deltas: duho's added cost over bare python (min-vs-min), which
         # normalizes out runner speed.

@@ -30,7 +30,6 @@ from duho.args import Cli, Cmd
 from duho.env import Env
 from duho.runtime import app
 
-
 # --------------------------------------------------------------------------
 # Fixture-file helpers (real .py files -- never -c: AST-derived flags need a file)
 # --------------------------------------------------------------------------
@@ -307,9 +306,7 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text(
-        "[Deploy]\nregion = \"eu-west\"\nreplicas = 5\n"
-    )
+    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "eu-west"\nreplicas = 5\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")
@@ -331,7 +328,7 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "override.toml").write_text("[Deploy]\nregion = \"us-east\"\n")
+    (tmp_path / "override.toml").write_text('[Deploy]\nregion = "us-east"\n')
 
     class MyApp(Cli):
         _config_ = None
@@ -355,7 +352,7 @@ def test_app_cli_dispatches_two_self_registered_command_files(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text("[Deploy]\nregion = \"cfg\"\n")
+    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "cfg"\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")

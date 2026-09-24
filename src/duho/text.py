@@ -83,9 +83,7 @@ def pysafe(text: str, separator: str = ".") -> str:
     return text or "_"
 
 
-def camelcase(
-    text: str, separators: "_ty.Sequence[str] | str | None" = None
-) -> str:
+def camelcase(text: str, separators: "_ty.Sequence[str] | str | None" = None) -> str:
     """Join ``text`` into ``CamelCase``, splitting on ``separators``.
 
     ``separators`` defaults to ``(".", "_", "-")``; a single string is treated

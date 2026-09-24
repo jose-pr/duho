@@ -66,6 +66,7 @@ already done below)::
     python examples/runpath_app.py rc --rcopts '!*,provision'
     python examples/runpath_app.py rc --rcopts 'strict'
 """
+
 import sys
 from pathlib import Path
 

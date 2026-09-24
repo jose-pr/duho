@@ -304,7 +304,9 @@ def _cls_metadata(parser):
     return builders, clsargs
 
 
-def describe_parser(parser, *, root=False, root_cls=None, name=None, aliases=None, _seen=None):
+def describe_parser(
+    parser, *, root=False, root_cls=None, name=None, aliases=None, _seen=None
+):
     """Describe one built ``ArgumentParser`` (and its subtree) as plain data.
 
     ``root`` adds the document-level keys (schema tag, version, exit codes,

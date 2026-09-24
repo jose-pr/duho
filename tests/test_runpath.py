@@ -23,7 +23,6 @@ from duho import runpath
 from duho.discovery import CmdBuilder, discover_commands
 from duho.runpath import RunPathCmd, is_runpath_dir, register, unregister
 
-
 # --------------------------------------------------------------------------
 # Provider isolation + fixture helpers
 # --------------------------------------------------------------------------
@@ -66,14 +65,12 @@ def _write_step(directory, filename, body):
 
 def _record_step(name, results_path, extra=""):
     """Return step source whose ``main`` appends ``name`` to the results file."""
-    return textwrap.dedent(
-        '''\
+    return textwrap.dedent("""\
         {extra}
         def main(args):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write("{name}\\n")
-        '''
-    ).format(name=name, results=str(results_path), extra=extra)
+        """).format(name=name, results=str(results_path), extra=extra)
 
 
 def _read_results(results_path):
@@ -150,7 +147,9 @@ def test_priority_overrides_numeric_prefix(tmp_path):
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
     # File 10 declares PRIORITY 99 -> runs last despite the low prefix.
-    _write_step(steps, "10-early.py", _record_step("early", results, extra="PRIORITY = 99"))
+    _write_step(
+        steps, "10-early.py", _record_step("early", results, extra="PRIORITY = 99")
+    )
     _write_step(steps, "20-mid.py", _record_step("mid", results))
     _write_step(steps, "30-late.py", _record_step("late", results))
 
@@ -164,7 +163,11 @@ def test_required_reorders_after_dependency(tmp_path):
     results = tmp_path / "results.txt"
     # `alpha` (prefix 10) REQUIRES `beta` (prefix 20) -> beta must run first,
     # overriding the numeric order.
-    _write_step(steps, "10-alpha.py", _record_step("alpha", results, extra='REQUIRED = ["beta"]'))
+    _write_step(
+        steps,
+        "10-alpha.py",
+        _record_step("alpha", results, extra='REQUIRED = ["beta"]'),
+    )
     _write_step(steps, "20-beta.py", _record_step("beta", results))
 
     ran, _ = _run(steps)
@@ -175,7 +178,9 @@ def test_required_missing_step_warns_resilient(tmp_path, caplog):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -188,7 +193,9 @@ def test_required_missing_step_errors_strict(tmp_path):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with pytest.raises(ValueError, match="ghost"):
         _run(steps, rcopts=["strict"])
@@ -454,10 +461,10 @@ def test_init_hook_ctx_reaches_two_arg_step_one_arg_step_unaffected(tmp_path):
     results = tmp_path / "results.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return {"greeting": "hi"}
-        ''',
+        """,
     )
     _write_step(
         steps,
@@ -467,11 +474,11 @@ def test_init_hook_ctx_reaches_two_arg_step_one_arg_step_unaffected(tmp_path):
     _write_step(
         steps,
         "20-modern.py",
-        '''\
+        """\
         def main(cmd, ctx):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(ctx["greeting"] + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     ran, _ = _run(steps)
@@ -510,19 +517,19 @@ def test_step_adapter_can_give_steps_an_app_specific_signature(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "CTX"
-        ''',
+        """,
     )
     _write_step(
         steps,
         "10-app-shape.py",
-        '''\
+        """\
         def main(ctx, cmd):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(ctx + ":" + type(cmd).__name__ + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     _run(steps)
@@ -567,19 +574,19 @@ def test_step_adapter_result_drives_arity_detection(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "FROM-INIT"
-        ''',
+        """,
     )
     _write_step(
         steps,
         "10-one.py",
-        '''\
+        """\
         def main(seen):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(seen + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     _run(steps)
@@ -631,7 +638,7 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -642,7 +649,7 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally:" + ctx + "\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-a.py", _record_step("a", results))
 
@@ -661,7 +668,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -672,7 +679,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-ok.py", _record_step("ok", results))
     _write_step(
@@ -699,7 +706,7 @@ def test_init_finally_runs_when_step_raises_and_aborts_strict(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -710,7 +717,7 @@ def test_init_finally_runs_when_step_raises_and_aborts_strict(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-ok.py", _record_step("ok", results))
     _write_step(
@@ -730,10 +737,10 @@ def test_init_raising_is_always_fatal_even_without_strict(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             raise RuntimeError("init boom")
-        ''',
+        """,
     )
     _write_step(steps, "10-a.py", "def main(cmd): pass\n")
 
@@ -897,7 +904,9 @@ def test_two_symlinks_one_file_different_effective_options(tmp_path):
         (steps / "02-step.py").symlink_to(target)
         (steps / "!02-step2.py").symlink_to(target)
     except OSError:
-        pytest.skip("symlink creation not permitted (needs elevated privileges on Windows)")
+        pytest.skip(
+            "symlink creation not permitted (needs elevated privileges on Windows)"
+        )
 
     register()
     from duho.runpath import _load_steps
@@ -934,7 +943,9 @@ def test_before_after_missing_name_is_silent_noop(tmp_path, caplog):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='BEFORE = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='BEFORE = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -947,7 +958,9 @@ def test_required_missing_name_still_warns_unlike_before_after(tmp_path, caplog)
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -966,7 +979,10 @@ def test_before_after_disabled_target_is_silent_noop(tmp_path, caplog):
         ran, _ = _run(steps)
     # `b` is disabled by its filename; `a`'s AFTER=["b"] is a silent no-op.
     assert ran == ["a"]
-    assert not any("disabled" in rec.message.lower() and "b" in rec.message for rec in caplog.records)
+    assert not any(
+        "disabled" in rec.message.lower() and "b" in rec.message
+        for rec in caplog.records
+    )
 
 
 def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
@@ -976,7 +992,11 @@ def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
     # `x` REQUIREs `y`; `y` declares BEFORE=["x"] is fine (consistent), but here
     # make an actual cycle: `x` REQUIRES `y`, `y` REQUIRES `x` (mixed with a
     # BEFORE edge reinforcing the same cycle) -- must not hang, must emit both.
-    _write_step(steps, "10-x.py", _record_step("x", results, extra='REQUIRED = ["y"]\nBEFORE = ["y"]'))
+    _write_step(
+        steps,
+        "10-x.py",
+        _record_step("x", results, extra='REQUIRED = ["y"]\nBEFORE = ["y"]'),
+    )
     _write_step(steps, "20-y.py", _record_step("y", results, extra='REQUIRED = ["x"]'))
 
     with caplog.at_level("WARNING", logger="duho"):

@@ -27,7 +27,6 @@ import duho
 from duho.discovery import ModuleCommand
 from duho.runtime import app, run_command
 
-
 # --------------------------------------------------------------------------
 # Fixture-file helpers
 # --------------------------------------------------------------------------
@@ -600,7 +599,12 @@ def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path
 
     command.register = wrapper
 
-    rc = app(Root, commands=[command], argv=["norereg", "--wrapped", "x"], setup_logging=False)
+    rc = app(
+        Root,
+        commands=[command],
+        argv=["norereg", "--wrapped", "x"],
+        setup_logging=False,
+    )
     assert rc == 2
     assert calls == [True]
 
@@ -681,7 +685,9 @@ def test_commands_arg_class_command(tmp_path):
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("_direct_deploy", tmp_path / "deploy.py")
+    spec = importlib.util.spec_from_file_location(
+        "_direct_deploy", tmp_path / "deploy.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["_direct_deploy"] = mod
     try:
@@ -919,9 +925,14 @@ def test_cmds_path_extends_builtin_subcommands(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
     env = duho.env.Env("DUHO")
 
-    assert app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
+    assert (
+        app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
+    )
     # The built-in still works -- this is the half that regressed before.
-    assert app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False) == "built-in"
+    assert (
+        app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False)
+        == "built-in"
+    )
 
 
 def test_cmds_path_command_overrides_same_named_builtin(tmp_path, monkeypatch):
@@ -929,15 +940,17 @@ def test_cmds_path_command_overrides_same_named_builtin(tmp_path, monkeypatch):
     _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
     monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
 
-    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"], setup_logging=False
+    )
     assert rc == "overridden"
 
 
 def test_builtin_subcommands_survive_without_cmds_path():
     """No CMDS_PATH set -> the root's own _subcommands_ are the command set."""
-    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"], setup_logging=False
+    )
     assert rc == "built-in"
 
 
@@ -980,11 +993,21 @@ def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_CMDS_PATH", str(extra_dir))
     env = duho.env.Env("DUHO")
 
-    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["greet"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins,
+        source=builtins_dir,
+        env=env,
+        argv=["greet"],
+        setup_logging=False,
+    )
     assert rc == "greeted"
-    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins,
+        source=builtins_dir,
+        env=env,
+        argv=["hello"],
+        setup_logging=False,
+    )
     assert rc == "from-source"
 
 

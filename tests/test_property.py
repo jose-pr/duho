@@ -33,7 +33,6 @@ import duho  # noqa: E402
 from duho import expand, snakecase  # noqa: E402
 from duho.logging import parse_loglevels  # noqa: E402
 
-
 # ==========================================================================
 # Field round-trip
 # ==========================================================================
@@ -42,7 +41,7 @@ _MODDIR = tempfile.mkdtemp(prefix="duho_prop_")
 if _MODDIR not in sys.path:
     sys.path.insert(0, _MODDIR)
 
-_HEADER = '''\
+_HEADER = """\
 import enum
 import typing as ty
 from pathlib import Path
@@ -55,22 +54,20 @@ class Color(enum.Enum):
     RED = "red"
     GREEN = "green"
     BLUE = "blue"
-'''
+"""
 
 
 def _build_and_parse(name, annotation, default_literal, argv):
     """Write a one-field Args class to a real module, import it, parse argv."""
     mod_name = "m_" + uuid.uuid4().hex
-    src = _HEADER + textwrap.dedent(
-        f'''
+    src = _HEADER + textwrap.dedent(f'''
 
 class Conf(Args):
     """Generated field-round-trip class."""
 
     {name}: {annotation} = {default_literal}
     ("--{name}",)
-'''
-    )
+''')
     path = Path(_MODDIR) / (mod_name + ".py")
     path.write_text(src)
     spec = importlib.util.spec_from_file_location(mod_name, path)
@@ -97,18 +94,32 @@ _safe_value = st.text(
 # Names that would collide with something in the generated module namespace
 # (the `import typing as ty` alias, the seeded `Color` enum, etc.).
 _RESERVED_NAMES = {
-    "ty", "enum", "duho", "args", "path", "color", "conf", "field",
-    "help", "h",  # would produce --help/--h flags colliding with argparse
+    "ty",
+    "enum",
+    "duho",
+    "args",
+    "path",
+    "color",
+    "conf",
+    "field",
+    "help",
+    "h",  # would produce --help/--h flags colliding with argparse
     # Field names identical to their own annotation self-shadow (Python
     # stores the class-body value before the annotation is ever read, e.g.
     # `bool: bool = False`) -- a duho-detected, unfixable-by-duho error, not
     # a case this round-trip test should generate.
-    "str", "int", "float", "bool", "list", "set", "tuple",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "list",
+    "set",
+    "tuple",
 }
 
-_identifiers = st.text(
-    alphabet=string.ascii_lowercase, min_size=2, max_size=8
-).filter(lambda s: not keyword.iskeyword(s) and s not in _RESERVED_NAMES)
+_identifiers = st.text(alphabet=string.ascii_lowercase, min_size=2, max_size=8).filter(
+    lambda s: not keyword.iskeyword(s) and s not in _RESERVED_NAMES
+)
 
 
 @st.composite
@@ -117,7 +128,18 @@ def _field_case(draw):
     name = draw(_identifiers)
     kind = draw(
         st.sampled_from(
-            ["str", "int", "float", "bool", "path", "literal", "list", "set", "tuple", "optional"]
+            [
+                "str",
+                "int",
+                "float",
+                "bool",
+                "path",
+                "literal",
+                "list",
+                "set",
+                "tuple",
+                "optional",
+            ]
         )
     )
 
@@ -142,9 +164,7 @@ def _field_case(draw):
         raw = "/".join(segs)
         return name, "Path", 'Path(".")', ["--%s" % name, raw], Path(raw)
     if kind == "literal":
-        values = draw(
-            st.lists(_safe_value, min_size=2, max_size=4, unique=True)
-        )
+        values = draw(st.lists(_safe_value, min_size=2, max_size=4, unique=True))
         chosen = draw(st.sampled_from(values))
         ann = "ty.Literal[%s]" % ", ".join(repr(v) for v in values)
         return name, ann, repr(values[0]), ["--%s" % name, chosen], chosen
@@ -290,11 +310,7 @@ def test_snakecase_lowercases_all_letters(name):
 
 
 @settings(deadline=None, max_examples=200)
-@given(
-    text=st.text(
-        alphabet=string.ascii_letters + string.digits + ":,", max_size=30
-    )
-)
+@given(text=st.text(alphabet=string.ascii_letters + string.digits + ":,", max_size=30))
 def test_parse_loglevels_never_raises_and_shapes(text):
     result = parse_loglevels(text)
     assert isinstance(result, dict)

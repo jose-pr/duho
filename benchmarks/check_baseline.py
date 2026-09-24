@@ -23,6 +23,7 @@ version without a committed baseline never spuriously fails; add one with
 Exit code: 0 = within thresholds (or skipped), 1 = regression detected.
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import json
 import sys
@@ -93,7 +94,9 @@ def main(argv=None):
             ratio = cur / base
             flag = "  <-- REGRESSION" if ratio > WARM_THRESHOLD else ""
             print(f"  {name:22s} base {base:8.4f}  cur {cur:8.4f}  {ratio:5.2f}x{flag}")
-    print(f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms):")
+    print(
+        f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms):"
+    )
     for name, base in sorted(entry.get("startup", {}).items()):
         cur = startup_current.get(name)
         if cur is None:
@@ -101,7 +104,9 @@ def main(argv=None):
         ratio = cur / base if base > 0 else float("nan")
         note = " (below floor; not gated)" if base < STARTUP_FLOOR_MS else ""
         flag = "  <-- REGRESSION" if (name, base, cur, ratio) in startup_reg else ""
-        print(f"  {name:22s} base {base:8.2f}  cur {cur:8.2f}  {ratio:5.2f}x{note}{flag}")
+        print(
+            f"  {name:22s} base {base:8.2f}  cur {cur:8.2f}  {ratio:5.2f}x{note}{flag}"
+        )
 
     regressions = warm_reg + startup_reg
     if regressions:

@@ -59,20 +59,20 @@ def test_import_error_step_skipped_resilient(tmp_path, caplog):
     _write_step(
         steps,
         "10-good.py",
-        f'''
+        f"""
         def main(args):
             with open(r"{results}", "a") as fh:
                 fh.write("good\\n")
-        ''',
+        """,
     )
     _write_step(
         steps,
         "20-broken.py",
-        '''
+        """
         import a_module_that_does_not_exist_xyz  # noqa: F401
         def main(args):
             pass
-        ''',
+        """,
     )
     with caplog.at_level("WARNING", logger="duho"):
         _run(steps)
@@ -86,11 +86,11 @@ def test_import_error_step_raises_strict(tmp_path):
     _write_step(
         steps,
         "10-broken.py",
-        '''
+        """
         import a_module_that_does_not_exist_xyz  # noqa: F401
         def main(args):
             pass
-        ''',
+        """,
     )
     with pytest.raises(ImportError):
         _run(steps, rcopts=["strict"])
@@ -110,21 +110,21 @@ def test_required_disabled_dep_warns_resilient(tmp_path, caplog):
     _write_step(
         steps,
         "10-build.py",
-        f'''
+        f"""
         def main(args):
             with open(r"{results}", "a") as fh:
                 fh.write("build\\n")
-        ''',
+        """,
     )
     _write_step(
         steps,
         "20-deploy.py",
-        f'''
+        f"""
         REQUIRED = ["build"]
         def main(args):
             with open(r"{results}", "a") as fh:
                 fh.write("deploy\\n")
-        ''',
+        """,
     )
     with caplog.at_level("WARNING", logger="duho"):
         _run(steps, rcopts=["!*", "deploy"])

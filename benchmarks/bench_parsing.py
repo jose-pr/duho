@@ -7,6 +7,7 @@ from duho import Args
 
 class SimpleArgs(Args):
     """Simple argument set."""
+
     name: str
     ("--name",)
     count: int = 1
@@ -15,6 +16,7 @@ class SimpleArgs(Args):
 
 class ComplexArgs(Args):
     """Complex argument set with many fields."""
+
     name: str
     ("--name",)
     version: str = "1.0.0"
@@ -33,6 +35,7 @@ class ComplexArgs(Args):
 
 def bench_parser_build():
     """Benchmark parser construction time."""
+
     def build_simple():
         SimpleArgs._parser_()
 
@@ -55,14 +58,21 @@ def bench_parsing():
         simple_parser.parse_args(["--name", "test", "--count", "5"])
 
     def parse_complex():
-        complex_parser.parse_args([
-            "--name", "app",
-            "--version", "2.0.0",
-            "--output", "out.txt",
-            "--verbose",
-            "--config", "app.yml",
-            "--workers", "8"
-        ])
+        complex_parser.parse_args(
+            [
+                "--name",
+                "app",
+                "--version",
+                "2.0.0",
+                "--output",
+                "out.txt",
+                "--verbose",
+                "--config",
+                "app.yml",
+                "--workers",
+                "8",
+            ]
+        )
 
     simple_time = timeit.timeit(parse_simple, number=10000)
     complex_time = timeit.timeit(parse_complex, number=10000)

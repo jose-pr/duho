@@ -8,7 +8,9 @@ from runpath_app import format_tag_line
 
 def init(cmd: RunPathCmd, logger: logging.Logger) -> dict:
     dry_run = getattr(cmd, "dry_run", False)
-    logger.info(format_tag_line(cmd, "connecting once for this run (dry_run=%s)..." % dry_run))
+    logger.info(
+        format_tag_line(cmd, "connecting once for this run (dry_run=%s)..." % dry_run)
+    )
     return {"connection": "fake-handle"}
 
 

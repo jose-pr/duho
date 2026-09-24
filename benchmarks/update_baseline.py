@@ -15,6 +15,7 @@ machine). See CONTRIBUTING.md.
 
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import json
 import sys

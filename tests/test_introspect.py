@@ -15,7 +15,6 @@ import typing
 import duho
 from duho import _introspect
 
-
 # --- classes nested under every statement container -------------------------
 # Each is defined at module scope in THIS file (which has a real __file__), so
 # getclsdef resolves them through _module_index, exercising the P3 walk.

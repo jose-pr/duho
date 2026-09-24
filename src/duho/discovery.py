@@ -133,7 +133,9 @@ def _resolved_module_name(module: object, stem: "str | None" = None) -> str:
     stem when the caller already knows it (e.g. a synthesized ``sys.modules``
     name would otherwise be misleading).
     """
-    override = getattr(module, "_parsername_", None) or getattr(module, "_cli_name", None)
+    override = getattr(module, "_parsername_", None) or getattr(
+        module, "_cli_name", None
+    )
     if override:
         return str(override)
     if stem is None:
@@ -359,7 +361,9 @@ def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
 #: builder takes ``(path, qualname)`` and returns a ``Command`` (or object
 #: fulfilling it). Registered newest-first so a later registration can override
 #: an earlier one for the same shape.
-_PROVIDERS: "list[tuple[_ty.Callable[[_Path], bool], _ty.Callable[[_Path, str], object]]]" = []
+_PROVIDERS: (
+    "list[tuple[_ty.Callable[[_Path], bool], _ty.Callable[[_Path, str], object]]]"
+) = []
 
 
 def register_command_provider(
@@ -392,7 +396,9 @@ def _match_provider(path: "_Path") -> "_ty.Callable[[_Path, str], object] | None
             if predicate(path):
                 return builder
         except Exception:  # pragma: no cover - a broken predicate must not abort
-            _LOGGER.debug("command provider predicate raised for %s", path, exc_info=True)
+            _LOGGER.debug(
+                "command provider predicate raised for %s", path, exc_info=True
+            )
     return None
 
 
@@ -483,7 +489,9 @@ class CmdBuilder:
         module = _importlib.import_module(qualname)
         return self._wrap_module(module)
 
-    def _wrap_module(self, module: object, stem: "str | None" = None) -> "ModuleCommand":
+    def _wrap_module(
+        self, module: object, stem: "str | None" = None
+    ) -> "ModuleCommand":
         name = _resolved_module_name(module, stem=stem)
         return ModuleCommand(module, name=name)
 
@@ -516,7 +524,9 @@ def _iter_class_commands(module: object) -> "_ty.Iterator[type]":
         yield obj
 
 
-def _commands_in_module(module: object, *, stem: "str | None" = None) -> "list[Command]":
+def _commands_in_module(
+    module: object, *, stem: "str | None" = None
+) -> "list[Command]":
     """Collect BOTH command shapes from one already-imported module.
 
     * every class command defined in the module (``_iter_class_commands``);
@@ -634,9 +644,7 @@ def _discover_from_package(dotted_name: str) -> "list[Command]":
 def _discover_from_path(directory: "_Path") -> "list[Command]":
     directory = _Path(directory)
     if not directory.is_dir():
-        raise ImportError(
-            "not a directory: %s" % directory, path=_os.fspath(directory)
-        )
+        raise ImportError("not a directory: %s" % directory, path=_os.fspath(directory))
 
     commands: "list[Command]" = []
     for path in sorted(directory.glob("*.py")):

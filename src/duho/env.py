@@ -104,7 +104,7 @@ class Env(_abc.MutableMapping):
             yield key
         for key in _os.environ:
             if key.startswith(self.prefix):
-                stripped = key[len(self.prefix):]
+                stripped = key[len(self.prefix) :]
                 if stripped not in seen:
                     seen.add(stripped)
                     yield stripped
@@ -146,9 +146,7 @@ class Env(_abc.MutableMapping):
             return []
         return [ty(part) for part in raw.split(sep)]
 
-    def paths(
-        self, key: str, ty: "_ty.Callable[[str], _T]" = str
-    ) -> "list[_T]":
+    def paths(self, key: str, ty: "_ty.Callable[[str], _T]" = str) -> "list[_T]":
         """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
 
         Unlike :meth:`list` (whose ``sep`` defaults to ``":"`` for generic lists

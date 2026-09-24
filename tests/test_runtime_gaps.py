@@ -124,9 +124,7 @@ def test_resolve_commands_from_multi_cmds_path_env(tmp_path, monkeypatch):
     dir_b = tmp_path / "b"
     dir_b.mkdir()
     _write(dir_b, "release.py", _CLASS_CMD.replace("Deploy", "Release"))
-    monkeypatch.setenv(
-        "MYAPP_CMDS_PATH", os.pathsep.join([str(dir_a), str(dir_b)])
-    )
+    monkeypatch.setenv("MYAPP_CMDS_PATH", os.pathsep.join([str(dir_a), str(dir_b)]))
     env = Env("myapp")
 
     resolved = _resolve_commands(Root, None, None, env, None)
@@ -205,7 +203,12 @@ class _CmdParent(Cmd):
 
 def test_non_cmd_leaf_raises_not_implemented():
     with pytest.raises(NotImplementedError, match="holds data but is not runnable"):
-        app(Root, commands=[_CmdParent], argv=["parent", "_DataLeaf"], setup_logging=False)
+        app(
+            Root,
+            commands=[_CmdParent],
+            argv=["parent", "_DataLeaf"],
+            setup_logging=False,
+        )
 
 
 # --------------------------------------------------------------------------

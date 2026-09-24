@@ -20,7 +20,6 @@ import pytest
 
 import duho
 
-
 # A plugin module exposing a class command (a Cmd subclass) and a module-command
 # entrypoint, plus a broken entry-point target that does not exist.
 _PLUGIN_MODULE = '''\
@@ -68,9 +67,7 @@ def _install_fake_distribution(tmp_path, module_name, entry_points_txt):
     (dist_info / "METADATA").write_text(
         "Metadata-Version: 2.1\nName: duho-test-plugins\nVersion: 1.0\n"
     )
-    (dist_info / "entry_points.txt").write_text(
-        textwrap.dedent(entry_points_txt)
-    )
+    (dist_info / "entry_points.txt").write_text(textwrap.dedent(entry_points_txt))
     return dist_info
 
 

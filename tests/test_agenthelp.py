@@ -442,6 +442,14 @@ class TypeStrings(Cmd):
     "A color"
     ("--color",)
 
+    labels: ty.Literal["x, y", "z"] = "z"
+    "A literal with a comma inside one member"
+    ("--labels",)
+
+    mixed: ty.Literal["1", 1] = 1
+    "A literal mixing a string and an int of the same spelling"
+    ("--mixed",)
+
     def __call__(self):
         return 0
 
@@ -451,6 +459,13 @@ def test_type_strings_are_version_independent():
     # used to render a bare `list[str]` as `list` (losing the element type)
     # and `Optional[int]`; 3.14 renders unions as `int | None`. A qualified
     # Enum used to appear only inside a generic (`list[__main__.Color]`).
+    # `labels`/`mixed` pin a SEPARATE regression: rendering a `Literal`'s own
+    # ARGS (values, not types) by recursing into the same type-string logic
+    # dropped their quoting entirely (`Literal["x, y", "z"]` -> `Literal[x, y,
+    # z]`, indistinguishable from a 3-member literal) and collapsed a string
+    # member onto an int of the same spelling (`Literal["1", 1]` ->
+    # `Literal[1, 1]`) -- `repr()` on each member fixes both, identically on
+    # every interpreter.
     doc = describe(TypeStrings)
     opts = {o["dest"]: o for o in doc["options"]}
     assert opts["port"]["type"] == "int | None"
@@ -458,6 +473,29 @@ def test_type_strings_are_version_independent():
     assert opts["colors"]["type"] == "list[Color]"
     assert opts["maybe"]["type"] == "Color | None"
     assert opts["color"]["type"] == "Color"
+    assert opts["labels"]["type"] == "Literal['x, y', 'z']"
+    assert opts["mixed"]["type"] == "Literal['1', 1]"
+
+
+class TupleType(Cmd):
+    """A variadic-tuple field."""
+
+    counts: "ty.Tuple[int, ...]" = ()
+    "Repeated counts"
+    ("--counts",)
+
+    def __call__(self):
+        return 0
+
+
+def test_variadic_tuple_type_renders_ellipsis_literally():
+    # `_ty.get_args(tuple[int, ...])` hands back the literal `Ellipsis`
+    # object for the `...` -- recursing into the same type-string logic
+    # stringified it as the word `Ellipsis` (`tuple[int, Ellipsis]`) instead
+    # of the `...` Python itself would show.
+    doc = describe(TupleType)
+    opt = next(o for o in doc["options"] if o["dest"] == "counts")
+    assert opt["type"] == "tuple[int, ...]"
 
 
 # --------------------------------------------------------------------------

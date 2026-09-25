@@ -115,6 +115,12 @@ def _render_type(tp) -> str:
     spells a union ``Optional[int]``/``Union[int, str]``, 3.14 spells it
     ``int | None``/``int | str``).
     """
+    if tp is Ellipsis:
+        # The variadic marker inside `tuple[int, ...]` -- `_ty.get_args`
+        # hands it back as the literal `Ellipsis` singleton, not a type, so
+        # without this it recurses into the generic branch below and
+        # stringifies as `Ellipsis` (`str(Ellipsis)`) instead of `...`.
+        return "..."
     if isinstance(tp, type):
         return tp.__name__
     origin = _ty.get_origin(tp)
@@ -129,6 +135,14 @@ def _render_type(tp) -> str:
         if len(members) != len(args):
             rendered += " | None"
         return rendered
+    if origin is _ty.Literal:
+        # A `Literal` arg is a VALUE (a str/int/bool/None/Enum member), not a
+        # type -- recursing into this same function treated a string value as
+        # an annotation and stringified it bare (`str("x, y")` drops the
+        # quotes and is ambiguous with a literal comma-separated MEMBER
+        # list); `repr()` keeps each member unambiguous and quoted (matching
+        # Python's own literal syntax) regardless of interpreter version.
+        return f"Literal[{', '.join(repr(a) for a in args)}]"
     origin_name = getattr(origin, "__name__", None) or str(origin).replace(
         "typing.", ""
     )

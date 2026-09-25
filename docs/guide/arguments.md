@@ -202,7 +202,8 @@ A field whose name starts with `_` is **not** a CLI argument — duho skips it.
 Use this for internal state you want on the instance but not on the command line.
 
 Framework members are sandwich-named (`_parser_`, `_version_`, `_subcommands_`,
-`_config_`…) and the dispatch hook is `__call__` (an `Args` instance is directly
-callable — `instance()` runs the command), so the ordinary name space is
-entirely yours: a field called `main`, `parse`, or `help` will not collide with
-anything.
+`_config_`…) and the dispatch hook is the `__call__` dunder — implement it (on a
+`duho.Cmd` subclass, or on plain `Args`) to make a class runnable, and
+`duho.main`/`duho.run_command` call `instance()` to run it — so the ordinary name
+space is entirely yours: a field called `main`, `parse`, or `help` will not
+collide with anything.

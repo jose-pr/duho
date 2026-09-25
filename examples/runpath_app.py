@@ -82,12 +82,9 @@ _RC_DIR = Path(__file__).parent / "rc"
 
 
 class RunpathAppArgs(LoggingArgs):
-    """Global options shared by every runpath_app command.
+    """runpath-app: a demo CLI that runs an ordered step directory as `rc`.
 
-    Same shape as ``discovery_app.py``'s ``DiscoveryAppArgs`` -- a data
-    mixin passed as ``duho.app``'s ``root``. See the module docstring's
-    "Sharing more than data" section for why ``_tag_line_`` below is a real
-    method here, and what makes it reachable from a RunPath command.
+    These options are global -- shared with the `rc` step directory below.
     """
 
     label: str = "runpath-app"

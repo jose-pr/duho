@@ -65,13 +65,9 @@ _CONFIG_PATH = Path(__file__).parent / "discovery_app.toml"
 
 
 class DiscoveryAppArgs(LoggingArgs):
-    """Global options shared by every discovery_app command.
+    """discovery-app: a demo CLI whose commands are discovered from files.
 
-    A data mixin, not the app root itself: ``duho.app(root=DiscoveryAppArgs,
-    ...)`` combines it with ``duho.Cli``-equivalent app-runner behavior.
-    Every command's parsed ``args`` IS (or carries) this instance, so its
-    fields/``_logger_`` are available everywhere without any command
-    redeclaring them.
+    These options are global -- every subcommand below shares them.
     """
 
     #: A TOML/JSON config file, layered under env vars and CLI args -- see

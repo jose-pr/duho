@@ -40,11 +40,21 @@ nav:
   - API Reference:
       - Overview: api/reference.md
       - Args: api/args.md
+      - Runtime: api/runtime.md
       - Discovery: api/discovery.md
+      - Env: api/env.md
       - Formatters: api/formatters.md
       - Presets: api/presets.md
       - Logging: api/logging.md
+      - Agent help: api/agenthelp.md
       - Completion: api/completion.md
+      - Text: api/text.md
+      - QualName: api/qualname.md
+      - Fanout: api/fanout.md
+      - RunPath: api/runpath.md
+      - Scaffold: api/scaffold.md
+      - MCP: api/mcp.md
+      - Parsers: api/parsers.md
   - Changelog: changelog.md
 
 plugins:

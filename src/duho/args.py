@@ -567,17 +567,23 @@ class _AgentHelpAction(_argparse._HelpAction):
             parser.exit()
         # Human help: show only each field's CLASS default, never a
         # live env/config value `_stage_layers`/`_apply_default_layers_one`
-        # may have already installed as `action.default` for THIS invocation
-        # -- `DefaultsFormatter` only ever sees `action`, never `parser`, so
-        # the class default + provenance is stashed onto each action here,
-        # the one place in the print path that still has both.
-        _agenthelp.stash_default_provenance(parser)
-        # Write via the stream's own encoding with a lossy
-        # fallback (`errors="backslashreplace"`) instead of argparse's own
-        # `_print_message`, which writes strict-encoded text and raises
-        # `UnicodeEncodeError` (empty output, exit 1) for a docstring/help
-        # character outside a piped Windows console's code page.
-        _compat.write_human(parser.format_help(), _sys.stdout)
+        # may have already installed as `action.default` for THIS invocation.
+        # `stash_default_provenance` alone only stashes the class default
+        # onto each action for `DefaultsFormatter` (which only ever sees
+        # `action`, never `parser`) to read -- it does NOT touch
+        # `action.default` itself, so argparse's OWN `%(default)s` expansion
+        # (`HelpFormatter._expand_help`, which reads `action.default`
+        # directly and runs regardless of formatter) still saw the live
+        # value for any help text that spells the placeholder literally.
+        # `redact_action_defaults` additionally swaps that attribute for the
+        # duration of this render, then restores it.
+        with _agenthelp.redact_action_defaults(parser):
+            # Write via the stream's own encoding with a lossy
+            # fallback (`errors="backslashreplace"`) instead of argparse's own
+            # `_print_message`, which writes strict-encoded text and raises
+            # `UnicodeEncodeError` (empty output, exit 1) for a docstring/help
+            # character outside a piped Windows console's code page.
+            _compat.write_human(parser.format_help(), _sys.stdout)
         parser.exit()
 
 

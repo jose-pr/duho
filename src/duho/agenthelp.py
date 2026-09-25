@@ -39,6 +39,7 @@ import contextlib as _contextlib
 import enum as _enum
 import os as _os
 import pathlib as _pathlib
+import sys as _sys
 import typing as _ty
 
 from . import _compat as _compat
@@ -240,7 +241,7 @@ def _choices(action, decl):
     return None
 
 
-def _expand_action_help(action, prog: str) -> str:
+def _expand_action_help(action, prog: str, *, default=_NOT_DEFINED) -> str:
     """Expand ``%(default)s``-style placeholders in ``action.help``,
     matching what argparse itself shows in ``--help``.
 
@@ -256,11 +257,24 @@ def _expand_action_help(action, prog: str) -> str:
     ``choices`` joined) with a raw (``%%``-unescaped) fallback if expansion
     fails for any reason -- this is best-effort documentation output, never
     something that should raise.
+
+    ``default`` -- when given (the caller's already-REDACTED value from
+    :func:`_default_and_source`) -- overrides ``params["default"]`` before
+    expansion. Without this, ``vars(action)["default"]`` is ``action.default``
+    ITSELF, which may already be the CURRENT, live env/config-layered value
+    for this invocation (staged by ``_stage_layers``/
+    ``_apply_default_layers_one`` before this ever runs) -- a secret in the
+    documented ``NS(env=...)`` example, leaking into help TEXT even though
+    the sibling ``default``/``default_source`` JSON fields were already
+    correctly redacted. ``_NOT_DEFINED`` (never a real field value) is the
+    sentinel meaning "no override" so a caller can legitimately pass ``None``.
     """
     text = action.help
     if not text:
         return ""
     params = dict(vars(action), prog=prog)
+    if default is not _NOT_DEFINED:
+        params["default"] = default
     for key in list(params):
         if params[key] is _argparse.SUPPRESS:
             del params[key]
@@ -319,7 +333,7 @@ def _describe_option(action, clsargs, builders, prog: str, sources=None):
     info = {
         "names": list(action.option_strings),
         "dest": dest,
-        "help": _expand_action_help(action, prog),
+        "help": _expand_action_help(action, prog, default=default),
         "type": _type_of(dest, clsargs, action),
         "required": bool(getattr(action, "required", False)),
         "takes_value": action.nargs != 0,
@@ -345,7 +359,7 @@ def _describe_positional(action, clsargs, builders, prog: str, sources=None):
     default, default_source = _default_and_source(dest, builder, action, sources)
     info = {
         "name": dest,
-        "help": _expand_action_help(action, prog),
+        "help": _expand_action_help(action, prog, default=default),
         "type": _type_of(dest, clsargs, action),
         "nargs": action.nargs,
         "required": action.nargs not in ("?", "*"),
@@ -525,6 +539,83 @@ def stash_default_provenance(parser, cls=None) -> None:
         default, source = _default_and_source(action.dest, builder, action, sources)
         action._duho_class_default_ = default  # type: ignore[attr-defined]
         action._duho_default_source_ = source  # type: ignore[attr-defined]
+
+
+@_contextlib.contextmanager
+def redact_action_defaults(parser, cls=None):
+    """Temporarily replace each REDACTED action's ``.default`` with its class
+    default for the duration of ``parser.format_help()``/``format_usage()``,
+    restoring the original (possibly still env/config-layered) value on exit.
+
+    argparse's OWN ``%(default)s`` expansion (``HelpFormatter._expand_help``,
+    which runs for both the plain formatter and a ``DefaultsFormatter``-
+    decorated one whenever help text already contains a literal
+    ``%(default)s``) reads ``action.default`` DIRECTLY -- bypassing
+    ``_get_help_string``/:func:`_expand_action_help` entirely -- so it is the
+    one seam none of duho's other redaction (the ``default``/
+    ``default_source`` JSON fields, ``DefaultsFormatter``'s own appended
+    suffix) ever reaches. Swapping the attribute itself for the render is the
+    only way to keep that expansion from reading the live value; restoring it
+    unconditionally afterward means an actual parse (or a later ``--help``
+    once a value changes) still starts from the true, layered default.
+
+    Calls :func:`stash_default_provenance` first (idempotent -- a no-op if
+    ``cls``/``parser._duho_cls_`` is unavailable or the parser was never
+    layered), then only touches actions it actually stashed onto
+    (``hasattr(action, "_duho_class_default_")``) -- a plain argparse action
+    with no duho field behind it (``-h``, ``--version``) is left alone.
+    """
+    stash_default_provenance(parser, cls=cls)
+    originals = []
+    for action in parser._actions:
+        if not hasattr(action, "_duho_class_default_"):
+            continue
+        originals.append((action, action.default))
+        action.default = action._duho_class_default_
+    try:
+        yield
+    finally:
+        for action, original in originals:
+            action.default = original
+
+
+class _RedactedHelpAction(_argparse._HelpAction):
+    """Plain ``-h``/``--help``, with the redaction :func:`redact_action_defaults`
+    performs applied around the render.
+
+    Installed on a MODULE COMMAND's subparser (:func:`install_help_redaction`)
+    -- a bare stdlib ``add_parser()`` instance that never goes through
+    ``args.py``'s ``_install_agent_help``/``_AgentHelpAction`` (see this
+    module's own docstring on why a module command's subparser deliberately
+    has no ``_duho_cls_``), so it never got this protection any other way.
+    Unlike :class:`_AgentHelpAction`, this never emits the agent-help JSON
+    document -- module commands don't opt into that trigger -- it only keeps
+    a live env/config value staged onto ``action.default`` for this run out
+    of a literal ``%(default)s`` in plain human help text.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        with redact_action_defaults(parser):
+            _compat.write_human(parser.format_help(), _sys.stdout)
+        parser.exit()
+
+
+def install_help_redaction(parser) -> None:
+    """Swap every ``_HelpAction`` on ``parser`` to :class:`_RedactedHelpAction`.
+
+    For a module command's subparser (the only caller today, from
+    ``duho.runtime``'s ``_apply_app_config_layers``, right after it stashes
+    that command's own provenance) -- its plain, argparse-added ``-h``/
+    ``--help`` action would otherwise render a literal ``%(default)s`` in its
+    help text straight from the live ``action.default``, same as any other
+    unprotected parser (see :func:`redact_action_defaults`). A no-op for an
+    action already swapped (idempotent, safe to call more than once).
+    """
+    for action in parser._actions:
+        if isinstance(action, _argparse._HelpAction) and not isinstance(
+            action, _RedactedHelpAction
+        ):
+            action.__class__ = _RedactedHelpAction
 
 
 def describe_parser(

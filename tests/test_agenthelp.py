@@ -205,6 +205,67 @@ def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secr
 
 
 # --------------------------------------------------------------------------
+# A literal `%(default)s` placeholder in help TEXT must never expand to a
+# live env/config value either -- a separate leak from the `default`/
+# `default_source` JSON fields above, since argparse's own `%`-expansion of
+# help text reads `action.default` directly.
+# --------------------------------------------------------------------------
+
+
+class PlaceholderDeploy(Cmd):
+    """Deploy something using a secret, with the default spelled in help."""
+
+    token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET")] = ""
+    "API token (default: %(default)s)"
+    ("--token",)
+
+    plain: str = "unremarkable"
+    "A plain field whose default is not secret (default: %(default)s)"
+    ("--plain",)
+
+    def __call__(self):
+        return 0
+
+
+class PlaceholderApp(Cli):
+    """App whose subcommand spells `%(default)s` directly in help text."""
+
+    _agent_help_ = True
+    _subcommands_ = [PlaceholderDeploy]
+
+
+def test_agent_help_placeholder_in_help_text_never_shows_live_env_value(
+    monkeypatch, capsys
+):
+    monkeypatch.setenv("AGENT_HELP", "1")
+    monkeypatch.setenv("DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET", "placeholder-s3cr3t")
+    with pytest.raises(SystemExit):
+        duho.main(PlaceholderApp, ["PlaceholderDeploy", "--help"])
+    out = capsys.readouterr().out
+    assert "placeholder-s3cr3t" not in out
+    doc = json.loads(out)
+    token = next(o for o in doc["options"] if o["dest"] == "token")
+    assert "placeholder-s3cr3t" not in token["help"]
+    # A plain (non-env) field's declared default keeps rendering normally.
+    plain = next(o for o in doc["options"] if o["dest"] == "plain")
+    assert "(default: unremarkable)" in plain["help"]
+
+
+def test_human_help_placeholder_in_help_text_never_shows_live_env_value(
+    monkeypatch, capsys
+):
+    monkeypatch.delenv("AGENT_HELP", raising=False)
+    monkeypatch.setenv("DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET", "placeholder-s3cr3t")
+    with pytest.raises(SystemExit):
+        duho.main(PlaceholderApp, ["PlaceholderDeploy", "--help"])
+    out = capsys.readouterr().out
+    assert "placeholder-s3cr3t" not in out
+    # The plain field's declared default keeps rendering normally in human
+    # help too (argparse may wrap the line, so match loosely).
+    assert "unremarkable" in out
+
+
+# --------------------------------------------------------------------------
 # Document shape
 # --------------------------------------------------------------------------
 

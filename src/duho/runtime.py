@@ -864,6 +864,15 @@ def _apply_app_config_layers(
             from . import agenthelp as _agenthelp
 
             _agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+            # A module command's subparser is a plain `add_parser()` instance
+            # with its own ordinary argparse `-h`/`--help` action -- it never
+            # goes through `args.py`'s `_install_agent_help`/
+            # `_AgentHelpAction` (this command deliberately has no
+            # `_duho_cls_` of its own; see this function's own docstring), so
+            # without this its help text would still render a literal
+            # `%(default)s` straight from the live env/config value the line
+            # above just staged onto `action.default`.
+            _agenthelp.install_help_redaction(sub_parser)
 
 
 def _prepare_app_parser(

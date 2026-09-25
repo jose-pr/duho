@@ -104,6 +104,38 @@ def test_defaults_formatter_shows_class_default_without_secret(monkeypatch, caps
     assert "(from env" not in out
 
 
+# --------------------------------------------------------------------------
+# A literal `%(default)s` placeholder in help TEXT is a SEPARATE leak from
+# the suffix DefaultsFormatter appends itself: argparse's own `%`-expansion
+# of help text reads `action.default` directly, bypassing
+# `DefaultsFormatter._get_help_string` entirely for text that already
+# contains the placeholder.
+# --------------------------------------------------------------------------
+
+
+class SecretPlaceholderApp(Args):
+    """App with an env-bound secret spelled directly via %(default)s."""
+
+    _help_formatter_ = duho.DefaultsFormatter
+
+    token: Arg[str, NS(env="DUHO_TEST_FORMATTERS_PLACEHOLDER_SECRET")] = ""
+    "Auth token (default: %(default)s)"
+    ("--token",)
+
+    def __call__(self):
+        return 0
+
+
+def test_defaults_formatter_placeholder_never_shows_live_env_value(monkeypatch, capsys):
+    monkeypatch.setenv(
+        "DUHO_TEST_FORMATTERS_PLACEHOLDER_SECRET", "placeholder-formatter-s3cr3t"
+    )
+    with pytest.raises(SystemExit):
+        duho.main(SecretPlaceholderApp, ["--help"])
+    out = capsys.readouterr().out
+    assert "placeholder-formatter-s3cr3t" not in out
+
+
 class ColorApp(Args):
     """App using the color formatter."""
 

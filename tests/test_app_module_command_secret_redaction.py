@@ -30,6 +30,27 @@ def main(args):
     return 0
 '''
 
+# Same as above, but the field's own docstring spells the placeholder
+# directly -- a module command's subparser is a bare, un-patched argparse
+# one (see `duho.runtime`'s own module docstring), so it never went through
+# `args.py`'s `_AgentHelpAction`/redaction wiring at all; its plain `-h`
+# action rendered this literal `%(default)s` straight from the live
+# env-layered `action.default`.
+_MODULE_CMD_WITH_PLACEHOLDER_SECRET = '''\
+"""Deploy something using a secret, with the default spelled in help."""
+from duho import Arg, Args, NS
+
+
+class Args(Args):
+    token: Arg[str, NS(env="DUHO_TEST_MODULE_CMD_PLACEHOLDER_SECRET")] = ""
+    "Auth token (default: %(default)s)"
+    ("--token",)
+
+
+def main(args):
+    return 0
+'''
+
 
 class Root(duho.LoggingArgs, duho.Cmd):
     """A root command supplying global options."""
@@ -94,3 +115,20 @@ def test_module_command_agent_help_no_secret_leaves_default_untouched(
     token = next(o for o in dep["options"] if o["dest"] == "token")
     assert token["default"] == ""
     assert "default_source" not in token
+
+
+def test_module_command_help_with_placeholder_never_shows_live_env_value(
+    tmp_path, monkeypatch, capsys
+):
+    # A separate leak from the two tests above: the field's own docstring
+    # spells `%(default)s` directly, so argparse's own `%`-expansion of the
+    # help text -- not duho's `default`/`default_source` JSON fields -- is
+    # what has to be kept off the live value.
+    monkeypatch.setenv(
+        "DUHO_TEST_MODULE_CMD_PLACEHOLDER_SECRET", "placeholder-module-s3cr3t"
+    )
+    _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_PLACEHOLDER_SECRET)
+    with pytest.raises(SystemExit):
+        app(Root, source=tmp_path, argv=["deploy", "--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert "placeholder-module-s3cr3t" not in out

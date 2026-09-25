@@ -15,6 +15,7 @@ AST-derived flags resolve normally.
 
 import datetime
 import json
+import pathlib
 import typing as _t
 
 import pytest
@@ -193,3 +194,55 @@ def test_config_native_toml_date_does_not_crash(tmp_path):
     assert result.at == datetime.datetime(
         2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc
     )
+
+
+# --------------------------------------------------------------------------
+# A Union[int, str] config float must not silently truncate through the
+# UNION's own int candidate the way a direct int field is already protected
+# against (test_config_int_field_rejects_fractional_float above) -- and a
+# config int fed into a Path field must not pass through unconverted as a
+# bare int either. Both were left unfixed by the original lossy-coercion
+# work above (`_convert_non_str`'s generic fallback called the factory on
+# the raw number directly, which only "worked" for `int`/`str` by accident
+# of what those two builtins happen to accept from a non-string argument).
+# --------------------------------------------------------------------------
+
+
+class _UnionIntStrArgs(Args):
+    n: "_t.Union[int, str]" = 0
+    ("--n",)
+
+
+def test_config_union_int_str_field_widens_whole_float_to_int(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"n": 30.0}))
+    result = duho.parse(_UnionIntStrArgs, [], config=cfg)
+    assert result.n == 30
+    assert isinstance(result.n, int)
+
+
+def test_config_union_int_str_field_falls_back_to_str_for_a_fractional_float(
+    tmp_path,
+):
+    # 1.5 cannot losslessly become the union's `int` member (`int(1.5)`
+    # truncates instead of raising, which is exactly the bug) -- it must
+    # fall through to the union's OTHER, lossless member (`str`) instead,
+    # rather than silently truncating to `1`.
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"n": 1.5}))
+    result = duho.parse(_UnionIntStrArgs, [], config=cfg)
+    assert result.n == "1.5"
+    assert isinstance(result.n, str)
+
+
+class _PathArgs(Args):
+    p: pathlib.Path = pathlib.Path(".")
+    ("--p",)
+
+
+def test_config_int_into_path_field_converts_instead_of_passing_through(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"p": 5}))
+    result = duho.parse(_PathArgs, [], config=cfg)
+    assert result.p == pathlib.Path("5")
+    assert isinstance(result.p, pathlib.Path)

@@ -1029,6 +1029,23 @@ class ArgumentBuilder(_argparse.Namespace):
           (``int(1.5)`` truncates instead of erroring); the reverse (``int``
           widening to ``float``) is always lossless and stays allowed via the
           final factory-call fallback.
+        * a plain ``int``/``float`` that reaches neither rule above (a
+          composite ``Union``/``Literal`` factory, or a type whose
+          constructor rejects a bare number outright, e.g. ``Path(5)``) is
+          routed through its own TEXT form instead of the raw number: every
+          duho factory is fundamentally a CLI text factory, and calling it
+          with the raw Python number only "worked" for ``int``/``str`` by
+          accident of what those two builtins happen to accept. Handing a
+          ``Union[int, str]`` factory the float ``1.5`` directly let
+          ``int(1.5)`` truncate to ``1`` without ever raising; handing it
+          ``"1.5"`` instead makes ``int("1.5")`` correctly reject it so the
+          union falls through to its lossless ``str`` member. An integral
+          float widens via its plain digits (``"1"``, not ``"1.0"``) so an
+          ``int``-typed member still recognizes it. Excluded: any
+          bool-flavoured factory (``bool``, ``_bool_from_text``, or a
+          Union/Literal that also accepts a native bool) -- those keep their
+          existing raw-number handling unchanged, since stringifying would
+          make a falsy ``0`` a truthy non-empty string ``"0"``.
         * anything else: the factory itself decides, and a ``TypeError`` (a
           factory that flatly cannot accept a non-string, e.g.
           ``date.fromisoformat``) keeps the raw value unchanged -- documented,
@@ -1067,6 +1084,21 @@ class ArgumentBuilder(_argparse.Namespace):
                     f"would lose precision"
                 )
             return int(raw)
+        if (
+            isinstance(raw, (int, float))
+            and factory is not bool
+            and factory is not _bool_from_text
+            and not getattr(factory, "_duho_union_bool_ok_", False)
+        ):
+            text = (
+                str(int(raw))
+                if isinstance(raw, float) and raw.is_integer()
+                else str(raw)
+            )
+            try:
+                return factory(text)
+            except TypeError:
+                pass
         try:
             return factory(raw)
         except TypeError:

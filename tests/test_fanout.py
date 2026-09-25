@@ -17,6 +17,9 @@ top footguns, so both are asserted explicitly.
 """
 
 import logging
+import logging.handlers
+import pickle
+import queue
 import sys
 import threading
 import time
@@ -354,6 +357,85 @@ def test_tagged_record_attribute_follows_duho_naming_convention():
     finally:
         current_target.reset(token)
     assert getattr(record, "_duho_target_tagged_", False) is True
+
+
+# --------------------------------------------------------------------------
+# A tagged record must survive `pickle.dumps` -- a closure over the record's
+# own bound `getMessage` (an earlier version of this filter) is a local
+# object `pickle` always rejects, which broke every handler that pickles a
+# record: `logging.handlers.SocketHandler`, and `QueueHandler` feeding a
+# cross-process `multiprocessing.Queue`.
+# --------------------------------------------------------------------------
+
+
+def _tagged_record(msg="hello %s", args=("a",), target="a"):
+    record = logging.LogRecord("x", logging.INFO, __file__, 1, msg, args, None)
+    token = current_target.set(target)
+    try:
+        fanout.TargetPrefixFilter().filter(record)
+    finally:
+        current_target.reset(token)
+    return record
+
+
+def test_tagged_record_survives_pickle_dumps_directly():
+    record = _tagged_record()
+    restored = pickle.loads(pickle.dumps(record))
+    assert restored.getMessage() == "[a] hello a"
+
+
+def test_tagged_record_survives_socket_handler_style_pickling():
+    """Mirrors `logging.handlers.SocketHandler.makePickle`: a dict COPY of
+    the record's own `__dict__`, with `msg` pre-rendered and `args` cleared,
+    is what actually gets pickled and sent -- this used to fail because the
+    (unpicklable) closure was still sitting in that copied dict under
+    `getMessage`, even though `msg` itself had already been rendered."""
+    record = _tagged_record()
+    payload = dict(record.__dict__)
+    payload["msg"] = record.getMessage()
+    payload["args"] = None
+    restored = pickle.loads(pickle.dumps(payload, 1))
+    assert restored["msg"] == "[a] hello a"
+
+
+def test_tagged_record_survives_queue_handler_and_listener_round_trip():
+    """A real `QueueHandler` + `QueueListener` pair, which pickles the record
+    end to end via a `queue.Queue` (the in-process stand-in for a
+    `multiprocessing.Queue`)."""
+    q = queue.Queue()
+    handler = logging.handlers.QueueHandler(q)
+    logger = logging.getLogger("duho.fanout.tests.queue_roundtrip")
+    logger.propagate = False
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+    received = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            received.append(record.getMessage())
+
+    listener = logging.handlers.QueueListener(q, _Sink())
+    listener.start()
+    try:
+        run_targets(lambda t: logger.warning("hi %s", t), ["b"], logger=logger)
+        deadline = time.time() + 2.0
+        while not received and time.time() < deadline:
+            time.sleep(0.01)
+    finally:
+        listener.stop()
+        logger.removeHandler(handler)
+
+    assert received == ["[b] hi b"]
+
+
+def test_prefixed_message_matches_getmessage_for_mismatched_args():
+    """A mismatched `%`-args call still fails at FORMAT time (the same
+    "--- Logging error ---" path it would outside a fan-out), not eagerly
+    when the filter tags the record."""
+    record = _tagged_record(msg="need %s and %s", args=("only-one",))
+    with pytest.raises(TypeError):
+        record.getMessage()
 
 
 # --------------------------------------------------------------------------

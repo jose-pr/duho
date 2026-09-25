@@ -24,9 +24,12 @@ a :class:`contextvars.ContextVar` set at the top of each worker call, so
 concurrent worker threads tag their own records without cross-talk. The filter
 never mutates the shared ``LogRecord`` (no rewritten ``msg``/``args``); it defers
 rendering the prefixed text until the record is actually formatted, by
-overriding the record's own ``getMessage`` for that call, so a mismatched-args
-log call still fails the same "--- Logging error ---" way it would outside a
-fan-out instead of raising into the target.
+overriding the record's own ``getMessage`` for that call with a small,
+picklable object (never a closure -- see :class:`_PrefixedMessage`), so a
+mismatched-args log call still fails the same "--- Logging error ---" way it
+would outside a fan-out instead of raising into the target, and a tagged
+record still survives ``pickle.dumps`` (:class:`logging.handlers.SocketHandler`/
+``QueueHandler``).
 
 **Exit-code aggregation.** Each call's result is normalised to an exit code
 (``None`` -> ``0``; an ``int`` as-is (including negative -- see below); a
@@ -76,6 +79,38 @@ current_target: "_contextvars.ContextVar[object]" = _contextvars.ContextVar(
 )
 
 
+class _PrefixedMessage:
+    """A picklable, closure-free replacement for a tagged record's ``getMessage``.
+
+    Renders ``[<target>] <message>`` from a SNAPSHOT of the record's own
+    ``msg``/``args`` -- taken at filter time, when both are already fully
+    populated -- rather than holding a reference to the ``LogRecord`` itself
+    (a bound-method closure over it, this class's predecessor, is a local
+    object :mod:`pickle` always rejects). A plain, MODULE-LEVEL class with
+    only simple attributes (a target label plus the record's own msg/args)
+    survives ``pickle.dumps`` instead: :class:`logging.handlers.SocketHandler`
+    and ``QueueHandler`` both pickle a copy of ``record.__dict__`` verbatim,
+    including whatever ``record.getMessage`` was overridden to.
+
+    ``__call__`` mirrors :meth:`logging.LogRecord.getMessage`'s own
+    ``str(msg) % args if args else str(msg)`` exactly, so the ``%``-expansion
+    still happens lazily, at FORMAT time (inside the same ``emit``/
+    ``handleError`` protection a handler already gives its own formatting),
+    not eagerly when the filter tags the record.
+    """
+
+    def __init__(self, target: object, msg: object, args: object) -> None:
+        self._target = target
+        self._msg = msg
+        self._args = args
+
+    def __call__(self) -> str:
+        text = str(self._msg)
+        if self._args:
+            text = text % self._args
+        return "[%s] %s" % (self._target, text)
+
+
 class TargetPrefixFilter(_logging.Filter):
     """A :class:`logging.Filter` that prefixes records with the current target.
 
@@ -88,28 +123,34 @@ class TargetPrefixFilter(_logging.Filter):
     removes it promptly regardless).
 
     The prefix is applied by overriding the record's own ``getMessage`` with a
-    closure that renders the original message (via the record's real
-    ``getMessage``) and wraps it in ``[<target>] ...`` -- deferred until
-    whatever formats the record (a :class:`logging.Formatter`, or a handler that
-    calls ``record.getMessage()`` directly) actually calls it. Rendering eagerly
+    :class:`_PrefixedMessage` instance that renders ``[<target>] ...`` from a
+    SNAPSHOT of the record's own ``msg``/``args`` (already fully populated by
+    the time a handler's filter runs) -- deferred until whatever formats the
+    record (a :class:`logging.Formatter`, or a handler that calls
+    ``record.getMessage()`` directly) actually calls it. Rendering eagerly
     here, outside the ``emit``/``handleError`` protection every handler gives its
     own formatting, would let a mismatched-``%``-args log call raise a
     ``TypeError`` straight into the target's code; deferring it means that call
     fails exactly the way it would outside a fan-out (a "--- Logging error ---"
     notice, or nothing under ``logging.raiseExceptions = False``), not by
     marking the target as failed.
+
+    A snapshot rather than a closure over the record's own bound ``getMessage``
+    (an earlier version of this filter) specifically so a tagged record
+    survives ``pickle.dumps`` -- :class:`logging.handlers.SocketHandler` and
+    ``QueueHandler`` both pickle ``record.__dict__`` (or a plain copy of it)
+    verbatim, including this attribute, and a closure over a per-call bound
+    method is a local object pickle always rejects, regardless of what it
+    captures.
     """
 
     def filter(self, record: "_logging.LogRecord") -> bool:
         target = current_target.get()
         if target is not None and not getattr(record, "_duho_target_tagged_", False):
             record._duho_target_tagged_ = True  # type: ignore[attr-defined]
-            _render = record.getMessage
-
-            def _get_message(_render=_render, _target=target) -> str:
-                return "[%s] %s" % (_target, _render())
-
-            record.getMessage = _get_message  # type: ignore[method-assign]
+            record.getMessage = _PrefixedMessage(  # type: ignore[method-assign]
+                target, record.msg, record.args
+            )
         return True
 
 

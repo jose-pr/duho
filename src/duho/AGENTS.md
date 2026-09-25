@@ -1,83 +1,221 @@
 # `duho` — public API header
 
-Header-file-style reference for the `duho` package: every `__all__` export with its
-signature, arguments, contract, and gotchas, so this module can be consumed without
-reading its source. Kept current with the public API. For the framework overview and the
+Header-file-style reference for the `duho` package: every `__all__` export (top-level
+and per-submodule) with its signature, arguments, contract, and gotchas, so this
+package can be consumed without reading its source. For the framework overview and the
 class-declaration form, see <https://github.com/jose-pr/duho>.
 
-`import duho` never eagerly imports `json` or `importlib.metadata` (a tested contract);
-keep any addition here that would break that lazy.
+`import duho` never eagerly imports `json`, `importlib.metadata`, `duho.completion`,
+`shlex`, `duho.agenthelp`, `importlib.util`, or `pkgutil` (a tested contract) — each
+loads lazily on first actual use. Keep any addition here that would break that lazy.
+
+## Module layout
+
+Purely informational (no API surface of its own) for someone reading the installed
+source tree; every name below is still reachable as `duho.*`/`duho.args.*` etc.
+regardless of which internal module implements it:
+
+- `args.py` — `Args`/`Cmd`/`Cli`/`ArgumentBuilder` and most module-level public
+  functions (`parse`, `main`, `command`, `print_completion`, ...).
+- `_fieldspec.py` — the type-to-`ArgumentBuilder` ladder (`int`/`bool`/collections/
+  `Enum`/`date`-like/`Literal`/...); exposes `Factory` (a `Callable[[str], T]` type
+  alias for a text-to-value converter).
+- `_layers.py` — the env/config/instance/CLI value-layering pipeline; implements
+  `value_sources`.
+- `_introspect.py` — AST-based class-body introspection (docstrings, flag literals);
+  exposes `NOT_DEFINED`, a sentinel meaning "no declared default" (distinct from `None`).
+- `_compat.py` — cross-version shims, incl. `BOOL_TRUE`/`BOOL_FALSE` (see
+  "Environment variables" below).
 
 ## Declaring commands
 
 - **`Args`** — base declarative data class. Annotated non-`_` class attrs become CLI
   fields; an adjacent string literal is help text, an adjacent tuple literal is the flag
   set (`("--env","-e")`; omit → positional named after the field). Not runnable on its own.
-  Classmethods: `_parser_(subparsers=None, *, parents=None, **kw) -> ArgumentParser`,
-  `_getargs_() -> list[ArgumentBuilder]`, `_initparser_(parser)`.
+  Classmethods:
+  - `_parser_(subparser=None, name=None, parents=(), **kw) -> ArgumentParser` — build
+    this class's (sub)parser.
+  - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None)` —
+    populate an already-created parser with this class's fields.
+  - `_getargs_() -> list[ArgumentBuilder]` — this class's resolved field specs (cached).
   A `list[T]`/`set[T]`/`tuple[T, ...]` field used as a POSITIONAL keeps `nargs="*"`
-  (unchanged); used as an OPTION it defaults to `nargs=None` — ONE value per flag
-  occurrence, repeat the flag for more (`-f a -f b`), not space-separated in one
-  occurrence (`-f a b`) (changed 2026-07-24; pass an explicit `NS(nargs="*")` to
-  restore the old space-separated behavior on a specific field). This also fixes a
-  real argparse papercut (`_initparser_`'s patched `parse_known_args` now
-  transparently reorders recognized flags ahead of the positional run when a
-  parser has a variable-arity positional alongside another positional — see
-  `_has_variadic_and_sibling_positional`/`_reorder_argv_for_variadic_positional`):
-  an option placed BETWEEN two positionals (one variadic) used to break under
-  argparse's own greedy positional-run matching (bpo-15112); a genuinely
-  unrecognized flag still raises argparse's own honest error, never silently
-  swallowed as a phantom positional value.
+  (space-separated: `prog a b`); used as an OPTION it defaults to `nargs=None` — ONE
+  value per flag occurrence, repeat the flag for more (`-f a -f b`), not
+  space-separated in one occurrence (`-f a b`) — pass an explicit `NS(nargs="*")` to
+  restore space-separated collection on a specific OPTION field. This also works around
+  a real argparse papercut: an option placed BETWEEN two positionals (one variable-arity)
+  now parses correctly instead of tripping argparse's own greedy positional-run matching;
+  a genuinely unrecognized flag still raises argparse's own honest error.
 - **`Cmd(Args)`** — executable `Args`. Override **`__call__(self) -> int | None`** (the
-  entrypoint; `None` → exit 0). Base `__call__` raises `NotImplementedError` naming the class.
+  entrypoint; `None` → exit 0; `__call__` may be `async def`, driven to completion with
+  `asyncio.run` at the dispatch site). Base `__call__` raises `NotImplementedError`
+  naming the class.
 - **`Cli(Cmd)`** — application-root mixin. Declares (as typed sandwich attrs) `_version_`,
   `_distribution_`, `_completion_` (default `False`), `_config_`, `_subcommands_` (default
-  `None`). Adds no run behavior. Self-registration: `Cli._register_subcmd_(child)` /
+  `None`). Adds no run behavior of its own. Self-registration: `Cli._register_subcmd_(child)` /
   `@Root.subcommand` attaches a child to the root's `_subcommands_` (copy-on-write per
   class — never mutates a parent's list). Recommended base order `class App(LoggingArgs, Cli)`.
-- **`command(args_cls, func, *, name=None) -> type[Cmd]`** — build a `Cmd` subclass from a
-  data `Args` + a callable; the built `__call__` calls `func(self)`. `name` sets `_parsername_`.
+  **Gotcha**: `subcommand` is `Cli`'s one reserved plain attribute name — a CLI field
+  also named `subcommand` silently replaces the `@Root.subcommand` decorator instead of
+  raising; avoid that field name on a `Cli` subclass.
+  A subclass's derived `_parsername_` is never written back onto the class: each
+  subclass gets its own name from its own class name unless it declares `_parsername_`
+  itself (a base class's build never leaks its derived name to a subclass).
+- **`command(args_cls, func, *, name=None, module=None) -> type[Cmd]`** — build a `Cmd`
+  subclass from a data `Args` + a callable; the built `__call__` calls `func(self)`.
+  `name` sets `_parsername_`. `module=` overrides the built class's `__module__`
+  (default: the caller's own module) — needed so discovery's module-boundary filter
+  finds the class and `_version_ = duho.AUTO` resolves the caller's distribution, not duho's.
 - **`Argument`** — `runtime_checkable` protocol for custom field types; implement
-  `_argbuilder_()` classmethod to customize the `ArgumentBuilder`.
+  classmethod `_argbuilder_(name, decl, factory=None) -> ArgumentBuilder` to customize
+  how a field's `ArgumentBuilder` is built. **`ArgumentMeta`** is the metaclass backing
+  `Argument`'s duck-typed `isinstance` check (any object with a callable
+  `_argbuilder_` satisfies the protocol — no explicit subclassing needed).
 - **`ArgumentBuilder`** — the per-field spec (flags + `add_argument` kwargs). `_effective_default_()`
   gives the argparse-normalized default (e.g. an implicit `False` for a bare `store_true` flag).
+- **`Factory`** — type alias `Callable[[str], T]` for a field's text-to-value converter.
+- **`NOT_DEFINED`** — sentinel meaning "this field declares no default" (distinguishes
+  "no default" from an explicit `None` default).
+
+**Reserved field names** — a field named `help`, `version` (when a `--version` flag
+resolves), or `print_completion` (when `_completion_ = True`) raises a build-time
+`ValueError` naming the collision (a field's `dest` is always its declared name — there
+is no `dest=` override; `NS(kwargs={"dest": ...})` is the raw `add_argument` escape
+hatch). `subcommand` on a `Cli` subclass is a *different*, non-raising gotcha — see
+above.
 
 ### Field metadata helpers (use inside `Arg[T, ...]`)
 
-`Arg` is `typing.Annotated` (`Arg[T, NS(...)]` — needs ≥2 args; a plain-typed field is just
-its annotation). Metadata objects: **`NS(...)`** (namespace: `flags`, `help`, `conflicts=`
-exclusive group, `metavar`, …), **`Meta`**, **`Choice`**, **`Const`**, **`Count`**,
-**`Append`**, **`Extend`**(sep) for collection fields, **`UpdateAction`** (`-O k=v` dict
-merge). **`AUTO`** — sentinel for `_version_ = duho.AUTO` (resolve version via
-`importlib.metadata`, distribution overridable by `_distribution_`).
+`Arg` is `typing.Annotated` (`from typing import Annotated as Arg`; same runtime object,
+so it type-checks correctly) — `Arg[T, NS(...)]` needs ≥2 args; a plain-typed field is
+just its annotation.
+
+- **`NS(...)`** — a bare `argparse.Namespace` alias: an untyped metadata bag. Accepts
+  any keyword (`flags`, `help`, `env`, `conflicts=` exclusive-group key,
+  `conflicts_required=`, `group=` titled-group name, `metavar`, `nargs`, `action`,
+  `const`, `default`, `choices`, `required`, `type`, `version`, `kwargs=` raw
+  `add_argument` passthrough, …) — a misspelled key is silently dropped.
+- **`Meta(...)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
+  same fields as `NS` (`help`, `env`, `conflicts`, `conflicts_required`, `group`,
+  `action`, `nargs`, `const`, `default`, `choices`, `metavar`, `required`, `type`,
+  `version`, `flags`, `kwargs`) EXCEPT `dest` — `Meta` has no `dest` field at all (a
+  field's `dest` is always its declared name), so `Meta(dest=...)` is a `TypeError` at
+  class-definition time instead of `NS(dest=...)`'s silently-ignored value. `flags=`
+  and `default=` are the typed equivalents of `NS(flags=...)`/`NS(default=...)`. Only
+  explicitly-set fields are merged; an unknown keyword to `Meta(...)` is a `TypeError`.
+- **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.
+- **`Const(value, **kw)`** — `store_const`-action: stores `value` when the flag is present.
+- **`Count(**kw)`** — count-action (`-vvv` → `3`).
+- **`Append(type=str, **kw)`** — append-action, accumulating one scalar per repeated
+  flag occurrence. Raises a build-time `ValueError` on a `set`/`tuple`-typed field
+  (argparse's stdlib append action always produces a `list`; a repeatable `set`/`tuple`
+  field already accumulates one value per occurrence without it).
+- **`Extend(sep_or_split, **kw)`** — split one flag occurrence's text into several
+  values (`sep_or_split` a separator string or a `str -> Iterable` callable). Composes
+  with the field's own declared element type AND collection kind — `Arg[list[int],
+  Extend(",")]` yields ints, not strings, and `set`/`tuple`-typed fields work too, not
+  just `list`. The field's own declared default is kept when the flag is absent and
+  replaced — like any other collection option — on the first CLI occurrence.
+- **`UpdateAction`** — `-O k=v` style action that merges into a `dict[str, V]` field
+  (see the collections gotcha below for its replace-on-first-occurrence rule).
+- **`AUTO`** — sentinel for `_version_ = duho.AUTO`: resolves via `importlib.metadata`,
+  distribution name overridable by `_distribution_` (else the class's top-level import
+  package — resolved correctly even under `python -m pkg`, where `__module__` alone
+  would read the useless literal `"__main__"`). Cached process-lifetime per distribution
+  name (including a "not found" result). Retries once with `-`/`_`/`.` runs collapsed to
+  a single `_` if the verbatim distribution name doesn't resolve, since Python 3.9's
+  `importlib.metadata` (unlike 3.10+) does not treat `.` as a name separator.
+
+## Type conversion & collections
+
+- `list[T]`/`set[T]`/`tuple[T, ...]`/`dict[str, V]` element/value types go through the
+  SAME full type ladder as a scalar field — an `Enum` element matches by member NAME,
+  a `date`/`datetime`/`time` element parses ISO text, and a `Literal` element enforces
+  its choice set — not just a raw string.
+- `date`, `datetime`, `time` fields (scalar or as a collection element) parse ISO
+  format text. A trailing `Z` UTC marker (`"2024-01-01T00:00:00Z"`) is accepted on every
+  supported Python version (3.9/3.10 included, via an explicit shim; 3.11+ accepts it
+  natively). A basic, no-dash date (`"20240101"`) is NOT accepted on any version.
+- A `list`/`set`/`tuple`/`dict[str, V]` OPTION's first CLI occurrence REPLACES a
+  class/env/config/instance default rather than appending to it; a second and later
+  occurrence of the same flag then accumulates normally. This applies uniformly across
+  all four collection kinds.
+- A `bool` field gets a `--no-*` flag (`argparse.BooleanOptionalAction`) whenever it
+  could receive `True` from something other than the CLI: a `True` class-level default,
+  a declared `env=`, OR the owning class having any `_config_` set at all (not
+  necessarily that specific field appearing in the config file).
 
 ## Build / parse / run
 
-- **`parser(cls, ...) -> ArgumentParser`** — delegates to `cls._parser_`.
+- **`parser(cls, ...) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
+  a type checker, `duho.parser(MyApp)`/`duho.parse(MyApp)`/`duho.parse_globals(MyApp)`/
+  `Cli.subcommand`/`command()`'s decorated class all keep the caller's own class/type
+  rather than widening to a base type (no runtime behavior change).
 - **`parse(spec, argv=None, *, parser_kwargs=None)`** — build+parse in one call. `spec` a
-  type → new instance; `spec` an instance → its field values become defaults (CLI wins),
-  returns a new `type(spec)` instance, `spec` untouched. Precedence CLI > instance > class default.
-- **`parse_globals(cls, argv=None, **parser_kwargs)`** — parse only the root globals,
-  ignoring subcommands (drops the subparsers action before a help-suppressed parse).
-- **`main(cls, argv=None, *, setup_logging=True) -> int`** — build → parse → optional
-  logging setup (when the instance has `_set_loglevels_`) → run the selected command.
-  Dispatching a bare data `Args` (no `__call__`) raises `NotImplementedError`.
-- **`app(root=None, *, commands=None, source=None, argv=None, name=None, description=None,
-  env=None, config=None, setup_logging=True, dispatch=None) -> int`** — multi-command
-  runner. Base command-set precedence: `commands` > `discover_commands(source)` >
-  `discover_entry_points(entry_points)` > `root._subcommands_`. `env`'s
-  `env.paths("CMDS_PATH", ty=Path)` (splits on `os.pathsep`, NOT `.list`'s `":"`
-  default — a Windows drive letter would otherwise mis-split) then ALWAYS MERGES on
-  top of whichever base source was used (fixed 2026-07-24 — an explicit `commands=`/
-  `source=`/`entry_points=` used to silently disable `CMDS_PATH` entirely, even with
-  `env=` also passed); a `CMDS_PATH` command wins on a name clash with the base
-  (logged, never silent). Layers env/config defaults onto root + each class command
-  (`CLI > env > config > class default`); attaches the resolved `Env` as `_env_`.
-  `dispatch(command, instance) -> int` replaces only the final run step.
+  type → new instance; `spec` an instance → its explicitly-set field values become
+  defaults (CLI wins), returns a new `type(spec)` instance, `spec` itself is untouched.
+  Full precedence: **CLI > instance > env > config > class default**. `parser_kwargs`
+  forwards to `cls._parser_(...)` (e.g. `parser_kwargs={"prog": "myapp"}`).
+- **`parse_globals(cls, argv=None, *, config=None, **parser_kwargs)`** — parse only the
+  root globals, ignoring subcommands (drops the subparsers action before a
+  help-suppressed parse). Accepts `config=` mirroring `parse`/`main`.
+- **`main(cls, argv=None, *, setup_logging=True, config=None) -> object`** — build →
+  parse → optional logging setup → run the selected command. Return type is `object`,
+  not `int`: a `None` command result maps to exit code `0`, but any other value the
+  command returns passes straight through unchanged (an `IntEnum` member works
+  directly as a distinct exit code). Dispatching a bare data `Args` (no `__call__`)
+  raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
+  `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
+  in `LoggingArgs`, logging is still set up under the root's own command name — a
+  `-v`/`-q`/`--loglevel` on a `LoggingArgs`+`Cli` root is never a silent no-op on a
+  plain-`Cmd` leaf.
+- **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
+  name=None, description=None, env=None, config=None, setup_logging=True,
+  dispatch=None) -> int`** — multi-command runner. Base command-set precedence:
+  `commands` > `discover_commands(source)` > `discover_entry_points(entry_points)` >
+  `root._subcommands_` (only when NONE of `commands`/`source`/`entry_points` is given).
+  **Additive, not exclusive**: `root`'s own declared `_subcommands_` (and any
+  `@Root.subcommand`-registered children) are ALWAYS registered too, regardless of
+  what `commands=`/`source=`/`entry_points=` was passed — passing one of those never
+  removes a root's own subcommands. `env`'s `env.paths("CMDS_PATH", ty=Path)` (splits on
+  `os.pathsep`/`PATHSEP`, NOT `.list`'s `":"` default — a Windows drive letter would
+  otherwise mis-split) is a LAYER that ALWAYS merges on top of whichever base command
+  set was used; a `CMDS_PATH` command wins a name clash with the base (logged once
+  logging is set up, never silent). Overriding a subcommand this way (or any other
+  name-clash override) deregisters every alias (`_parseraliases_`) of the command it
+  replaces too, not just its primary name. A required global option is now honored
+  whether it appears before OR after the subcommand on the command line. Layers
+  env/config defaults onto root + each class command: **CLI > env > config > class
+  default** (no "instance" layer here — that only exists for `parse()`). Attaches the
+  resolved `Env` as `_env_`. A module command's own declared `Args` fields support
+  `NS(conflicts=...)`/`NS(group=...)` the same as a class command's. `dispatch(command,
+  instance) -> int` replaces only the final run step.
 - **`run_command(command, instance, *, context=None) -> int`** — dispatch one resolved
-  command. Class command → `instance()`. Module command → `init → main → success /
-  finally_` lifecycle (`finally_` always runs; `main` exception propagates after it).
-  `None` → 0, int propagated, any other return value passes through unchanged.
+  command. Class command → `instance()` (awaited via `asyncio.run` if it returns a
+  coroutine). Module command → `init → main → success` (only on a `None`/`0` result) `→
+  finally_` lifecycle — `finally_` always runs, and if it raises, that exception is
+  logged and swallowed so it can never mask `main`'s own result or a propagating
+  exception. `None` → `0`, an `int` propagates, any other return value passes through
+  unchanged. A module hook returning a coroutine is rejected loudly (module lifecycle
+  hooks are synchronous-only, unlike a class command's `__call__`).
+- **`finish_parse(namespace) -> Args`** — for the manual-subparsers recipe (a duho
+  `_parser_(subparsers, name=...)` attached to a hand-built, plain
+  `argparse.ArgumentParser()` root): that plain root's `parse_args()` returns a raw
+  `Namespace` still carrying an internal `"#cls"` marker instead of a constructed
+  instance. Call `finish_parse` once, right after `parse_args`, to build and return the
+  real selected `Args`/`Cmd` instance. Raises `ValueError` if `namespace` carries no
+  `"#cls"` marker (no duho subparser was ever reached for this invocation).
+- **`print_completion(cls, shell, file=None, *, prog=None) -> None`** — print a shell
+  completion script for `cls`. `shell` is one of `"bash"`, `"zsh"`, `"fish"`,
+  `"powershell"` (an unrecognized name raises `ValueError` listing the valid ones).
+  Standalone counterpart to the `--print-completion` flag injected when `_completion_ =
+  True` — builds `cls`'s parser tree fresh, independent of whether `_completion_` is
+  set. `prog` overrides the command name the emitted script binds to; it defaults to
+  the built parser's own `prog`. The `--print-completion` FLAG (as opposed to this
+  function) registers the completion script under the invoked command name
+  (`sys.argv[0]`'s stem, minus a `-script` suffix) by default, rather than the root
+  class's derived name, whenever no `_parsername_`/`duho.app(name=...)` was explicitly
+  declared.
 
 `_passthrough_`: on a parsed instance, argv after the first literal `--` (a `list[str]`,
 empty when absent).
@@ -86,28 +224,31 @@ empty when absent).
 
 - **`Command`** — `runtime_checkable` protocol: `_parsername_` + a runnable body. Two
   kinds: a class command (strict `Cmd` subclass) and a `ModuleCommand`.
+  **`is_class_command(obj) -> bool`** / **`is_module_command(obj) -> bool`** — the
+  corresponding type checks (a strict `Cmd` subclass; a `ModuleCommand` instance).
 - **`ModuleCommand`** — adapts a command `.py` module (plain wrapper, not a `ModuleType`
   subclass). `_parsername_` = module `_parsername_`/`_cli_name` override, else file stem with
   `_`→`-`. Entrypoint `main` (fallback `run`/`call`); optional hooks `register`/`init`/
   `success`/`finally_`. A module with no entrypoint raises `NotImplementedError` (→ skipped).
-  `args_cls` (added 2026-07-24) — an optional module-level `Args` declaring the module's
-  own CLI fields DECLARATIVELY, an alternative to adding everything imperatively in
-  `register`. Either a real `Args` subclass (strict, not `Args`/`Cmd` themselves — a
-  bare `from duho import Args` with no subclassing is ignored) or a plain class with
-  annotated fields. `runtime._register_module_command` resolves the effective class
-  (already a subclass of the app's `root_cls` → used directly; otherwise synthesized as
-  `type("_Args", (args_cls, root_cls), {})`, so the module's fields work AND the parsed
-  instance still carries the root's own fields/methods) and adds its fields to the
-  subparser BEFORE `register` runs (declared positionals first, register-added ones
-  last — matches the existing convention of calling a shared trailing-positional helper
-  LAST inside `register`). Does NOT support `NS(conflicts=...)`/`NS(group=...)` for a
-  module command's declared fields (needs `Args._initparser_`'s fuller machinery,
-  which installs `"#cls"` dispatch-patching a module command's parsed instance must
-  NOT get — the parsed instance stays the ROOT instance, per the existing contract);
-  use `register()` imperatively for those.
+  `args_cls` — an optional module-level `Args` declaring the module's own CLI fields
+  DECLARATIVELY, an alternative to adding everything imperatively in `register`. Either
+  a real `Args` subclass (strict, not `Args`/`Cmd` themselves — a bare `from duho import
+  Args` with no subclassing is ignored) or a plain class with annotated fields. The
+  effective class is resolved as: already a subclass of the app's root class → used
+  directly; otherwise synthesized as `type("_Args", (args_cls, root_cls), {})`, so the
+  module's fields work AND the parsed instance still carries the root's own
+  fields/methods. Its fields are added to the subparser BEFORE `register` runs
+  (declared positionals first, register-added ones last), through the SAME field-adding
+  routine a class command uses — so a declarative `args_cls` field's `NS(conflicts=...)`/
+  `NS(group=...)` metadata is honored too, the same as on a class command. The parsed
+  instance stays the ROOT instance either way (declarative fields never install the
+  class-command-only `"#cls"` dispatch-patching machinery).
 - **`CmdBuilder(qualname, source=None)`** — resolve one source (Path / dotted import path /
   module / Command) to a command. Filesystem imports use synthesized-unique `sys.modules`
   keys (a loose `json.py` never clobbers stdlib `json`).
+- **`import_from_path(base_name, path) -> ModuleType`** — import a `.py` file under a
+  `sys.modules` key derived from `base_name` (uniquified), reusing a cached module on a
+  repeat import of the same file (matched by resolved path + mtime).
 - **`discover_commands(source) -> list[Command]`** — walk a package or directory; collects
   both class commands (module-boundary deduped) and one `ModuleCommand` per entrypoint
   module. Result sorted by subcommand name. **Resilience**: catches only `(ImportError,
@@ -116,100 +257,290 @@ empty when absent).
 - **`register_command_provider(predicate, builder)`** — injection seam for directory-shaped
   runtimes; providers (a module-global, newest-first) are consulted before importing a
   filesystem/namespace source. Tests must snapshot/restore.
+- **`unregister_command_provider(predicate, builder)`** — counterpart to
+  `register_command_provider`: removes the exact `(predicate, builder)` pair
+  (matched by equality); a no-op if that pair is not currently registered.
 - **`discover_entry_points(...)`** — enumerate installed entry points (imports
   `importlib.metadata` lazily).
 
 ## Env / config
 
-- **`Env(prefix, ...)`** — prefixed, typed `os.environ` accessor. Normalizes `prefix`
+- **`Env(prefix, autoload=True, **env)`** — prefixed, typed `os.environ` accessor. Normalizes `prefix`
   (upper, `-`→`_`, trailing `_`), autoloads an optional `<prefix.lower()>env` companion
   module of defaults (missing → silently ignored). Precedence, highest first: `**env`
   kwargs / a runtime `env[k] = v` write, then the real `os.environ`, then the companion
-  module's shipped defaults (fixed 2026-07-24 — a companion-module value used to
-  shadow a real exported variable). Methods incl. `.list(name, ty=)`, `.paths(name,
-  ty=)` (splits on `os.pathsep`, not `.list`'s `":"` default — use this for a path-list
-  var so a Windows drive letter is never mis-split), `.bool(name)` — truthy
-  (case-insensitive) is `1`/`true`/`yes`/`y`/`t`/`on`, anything else (incl. a missing
-  key) is `False`. That set matches the layered env/config bool converter; the
-  difference is strictness — `.bool` returns `False` for an unrecognized value, the
-  layered converter raises. (`on` added after 0.5.3; before that `ON` read as `False`.)
+  module's shipped defaults. Methods incl. `.list(name, sep=":", ty=str)`, `.paths(name,
+  ty=str)` (splits on `os.pathsep`/a `PATHSEP` env-var override — NOT `.list`'s `":"`
+  default — so a path-list var never mis-splits a Windows drive letter), `.bool(name)` —
+  truthy (case-insensitive, stripped) matches the shared `BOOL_TRUE` token set (see
+  "Environment variables" below); anything else (incl. a missing key) is `False`. That
+  set matches the layered env/config bool converter; the difference is strictness —
+  `.bool` returns `False` for an unrecognized value, the layered converter raises.
   Mapping-like (`__iter__`/`__len__`/`**env`).
-- **`value_sources(...)`** — introspect where a parsed value came from (CLI/env/config/default).
+- **`value_sources(parsed) -> dict[str, str]`** — introspect where each field's value
+  came from: `"cli"`, `"env"`, `"config"`, `"instance"` (a field that came from an
+  instance passed to `duho.parse`), or `"default"`.
+- A bad env or config value is reported the SAME way a bad CLI value is — argparse
+  usage text on stderr plus `SystemExit(2)` — for a normal `main`/`parse`/`parse_globals`
+  class-command build. (A module command's own declaratively-bound fields under `app()`
+  are a narrower case: a bad value there still raises a plain `ValueError` immediately,
+  since that path has no parser-deferred conversion seam to route through.)
+
+## Environment variables
+
+- **`AGENT_HELP`** — truthy switches `--help`/agent-help output into machine-readable
+  JSON (see "Agent help" below). Falsy tokens: `""`, `0`, `false`, `no`, `off`, `n`, `f`
+  (case-insensitive); anything else counts as on.
+- **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
+  duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
+  command source, a non-strict RunPath step failure, `app`'s advisory `register`
+  prepass, `mcp.call_tool` converting an exception to a client-facing string); off by
+  default and re-read on every call (never cached). Falsy/truthy tokens match `BOOL_FALSE`/
+  `BOOL_TRUE` below.
+- **`NO_COLOR`** / **`FORCE_COLOR`** — the standard convention: `NO_COLOR` set to
+  anything forces color off; `FORCE_COLOR` set to a truthy value forces color on;
+  otherwise color follows whether the output stream is a TTY. Gates ANSI in both the
+  argparse help formatters (`ColorHelpFormatter`/`ColorDefaultsFormatter`) and
+  `init_stderr_logging`'s default log formatter.
+- **`PATHSEP`** — overrides `os.pathsep` as the separator `Env.paths(...)` (and the
+  `CMDS_PATH` convention below) splits on.
+- **`CMDS_PATH` convention** — not a literal single env var: a per-prefix
+  `Env(prefix).paths("CMDS_PATH", ty=Path)` lookup (e.g. `MYAPP_CMDS_PATH` for
+  `duho.app(env=Env("myapp"))`). See `app()` above for precedence — it always merges on
+  top of the base command source, and a `CMDS_PATH` command wins a name clash (logged,
+  never silent).
+- **`BOOL_TRUE` / `BOOL_FALSE`** (`duho._compat`, internal but shared) — the canonical
+  truthy/falsy text tokens: truthy = `1`, `true`, `yes`, `on`, `y`, `t`; falsy = `0`,
+  `false`, `no`, `off`, `n`, `f`, `""` — matched case-insensitively after stripping
+  whitespace. `Env.bool`, the layered env/config bool converter, and the strict CLI
+  bool-field text factory all match against this same table.
 
 ## Logging
 
-- **`LoggingArgs`** — mixin adding `-v/--verbose`, `-q/--quiet`, `--loglevel`. `_logger_`
-  (scoped to parser name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the
-  NUMERIC level, e.g. `logging.DEBUG` — not a level name). Verbosity table
-  `VERBOSE_LEVELS` is most-severe-first; `-v`→DEBUG, `-vv`→TRACE, `-q`→WARNING; verbose and
-  quiet offset each other.
-- **`init_stderr_logging(...)`** — one-liner console logging setup.
-- **`add_logging_level(name, level)`** — register a custom level (e.g. TRACE); shifts the
-  verbosity table indices.
-- **`parse_loglevels(...)`** — parse a level spec string.
-- **`DefaultFormatter` / `DefaultsFormatter` / `ColorDefaultsFormatter` /
-  `ColorHelpFormatter`** — formatters (ANSI color via optional `colorama`).
+- **`LoggingArgs`** — mixin adding `-v/--verbose`, `-q/--quiet` (both repeatable count
+  flags — long spellings work alongside the short ones), and `--loglevel
+  [NAME:]LEVEL[,...]` (a per-logger level spec, NOT a generic `KEY=VALUE` dict grammar —
+  `LEVEL` matches a registered level name case-insensitively or a plain integer, e.g.
+  `--loglevel mypkg.sub:DEBUG,other:20`). `_logger_` (scoped to the parsed instance's own
+  command name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the NUMERIC level,
+  e.g. `logging.DEBUG` — not a level name). `VERBOSE_LEVELS` is most-severe-first;
+  `-v`→DEBUG, `-vv`→TRACE, `-q`→WARNING; verbose and quiet offset each other in one
+  combined count.
+- **`init_stderr_logging(name=None, level=None) -> Logger`** — one-liner console
+  logging setup; idempotent (a repeat call on the same logger does not add a duplicate
+  handler), honors `NO_COLOR`/`FORCE_COLOR`/TTY detection.
+- **`add_logging_level(name, level, force=False, color=None)`** — register a custom
+  level (e.g. TRACE); refreshes the `-v`/`-q` verbosity table so the new level
+  immediately participates in it.
+- **`initverbose()`** — rebuild the `VERBOSE_LEVELS`/`VERBOSE_HELP` tables from the
+  currently registered logging levels (called automatically at import and whenever
+  `add_logging_level`/`init_stderr_logging` runs).
+- **`VERBOSE_LEVELS`** — most-severe-first `{level_number: (names...)}` table backing
+  `-v`/`-q`. **`VERBOSE_HELP`** — a display string joining each level's canonical name,
+  used in `--loglevel`'s own help text.
+- **`parse_loglevels(text, itemdivider=",", valkey_separator=":") -> dict[str, int]`** —
+  parse a `[NAME:]LEVEL[,...]` spec string; raises `argparse.ArgumentTypeError` on a
+  bad token (reported as a normal argparse usage error, not silently dropped).
+- **`TRACEBACK_ENV`** — the string `"DUHO_TRACEBACK"`. **`traceback_enabled() -> bool`** —
+  current truthiness of that env var (re-read every call). **`log_exception(logger, msg,
+  *args, level=logging.ERROR)`** — log `msg` from inside an `except:` block, attaching
+  `exc_info` iff `traceback_enabled()` (omits the kwarg entirely rather than passing
+  `False` when disabled, so `LogRecord.exc_info` stays `None` like an undecorated record).
+- **`DefaultFormatter`** (log-record formatter, this module) / **`DefaultsFormatter` /
+  `ColorDefaultsFormatter` / `ColorHelpFormatter`** (argparse help formatters,
+  `duho.formatters`) — colored output via optional `colorama`, gated by
+  `NO_COLOR`/`FORCE_COLOR`/TTY detection (see "Environment variables" above);
+  `ColorHelpFormatter` is a no-op on Python 3.14+, which has its own native argparse
+  color support.
 
-## Agent help / completion
+## Agent help
 
 - **`print_agent_help(cls, file=None)`** — write `cls`'s machine-readable JSON help
-  document (also triggered by the `AGENT_HELP` env var / flag). `agenthelp` submodule:
-  `describe(cls) -> dict`, `render(spec) -> str`.
-- **`print_completion(...)` / `completion`** — bash/zsh/fish completion script generation.
+  document to `file` (default stdout); also triggered automatically by the
+  `AGENT_HELP` env var or a `--help-agents` flag (added whenever `_completion_` or
+  `_version_` machinery has already touched the parser — practically, always available)
+  in place of human `--help`.
+- **`describe(cls, argv=None) -> dict`** — build the agent-help document for `cls`
+  (the dict `render()`/`print_agent_help` serialize).
+- **`describe_parser(parser, *, root=False, root_cls=None, name=None, aliases=None) -> dict`** —
+  lower-level: describe one already-built `ArgumentParser` node (recurses into
+  subcommands).
+- **`render(spec) -> str`** — serialize a `describe()` dict to its final JSON text
+  (`ensure_ascii=True`, indented).
+- **`agent_help_requested(env_name=None, environ=None) -> bool`** — whether the trigger
+  env var (default `AGENT_HELP`) currently requests agent-help mode.
+- **`SCHEMA`** — the document format tag stamped into every agent-help JSON document
+  (currently `"duho/agent-help@1"`), so a consumer can detect the shape and pin to it.
+- **`DEFAULT_ENV`** — the string `"AGENT_HELP"` (the default trigger env var name).
+- **No-secrets contract**: neither the agent-help JSON nor the human `--help` output
+  (via `DefaultsFormatter`) ever shows a LIVE env/config value as a field's default —
+  both show the field's DECLARED class default plus, only when the effective value
+  actually came from env or config, a value-free provenance note instead of the real
+  value. JSON: a `"default_source"` key (e.g. `"env DEPLOY_TOKEN"` or `"config"`) next
+  to a `"default"` that stays the declared default (or omitted/`None`). Human help:
+  `"... (from env DEPLOY_TOKEN)"` / `"... (from config)"` appended to the help text in
+  place of `"(default: X)"`. This also covers a module command's own env/config-bound
+  declared fields under `app()`, not just class-command fields.
+- **Encoding-safe output**: agent-help JSON is ASCII-escaped at the JSON level and then
+  written as raw UTF-8 bytes (bypassing the console's text-mode encoding/newline
+  translation entirely); human `--help`/`--print-completion` output is written using the
+  destination stream's own encoding with `errors="backslashreplace"` — neither crashes
+  on a non-ASCII string under Windows console redirection.
+- **Stable schema across interpreters**: a field's `"type"` string in the agent-help
+  document is identical on every supported Python version (e.g. always `"int | None"`),
+  not subject to each interpreter's own `str(type)` quirks (3.9/3.10 rendering
+  `list[str]` as bare `list`, spelling unions as `Optional[int]`/`Union[int, str]`
+  instead of `int | None`/`int | str`).
+
+## Completion
+
+Static completion-SCRIPT generation (bash, zsh, fish, PowerShell — four shells) — the
+user installs a self-contained generated script once; this is not a dynamic
+argcomplete-style hook that re-invokes the program on every Tab press, so it costs zero
+runtime dependency and zero per-invocation overhead.
+
+- **`spec(parser, prog=None) -> CompletionSpec`** — walk a built `argparse.ArgumentParser`
+  into a plain, shell-agnostic completion tree; all four shell emitters below are built
+  on top of this one walk.
+- **`CompletionSpec`** — one parser node: `prog`, `path` (tuple of ancestor subcommand
+  names), `options: list[CompletionOption]`, `positionals: list[CompletionPositional]`,
+  `subcommands: dict[str, CompletionSpec]`, `help`.
+- **`CompletionOption`** — one flag: `flags: tuple[str, ...]`, `takes_value: bool`,
+  `choices: tuple[str, ...] | None`, `is_path: bool`.
+- **`CompletionPositional`** — one positional: `name`, `choices`, `is_path`.
+- **`bash(parser, prog=None) -> str`** / **`zsh(parser, prog=None) -> str`** /
+  **`fish(parser, prog=None) -> str`** / **`powershell(parser, prog=None) -> str`** —
+  emit that shell's completion script text.
+- An `Enum`-typed field offers its member NAMES as completion candidates (same
+  by-name matching the parser itself uses). A field or subcommand declared with
+  `help=argparse.SUPPRESS` is hidden from completion too, not just from `--help`.
+  zsh completion works correctly below the root at any depth (one generated shell
+  function per subcommand node dispatching into its children), not root-commands-only.
+- `duho.print_completion(cls, shell, file=None, *, prog=None)` is the standalone,
+  callable counterpart to the `--print-completion` flag injected when `_completion_ =
+  True` — see "Build / parse / run" above for its `prog=` behavior and the flag's
+  invoked-name default.
 
 ## Text / names
 
-- **`expand(s)`** — brace-range expansion (non-zero-padded). **`pysafe(s)`** — make a valid
-  Python identifier. **`camelcase(s)` / `snakecase(s)`** — case conversion (note: `snakecase`
-  drops interior uppercase — does not round-trip; see the private notes). **`gettext`** —
-  translation shim.
-- **`QualName` / `PythonName`** — dotted-name algebra (build/split/join qualnames).
+- **`expand(s)`** — brace-range expansion (non-zero-padded, e.g. `"a[1-3]"` → `"a1"`,
+  `"a2"`, `"a3"`). **`pysafe(s, separator=".")`** — coerce each `separator`-delimited
+  part into a valid Python identifier (symbol substitution via `PYREPLACE`, a leading
+  digit or bare keyword gets an underscore, never produces an empty part). **`PYREPLACE`** —
+  the symbol→word substitution table `pysafe` consults (e.g. `+`→`plus`). **`camelcase(s,
+  separators=None)`** — case conversion to CamelCase. **`snakecase(s)`** — case
+  conversion to snake_case; an upper-case letter that immediately follows a separator is
+  lower-cased WITHOUT an extra inserted underscore, so `snakecase("My-App")` correctly
+  gives `"my_app"` (not `"my__app"`), and `snakecase("CamelCaseName")` gives
+  `"camel_case_name"`; an acronym run lowers letter-by-letter (`"HTTPServer"` →
+  `"h_t_t_p_server"`). **`gettext`** / **`ngettext`** — translation shims (stdlib
+  `gettext` re-exports, with a no-op fallback if unavailable).
+  `duho.text.range`/`duho.text.unicode_range` are real module functions but are
+  deliberately excluded from `duho.text.__all__`, so `from duho.text import *` cannot
+  shadow a caller's own `range` builtin — access them as `duho.text.range(...)`.
+
+## Qualified names
+
+- **`QualName`** — abstract dotted-name algebra: `parts`, `name`, `parent`,
+  join/split, path mapping.
+- **`DotQualNamed`** — mixes `QualName` into `str`, splitting/joining on a configurable
+  separator (default `"."`), dropping empty segments.
+- **`PythonName`** — a `DotQualNamed` whose `.new()` classmethod runs each dotted part
+  through `pysafe` (unless `sanitize=False`) so every part is a valid Python identifier.
+
+## Subparser helpers (`duho.parsers`)
+
+Lower-level `argparse` plumbing `duho` itself is built on, exposed for a consumer
+manipulating a parser tree directly:
+
+- **`pop_action(parser, action)`** / **`insert_action(parser, action, index=None)`** —
+  remove/insert an action while correctly maintaining its owning argument GROUP's own
+  action list too (not just the parser's flat list), since `format_help` renders from
+  the group lists; `insert_action`'s default (`index=None`) truly appends at the end.
+- **`add_help_argument(parser)`** — add a standard `-h`/`--help` action
+  (`default=argparse.SUPPRESS`).
+- **`disable_subparser_check(action)`** / **`enable_subparser_check(action)`** — pair
+  used to temporarily relax a subparsers action's own value validation; safely
+  reentrant via a depth counter, so a nested `disable`/`enable` pair only the OUTERMOST
+  pair actually saves/restores the original state.
+- **`prerun_parse(parser, argv, *, quiet=False)`** — an advisory pre-parse of root-level
+  options only: detaches any subparsers action for the call (restored after), turns
+  every terminal action (`-h`/`--help`, `--version`, `--print-completion`,
+  `--help-agents`) into a no-op for the call, and optionally silences `parser.error()`
+  to a bare `SystemExit(2)`.
+- **`find_subparsers(parser)`** — return `parser`'s subparsers action, or `None`.
+- **`strip_subparsers(parser)`** — detach the subparsers action from the parser,
+  returning a handle to restore it later (or `None` if there is none).
+- **`unique_subcommands(parser, seen=None)`** — yield `(canonical_name, aliases,
+  subparser)` once per distinct subcommand, deduping argparse's alias-as-extra-choice
+  representation.
+- **`command_name(command) -> str`** — the effective subcommand name for a resolved
+  `Command`.
 
 ## Opt-in submodules (import explicitly; off `duho.*`)
 
-- **`duho.fanout`** — `run_targets(func, targets, *, max_workers=None, aggregate=max,
-  logger=None) -> int` (ThreadPool per-target, exit-code reduced by `aggregate`),
-  `fan_out_command`, `target_logging`, `TargetPrefixFilter`, `current_target`.
+- **`duho.fanout`** — **`run_targets(func, targets, *, max_workers=None,
+  aggregate=<worst-by-magnitude>, logger=None) -> int`** (ThreadPool per-target,
+  exit-code reduced by `aggregate`; default logger is this module's own,
+  `"duho.fanout"`), **`fan_out_command(...)`** (sugar over `run_targets` that dispatches
+  one resolved duho `Command` per target via `run_command`), **`target_logging(...)`** (a
+  context manager installing/removing a per-target log prefix for the duration of a
+  fan-out), **`TargetPrefixFilter`** (the `logging.Filter` that prefixes active-target
+  records with `[<target>] ` without mutating the record's own message/args),
+  **`current_target`** (the `contextvars.ContextVar` naming the target currently
+  running, read by `TargetPrefixFilter`).
 - **`duho.runpath`** — ordered `NN-name.py` step-runner over a dir with no `__init__.py`.
-  `import duho.runpath` auto-registers its provider; `register(base=None)`/`unregister()`
-  for explicit control. `register`'s `base` (default keeps the current `_BASE`, initially
-  `LoggingArgs`) is the class every provider-built `RunPathCmd` subclass ALSO inherits
-  from — `app()`'s `parents=` only copies a root's DATA fields onto a class command's
-  parsed instance, never its METHODS, so `_logger_`/`_set_loglevels_` need real class
-  inheritance to work; defaulting to `LoggingArgs` makes `-v`/logging work with zero
-  config, and `register(base=MyAppRoot)` lets a custom root's own methods reach every
-  RunPath command too. `register`'s `step_adapter` (default: unchanged, initially
-  `None`) is a callable applied to each step's entrypoint just before it runs
-  (`adapter(entrypoint) -> callable`), so an app can accept step signatures of its own
-  — e.g. its module commands' `run(client, args, logger)` — without a decorator in every
-  step file. The ADAPTED callable is what arity detection inspects, so a wrapper may
-  change the signature; returning the entrypoint unchanged leaves duho-native steps
-  alone. `None` clears it; unlike `base` it applies per step run, so it affects
-  already-built commands too. `RunPathCmd`, `--rcopts/-O` selection. Optional per-directory
+  **`is_runpath_dir(path)`** — whether a directory looks like a RunPath step directory.
+  `import duho.runpath` auto-registers its discovery provider; **`register(base=None,
+  step_adapter=None)`** / **`unregister()`** for explicit control. `register`'s `base`
+  (default: keeps the current base, initially `LoggingArgs`) is the class every
+  provider-built **`RunPathCmd`** subclass also inherits from — `app()`'s `parents=`
+  only copies a root's DATA fields onto a class command's parsed instance, never its
+  METHODS, so `_logger_`/`_set_loglevels_` need real class inheritance to work;
+  defaulting to `LoggingArgs` makes `-v`/logging work with zero config, and
+  `register(base=MyAppRoot)` lets a custom root's own methods reach every RunPath
+  command too. `register`'s `step_adapter` (default: unchanged) is a callable applied to
+  each step's entrypoint just before it runs (`adapter(entrypoint) -> callable`), so an
+  app can accept step signatures of its own without a decorator in every step file; the
+  ADAPTED callable is what arity detection inspects. `None` clears it; unlike `base` it
+  applies per step run, so it affects already-built commands too.
+  `RunPathCmd`'s `--rcopts/-O` selects/tunes which steps run. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,
   cmd, logger)` (once, unconditionally) — a step entrypoint written `(cmd, ctx)`
   (arity-detected) receives `ctx`; `(cmd)` steps are unaffected. Step filenames accept
   a leading `!` (disable, stripped before the `NN-name` split) plus `:`/`;`-separated
-  option tokens (`key`/`!key`/`key=value`; `:` and `;` both work everywhere, NOT an
-  OS-conditional split — `;` is the Windows-authorable spelling since `:` is an
-  invalid Windows filename character). Two tokens are special: `strict`/`!strict`
-  (default strict, absent the token; `!strict` opts that ONE step out) and
-  `enable`/`!enable` (explicit alternative to the leading `!`; wins if both are
-  present — more specific). Same grammar reused verbatim by `--rcopts` per
-  comma-entry (`_Opts.parse`/`_split_tokens`, shared, not duplicated). Precedence for
-  a step's strict setting: filename default -> a per-pattern `--rcopts` `!strict`
-  token matching it -> an EXPLICIT bare `--rcopts strict`/`!strict` (run-wide, wins
-  last). Step modules may also set `BEFORE: list[str]` / `AFTER:
-  list[str]` (soft ordering, no existence/success requirement — silently a no-op if
-  the named step is missing or disabled) alongside the existing hard `REQUIRED:
-  list[str]` (missing/disabled dep still warns, or errors under strict).
-- **`duho.scaffold`** — `generate_launchers(app, root, *, libdir="lib", python=None,
-  overwrite=False) -> list[Path]` writes a `bin/<app>` + `bin/<app>.cmd` launcher pair.
-  CLI: `python -m duho.scaffold <app>`.
+  option tokens (`key`/`!key`/`key=value`; `:` and `;` both work everywhere — `;` is the
+  Windows-authorable spelling since `:` is an invalid Windows filename character). Two
+  tokens are special: `strict`/`!strict` (default strict, absent the token; `!strict`
+  opts that ONE step out) and `enable`/`!enable` (explicit alternative to the leading
+  `!`; wins if both are present — more specific). The same grammar is reused verbatim by
+  `--rcopts` per comma-entry. Precedence for a step's strict setting: filename default
+  -> a per-pattern `--rcopts` `!strict` token matching it -> an EXPLICIT bare `--rcopts
+  strict`/`!strict` (run-wide, wins last). Step modules may also set `BEFORE:
+  list[str]` / `AFTER: list[str]` (soft ordering, no existence/success requirement —
+  silently a no-op if the named step is missing or disabled) alongside the hard
+  `REQUIRED: list[str]` (a missing/disabled dep still warns, or errors under strict).
+- **`duho.scaffold`** — **`generate_launchers(app, root, *, libdir="lib", python=None,
+  overwrite=False) -> list[Path]`** writes a `bin/<app>` + `bin/<app>.cmd` launcher pair.
+  Validates `app` (a safe, ASCII, dotted-identifier module name) and `libdir`/`python`
+  (ASCII, free of shell/batch metacharacters), raising `ValueError` on a bad value
+  instead of silently producing a broken or command-injectable launcher. **`ScaffoldCmd`** —
+  the `duho.Cmd` implementing the CLI: `python -m duho.scaffold <app>`.
 - **`duho.mcp`** — expose a duho CLI's `Cmd`/`Cli` classes as MCP tools (stdlib JSON-RPC
-  over stdio, zero-dep). `describe_tools(root_cls) -> list[dict]`,
-  `call_tool(root_cls, name, arguments) -> dict`, `serve(root_cls, *, stdin=None,
-  stdout=None)`, `input_schema_for_command(cls) -> dict`. CLI: `python -m duho.mcp <app>`
-  (`<app>` is a `module:ClassName` or dotted path to a root `Cmd`). `json`/`importlib.metadata`
-  stay function-local.
+  over stdio, zero-dep). **`describe_tools(root_cls) -> list[dict]`** — one tool per
+  leaf/runnable command; a "namespace" node (a mandatory-subcommand parent with no
+  runnable body of its own) is never listed as its own tool — its fields merge into
+  each descendant's own input schema instead. **`call_tool(root_cls, name, arguments)
+  -> dict`**, **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
+  answered directly), **`input_schema_for_command(cls) -> dict`**,
+  **`json_schema_for_field(...)`** (per-field JSON Schema fragment), **`main(argv=None)
+  -> int`** — CLI entry point: `python -m duho.mcp <app>` (`<app>` a `module:ClassName`
+  or dotted `module.ClassName` path to a root `Cmd`/`Cli`). **`UnknownToolError`** /
+  **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
+  unresolvable tool name and for arguments that are not a JSON object or fail the
+  tool's schema, respectively. The reported `serverInfo.version` is duho's own real
+  running version, not a placeholder; `initialize` negotiates `protocolVersion` against
+  a small supported set (falling back to the newest supported version) rather than
+  echoing the client's request unconditionally. `json`/`importlib.metadata` stay
+  function-local.

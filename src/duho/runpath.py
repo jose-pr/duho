@@ -279,13 +279,15 @@ def _strict_or_warn(
     """Raise ``ValueError(message)`` if ``strict``, else log it as a warning.
 
     Consolidates the repeated "raise under strict, else warn" pattern used by
-    every RunPath validation site (an unmatched ``--rcopts`` pattern, a
-    missing/disabled ``REQUIRED`` dep, a duplicate step name, an invalid
-    ``PRIORITY``, a dependency-cycle break, a dependent skipped because its own
-    ``REQUIRED`` step failed, a step's own non-zero return) so these near-
-    identical copies can't drift apart from each other. ``warn_suffix``
-    is appended only on the warning path (some callers want extra detail there
-    that would be redundant in the raised message).
+    most RunPath validation sites (an unmatched ``--rcopts`` pattern, a
+    missing/disabled ``REQUIRED`` dep, an invalid ``PRIORITY``, a
+    dependency-cycle break, a dependent skipped because its own ``REQUIRED``
+    step failed, a step's own non-zero return) so these near-identical copies
+    can't drift apart from each other. ``warn_suffix`` is appended only on the
+    warning path (some callers want extra detail there that would be
+    redundant in the raised message). A duplicate ENABLED step name is NOT one
+    of these sites -- it always raises, regardless of strict mode (see
+    :func:`_load_steps`).
     """
     if strict:
         raise ValueError(message)
@@ -665,12 +667,12 @@ def _load_steps(
     ``BEFORE``/``AFTER``/``REQUIRED``.
 
     Two files that resolve to the SAME step name are a duplicate ONLY when both
-    would actually be enabled (post ``--rcopts``): the later file is skipped
-    (kept out of the ordering graph, which is keyed by name) with a
-    warning/error naming both files, rather than one silently overwriting the
-    other's ordering edges. A DISABLED duplicate never wins the name and never
-    hides an enabled one, regardless of file order: whichever file among the
-    same-named entries is enabled is the one that is loaded, and no
+    would actually be enabled (post ``--rcopts``): this always raises
+    ``ValueError`` naming both files -- regardless of strict mode -- rather
+    than one silently overwriting the other's ordering edges in the graph
+    (which is keyed by name). A DISABLED duplicate never wins the name and
+    never hides an enabled one, regardless of file order: whichever file among
+    the same-named entries is enabled is the one that is loaded, and no
     warning/error is raised for the harmless disabled-vs-enabled case.
 
     A step whose **import** fails with an ``ImportError``/``NotImplementedError``
@@ -691,13 +693,15 @@ def _load_steps(
         if prior is not None:
             prior_path, prior_enabled = prior
             if prior_enabled and enabled_here:
-                _strict_or_warn(
+                # Two ENABLED steps racing for the same name is always an
+                # error -- not just under `--rcopts strict` -- since letting
+                # one silently drop out of the ordering graph regardless of
+                # strictness would leave a REQUIRED/BEFORE/AFTER dependent
+                # resolved against whichever file happened to be kept.
+                raise ValueError(
                     "duho.runpath: duplicate step name %r: %s and %s"
-                    % (name, prior_path, path),
-                    selection.strict,
-                    logger,
+                    % (name, prior_path, path)
                 )
-                continue
             if not enabled_here:
                 # A disabled duplicate never displaces whatever is already
                 # on record for this name (enabled or disabled) -- it simply

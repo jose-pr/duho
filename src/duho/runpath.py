@@ -331,9 +331,8 @@ class _Step:
     :class:`_Opts` for this specific directory entry (``.enabled``/``.strict``
     always concrete booleans here, defaults folded in by
     :func:`_parse_file_modifiers` -- never ``None`` the way a ``--rcopts``
-    pattern's own, still-optional override can be). ``file_enabled``/
-    ``file_strict`` are read-only convenience properties over ``opts`` (one
-    option record, not three).
+    pattern's own, still-optional override can be). ``file_strict`` is a
+    read-only convenience property over ``opts``.
     """
 
     __slots__ = (
@@ -343,7 +342,6 @@ class _Step:
         "before",
         "after",
         "entrypoint",
-        "module",
         "opts",
     )
 
@@ -353,7 +351,6 @@ class _Step:
         priority: int,
         required: "_ty.Sequence[str]",
         entrypoint: "_ty.Callable[..., object]",
-        module: object,
         before: "_ty.Sequence[str]" = (),
         after: "_ty.Sequence[str]" = (),
         opts: "_ty.Optional[_Opts]" = None,
@@ -364,12 +361,7 @@ class _Step:
         self.before = list(before)
         self.after = list(after)
         self.entrypoint = entrypoint
-        self.module = module
         self.opts = opts if opts is not None else _Opts(strict=True, enabled=True)
-
-    @property
-    def file_enabled(self) -> bool:
-        return bool(self.opts.enabled)
 
     @property
     def file_strict(self) -> bool:
@@ -764,7 +756,6 @@ def _load_steps(
                 priority,
                 required,
                 entrypoint,
-                module,
                 before=before,
                 after=after,
                 opts=opts,
@@ -1025,7 +1016,7 @@ class _Selection:
 
         ``default`` is the step's own base enabled state before any
         ``--rcopts`` pattern is applied -- ``True`` unless the caller passes the
-        step's filename-derived ``file_enabled`` (the ``!`` prefix), per the
+        entry's filename-derived ``opts.enabled`` (the ``!`` prefix), per the
         confirmed precedence (filename default, then ``--rcopts`` on top, CLI
         wins last). With no patterns a step keeps exactly ``default``.
         Otherwise a step is enabled iff the last pattern that matches it is an

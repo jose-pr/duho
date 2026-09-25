@@ -933,7 +933,7 @@ def test_two_symlinks_one_file_different_effective_options(tmp_path):
     # entry's own name. `step2` is disabled, so it is never imported
     # and never appears in `loaded`; it is still `present` on disk though.
     by_name = {s.name: s for s in loaded}
-    assert by_name["step"].file_enabled is True
+    assert by_name["step"].opts.enabled is True
     assert "step2" not in by_name
     assert set(present) == {"step", "step2"}
 

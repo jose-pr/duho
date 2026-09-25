@@ -1,11 +1,7 @@
 import argparse as _argparse
-import collections as _collections
 import copy as _copy
 import dataclasses as _dataclasses
-import datetime as _datetime
-import enum as _enum
 import logging as _logging
-import os as _os
 import pathlib as _pathlib
 import re as _re
 import sys as _sys
@@ -17,7 +13,6 @@ from typing import Annotated as Arg
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import logging as _duho_logging
-from . import parsers as _parsers
 from ._fieldspec import Factory as Factory
 from ._fieldspec import UpdateAction as UpdateAction
 from ._fieldspec import _bool_from_text as _bool_from_text
@@ -2389,7 +2384,6 @@ class Args(_argparse.Namespace):
                 return parsed, unk
 
             _cls: "type[_Self]" = parsed.__dict__.pop("#cls")
-            parser._duho_selected_cls_ = _cls  # type: ignore
             # Drop the `_CollectionAction`/`UpdateAction` sidecars
             # (`_duho_items_<dest>` / `_duho_dict_seen_<dest>`) before
             # constructing the instance so this internal bookkeeping never leaks
@@ -2879,12 +2873,15 @@ def print_completion(cls, shell: str, file=None, *, prog: "str | None" = None) -
     cls's parser tree fresh (independent of whether `_completion_` is set)
     and delegates to `duho.completion.<shell>`.
 
-    ``prog`` overrides the command name the emitted script binds
-    to. It defaults to the built parser's own ``prog`` (``_parsername_``, or
-    the class name when that is unset) -- which, for a CamelCase class name,
-    is almost never the command someone actually types (``myapp``, not
-    ``MyApp``); pass ``prog="myapp"`` (or set ``_parsername_``/use
-    ``duho.app(name=...)``) to bind the script to the real installed command.
+    ``prog`` overrides the command name the emitted script binds to. When
+    ``cls`` declares its own ``_parsername_``/``duho.app(name=...)``, that
+    name always wins. Otherwise it defaults to the stem of THIS CALL's own
+    ``sys.argv[0]`` -- which is only correct when you call
+    ``duho.print_completion`` from the app's own entry point (e.g. behind
+    ``--print-completion``); calling it from a separate build/doc-generation
+    script picks up THAT script's own name instead. Pass ``prog="myapp"``
+    explicitly whenever you generate a completion script from anywhere other
+    than the target app's own invocation.
     """
     from . import completion as _completion
 

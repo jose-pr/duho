@@ -69,12 +69,6 @@ SCHEMA = "duho/agent-help@1"
 #: Default environment variable that switches ``--help`` into agent mode.
 DEFAULT_ENV = "AGENT_HELP"
 
-#: Values that count as "off" when read from the trigger env var (mirrors
-#: ``ArgumentBuilder._BOOL_FALSE``). Any other set value counts as "on", so
-#: ``AGENT_HELP=1``/``true``/``yes`` -- or any non-empty non-false token -- turns
-#: agent help on, while ``AGENT_HELP=0``/``false`` leaves the human help.
-_FALSEY = frozenset({"", "0", "false", "no", "off", "n", "f"})
-
 _NOT_DEFINED = _introspect.NOT_DEFINED
 
 _DEFAULT_EXIT_CODES = {
@@ -93,13 +87,13 @@ def agent_help_requested(
     ``env_name`` defaults to :data:`DEFAULT_ENV`; ``environ`` defaults to
     ``os.environ`` (injectable for tests). An unset variable is False; a set
     variable is True unless its stripped/lowercased value is one of
-    :data:`_FALSEY`.
+    :data:`duho._compat.BOOL_FALSE`.
     """
     environ = _os.environ if environ is None else environ
     raw = environ.get(env_name or DEFAULT_ENV)
     if raw is None:
         return False
-    return raw.strip().lower() not in _FALSEY
+    return raw.strip().lower() not in _compat.BOOL_FALSE
 
 
 def _render_type(tp) -> str:

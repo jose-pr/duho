@@ -1115,22 +1115,29 @@ def test_required_ordering_does_not_jump_past_unrelated_later_step(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Step return codes: a non-zero int return is a failure, handled through the
-# same strict-vs-resilient path as an exception; the aggregate exit code is
-# the max of every step's own code.
+# Step return codes: a non-zero int return is a failure. Under strict it ends
+# the run cleanly (no raised exception, unlike a step that actually raises)
+# and reports that step's own code; under resilient it is logged and the run
+# continues. The aggregate exit code ranks every step's own code by magnitude
+# (like `duho.fanout`'s own aggregator), so a negative code is never hidden
+# by an earlier or later `0`.
 # --------------------------------------------------------------------------
 
 
-def test_nonzero_step_return_is_strict_by_default(tmp_path):
+def test_nonzero_step_return_is_strict_by_default(tmp_path, caplog):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
     _write_step(steps, "10-boom.py", "def main(cmd):\n    return 1\n")
     _write_step(steps, "20-after.py", _record_step("after", results))
 
-    with pytest.raises(ValueError, match="non-zero"):
-        _run(steps)
-    assert _read_results(results) == []
+    with caplog.at_level("ERROR", logger="duho"):
+        ran, code = _run_rc(steps)
+    # No exception escapes -- the step's own code is returned directly, and
+    # the later step never runs (the failure is still fatal by default).
+    assert ran == []
+    assert code == 1
+    assert any("non-zero" in rec.message for rec in caplog.records)
 
 
 def test_nonzero_step_return_resilient_continues_and_sets_exit_code(tmp_path):
@@ -1159,6 +1166,63 @@ def test_exit_code_is_max_of_step_codes_and_zero_on_clean_run(tmp_path):
     _write_step(clean_steps, "10-a.py", "def main(cmd):\n    pass\n")
     _, clean_code = _run_rc(clean_steps)
     assert clean_code == 0
+
+
+def test_negative_step_return_code_is_not_hidden_by_a_later_success(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a;!strict.py", "def main(cmd):\n    return -1\n")
+    _write_step(steps, "20-b.py", "def main(cmd):\n    return None\n")
+
+    _ran, code = _run_rc(steps)
+    # A plain `max()` over [0, -1, 0] would return 0, silently reporting
+    # success -- the negative code must win instead.
+    assert code == -1
+
+
+def test_exit_code_ranks_negative_codes_by_magnitude(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a;!strict.py", "def main(cmd):\n    return -5\n")
+    _write_step(steps, "20-b;!strict.py", "def main(cmd):\n    return -2\n")
+
+    _ran, code = _run_rc(steps)
+    assert code == -5
+
+
+def test_init_finally_runs_when_step_returns_nonzero_strict_and_no_traceback(
+    tmp_path,
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    calls = tmp_path / "calls.txt"
+    _write_init(
+        steps,
+        """\
+        def init(cmd, logger):
+            return "ctx"
+
+        def success(ctx, cmd, logger):
+            with open(r"{calls}", "a", encoding="utf-8") as fh:
+                fh.write("success\\n")
+
+        def finally_(ctx, cmd, logger):
+            with open(r"{calls}", "a", encoding="utf-8") as fh:
+                fh.write("finally\\n")
+        """.format(calls=str(calls)),
+    )
+    _write_step(steps, "10-ok.py", _record_step("ok", results))
+    _write_step(steps, "20-boom.py", "def main(cmd):\n    return 7\n")
+
+    # A non-zero RETURN under strict (plain filename, no !strict) ends the
+    # run cleanly -- unlike a raised exception, it never escapes as one, and
+    # `finally_` still runs while `success` does not (the run failed).
+    ran, code = _run_rc(steps)
+    assert ran == ["ok"]
+    assert code == 7
+    lines = calls.read_text(encoding="utf-8").splitlines()
+    assert lines == ["finally"]
 
 
 def test_swallowed_exception_failure_contributes_exit_code_one(tmp_path):
@@ -1646,6 +1710,51 @@ def test_duplicate_step_name_errors_strict(tmp_path):
         _run(steps, rcopts=["strict"])
 
 
+def test_disabled_duplicate_never_hides_an_enabled_step_of_the_same_name(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    # The DISABLED file sorts first ("10-" < "20-"); it must not claim the
+    # name "a" and hide the later, enabled file -- a disabled duplicate never
+    # competes for the name at all.
+    _write_step(steps, "!10-a.py", _record_step("a-disabled", results))
+    _write_step(steps, "20-a.py", _record_step("a", results))
+    _write_step(steps, "30-b.py", _record_step("b", results))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["a", "b"]
+    assert not any("duplicate step name" in rec.message for rec in caplog.records)
+
+
+def test_disabled_duplicate_after_an_enabled_step_is_also_silently_ignored(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-a.py", _record_step("a", results))
+    _write_step(steps, "!20-a.py", _record_step("a-disabled", results))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["a"]
+    assert not any("duplicate step name" in rec.message for rec in caplog.records)
+
+
+def test_two_enabled_duplicates_still_error_even_with_a_disabled_third(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "!05-a.py", "def main(cmd): pass\n")
+    _write_step(steps, "10-a.py", "def main(cmd): pass\n")
+    _write_step(steps, "20-a.py", "def main(cmd): pass\n")
+
+    with pytest.raises(ValueError, match="duplicate step name"):
+        _run(steps, rcopts=["strict"])
+
+
 # --------------------------------------------------------------------------
 # Step metadata (REQUIRED/BEFORE/AFTER as a bare string, a non-integer
 # PRIORITY) is normalized/validated instead of silently misbehaving.
@@ -1733,6 +1842,36 @@ def test_cycle_break_does_not_name_an_unrelated_downstream_step(tmp_path, caplog
     ]
     assert cycle_warnings
     assert "z" not in cycle_warnings[0]
+
+
+def test_cycle_break_forces_a_step_actually_in_the_cycle_not_a_downstream_one(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    # `x` and `y` REQUIRE each other (the actual cycle); `a` merely REQUIREs
+    # `x` and is the lowest-ranked stuck step overall, but is NOT part of the
+    # cycle. Forcing `a` through (the smallest stuck step overall) would run
+    # it before its own still-unsatisfied REQUIRED dependency `x` -- the
+    # break must instead land on the lowest-ranked step actually IN the
+    # cycle (`x`), so `a` still runs after `x`.
+    _write_step(steps, "01-a.py", _record_step("a", results, extra='REQUIRED = ["x"]'))
+    _write_step(steps, "02-x.py", _record_step("x", results, extra='REQUIRED = ["y"]'))
+    _write_step(steps, "03-y.py", _record_step("y", results, extra='REQUIRED = ["x"]'))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert set(ran) == {"a", "x", "y"}
+    assert ran.index("x") < ran.index("a")
+    cycle_warnings = [
+        rec.message for rec in caplog.records if "dependency cycle" in rec.message
+    ]
+    assert cycle_warnings
+    # The cycle itself is only x/y; "a" is downstream and must not be named,
+    # and the break must be reported at "x", not the unrelated "a".
+    assert "among x, y" in cycle_warnings[0]
+    assert "breaking at 'x'" in cycle_warnings[0]
 
 
 # --------------------------------------------------------------------------

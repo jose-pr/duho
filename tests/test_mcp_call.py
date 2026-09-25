@@ -9,11 +9,12 @@ Fixtures at module level (AST-based introspection needs a real source file).
 """
 
 import enum
+import os
 import typing as ty
 
 import pytest
 
-from duho import Cli, Cmd
+from duho import Arg, Cli, Cmd, NS
 from duho.mcp import UnknownToolError, call_tool
 
 
@@ -64,6 +65,17 @@ class Fail(Cmd):
         return 3
 
 
+class FailWithStderr(Cmd):
+    """Exits non-zero after writing to BOTH stdout and stderr."""
+
+    def __call__(self):
+        import sys
+
+        print("stdout line")
+        print("stderr line", file=sys.stderr)
+        return 5
+
+
 class Structured(Cmd):
     """Returns a JSON-serialisable object."""
 
@@ -99,7 +111,15 @@ class BadArgs(Cmd):
 class Toolbox(Cli):
     """Root."""
 
-    _subcommands_ = [Greet, Fail, Structured, ListReturn, Boom, BadArgs]
+    _subcommands_ = [
+        Greet,
+        Fail,
+        FailWithStderr,
+        Structured,
+        ListReturn,
+        Boom,
+        BadArgs,
+    ]
 
 
 def _call(name, arguments=None):
@@ -159,6 +179,18 @@ def test_non_zero_return_is_error_with_exit_code_line():
     text = result["content"][0]["text"]
     assert "about to fail" in text
     assert text.strip().endswith("exit code: 3")
+
+
+def test_non_zero_return_includes_captured_stderr_too():
+    # A plain non-zero RETURN (not `sys.exit`) used to drop captured stderr
+    # entirely, unlike the SystemExit path (`_systemexit_result`), which
+    # always included it.
+    result = _call("FailWithStderr")
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "stdout line" in text
+    assert "stderr line" in text
+    assert text.strip().endswith("exit code: 5")
 
 
 # --------------------------------------------------------------------------
@@ -223,3 +255,157 @@ def test_raised_exception_is_error_not_a_crash():
 def test_missing_required_argument_is_error():
     result = _call("BadArgs", {})
     assert result["isError"] is True
+
+
+# --------------------------------------------------------------------------
+# Bool synthesis branches on the REAL registered action, not a guess --
+# a real parser action can be store_true, store_false, or BooleanOptionalAction
+# --------------------------------------------------------------------------
+
+
+class BoolShapes(Cmd):
+    """Exercises every bool-flag shape MCP has to synthesize argv for."""
+
+    plain: bool = False
+    "plain store_true"
+    ("--plain",)
+
+    use_cache: "Arg[bool, NS(action='store_false', flags=('--no-cache',))]" = True
+    "explicit store_false under its OWN flag (no separate positive flag)"
+
+    no_verify: bool = True
+    "implicit store_false: True-default field whose own flag already reads as a negation"
+    ("--no-verify",)
+
+    always: bool = True
+    "True-default -> BooleanOptionalAction (--always/--no-always)"
+    ("--always",)
+
+    env_flag: "Arg[bool, NS(env='BOOLSHAPES_ENV_FLAG')]" = False
+    "env-layered bool -> BooleanOptionalAction even though its own default is False"
+    ("--env-flag",)
+
+    def __call__(self):
+        return {
+            "plain": self.plain,
+            "use_cache": self.use_cache,
+            "no_verify": self.no_verify,
+            "always": self.always,
+            "env_flag": self.env_flag,
+        }
+
+
+class BoolRoot(Cli):
+    """Root."""
+
+    _subcommands_ = [BoolShapes]
+
+
+def _call_bool(arguments):
+    result = call_tool(BoolRoot, "BoolRoot.BoolShapes", arguments)
+    assert result.get("isError") is not True, result
+    import json
+
+    return json.loads(result["content"][0]["text"])
+
+
+def test_explicit_store_false_field_can_be_set_both_ways():
+    assert _call_bool({"use_cache": False})["use_cache"] is False
+    assert _call_bool({"use_cache": True})["use_cache"] is True
+
+
+def test_implicit_no_prefixed_store_false_field_can_be_set_both_ways():
+    assert _call_bool({"no_verify": False})["no_verify"] is False
+    assert _call_bool({"no_verify": True})["no_verify"] is True
+
+
+def test_true_default_boolean_optional_field_can_be_set_both_ways():
+    assert _call_bool({"always": False})["always"] is False
+    assert _call_bool({"always": True})["always"] is True
+
+
+def test_env_layered_bool_can_still_be_forced_false_over_mcp():
+    os.environ["BOOLSHAPES_ENV_FLAG"] = "1"
+    try:
+        assert _call_bool({})["env_flag"] is True  # picked up from the env
+        assert _call_bool({"env_flag": False})["env_flag"] is False
+        assert _call_bool({"env_flag": True})["env_flag"] is True
+    finally:
+        del os.environ["BOOLSHAPES_ENV_FLAG"]
+
+
+# --------------------------------------------------------------------------
+# A dict field with a CUSTOM whole-string type= override (LoggingArgs'
+# `loglevels`, the only one in duho) must not use the generic KEY=VALUE form
+# --------------------------------------------------------------------------
+
+
+def test_loglevels_dict_field_uses_its_own_name_colon_level_grammar():
+    from duho import LoggingArgs
+
+    class Works(LoggingArgs, Cmd):
+        """Reports its own resolved loglevels."""
+
+        def __call__(self):
+            return {"loglevels": self.loglevels}
+
+    class LogToolbox(Cli):
+        """Root."""
+
+        _subcommands_ = [Works]
+
+    result = call_tool(
+        LogToolbox, "LogToolbox.Works", {"loglevels": {"synapp": "DEBUG"}}
+    )
+    assert result.get("isError") is not True, result
+    import json
+
+    payload = json.loads(result["content"][0]["text"])
+    import logging
+
+    assert payload["loglevels"]["synapp"] == logging.DEBUG
+
+
+# --------------------------------------------------------------------------
+# duho's own idempotent stderr log handler must be rebound to EACH call's
+# capture, not stuck on the first call's now-dead one
+# --------------------------------------------------------------------------
+
+
+def test_logging_handler_is_rebound_to_each_calls_own_capture():
+    import logging
+
+    from duho import LoggingArgs
+
+    class Loud(LoggingArgs, Cmd):
+        """Logs a warning every call."""
+
+        def __call__(self):
+            self._logger_.warning("warn-from-call")
+            print("done")
+            return 0
+
+    class LoudToolbox(Cli):
+        """Root."""
+
+        _subcommands_ = [Loud]
+
+    call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
+    call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
+
+    from duho.logging import _STDERR_HANDLER_TAG
+
+    root_logger = logging.getLogger()
+    tagged = [
+        h
+        for h in root_logger.handlers
+        if getattr(h, _STDERR_HANDLER_TAG, False) and hasattr(h, "stream")
+    ]
+    assert tagged, "expected duho's own stderr handler to be installed"
+    # Once every call returns, the handler must be pointed at the SERVER's
+    # real (idle) stderr again -- never left on a dead StringIO from a call
+    # that already finished, which used to swallow later server-side errors.
+    import io
+
+    for handler in tagged:
+        assert not isinstance(handler.stream, io.StringIO)

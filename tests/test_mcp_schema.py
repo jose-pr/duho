@@ -14,7 +14,7 @@ import enum
 import pathlib
 import typing as ty
 
-from duho import Arg, Cmd, NS
+from duho import Arg, Cmd, LoggingArgs, NS
 from duho.mcp import input_schema_for_command
 
 
@@ -269,6 +269,50 @@ def test_positional_with_default_is_optional_positional():
     assert props["dest"]["type"] == "string"
     assert props["dest"]["default"] == "."
     assert "dest" not in _required()
+
+
+class VariadicPositional(Cmd):
+    """A `nargs='+'` positional that ALSO carries a python-level default."""
+
+    extra: "Arg[ty.List[str], NS(nargs='+')]" = []
+    "one or more values -- argparse itself demands at least one"
+    ("extra",)
+
+    def __call__(self):  # pragma: no cover - not dispatched here
+        return 0
+
+
+def test_nargs_plus_positional_with_a_default_is_still_required():
+    # argparse demands >= 1 token for a "+" positional regardless of any
+    # python-level default; a schema saying otherwise lets a client omit it
+    # and then hit a plain argparse usage error on dispatch.
+    assert "extra" in _required(VariadicPositional)
+
+
+def test_nargs_plus_positional_type_is_still_an_array():
+    assert _props(VariadicPositional)["extra"]["type"] == "array"
+
+
+# --------------------------------------------------------------------------
+# A counting flag (action="count") publishes a JSON Schema `maximum`
+# --------------------------------------------------------------------------
+
+
+class CountingFlag(LoggingArgs, Cmd):
+    """Exposes LoggingArgs' own -v/-q counting flags."""
+
+    def __call__(self):  # pragma: no cover - not dispatched here
+        return 0
+
+
+def test_counting_flag_publishes_a_maximum():
+    props = _props(CountingFlag)
+    assert props["verbose"]["maximum"] == 10
+    assert props["quiet"]["maximum"] == 10
+
+
+def test_non_counting_int_field_has_no_maximum():
+    assert "maximum" not in _props()["count"]
 
 
 # --------------------------------------------------------------------------

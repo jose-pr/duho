@@ -123,6 +123,8 @@ from .args import _escape_help as _escape_help
 from .args import _raw_config_values as _raw_config_values
 from .args import _raw_env_values as _raw_env_values
 from .args import _setup_instance_logging as _setup_instance_logging
+from ._fieldspec import _KVFactory as _KVFactory
+from .logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command
 
@@ -173,6 +175,16 @@ _ISO_FORMATS = {tp: _ISO_FORMAT_NAMES[tp] for tp in _ISOFORMAT_FACTORIES}
 #: Scalar Python type -> JSON Schema ``"type"`` name, shared by the Literal
 #: branch and the final scalar fallback of :func:`_schema_for_type`.
 _JSON_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"}
+
+#: Upper bound published (as JSON Schema ``maximum``) and enforced (see
+#: :func:`_validate_arguments`) for a counting flag (``-v``/``-q`` style,
+#: ``action="count"``) over MCP. An LLM-controlled value has no reason to
+#: exceed this -- the CLI itself only ever accumulates one per typed flag --
+#: and an unbounded one used to synthesize (and argparse-parse) millions of
+#: repeated tokens, stalling the single-threaded stdio server for the
+#: duration of one call (a denial of service against every OTHER pending
+#: request).
+_MAX_COUNT_VALUE = 10
 
 
 class UnknownToolError(ValueError):
@@ -312,6 +324,12 @@ def _is_required(builder: "_ArgumentBuilder") -> bool:
     * ``nargs`` of ``"?"``/``"*"`` (an optional positional, or a repeatable
       one) is never required, regardless of how that ``nargs`` was set
       (derived, or an explicit ``NS(nargs=...)`` override).
+    * ``nargs="+"`` on a POSITIONAL is always required, even when the field
+      also carries a python-level default (e.g. ``NS(nargs="+")`` with
+      ``= []``) -- argparse itself demands at least one token for a ``"+"``
+      positional regardless of any default, so a schema reporting this as
+      optional would let a client omit it and then hit a plain argparse
+      usage error on dispatch.
     * a positional with none of the above is a mandatory positional.
     * otherwise, an OPTION's own resolved ``required`` kwarg (argparse's own
       "no default -> required" rule, already computed by ``_kwargs()``,
@@ -321,6 +339,8 @@ def _is_required(builder: "_ArgumentBuilder") -> bool:
     """
     kwargs = builder._kwargs()
     if kwargs.get("required") is True:
+        return True
+    if kwargs.get("nargs") == "+" and builder.is_positional:
         return True
     if "default" in kwargs:
         return False
@@ -378,6 +398,11 @@ def json_schema_for_field(
     """
     tp = decl.type if decl is not None and decl.type is not _NOT_DEFINED else None
     schema = _schema_for_type(tp) if tp is not None else {"type": "string"}
+
+    if builder._kwargs().get("action") == "count":
+        # An LLM-controlled count has no reason to exceed this; see
+        # `_MAX_COUNT_VALUE` and `_validate_arguments`'s matching enforcement.
+        schema["maximum"] = _MAX_COUNT_VALUE
 
     required = _is_required(builder)
     if not required:
@@ -664,10 +689,20 @@ def _looks_like_negative_number(token: str, parser: "_argparse.ArgumentParser") 
     return not getattr(parser, "_has_negative_number_optionals", None)
 
 
-def _reject_unsafe_positional(token: str, parser: "_argparse.ArgumentParser") -> None:
+def _reject_unsafe_positional(
+    token: str,
+    parser: "_argparse.ArgumentParser",
+    *,
+    forbidden: "frozenset" = frozenset(),
+) -> None:
     """Refuse a positional token argparse would parse as an option or as the
     ``--`` passthrough separator, rather than silently mis-parsing it or
-    letting it leak into ``_passthrough_``."""
+    letting it leak into ``_passthrough_``. Also refuses a token equal to a
+    name in ``forbidden`` -- ``call_tool`` passes this level's OWN
+    subcommand names (see :func:`_sibling_names`), so a client cannot set an
+    ancestor's own optional/variadic positional field to a value that would
+    read as a DIFFERENT sibling's selector once appended ahead of it (a
+    security-relevant guard: MCP tool arguments are LLM-controlled)."""
     if token == "--" or (
         token.startswith("-")
         and token != "-"
@@ -676,6 +711,12 @@ def _reject_unsafe_positional(token: str, parser: "_argparse.ArgumentParser") ->
         raise ValueError(
             "value %r cannot be passed as a positional argument: it would "
             "be parsed as an option (or the '--' passthrough separator)" % (token,)
+        )
+    if token in forbidden:
+        raise ValueError(
+            "value %r cannot be passed as a positional argument at this "
+            "level: it collides with one of this level's own subcommand "
+            "names" % (token,)
         )
 
 
@@ -706,27 +747,109 @@ def _emit_option(argv: "list[str]", flag: str, is_long: bool, token: str) -> Non
     argv.extend([flag, token])
 
 
+def _sibling_names(parser: "_argparse.ArgumentParser") -> "frozenset":
+    """Every subcommand name (canonical + alias) registered DIRECTLY on
+    ``parser`` -- empty when it has no subparsers action at all. Used to
+    refuse a positional value that collides with one of THIS level's own
+    choices (see :func:`_reject_unsafe_positional`); scoped to this one
+    parser, never the whole tree, so a same-named command living elsewhere
+    (a different node entirely) never triggers it by coincidence."""
+    action = _parsers.find_subparsers(parser)
+    if action is None:
+        return frozenset()
+    return frozenset(action.choices or ())
+
+
+def _dest_action(
+    parser: "_argparse.ArgumentParser", dest: str
+) -> "_ty.Optional[_argparse.Action]":
+    """The already-built ``argparse.Action`` registered for ``dest`` on
+    ``parser``, or ``None``. Reading the REAL parser (built once by
+    ``cls._parser_()`` + ``_apply_layers``, see :func:`_tree_for`) is what
+    lets :func:`_bool_action_kind` tell a plain ``store_true`` apart from a
+    layered field's ``BooleanOptionalAction`` -- recomputing the action from
+    ``builder._kwargs()`` alone (with no ``layered=`` argument) silently
+    disagreed with what got built whenever the field is env/config-layered
+    (``Args._parser_()`` threads ``layered=True`` through at build time; a
+    bare ``_kwargs()`` call defaults it to ``False``).
+    """
+    for action in parser._actions:
+        if action.dest == dest:
+            return action
+    return None
+
+
+#: `type(action).__name__` -> the bool-flag "kind" `_synthesize_argv` needs,
+#: for the two argparse action classes with no public name of their own
+#: (`argparse.BooleanOptionalAction` IS public and checked separately via
+#: `isinstance`). Both class names have been stable, documented-by-behavior
+#: argparse internals for the module's whole history.
+_BOOL_ACTION_KINDS = {
+    "_StoreTrueAction": "store_true",
+    "_StoreFalseAction": "store_false",
+}
+
+
+def _bool_action_kind(action: "_ty.Optional[_argparse.Action]") -> "_ty.Optional[str]":
+    """Classify ``action`` as ``"store_true"``/``"store_false"``/
+    ``"boolean_optional"``, or ``None`` for anything else (including
+    ``None`` itself, or an explicit non-bool ``action=`` override that
+    happens to sit on a ``bool``-typed field, e.g. ``store_const``) -- the
+    caller falls through to its OWN, unrelated handling for that case."""
+    if action is None:
+        return None
+    if isinstance(action, _argparse.BooleanOptionalAction):
+        return "boolean_optional"
+    return _BOOL_ACTION_KINDS.get(type(action).__name__)
+
+
 def _synthesize_argv(
-    cls: type, arguments: "dict", parser: "_argparse.ArgumentParser"
+    cls: type,
+    arguments: "dict",
+    parser: "_argparse.ArgumentParser",
+    *,
+    skip: "_ty.Optional[frozenset]" = None,
 ) -> "list[str]":
     """Turn a JSON ``arguments`` object into argv for ``cls``'s OWN fields.
 
-    Iterates ``cls._getargs_()`` in declaration order. A field absent from
-    ``arguments``, or explicitly ``null``, contributes nothing (JSON
+    Iterates ``cls._getargs_()`` in declaration order. A field named in
+    ``skip`` contributes nothing at all -- ``call_tool`` passes the set of
+    field names that are ALSO declared by a DEEPER ancestor in the current
+    dispatch chain, so a name redeclared at multiple levels only ever binds
+    at the deepest one (its own schema, per :func:`_input_schema_for_node`,
+    already only ever describes that same deepest declaration); omit it
+    (the default) for a standalone, single-level call. A field absent from
+    ``arguments``, or explicitly ``null``, ALSO contributes nothing (JSON
     ``null`` means "not supplied", never the literal string ``"None"``).
-    Branches on the field's EFFECTIVE ``argparse`` action
-    (``builder._kwargs()["action"]``), not a re-derived guess, so this never
-    drifts from what ``add_to_parser`` itself would register:
+    Branches on the field's EFFECTIVE ``argparse`` action, not a re-derived
+    guess, so this never drifts from what ``add_to_parser`` itself would
+    register:
 
-    * a bare bool flag (``store_true``/``store_false``/``BooleanOptionalAction``)
-      -> ``True`` emits the bare flag; ``False`` emits ``--no-<flag>`` when the
-      field defaults to ``True`` (raising if the field has no long flag to
-      negate), else is omitted entirely.
-    * a counting flag (``-v``/``-q`` style) -> the flag repeated ``value`` times.
+    * a bare bool flag -- resolved from the REAL action already built on
+      ``parser`` (see :func:`_bool_action_kind`), since a re-derived guess
+      can disagree for an env/config-LAYERED field: ``store_true`` -> the
+      bare flag when ``True``, nothing when ``False`` (there is no CLI
+      spelling for ``False`` here, matching the plain CLI's own limit);
+      ``store_false`` -> the bare flag when ``False``, nothing when ``True``;
+      ``BooleanOptionalAction`` -> the bare flag when ``True``, ``--no-<x>``
+      when ``False`` (raising if the field has no long flag to negate) --
+      this is what lets an env-layered bool be turned back to ``False``.
+    * a counting flag (``-v``/``-q`` style) -> a single bundled short token
+      (``-vvv``) for a short-flag-only field, else the long flag repeated
+      ``value`` times; capped by ``_MAX_COUNT_VALUE`` at the schema/
+      validation layer (:func:`json_schema_for_field`/`_validate_arguments`),
+      not here.
     * ``store_const``/``append_const`` -> the bare flag when ``value`` is truthy.
     * a ``nargs="?"`` OPTION given an actual JSON boolean -> the bare flag when
       ``True`` (the option's own ``const``), nothing when ``False``.
-    * a ``dict`` field -> one ``KEY=VALUE`` token per item, repeating the flag.
+    * a ``dict`` field backed by duho's own generic ``KEY=VALUE`` factory
+      (:class:`duho._fieldspec._KVFactory`) -> one such token per item,
+      repeating the flag. A dict field with a DIFFERENT, custom whole-string
+      ``type=`` override (duho's only one is ``LoggingArgs.loglevels``'s
+      ``parse_loglevels``, parsing its own ``NAME:LEVEL[,NAME:LEVEL...]``
+      grammar from a single token) -> all items joined into ONE such token
+      instead -- emitting the generic ``KEY=VALUE`` form here fed a value
+      like ``synapp=10`` straight into that grammar and always failed.
     * a ``list``/``set``/``tuple`` field -> one token per element, repeating
       the flag (a positional repeats bare tokens with no flag).
     * anything else (str/int/float/``Literal[True, False]``/Enum/Path/a custom
@@ -735,12 +858,17 @@ def _synthesize_argv(
     Every option value is emitted as a single attached ``--flag=value`` token
     (never ``[flag, value]``), so a value starting with ``-`` can never be
     reinterpreted as a different flag; a positional value that would be
-    parsed as an option (or the ``--`` passthrough separator) is refused
-    outright, since there is no safe way to escape it.
+    parsed as an option (or the ``--`` passthrough separator), or that
+    collides with one of THIS level's own subcommand names (security-
+    relevant: MCP tool arguments are LLM-controlled -- see
+    :func:`_reject_unsafe_positional`), is refused outright.
     """
     argv: "list[str]" = []
+    forbidden = _sibling_names(parser)
     for builder in cls._getargs_():
         name = builder.name
+        if skip is not None and name in skip:
+            continue
         if name not in arguments:
             continue
         value = arguments[name]
@@ -753,17 +881,30 @@ def _synthesize_argv(
             flag, is_long = _long_flag_or_first(builder)
         action = builder._kwargs().get("action")
 
-        if builder.is_bare_bool_flag:
-            if value:
-                argv.append(flag)
-            elif builder.default is True:
-                if not is_long:
-                    raise ValueError(
-                        "field %r defaults to True and has no long flag to "
-                        "negate; false cannot be expressed over MCP" % (name,)
-                    )
-                argv.append("--no-" + flag[2:])
-            continue
+        if builder.type is bool and builder.choices is None:
+            kind = _bool_action_kind(_dest_action(parser, name))
+            if kind is None and builder.is_bare_bool_flag:
+                # No matching action found on the parser (should not happen
+                # for a bare bool flag) -- fall back to the old heuristic.
+                kind = "boolean_optional" if builder.default is True else "store_true"
+            if kind is not None:
+                if kind == "boolean_optional":
+                    if value:
+                        argv.append(flag)
+                    elif not is_long:
+                        raise ValueError(
+                            "field %r has no long flag to negate; false "
+                            "cannot be expressed over MCP" % (name,)
+                        )
+                    else:
+                        argv.append("--no-" + flag[2:])
+                elif kind == "store_false":
+                    if not value:
+                        argv.append(flag)
+                else:  # store_true
+                    if value:
+                        argv.append(flag)
+                continue
 
         if action == "count":
             count = value if isinstance(value, int) else int(value)
@@ -771,7 +912,12 @@ def _synthesize_argv(
                 raise ValueError(
                     "field %r (a counting flag) cannot be negative" % (name,)
                 )
-            argv.extend([flag] * count)
+            if is_long or not count:
+                argv.extend([flag] * count)
+            else:
+                # Bundle a short counting flag into one token (`-vvv`)
+                # instead of `count` separate ones.
+                argv.append("-" + flag[1:] * count)
             continue
 
         if action in ("store_const", "append_const"):
@@ -787,10 +933,15 @@ def _synthesize_argv(
         if builder.collection is dict:
             if not isinstance(value, dict):
                 raise ValueError("field %r expects a JSON object" % (name,))
-            for key, val in value.items():
-                token = "%s=%s" % (key, val)
+            if isinstance(builder.type, _KVFactory):
+                tokens = ["%s=%s" % (key, val) for key, val in value.items()]
+            else:
+                tokens = [",".join("%s:%s" % (key, val) for key, val in value.items())]
+                if not tokens[0]:
+                    tokens = []
+            for token in tokens:
                 if is_positional:
-                    _reject_unsafe_positional(token, parser)
+                    _reject_unsafe_positional(token, parser, forbidden=forbidden)
                     argv.append(token)
                 else:
                     _emit_option(argv, flag, is_long, token)
@@ -802,7 +953,7 @@ def _synthesize_argv(
             for item in value:
                 token = str(item)
                 if is_positional:
-                    _reject_unsafe_positional(token, parser)
+                    _reject_unsafe_positional(token, parser, forbidden=forbidden)
                     argv.append(token)
                 else:
                     _emit_option(argv, flag, is_long, token)
@@ -810,7 +961,7 @@ def _synthesize_argv(
 
         token = str(value)
         if is_positional:
-            _reject_unsafe_positional(token, parser)
+            _reject_unsafe_positional(token, parser, forbidden=forbidden)
             argv.append(token)
         else:
             _emit_option(argv, flag, is_long, token)
@@ -834,11 +985,13 @@ def _matches_schema_type(value: object, expected: object) -> bool:
 
 def _validate_arguments(schema: "dict", arguments: "dict") -> None:
     """Reject ``arguments`` against ``schema``: an unknown property (the
-    schema always declares ``additionalProperties: false``) or a value whose
+    schema always declares ``additionalProperties: false``), a value whose
     JSON type does not match its property's declared ``type`` -- e.g. the
     string ``"false"`` for a boolean field, which used to be truthy and
-    silently turn the flag ON. Raises :class:`InvalidArgumentsError` naming
-    every problem found, rather than stopping at the first one.
+    silently turn the flag ON -- or a numeric value over its property's
+    ``maximum`` (currently only a counting flag publishes one; see
+    ``_MAX_COUNT_VALUE``). Raises :class:`InvalidArgumentsError` naming every
+    problem found, rather than stopping at the first one.
     """
     properties = schema.get("properties", {})
     errors = []
@@ -855,6 +1008,15 @@ def _validate_arguments(schema: "dict", arguments: "dict") -> None:
                 "argument %r: expected %s, got %s"
                 % (key, expected, type(value).__name__)
             )
+            continue
+        maximum = prop.get("maximum")
+        if (
+            maximum is not None
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value > maximum
+        ):
+            errors.append("argument %r: %r exceeds maximum %r" % (key, value, maximum))
     if errors:
         raise InvalidArgumentsError("; ".join(errors))
 
@@ -898,6 +1060,48 @@ def _muted_color(parsers: "_ty.Iterable[_argparse.ArgumentParser]"):
             p.color = old
 
 
+@_contextlib.contextmanager
+def _rebound_stderr_logging(active_stream: object, idle_stream: object):
+    """Temporarily repoint duho's own stderr log handler (see
+    ``duho.logging.init_stderr_logging``) at ``active_stream`` for the
+    duration of one ``call_tool`` dispatch, restoring it to ``idle_stream``
+    on exit.
+
+    ``init_stderr_logging`` is deliberately idempotent -- a repeat call never
+    adds a second handler -- which means it also never RE-POINTS the one it
+    already installed. The first ever MCP call creates it bound to that
+    call's own captured stderr (correct, since it's built while THAT
+    capture is active); every call after that finds the handler already
+    there and leaves it bound to the FIRST call's now-dead capture object,
+    so a command's own logging output silently vanishes, and so does any
+    server-side error logged BETWEEN calls (nothing ever reads that stream
+    again). Rebinding here -- to this call's capture while it runs, and back
+    to the server's real idle stream (``idle_stream``, the process's actual
+    stderr as it stood before any call ever ran) once it returns -- fixes
+    both. The handler list is read fresh both before AND after ``yield`` so
+    a handler created DURING this very call (the first-ever-call case) is
+    also reset to ``idle_stream`` on exit, not left on ``active_stream``.
+    Only ever touches a handler carrying duho's own tag, never one a host
+    application added itself.
+    """
+    root_logger = _logging.getLogger()
+
+    def _tagged():
+        return [
+            h
+            for h in root_logger.handlers
+            if getattr(h, _STDERR_HANDLER_TAG, False) and hasattr(h, "setStream")
+        ]
+
+    for handler in _tagged():
+        handler.setStream(active_stream)
+    try:
+        yield
+    finally:
+        for handler in _tagged():
+            handler.setStream(idle_stream)
+
+
 def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict":
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
@@ -922,18 +1126,33 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     must not be able to read the MCP client's next request off the real
     stdin).
 
+    **Dispatch-identity guard** (security-relevant: MCP tool arguments are
+    LLM-controlled): an ancestor's own optional/variadic positional field can
+    -- when a client omits it -- still absorb the LITERAL subcommand-name
+    token this function inserts between levels, shifting a LATER token into
+    that ancestor's own subparsers action and dispatching a DIFFERENT
+    sibling than the one named by ``name`` (argparse itself has always
+    allowed this; it is normally harmless on a real, human-typed CLI, but
+    not when the argv comes from an LLM). After a successful parse, the
+    result is used ONLY when ``type(instance) is node.cls`` -- anything else
+    (including a namespace class picked up mid-chain) is treated as a
+    dispatch failure, mapped to ``isError: true``, and the command is NEVER
+    run. :func:`_synthesize_argv` additionally refuses outright (before
+    parsing) a value explicitly supplied FOR an ancestor's own positional
+    that collides with one of that level's own subcommand names.
+
     **Return convention**: ``run_command`` returns ``0`` for a
     ``None``/``0`` command return, an int for a non-zero return, or the raw
     object/list when the command returned one. Mapped here: ``0`` -> success,
     one text block of captured stdout; a non-zero int -> ``isError: true``,
-    captured stdout + a trailing ``"exit code: N"`` line; anything else ->
-    success, one text block holding its JSON dump. A ``SystemExit`` from
-    argument PARSING (bad/missing argument) -> ``isError: true`` with the
-    captured stderr text. A ``SystemExit`` raised by the command's OWN run
-    time code is mapped by :func:`_systemexit_result` instead of escaping and
-    killing the server. Any OTHER raised exception during dispatch ->
-    ``isError: true`` with the exception's ``type: message`` text.
-    ``KeyboardInterrupt`` is not caught and still propagates.
+    captured stdout + captured stderr + a trailing ``"exit code: N"`` line;
+    anything else -> success, one text block holding its JSON dump. A
+    ``SystemExit`` from argument PARSING (bad/missing argument) ->
+    ``isError: true`` with the captured stderr text. A ``SystemExit`` raised
+    by the command's OWN run time code is mapped by :func:`_systemexit_result`
+    instead of escaping and killing the server. Any OTHER raised exception
+    during dispatch -> ``isError: true`` with the exception's ``type:
+    message`` text. ``KeyboardInterrupt`` is not caught and still propagates.
     """
     root_parser, nodes = _tree_for(root_cls)
     node = nodes.get(name) if isinstance(name, str) else None
@@ -951,10 +1170,25 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     _validate_arguments(schema, arguments)
 
     chain = node.ancestors + (node,)
+    # A field name declared at several levels of the chain binds ONLY at the
+    # deepest one (matches the merged schema, `_input_schema_for_node`) -- an
+    # ancestor's own same-named field must never ALSO pick up the value
+    # (security-relevant: a shared JSON `arguments` dict is otherwise a way
+    # for a leaf's own field to flip an unrelated ancestor flag it never
+    # named, e.g. a hidden `--force`).
+    field_owner: "dict[str, int]" = {}
+    for i, step in enumerate(chain):
+        for builder in step.cls._getargs_():
+            field_owner[builder.name] = i
     try:
         argv: "list[str]" = []
         for i, step in enumerate(chain):
-            argv.extend(_synthesize_argv(step.cls, arguments, step.parser))
+            shadowed = frozenset(
+                fname for fname, owner in field_owner.items() if owner != i
+            )
+            argv.extend(
+                _synthesize_argv(step.cls, arguments, step.parser, skip=shadowed)
+            )
             if i + 1 < len(chain):
                 argv.append(chain[i + 1].own_name)
     except ValueError as exc:
@@ -963,12 +1197,16 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     out = _io.StringIO()
     err = _io.StringIO()
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
+    real_stderr = _sys.stderr
     try:
         with _contextlib.redirect_stdout(out), _contextlib.redirect_stderr(err):
             old_stdin = _sys.stdin
             _sys.stdin = _io.StringIO("")
             try:
-                with _muted_color(all_parsers):
+                with (
+                    _muted_color(all_parsers),
+                    _rebound_stderr_logging(err, real_stderr),
+                ):
                     try:
                         instance = root_parser.parse_args(argv)
                     except SystemExit as exc:
@@ -976,6 +1214,13 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
                             "argument error (exit code %r)" % (exc.code,)
                         )
                         return _text_result(message, is_error=True)
+                    if type(instance) is not node.cls:
+                        return _text_result(
+                            "tool %r did not resolve to the requested command "
+                            "(dispatched %r instead); refusing to run it"
+                            % (name, type(instance).__name__),
+                            is_error=True,
+                        )
                     _setup_instance_logging(instance, True, root_cls)
                     try:
                         result = _run_command(node.cls, instance)
@@ -1004,8 +1249,10 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
         if result == 0:
             return _text_result(stdout_text)
         trailing = "exit code: %d" % result
-        text = "%s\n%s" % (stdout_text, trailing) if stdout_text else trailing
-        return _text_result(text, is_error=True)
+        parts = [
+            part for part in (stdout_text, err.getvalue().strip(), trailing) if part
+        ]
+        return _text_result("\n".join(parts), is_error=True)
 
     import json
 

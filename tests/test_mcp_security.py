@@ -128,6 +128,219 @@ def test_dict_field_key_and_value_survive_verbatim():
 
 
 # --------------------------------------------------------------------------
+# Subcommand dispatch-identity hijack: an ancestor's own optional/variadic
+# positional must never let a client-controlled value select a DIFFERENT
+# sibling than the one the tool name asked for.
+# --------------------------------------------------------------------------
+
+
+class HijackLeaf(Cmd):
+    """Harmless leaf that must be the ONLY thing this tool name can run."""
+
+    name: str
+    "a value"
+    ("name",)
+
+    def __call__(self):
+        return {"ran": "HijackLeaf", "name": self.name}
+
+
+class HijackDanger(Cmd):
+    """A sibling that must never run unless explicitly named."""
+
+    def __call__(self):
+        return {"ran": "HijackDanger"}
+
+
+class HijackOptRoot(Cli):
+    """Root with an OPTIONAL positional ahead of its subcommands."""
+
+    path: str = "."
+    "an optional positional"
+    ("path",)
+
+    _subcommands_ = [HijackLeaf, HijackDanger]
+
+
+class HijackTagsRoot(Cli):
+    """Root with a VARIADIC positional ahead of its subcommands."""
+
+    tags: "list" = []
+    "a variadic positional"
+    ("tags",)
+
+    _subcommands_ = [HijackLeaf, HijackDanger]
+
+
+class NestedDangerLeaf(Cmd):
+    """A NESTED leaf deliberately sharing its name with a top-level sibling
+    ('HijackDanger'), to prove the collision guard is scoped to one level's
+    own choices, not confused by the same name living elsewhere."""
+
+    _parsername_ = "HijackDanger"
+
+    def __call__(self):
+        return {"ran": "NestedDangerLeaf"}
+
+
+class HijackMid(Cli):
+    """A namespace sibling with its own nested subcommand named the same as
+    a DIFFERENT top-level sibling."""
+
+    _subcommands_ = [NestedDangerLeaf]
+
+
+class HijackCollisionRoot(Cli):
+    """Root with an optional positional, one sibling of which ALSO has a
+    nested subcommand sharing that same sibling's name."""
+
+    path: str = "."
+    "an optional positional"
+    ("path",)
+
+    _subcommands_ = [HijackLeaf, HijackDanger, HijackMid]
+
+
+def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
+    # Matches the reviewer's `opt_app.py`: an omitted optional positional
+    # ("path") used to absorb the "HijackLeaf" separator token, shifting
+    # "HijackDanger" (the client's OWN "name" value) into the root's
+    # subparsers slot and actually running HijackDanger instead.
+    result = call_tool(
+        HijackOptRoot, "HijackOptRoot.HijackLeaf", {"name": "HijackDanger"}
+    )
+    assert result.get("isError") is True
+    assert (
+        "HijackDanger" not in result["content"][0]["text"]
+        or "ran" not in result["content"][0]["text"]
+    )
+
+
+def test_variadic_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
+    # Matches the reviewer's `inj_app.py`: a variadic ("tags") positional
+    # greedily ate the separator token the same way, dispatching
+    # HijackDanger (with ITS OWN default field) instead of HijackLeaf.
+    result = call_tool(
+        HijackTagsRoot, "HijackTagsRoot.HijackLeaf", {"name": "HijackDanger"}
+    )
+    assert result.get("isError") is True
+
+
+def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
+    # The client explicitly sets the ancestor's own optional positional to a
+    # value that collides with one of ITS OWN sibling names -- refused
+    # outright, before parsing, even though the same string ALSO happens to
+    # be a nested subcommand name elsewhere in the tree (HijackMid's own
+    # child), proving the guard is scoped to this one level's choices.
+    result = call_tool(
+        HijackCollisionRoot,
+        "HijackCollisionRoot.HijackLeaf",
+        {"path": "HijackDanger", "name": "x"},
+    )
+    assert result.get("isError") is True
+
+
+def test_normal_dispatch_through_an_optional_ancestor_positional_still_works():
+    # The fix must not break the ordinary, non-adversarial case: supplying a
+    # harmless value for the ancestor's own optional positional still
+    # dispatches the requested leaf correctly.
+    result = call_tool(
+        HijackOptRoot, "HijackOptRoot.HijackLeaf", {"path": "somewhere", "name": "ok"}
+    )
+    assert result.get("isError") is not True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload == {"ran": "HijackLeaf", "name": "ok"}
+
+
+# --------------------------------------------------------------------------
+# A field name declared at several ancestor levels binds ONLY at the
+# deepest one -- a shared JSON `arguments` dict must never ALSO flip an
+# unrelated ancestor's same-named flag.
+# --------------------------------------------------------------------------
+
+
+class ShadowChild(Cmd):
+    """Child whose OWN 'force' is a string, unrelated to the root's bool."""
+
+    force: str = ""
+    "child's own force (string)"
+    ("--mode",)
+
+    def __call__(self):
+        return {"force_child": self.force}
+
+
+class ShadowRoot(Cli):
+    """Root whose 'force' is a bool, shadowed by the child's own field."""
+
+    force: bool = False
+    "root's own force (bool)"
+    ("--force",)
+
+    _subcommands_ = [ShadowChild]
+
+
+def test_shadowed_ancestor_bool_is_not_flipped_by_the_childs_own_field():
+    result = call_tool(ShadowRoot, "ShadowRoot.ShadowChild", {"force": "no"})
+    assert result.get("isError") is not True
+    payload = json.loads(result["content"][0]["text"])
+    # The child's own string field received the value...
+    assert payload == {"force_child": "no"}
+
+
+def test_synthesize_argv_skip_omits_a_shadowed_fields_own_level_entirely():
+    # The exact mechanism `call_tool` uses: for the chain [ShadowRoot,
+    # ShadowChild], "force" is owned by the DEEPER level (ShadowChild), so
+    # the ROOT level's own synthesis is called with "force" in `skip` --
+    # without this, a truthy-but-falsy-MEANING string like "no" would still
+    # set the unrelated root bool (`if value: ...` sees any non-empty str as
+    # truthy), which is exactly the leak this guards against.
+    from duho.mcp import _synthesize_argv
+
+    _, nodes = _tree_for(ShadowRoot)
+    root_node = nodes["ShadowRoot"]
+    root_argv = _synthesize_argv(
+        ShadowRoot, {"force": "no"}, root_node.parser, skip=frozenset({"force"})
+    )
+    assert root_argv == []
+
+
+# --------------------------------------------------------------------------
+# An unbounded counting flag must not be able to stall the server
+# --------------------------------------------------------------------------
+
+
+class Loud(LoggingArgs, Cmd):
+    """A command exposing LoggingArgs' -v/-q counting flags."""
+
+    def __call__(self):
+        return {"verbose": self.verbose}
+
+
+class LoudRoot(Cli):
+    """Root."""
+
+    _subcommands_ = [Loud]
+
+
+def test_count_schema_publishes_a_maximum():
+    tools = {t["name"]: t for t in describe_tools(LoudRoot)}
+    assert (
+        tools["LoudRoot.Loud"]["inputSchema"]["properties"]["verbose"]["maximum"] == 10
+    )
+
+
+def test_count_value_over_the_maximum_is_rejected_not_synthesized():
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(LoudRoot, "LoudRoot.Loud", {"verbose": 1000000})
+
+
+def test_count_value_at_the_maximum_still_dispatches():
+    result = call_tool(LoudRoot, "LoudRoot.Loud", {"verbose": 10})
+    assert result.get("isError") is not True
+
+
+# --------------------------------------------------------------------------
 # Bool negation must use a LONG flag (a short-flag-last tuple is common)
 # --------------------------------------------------------------------------
 

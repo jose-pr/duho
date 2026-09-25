@@ -498,6 +498,41 @@ def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
     assert "it's $(uh oh)" in reply
 
 
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_quote_in_one_choice_does_not_merge_later_choices():
+    """`compgen -W` gives its word-list argument a SECOND, dynamic
+    re-evaluation at Tab-press (splitting, expanding and quote-removing the
+    joined string again, exactly like fresh shell input). An unescaped `'`
+    in one choice opened an unmatched quoted region at THAT re-evaluation,
+    swallowing every value after it (spaces included) into one merged,
+    mangled candidate -- `it's`, `a;b`, `#hash`, `x,y` came back as the
+    single blob `its a;b #hash x,y`."""
+    parser = _hostile_parser("it's")
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("fast", "it's", "a;b", "#hash", "x,y")
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, completion._bash_func_name(parser.prog), ["hostileapp", "--mode", ""], 2
+    )
+    assert set(reply) == {"fast", "it's", "a;b", "#hash", "x,y"}
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_opt_equals_with_nothing_typed_yet_offers_choices():
+    """`--opt=` with NOTHING typed after the `=` arrives as only the two
+    words `--opt`, `=` (no fourth, empty word) -- `cur` IS the literal `=`
+    character, which used to be handed straight to `compgen -W ... -- "="`,
+    matching nothing and falling back to bash's default filename
+    completion."""
+    parser = _tool_parser()
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script, _bash_func(parser), ["tool", "Convert", "--env", "="], 3
+    )
+    assert set(reply) == {"prod", "dev"}
+
+
 # --- Real zsh/fish functional drives (not just syntax checks) --------------
 #
 # A script that PARSES fine can still complete nothing (a broken command-path

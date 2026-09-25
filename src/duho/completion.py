@@ -53,17 +53,25 @@ def _bashq(value: object) -> str:
 def _bash_wordlist(values: "list") -> str:
     """Build a safe ``compgen -W`` word-list argument from ``values``.
 
-    ``compgen -W`` *expands* its word list (command substitution, parameter
-    expansion, ...), so a hostile choice like ``$(rm -rf ~)`` would RUN at
-    Tab-press if merely quoted. Neutralise the expansion triggers by
-    backslash-escaping ``\\``/``$``/`` ` `` in each value, then single-quote the
-    whole list (embedded single quotes as ``'\\''``) so the escapes survive to
-    compgen literally.
+    ``compgen -W`` gives its word-list argument a SECOND evaluation at
+    Tab-press: after the shell parses/sources the generated script, ``compgen``
+    itself re-splits and re-expands that argument's runtime VALUE as if it
+    were freshly typed input (command substitution, parameter expansion, word
+    splitting, quote removal -- all of it). Backslash-escaping
+    ``\\``/``$``/`` ` `` in each value neutralises the expansion triggers a
+    hostile choice like ``$(rm -rf ~)`` would otherwise run; escaping ``'``
+    and ``\"`` too stops an embedded quote from opening a SECOND, unmatched
+    quoted region at that re-evaluation, which would otherwise swallow every
+    later value (space and all) into one candidate. Escaping the value list
+    is not enough on its own: the joined values still ride inside one
+    single-quoted argument for THIS (the static) parse, so once each value is
+    safe for the second pass, single-quote the whole list (embedded single
+    quotes as ``'\\''``) to survive the first.
     """
     escaped: "list[str]" = []
     for value in values:
         s = str(value)
-        for ch in ("\\", "$", "`"):
+        for ch in ("\\", "$", "`", "'", '"'):
             s = s.replace(ch, "\\" + ch)
         escaped.append(s)
     joined = " ".join(escaped)
@@ -461,6 +469,14 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     lines.append("    # (`=` is in COMP_WORDBREAKS); look one word further back.")
     lines.append('    if [ "$prev" = "=" ] && [ "$COMP_CWORD" -ge 2 ]; then')
     lines.append('        prev="${COMP_WORDS[COMP_CWORD-2]}"')
+    lines.append("    fi")
+    lines.append("    # `--opt=` with nothing typed yet arrives as --opt, = -- `cur`")
+    lines.append(
+        '    # IS the literal "=" (there is no fourth, empty word), which would'
+    )
+    lines.append("    # otherwise be used to filter candidates and match nothing.")
+    lines.append('    if [ "$cur" = "=" ]; then')
+    lines.append('        cur=""')
     lines.append("    fi")
     lines.append("")
     lines.append("    # Walk COMP_WORDS to find which (sub)command we are in: descend")

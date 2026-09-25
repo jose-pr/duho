@@ -1288,9 +1288,13 @@ def _resolve_app(spec: str) -> "type[_Cmd]":
     return obj
 
 
-def _write_message(stream: object, message: "dict") -> None:
+def _write_message(stream: object, message: "dict | list") -> None:
     import json
 
+    # `message` is a `list` only for a JSON-RPC *batch* reply (one combined
+    # array of response objects, see `serve`); a single response is always
+    # a `dict`.
+    #
     # `ensure_ascii=True` (never False): the OUTPUT stream's own encoding is
     # not always known to be UTF-8-safe (an injected stream, or a
     # not-yet-reconfigured real stdout), so every non-ASCII character is
@@ -1314,12 +1318,16 @@ def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
     ``notifications/initialized`` notification specifically, or a malformed
     envelope that also happened to carry no ``id``.
 
+    Handles exactly ONE request object -- a batch (a JSON array of request
+    objects) is recognized and fanned out by :func:`serve` itself, one call
+    to this function per element, before this function ever sees it.
+
     Every value pulled out of ``request`` is type-checked before use, so a
     well-formed JSON document that is not a well-formed JSON-RPC REQUEST
-    (a bare scalar, a batch array, a non-object ``params``, a non-string
-    ``name``, a non-object ``arguments``) gets a proper JSON-RPC error
-    response instead of an uncaught ``AttributeError``/``TypeError`` that
-    would otherwise propagate out of :func:`serve` and end the process
+    (a bare scalar, a non-object ``params``, a non-string ``name``, a
+    non-object ``arguments``) gets a proper JSON-RPC error response instead
+    of an uncaught ``AttributeError``/``TypeError`` that would otherwise
+    propagate out of :func:`serve` and end the process
     : ``-32600`` for a malformed request/params shape, ``-32601`` for
     an unrecognised method, ``-32602`` for a call naming an unknown tool or
     supplying invalid arguments (:class:`UnknownToolError`/
@@ -1420,12 +1428,15 @@ def _real_stdio_streams() -> "tuple":
     """Take ownership of the real stdio fds for the JSON-RPC protocol channel,
     and isolate fd 0/1 from anything a dispatched command does.
 
-    Duplicates the CURRENT fd 0/1 as fresh UTF-8/LF-normalised text streams
-    for the protocol itself, then points the process's real fd 1 at fd 2
-    (stderr) and fd 0 at the null device for the rest of the server's life,
-    and rebinds ``sys.stdout``/``sys.stdin`` to match. This is what makes
-    the module docstring's "one broken command never crashes the whole
-    server loop" promise hold even against code the command doesn't control:
+    Duplicates the CURRENT fd 0/1 for the protocol itself -- the OUTPUT side
+    as a fresh UTF-8/LF-normalised text stream, the INPUT side as a BINARY
+    stream (see :func:`serve`, which decodes it one line at a time so a
+    single malformed line can be rejected without losing the rest of the
+    session) -- then points the process's real fd 1 at fd 2 (stderr) and
+    fd 0 at the null device for the rest of the server's life, and rebinds
+    ``sys.stdout``/``sys.stdin`` to match. This is what makes the module
+    docstring's "one broken command never crashes the whole server loop"
+    promise hold even against code the command doesn't control:
 
     * a subprocess the command spawns WITHOUT capturing its own output
       inherits fd 1 -- now stderr, not the protocol pipe -- instead of
@@ -1446,7 +1457,7 @@ def _real_stdio_streams() -> "tuple":
     _os.close(devnull_fd)
     _os.dup2(2, 1)
 
-    stream_in = _os.fdopen(proto_in_fd, "r", encoding="utf-8", newline="\n")
+    stream_in = _os.fdopen(proto_in_fd, "rb")
     stream_out = _os.fdopen(proto_out_fd, "w", encoding="utf-8", newline="\n")
     _sys.stdin = _os.fdopen(_os.dup(0), "r", encoding="utf-8")
     _sys.stdout = _sys.stderr
@@ -1463,17 +1474,26 @@ def serve(
 
     Reads newline-delimited JSON-RPC 2.0 request lines from ``stdin`` (real
     stdio, isolated per :func:`_real_stdio_streams`, when neither ``stdin``
-    nor ``stdout`` is given), dispatches each via :func:`_handle_request`, and
-    writes any response line to ``stdout``, flushed every time. A line that
-    fails to parse as JSON gets a ``-32700`` parse-error response (``id:
-    null`` -- the malformed line's own id, if any, is unrecoverable). An
-    unexpected exception from :func:`_handle_request` itself (which should
-    never happen, given its own internal error handling, but must never end
-    the server if it somehow does) becomes a ``-32603`` response instead of
-    propagating. Blank lines are skipped. Returns ``0`` when ``stdin``
-    reaches EOF (there is no separate MCP "shutdown" method to wait for).
-    ``stdin``/``stdout`` are injectable so tests can drive the loop over
-    in-memory streams instead of real pipes.
+    nor ``stdout`` is given -- BINARY there, so one line's invalid UTF-8
+    bytes cannot kill the whole server, see below), dispatches each via
+    :func:`_handle_request`, and writes any response line to ``stdout``,
+    flushed every time. A line that is not valid UTF-8 (only possible on the
+    real-stdio path; an injected text ``stdin`` is decoded already) gets a
+    ``-32700`` parse-error response and the loop continues -- a client
+    reconnecting or retrying is not required. A line that decodes but fails
+    to parse as JSON gets the same ``-32700`` (``id: null`` in both cases --
+    the malformed line's own id, if any, is unrecoverable). A JSON ARRAY
+    (a JSON-RPC 2.0 *batch*) is dispatched element by element; every non-
+    notification element's response is collected into ONE reply array
+    (never sent at all if the batch was all notifications, per spec), and an
+    EMPTY batch array gets its own ``-32600``. An unexpected exception from
+    :func:`_handle_request` itself (which should never happen, given its own
+    internal error handling, but must never end the server if it somehow
+    does) becomes a ``-32603`` response instead of propagating. Blank lines
+    are skipped. Returns ``0`` when ``stdin`` reaches EOF (there is no
+    separate MCP "shutdown" method to wait for). ``stdin``/``stdout`` are
+    injectable so tests can drive the loop over in-memory TEXT streams
+    instead of real pipes.
     """
     import json
 
@@ -1483,17 +1503,11 @@ def serve(
         stream_in = stdin if stdin is not None else _sys.stdin
         stream_out = stdout if stdout is not None else _sys.stdout
 
-    for line in stream_in:
-        line = line.strip()
-        if not line:
-            continue
+    def _safe_handle(request):
+        """`_handle_request`, with any unexpected exception mapped to a
+        `-32603` response instead of propagating and ending the loop."""
         try:
-            request = json.loads(line)
-        except ValueError:
-            _write_message(stream_out, _error_response(None, -32700, "parse error"))
-            continue
-        try:
-            response = _handle_request(root_cls, request)
+            return _handle_request(root_cls, request)
         except Exception as exc:  # noqa: BLE001 - the loop itself must never die
             _log_exception(
                 _LOGGER,
@@ -1502,26 +1516,97 @@ def serve(
                 exc,
             )
             fallback_id = request.get("id") if isinstance(request, dict) else None
-            response = _error_response(
+            return _error_response(
                 fallback_id,
                 -32603,
                 "internal error: %s: %s" % (type(exc).__name__, exc),
             )
+
+    for raw_line in stream_in:
+        if isinstance(raw_line, bytes):
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                _write_message(
+                    stream_out,
+                    _error_response(
+                        None, -32700, "parse error: invalid utf-8 (%s)" % exc
+                    ),
+                )
+                continue
+        else:
+            line = raw_line
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            request = json.loads(line)
+        except ValueError:
+            _write_message(stream_out, _error_response(None, -32700, "parse error"))
+            continue
+
+        if isinstance(request, list):
+            if not request:
+                _write_message(
+                    stream_out,
+                    _error_response(None, -32600, "invalid request: empty batch"),
+                )
+                continue
+            responses = [
+                response
+                for response in (_safe_handle(item) for item in request)
+                if response is not None
+            ]
+            if responses:
+                _write_message(stream_out, responses)
+            continue
+
+        response = _safe_handle(request)
         if response is not None:
             _write_message(stream_out, response)
     return 0
+
+
+def _quiet_import(spec: str) -> "type[_Cmd]":
+    """Resolve ``<app>`` (see :func:`_resolve_app`) with the real fd 1
+    temporarily aliased to fd 2.
+
+    :func:`_resolve_app` IMPORTS the ``<app>`` module, which can write to fd
+    1 directly at import time -- a module-level ``print``, ``os.write(1,
+    ...)``, a C extension, a subprocess spawned during import -- before
+    :func:`serve` ever gets a chance to isolate the real stdio fds for the
+    protocol channel (:func:`_real_stdio_streams`, only reached once
+    resolution has already succeeded). Redirecting fd 1 to fd 2 for the
+    DURATION of this one call -- restored immediately after, success or
+    failure, in a ``finally`` -- means any such write lands on stderr
+    instead of corrupting the newline-delimited JSON stream a client is
+    about to start reading from fd 1, without leaving stdio touched at all
+    once this returns: a resolution FAILURE reports the error and exits
+    (:func:`serve` never runs), so nothing here needs to persist.
+    """
+    _sys.stdout.flush()
+    saved_fd1 = _os.dup(1)
+    _os.dup2(2, 1)
+    try:
+        return _resolve_app(spec)
+    finally:
+        _sys.stdout.flush()
+        _os.dup2(saved_fd1, 1)
+        _os.close(saved_fd1)
 
 
 def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     """``python -m duho.mcp <app>`` entry point: resolve ``<app>`` and run :func:`serve`.
 
     ``<app>`` is a dotted qualname to a ``Cmd``/``Cli`` subclass (see
-    :func:`_resolve_app`). No arguments prints a usage line to stderr and
-    returns ``2``; ``-h``/``--help`` prints the same usage line and returns
-    ``0`` (previously treated as an ``<app>`` spec and reported as
-    unresolvable). Prints a one-line error to stderr and returns a non-zero
-    exit code if ``<app>`` does not resolve; otherwise runs the stdio loop
-    against real stdin/stdout and returns its exit code.
+    :func:`_resolve_app`, reached here through :func:`_quiet_import` so an
+    import-time write to stdout cannot reach the protocol channel). No
+    arguments prints a usage line to stderr and returns ``2``; ``-h``/
+    ``--help`` prints the same usage line and returns ``0`` (previously
+    treated as an ``<app>`` spec and reported as unresolvable). Prints a
+    one-line error to stderr and returns a non-zero exit code if ``<app>``
+    does not resolve; otherwise runs the stdio loop against real
+    stdin/stdout and returns its exit code.
     """
     args = list(argv) if argv is not None else _sys.argv[1:]
     if not args:
@@ -1531,7 +1616,7 @@ def main(argv: "_ty.Sequence[str] | None" = None) -> int:
         print("usage: python -m duho.mcp <app>", file=_sys.stderr)
         return 0
     try:
-        root_cls = _resolve_app(args[0])
+        root_cls = _quiet_import(args[0])
     except Exception as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
         print(
             "duho.mcp: could not resolve app %r: %s" % (args[0], exc), file=_sys.stderr

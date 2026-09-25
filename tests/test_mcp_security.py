@@ -692,16 +692,7 @@ def _serve_lines(*raw_lines):
     return rc, responses
 
 
-@pytest.mark.parametrize(
-    "raw_line",
-    [
-        "[1, 2]",
-        "5",
-        '"hello"',
-        "null",
-        '[{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}]',
-    ],
-)
+@pytest.mark.parametrize("raw_line", ["5", '"hello"', "null"])
 def test_non_object_json_line_gets_invalid_request_not_a_crash(raw_line):
     ok_request = json.dumps(
         {"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}}
@@ -718,6 +709,71 @@ def test_non_object_params_gets_invalid_params():
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": [1]})
     )
     assert responses[0]["error"]["code"] == -32602
+
+
+# --------------------------------------------------------------------------
+# JSON-RPC 2.0 batch requests (a line whose top-level JSON value is an array)
+# --------------------------------------------------------------------------
+
+
+def test_empty_batch_array_gets_a_single_invalid_request():
+    ok_request = json.dumps(
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}}
+    )
+    rc, responses = _serve_lines("[]", ok_request)
+    assert rc == 0
+    assert len(responses) == 2
+    assert responses[0]["error"]["code"] == -32600
+    assert responses[1]["id"] == 99 and "result" in responses[1]
+
+
+def test_batch_of_malformed_items_returns_one_batch_of_errors():
+    # Every element (a bare int) is itself an invalid request -- the whole
+    # line still comes back as ONE combined array of error responses (JSON-
+    # RPC 2.0's own batch convention), not a single flat -32600 that used to
+    # swallow the fact this was a batch at all.
+    rc, responses = _serve_lines("[1, 2]")
+    assert rc == 0
+    assert len(responses) == 1
+    batch = responses[0]
+    assert isinstance(batch, list) and len(batch) == 2
+    assert all(item["error"]["code"] == -32600 for item in batch)
+
+
+def test_batch_dispatches_each_request_and_collects_the_responses():
+    batch = json.dumps(
+        [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "EchoRoot.Echo", "arguments": {}},
+            },
+        ]
+    )
+    rc, responses = _serve_lines(batch)
+    assert rc == 0
+    assert len(responses) == 1
+    items = responses[0]
+    # The notification produced NOTHING in the batch reply -- only the two
+    # requests that carried an id do.
+    assert [item["id"] for item in items] == [1, 2]
+    assert items[1]["result"]["content"][0]["text"] == "ok\n"
+
+
+def test_batch_of_only_notifications_gets_no_reply_at_all():
+    batch = json.dumps([{"jsonrpc": "2.0", "method": "notifications/initialized"}])
+    ok_request = json.dumps(
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}}
+    )
+    rc, responses = _serve_lines(batch, ok_request)
+    assert rc == 0
+    # No line at all for the all-notification batch; the request right
+    # after it still gets served normally.
+    assert len(responses) == 1
+    assert responses[0]["id"] == 99
 
 
 def test_non_string_tool_name_is_reported_not_crashed():
@@ -974,6 +1030,94 @@ def test_subprocess_non_ascii_argument_round_trips_as_utf8(tmp_path):
     # The docstring's own non-ASCII character must not have crashed tools/list.
     tools_result = responses[1]["result"]["tools"]
     assert any("caf" in (t["description"] or "") for t in tools_result)
+
+
+def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_path):
+    # Distinct from `test_subprocess_child_output_does_not_corrupt_the_protocol_stream`
+    # above: THIS write happens at MODULE IMPORT time, before `serve()` ever
+    # runs -- `main()` resolves (imports) `<app>` before it takes over the
+    # real stdio fds, so a stray module-level `print` used to land straight
+    # on the client-facing pipe as a non-JSON first line.
+    app_file = tmp_path / "import_noise_app.py"
+    app_file.write_text(
+        'print("IMPORT-TIME-NOISE")\n'
+        "from duho import Cli, Cmd\n"
+        "\n"
+        "class Hi(Cmd):\n"
+        '    """Says hi."""\n'
+        "    def __call__(self):\n"
+        '        print("hi")\n'
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """Noisy-at-import app."""\n'
+        "    _subcommands_ = [Hi]\n",
+        encoding="utf-8",
+    )
+    proc = _run_subprocess_app(
+        app_file,
+        "import_noise_app:App",
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "App.Hi", "arguments": {}},
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        ],
+    )
+    assert proc.returncode == 0, proc.stderr
+    lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+    # Every stdout line must be valid JSON -- the import-time print must have
+    # landed on stderr, never spliced in ahead of the protocol stream.
+    responses = [json.loads(ln) for ln in lines]
+    ids = [r["id"] for r in responses]
+    assert ids == [1, 2]
+    assert b"IMPORT-TIME-NOISE" in proc.stderr
+
+
+def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
+    tmp_path,
+):
+    app_file = tmp_path / "echo_utf8_app.py"
+    app_file.write_text(
+        "from duho import Cli, Cmd\n"
+        "\n"
+        "class Ping(Cmd):\n"
+        '    """Replies pong."""\n'
+        "    def __call__(self):\n"
+        '        print("pong")\n'
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """App."""\n'
+        "    _subcommands_ = [Ping]\n",
+        encoding="utf-8",
+    )
+    bad_line = b'{"jsonrpc": "2.0", "id": 50, "method": "ping", "x": "\xff"}\n'
+    good_line = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 51,
+                "method": "tools/call",
+                "params": {"name": "App.Ping", "arguments": {}},
+            }
+        ).encode("utf-8")
+        + b"\n"
+    )
+    proc = _run_subprocess_app(
+        app_file, "echo_utf8_app:App", None, input_bytes=bad_line + good_line
+    )
+    assert proc.returncode == 0, proc.stderr
+    lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+    responses = [json.loads(ln) for ln in lines]
+    # The invalid line gets a parse error instead of killing the server --
+    # the well-formed request right after it still gets a real reply.
+    assert responses[0]["error"]["code"] == -32700
+    assert responses[1]["id"] == 51
+    assert responses[1]["result"]["content"][0]["text"].strip() == "pong"
 
 
 # --------------------------------------------------------------------------

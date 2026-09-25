@@ -46,13 +46,15 @@ class RecordingAsync(Cmd):
     async def _run(self):
         import asyncio
 
-        RUN_LOOP_IDS[self.target] = id(asyncio.get_running_loop())
+        RUN_LOOPS[self.target] = asyncio.get_running_loop()
         return 3
 
 
 #: Populated by RecordingAsync._run, keyed by the target name it was dispatched
 #: with -- lets a test assert distinct calls actually ran on distinct loops.
-RUN_LOOP_IDS: "dict[str, int]" = {}
+#: Holds the loop objects themselves: comparing ``id()`` of loops that were
+#: already closed and freed is unreliable, because CPython reuses the address.
+RUN_LOOPS: "dict[str, asyncio.AbstractEventLoop]" = {}
 
 
 def test_async_call_returns_exit_code():
@@ -96,7 +98,7 @@ def test_async_fanout_gives_each_call_its_own_run():
     its own asyncio.run per call (no shared loop)."""
     from duho.fanout import run_targets
 
-    RUN_LOOP_IDS.clear()
+    RUN_LOOPS.clear()
 
     def make_call(target):
         inst = RecordingAsync()
@@ -108,5 +110,5 @@ def test_async_fanout_gives_each_call_its_own_run():
     # not merely "some non-zero code".
     assert rc == 3
     # Each target actually ran its own coroutine, on its own event loop.
-    assert set(RUN_LOOP_IDS) == {"a", "b"}
-    assert RUN_LOOP_IDS["a"] != RUN_LOOP_IDS["b"]
+    assert set(RUN_LOOPS) == {"a", "b"}
+    assert RUN_LOOPS["a"] is not RUN_LOOPS["b"]

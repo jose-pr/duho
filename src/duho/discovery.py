@@ -784,6 +784,30 @@ def _looks_like_path(source: object) -> bool:
     return False
 
 
+def _is_empty_source(source: object) -> bool:
+    """True if ``source`` is a bare empty string, or an ``os.PathLike`` whose
+    ``__fspath__()`` returns ``""``.
+
+    Either would otherwise resolve to the current working directory as a
+    SIDE EFFECT of a blank/uninitialised value (e.g. ``discover_commands(cfg
+    .get("cmds_dir", ""))`` with the key unset), rather than the deliberate,
+    explicit ``"."`` a caller writes to actually mean "scan my own current
+    directory". A real ``pathlib.Path`` can never reach here empty:
+    ``pathlib.Path("")`` already normalises to ``Path(".")`` at CONSTRUCTION
+    time, before this function ever sees it -- so an already-built ``Path``,
+    ``Path("")`` and ``Path(".")`` alike, is always the explicit, allowed
+    spelling, never rejected here.
+    """
+    if isinstance(source, str):
+        return source == ""
+    if isinstance(source, _os.PathLike) and not isinstance(source, _Path):
+        try:
+            return _os.fspath(source) == ""
+        except TypeError:  # pragma: no cover - a broken __fspath__
+            return False
+    return False
+
+
 def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
     """Discover commands from a package name or a directory, resiliently.
 
@@ -816,9 +840,26 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
     unexpected runtime errors) propagates: a genuinely broken command file is a
     real bug the author wants surfaced, not silently swallowed.
 
+    **An empty source is rejected outright** (``ValueError``): a bare ``""``
+    or an ``os.PathLike`` whose ``__fspath__()`` is ``""`` would otherwise
+    silently discover the current working directory as a side effect of a
+    blank/uninitialised value (a security-relevant fix -- this is also the
+    path :func:`duho.runtime.app`'s ``source=`` argument goes through, so
+    ``app(source="")`` is covered the same way). Pass ``"."`` explicitly (a
+    string, or any ``Path``/``os.PathLike`` -- ``Path("")`` included, since it
+    already normalises to ``Path(".")`` before reaching here) to deliberately
+    scan the current directory.
+
     The result is sorted by resolved subcommand name for deterministic
     ``--help`` output (filesystem iteration order is OS-dependent).
     """
+    if _is_empty_source(source):
+        raise ValueError(
+            "discover_commands(): an empty source is never valid -- it would "
+            "silently discover the current working directory as a side "
+            "effect of a blank/uninitialised value; pass '.' explicitly if "
+            "that is intended"
+        )
     if _looks_like_path(source):
         commands = _discover_from_path(_Path(source))
     else:

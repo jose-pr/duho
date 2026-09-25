@@ -140,10 +140,25 @@ class TestPaths:
         assert result == [drive_path]
 
     def test_pathsep_override(self, monkeypatch):
-        # PATHSEP forces the separator regardless of platform.
-        monkeypatch.setenv("PATHSEP", "|")
+        # This app's OWN prefixed <PREFIX>PATHSEP forces the separator
+        # regardless of platform -- a bare, global PATHSEP no longer does
+        # (see test_bare_unprefixed_pathsep_does_not_override below: a
+        # security fix, since an unprefixed PATHSEP is set for every duho
+        # app on the machine, not just this one).
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "|")
         monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
         assert Env("ma").paths("CMDS_PATH") == ["x", "y", "z"]
+
+    def test_bare_unprefixed_pathsep_does_not_override(self, monkeypatch):
+        # A security fix: a bare, unprefixed PATHSEP (set for some wholly
+        # unrelated program on the same machine) must NOT affect this app's
+        # separator -- only its OWN <PREFIX>PATHSEP does (see above).
+        monkeypatch.setenv("PATHSEP", "|")
+        monkeypatch.delenv("MA_PATHSEP", raising=False)
+        monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
+        # Falls back to the real os.pathsep, so "x|y|z" stays ONE entry.
+        assert Env("ma").paths("CMDS_PATH") == ["x|y|z"]
 
     def test_custom_type(self, monkeypatch):
         import os
@@ -196,6 +211,42 @@ class TestPaths:
         and must still be returned -- dropping empties must not overreach."""
         monkeypatch.setenv("MA_CMDS_PATH", ".")
         assert Env("ma").paths("CMDS_PATH", ty=pathlib.Path) == [pathlib.Path(".")]
+
+    @pytest.mark.skipif(
+        _os.name != "nt", reason="a bare drive segment only arises on Windows"
+    )
+    def test_bare_drive_segment_rejected(self, monkeypatch):
+        """A misconfigured separator that splits an absolute Windows path on
+        its own drive-letter colon (``PATHSEP=\\`` on ``C:\\...\\cmds``)
+        produces a bare ``"C:"`` segment -- Windows resolves that to "the
+        current directory on drive C", an ambient lookup that must be
+        rejected outright rather than silently importing whatever that
+        happens to be (a security-relevant fix)."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "\\")
+        monkeypatch.setenv("MA_CMDS_PATH", "C:\\Users\\someone\\cmds")
+        with pytest.raises(ValueError, match="bare drive segment"):
+            Env("ma").paths("CMDS_PATH")
+
+    def test_segment_resolving_to_cwd_rejected(self, monkeypatch, tmp_path):
+        """A segment that resolves to the CURRENT WORKING DIRECTORY -- by
+        whatever means -- is rejected the same way, unless it is spelled
+        exactly '.' (see test_explicit_dot_segment_is_still_honored)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_CMDS_PATH", str(tmp_path))
+        with pytest.raises(ValueError, match="current working directory"):
+            Env("ma").paths("CMDS_PATH")
+
+    def test_dot_segment_allowed_even_though_it_resolves_to_cwd(
+        self, monkeypatch, tmp_path
+    ):
+        """The one exception to the rule above: '.' is the explicit,
+        documented way to mean the CWD, and must not be rejected."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_CMDS_PATH", ".")
+        assert Env("ma").paths("CMDS_PATH") == ["."]
 
 
 class TestIterAndLen:

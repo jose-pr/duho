@@ -16,7 +16,9 @@ raises ``TypeError``.
 import collections.abc as _abc
 import importlib as _importlib
 import os as _os
+import re as _re
 import typing as _ty
+from pathlib import Path as _Path
 
 from . import _compat as _compat
 
@@ -49,6 +51,14 @@ _List = list
 _VALID_PREFIX_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 )
+
+#: A bare drive segment (``"C:"``, no trailing separator/backslash) -- Windows
+#: resolves this to "the current directory on drive C", an implicit, ambient
+#: lookup that is never a legitimate :meth:`Env.paths` entry. Splitting an
+#: absolute Windows path on its OWN drive-letter colon (e.g. a ``PATHSEP``
+#: of ``"\\"`` splitting ``"C:\...\cmds"``) produces exactly this segment as
+#: its first piece -- rejecting it outright closes that route to the CWD.
+_BARE_DRIVE_RE = _re.compile(r"^[A-Za-z]:$")
 
 __all__ = ["Env"]
 
@@ -240,10 +250,15 @@ class Env(_abc.MutableMapping):
         like ``HOSTS``), this splits on the **platform path-list separator** --
         ``os.pathsep`` (``";"`` on Windows, ``":"`` on POSIX) -- so an absolute
         Windows path's drive-letter colon (``C:\\...``) is never mis-split into a
-        bogus ``C`` entry. A ``PATHSEP`` environment variable overrides the
-        separator when set (``sep = os.environ.get("PATHSEP") or os.pathsep``),
-        so a caller can force a separator regardless of platform. Missing/empty
-        yields ``[]``, exactly like :meth:`list`.
+        bogus ``C`` entry. This app's OWN ``<PREFIX>PATHSEP`` key (``self.get
+        ("PATHSEP", None)``) overrides the separator when set, so a caller can
+        still force a separator regardless of platform -- SCOPED to this app's
+        prefix, never a bare/global ``PATHSEP`` read straight off
+        ``os.environ``: that used to let ANY process-wide ``PATHSEP`` (set for
+        a wholly unrelated program) bypass every safety rule below for every
+        duho app on the system, splitting e.g. ``C:\\...\\cmds`` on its own
+        drive-letter colon into a bare ``C:`` segment (a security-relevant
+        fix). Missing/empty yields ``[]``, exactly like :meth:`list`.
 
         An empty or whitespace-only SEGMENT -- from a leading, trailing, or
         doubled separator (the common ``X="$X:/extra"`` append idiom run while
@@ -253,14 +268,56 @@ class Env(_abc.MutableMapping):
         segment used to become ``ty("")`` -- ``Path("")`` is ``Path(".")`` --
         which glob-imported and executed every file in the CWD (a security-relevant fix).
         A caller who genuinely wants the current directory writes it
-        explicitly as a ``"."`` segment, which IS still honoured. Note this
-        method does NOT delegate to :meth:`list` -- ``list``'s generic contract
-        (arbitrary ``sep``/``ty``, e.g. ``env.list("PORTS", ty=int)``) is left
-        unchanged, since dropping empty items there is a separate, unrelated
-        decision for non-path lists.
+        explicitly as a ``"."`` segment, which IS still honoured.
+
+        Two more segment shapes are rejected outright (``ValueError``), both
+        ways an attacker-controlled separator can still smuggle the CWD in
+        even past the empty-segment rule above:
+
+        * a **bare drive letter** (``"C:"``, matching ``^[A-Za-z]:$``) --
+          Windows resolves this to "the current directory on drive C", an
+          ambient lookup that is never a legitimate entry on its own (the
+          shape a backslash/colon ``PATHSEP`` produces by splitting an
+          absolute Windows path on its own drive-letter colon).
+        * any OTHER segment that **resolves to the current working
+          directory** -- unless it is spelled exactly ``"."`` (the one
+          explicitly honoured way to mean the CWD).
+
+        Note this method does NOT delegate to :meth:`list` -- ``list``'s
+        generic contract (arbitrary ``sep``/``ty``, e.g. ``env.list("PORTS",
+        ty=int)``) is left unchanged, since dropping/rejecting segments here is
+        a separate, unrelated decision for non-path lists.
         """
-        sep = _os.environ.get("PATHSEP") or _os.pathsep
+        sep = self.get("PATHSEP", None) or _os.pathsep
         raw = self.get(key, "")
         if not raw:
             return []
-        return [ty(part) for part in raw.split(sep) if part.strip()]
+        result: "_List[_T]" = []
+        cwd: "_Path | None" = None
+        for part in raw.split(sep):
+            part = part.strip()
+            if not part:
+                continue
+            if part == ".":
+                result.append(ty(part))
+                continue
+            if _BARE_DRIVE_RE.match(part):
+                raise ValueError(
+                    f"{key!r} entry {part!r} is a bare drive segment -- "
+                    f"Windows resolves it to the current directory on that "
+                    f"drive; use an actual path, or '.' for the CWD"
+                )
+            try:
+                resolved = _Path(part).expanduser().resolve()
+            except OSError:  # pragma: no cover - an unresolvable path
+                resolved = None
+            if resolved is not None:
+                if cwd is None:
+                    cwd = _Path.cwd().resolve()
+                if resolved == cwd:
+                    raise ValueError(
+                        f"{key!r} entry {part!r} resolves to the current "
+                        f"working directory; spell it '.' if that is intended"
+                    )
+            result.append(ty(part))
+        return result

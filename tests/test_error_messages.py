@@ -209,7 +209,10 @@ def test_bare_literal_invalid_choice_message(capsys):
     with pytest.raises(SystemExit):
         duho.parse(_BareLiteralArgs, ["--mode", "nope"])
     err = capsys.readouterr().err
-    assert "invalid choice: 'nope' (choose from 'fast', 'slow')" in err
+    # argparse itself renders each choice in the "(choose from ...)" list --
+    # unquoted on 3.14.3, quoted (`'fast', 'slow'`) on 3.14.6 -- so only the
+    # quoting around each CHOICE is optional here, never the invalid value.
+    assert re.search(r"invalid choice: 'nope' \(choose from '?fast'?, '?slow'?\)", err)
 
 
 class _BareChoiceArgs(Args):
@@ -223,7 +226,9 @@ def test_bare_choice_invalid_choice_message(capsys):
     with pytest.raises(SystemExit):
         duho.parse(_BareChoiceArgs, ["--ch", "z"])
     err = capsys.readouterr().err
-    assert "invalid choice: 'z' (choose from 'a', 'b')" in err
+    # See test_bare_literal_invalid_choice_message: argparse's own choice
+    # quoting in "(choose from ...)" differs between 3.14 patch releases.
+    assert re.search(r"invalid choice: 'z' \(choose from '?a'?, '?b'?\)", err)
 
 
 class _MsgColor(enum.Enum):

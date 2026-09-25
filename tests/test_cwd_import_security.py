@@ -145,7 +145,15 @@ def test_pathsep_backslash_bare_drive_segment_never_imports_cwd(evil_cwd, monkey
 def test_pathsep_backslash_rejected_directly(evil_cwd, monkeypatch):
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("MYAPP_PATHSEP", "\\")
-    monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmds))
+    # A native Windows `str(cmds)` already starts with a drive letter, so the
+    # ORIGINAL reproduction just split it as-is. On POSIX there is no drive
+    # letter to split on at all (`str(cmds)` has no backslash in it, so
+    # PATHSEP="\\" would not mis-split it into anything). The bare-drive
+    # check itself (`_BARE_DRIVE_RE`) is a plain string match with no
+    # platform dependency, so prepending a synthetic "C:" segment ourselves
+    # reproduces the identical mis-split on every OS instead of relying on
+    # a real drive letter that only exists on one of them.
+    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:\\" + str(cmds))
     env = Env("myapp", autoload=False)
     with pytest.raises(ValueError, match="bare drive segment"):
         env.paths("CMDS_PATH")
@@ -157,10 +165,14 @@ def test_pathsep_forward_slash_adversarial_split_never_imports_cwd(
 ):
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("MYAPP_PATHSEP", "/")
-    # A forward-slash-style absolute path splits on its OWN drive letter,
-    # the same shape a backslash separator produces from a native Windows
-    # path.
-    monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmds).replace("\\", "/"))
+    # Same idea as the backslash case above, with "/" as the separator: a
+    # forward-slash-style absolute Windows path splits on its OWN drive
+    # letter, but POSIX has no drive letter (and "/" is already its native
+    # separator, so a real POSIX path splits into plain directory-name
+    # fragments, none of which independently reproduces the attack).
+    # Prepending a synthetic "C:" segment reproduces the same mis-split
+    # (and the same rejection) on every OS.
+    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:/" + str(cmds).replace("\\", "/"))
     env = Env("myapp", autoload=False)
     with pytest.raises(ValueError):
         env.paths("CMDS_PATH")

@@ -522,10 +522,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`duho.__version__` now matches the released version.** It had been left at
   `0.5.1` while `pyproject.toml` went to `0.5.2` and then `0.5.3`, so an
   installed `duho==0.5.3` reported `0.5.1` from a public, documented attribute.
-  Both places still state the version literally (`pyproject.toml` deliberately
-  keeps saying it out loud rather than deferring to
-  `[tool.hatch.version] path = ...`), and a new `tests/test_version_sync.py`
-  fails whenever the two disagree.
+  `tests/test_version_sync.py` now fails whenever the two disagree.
 - **`Env.bool` accepts `on`.** The layered env/config bool converter has always
   taken `on`, so a variable spelled `ON` read as `True` through a declared
   field and silently as `False` through `Env.bool`. The truthy set is now
@@ -534,18 +531,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   converter raises).
 
 ### Changed
-- Corrected two stale docstrings that described behavior the code had already
-  moved past: `RunPathCmd._runpath_logger_` still documented the pre-0.5.3
-  `"duho"` fallback (the code correctly returns the `duho.runpath` module
-  logger, and deliberately does *not* mirror `ModuleCommand._logger_for`, whose
-  `"duho"` fallback is intentional because it is handed to user hook code), and
-  `LoggingArgs._verbose_loglevel_` claimed to return "a log level name" when it
-  returns the numeric level. No behavior change; each had been inviting a
-  "fix" that would have reverted correct code.
-- Removed a dead `aborted` flag from `RunPathCmd.__call__`. A strict step
-  failure raised on the line immediately after setting it, so the later
-  `not aborted` guard could never observe it as `True`; the `success()` hook
-  gating already worked purely by exception propagation.
+- Corrected two stale docstrings: `RunPathCmd._runpath_logger_` documented a
+  pre-0.5.3 `"duho"` fallback (it returns the `duho.runpath` module logger;
+  `ModuleCommand._logger_for`'s own `"duho"` fallback, handed to user hook
+  code, is unaffected), and `LoggingArgs._verbose_loglevel_` documented
+  returning a log level name when it returns the numeric level. No behavior
+  change.
+- Removed a dead `aborted` flag from `RunPathCmd.__call__`; a strict step
+  failure already raised before the later `not aborted` guard could run it.
+  No behavior change.
 
 ## [0.5.3] - 2026-08-05
 
@@ -601,11 +595,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   too, without a decorator in every step file. The *adapted* callable is what
   arity detection inspects, so a wrapper may change the signature; returning
   the entrypoint unchanged leaves duho-native steps alone. Pass `None` to clear
-  it, omit the argument to leave it unchanged.
-
-  Purely additive: the default is `None`, which calls steps exactly as before.
-  Unlike `base`, it is consulted per step run, so it also affects
-  already-built commands.
+  it, omit the argument to leave it unchanged. The default is `None`, which
+  calls steps exactly as before. Unlike `base`, it is consulted per step run,
+  so it also affects already-built commands.
 
 ## [0.5.1] - 2026-07-24
 
@@ -750,8 +742,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`str`/`int`/`float`/`bool`, `Literal`/`Enum`, `list`/`set`/`tuple`/`dict`,
   `Optional`/`Union`, `pathlib.Path`) to a JSON Schema fragment, reusing
   `duho._introspect.get_clsargs` + `cls._getargs_()` (the same per-field data
-  `duho.agenthelp` collects, per Decision 2 -- `agenthelp` itself is
-  untouched). `describe_tools(root_cls)` walks the built parser tree (reusing
+  `duho.agenthelp` collects; `agenthelp` itself is untouched).
+  `describe_tools(root_cls)` walks the built parser tree (reusing
   `duho.agenthelp.describe_parser`'s alias-dedup-by-identity) so every `Cmd` in
   a `_subcommands_` tree -- root included -- becomes one tool, namespaced
   `parent.child` when nested. `call_tool(root_cls, name, arguments)`
@@ -846,16 +838,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `_psq` helper applies PowerShell single-quote doubling so a hostile choice can
   neither break out of the script nor be expanded.
 
-### Documentation
+### Changed
 - Documented that **negative numbers** work as values out of the box (option
   values and positionals) via argparse's `_negative_number_matcher`, with the
   `NS(kwargs=...)` escape hatch for the rare `-1`-style flag; added a regression
-  test. (Plan 04 rejected "negative-number handling" as a feature.)
+  test.
 - Documented using an **`enum.IntEnum` as exit codes** — an `IntEnum` return from
   `__call__` propagates as the process exit code unchanged (it is an `int`); added
-  a test. (Plan 04 rejected "exit-code enum" as a feature.)
-
-### Performance
+  a test.
 - **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
   `_version_ = duho.AUTO` branch, instead of at module top. A plain
   `import duho` no longer pays its ~20-30 ms cost; only a class that opts into
@@ -878,8 +868,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 Combined, P1-P5 cut fresh-process `import duho` from ~75 ms to ~51 ms and
 end-to-end import+build+parse from ~90 ms to ~55 ms, and the cold 10-subcommand
 tree build from ~41 ms to ~10 ms (min, reference machine).
-
-### Changed
 - **P6** Benchmark harness upgraded so the wins stay visible: fresh-process
   startup deltas (`benchmarks/bench_startup.py`), subcommand-tree scaling and a
   field-type matrix (`benchmarks/run.py`), a command-discovery benchmark
@@ -888,6 +876,8 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
   >1.5x on warm-metric medians / >1.3x on startup deltas). `compare_cache.py`
   output is re-labelled cold-vs-warm (the cold path is what real invocations
   pay). All benchmark tooling is stdlib-only and stays excluded from the sdist.
+- **BREAKING (C11)** `duho.Env.list` returns `[]` for a missing or empty
+  value instead of the previous `[ty("")]` single-empty-element contract.
 
 ### Fixed
 - `CMDS_PATH` command-search-path resolution now splits on the platform path
@@ -1002,16 +992,14 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
 - **fish** Single-dash multi-char flags are emitted with `-o` (old-style) rather
   than `-s`, and a subcommand's `-d` description is its one-line help.
 
-### Changed
-- **C11 (breaking-ish)** `duho.Env.list` returns `[]` for a missing or empty
-  value instead of the previous `[ty("")]` single-empty-element contract.
+## [0.3.3] - 2026-07-18
 
 ### Changed
 - Internal tidy-up (no behavior change): removed unused imports (`typing` in
   `completion`, `argparse` in `presets`, `stat` in `scaffold`) and an orphaned
   dead helper (`_zsh_value_spec`) plus its unused-result callers in `completion`.
-  The `from logging import *` under `TYPE_CHECKING` in `logging` is intentional
-  (re-exports stdlib logging names for type checkers) and is retained.
+  The `from logging import *` under `TYPE_CHECKING` in `logging` re-exports
+  stdlib logging names for type checkers and is retained.
 
 ## [0.3.2] - 2026-07-18
 
@@ -1302,9 +1290,6 @@ Initial release.
   each end of the scale), `--loglevel` for global or per-module levels, colored
   stderr output (optional `colorama`), and a `TRACE` level.
 - Type hints ship with the package (`py.typed`).
-
-### Notes
-
 - Zero required runtime dependencies. Optional extras: `colorama` (colored
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
@@ -1323,4 +1308,4 @@ Initial release.
 [0.3.0]: https://github.com/jose-pr/duho/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jose-pr/duho/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jose-pr/duho/releases/tag/v0.1.1
-[0.1.0]: https://github.com/jose-pr/duho/releases/tag/v0.1.0
+[0.1.0]: https://pypi.org/project/duho/0.1.0/

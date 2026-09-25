@@ -685,8 +685,8 @@ def _register_module_command(
     # never touched by `Args._initparser_`'s patching -- so it never got the
     # flag-between-positionals reorder fix declarative `Args`/`Cmd`
     # subcommands get. Patch it now that every field (declared + register
-    # hook) is in place, so `_has_variadic_and_sibling_positional` sees the
-    # parser's final shape.
+    # hook) is in place, so `_has_variadic_positional` sees the parser's
+    # final shape.
     _patch_parser_for_reorder(parser)
 
 
@@ -783,7 +783,7 @@ def _apply_app_config_layers(
       module command may declare a module-level ``Args`` class) has NO
       ``_initparser_`` hook at all (its subparser is a deliberately bare
       stdlib one -- see this module's own docstring), so its table is applied
-      EAGERLY, immediately, the pre-27 way.
+      EAGERLY, immediately, rather than deferred.
 
     A module command's own env/config-bound field, once laid on eagerly
     above, gets the SAME "never show the live value" redaction a class

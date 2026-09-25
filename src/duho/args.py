@@ -125,8 +125,11 @@ class Meta:
 
     ``NS(...)`` is an untyped ``argparse.Namespace``: a misspelled key
     (``NS(hlep="oops")``) is silently dropped. ``Meta`` declares the known
-    metadata fields as a dataclass, so an unknown keyword is a ``TypeError`` at
-    class-definition time -- the whole point. Only the fields you set are merged
+    metadata fields as a dataclass, so an unknown keyword is a ``TypeError`` --
+    the whole point -- raised as soon as the annotation is evaluated: at
+    class-definition time on Python 3.9-3.13 with eager annotations, or at
+    first parser build on 3.14+ (PEP 649), under string annotations, or with
+    ``from __future__ import annotations``. Only the fields you set are merged
     (each defaults to a private sentinel); every key ``NS`` accepts EXCEPT
     ``dest`` (see below) is also a ``Meta`` field, and ``NS`` keeps working
     forever.
@@ -1715,9 +1718,10 @@ def _reorder_argv_for_variadic_positional(
                 continue
             if action.nargs is not None:
                 # The flag's OWN nargs is variable (`"*"`/`"+"`/`"?"`) or an
-                # explicit fixed count -- e.g. a `list[T]` field's default
-                # `action="extend", nargs="*"` builder. Confirmed this
-                # session (bare stdlib): a variadic-nargs FLAG placed
+                # explicit fixed count -- e.g. a variadic positional's own
+                # `nargs="*"`, or an OPTION field given an explicit
+                # `NS(nargs="*")` override. Confirmed (bare stdlib): a
+                # variadic-nargs FLAG placed
                 # directly before positional values, with no separator, is
                 # AMBIGUOUS FOR ARGPARSE ITSELF -- even correctly-ordered
                 # argv silently misparses (extra tokens get absorbed into
@@ -2639,16 +2643,17 @@ def Extend(
 ) -> "_argparse.Namespace":
     """Create a collection argument whose text is split on ``split`` first.
 
-    ``list[str]``'s own default builder sets ``nargs="*"`` (so a plain list
-    field accepts both ``--x a --x b`` and ``--x a b``); combined with a
-    factory that SPLITS one token into several, that combination
-    double-collects: argparse gathers ``nargs="*"`` tokens first and applies
-    the factory to EACH ONE individually, so a token's split result (itself a
+    A ``list[str]`` OPTION's own default builder already takes ``nargs=None``
+    (one value per flag occurrence); a VARIADIC positional, or an option with
+    an explicit ``NS(nargs="*")`` override, instead gathers several raw
+    tokens per occurrence. Combined with a factory that SPLITS one token into
+    several, that shape would double-collect: argparse applies the factory to
+    EACH gathered token individually, so a token's split result (itself a
     list, e.g. ``"a,b"`` -> ``["a", "b"]``) would be appended as ONE nested
     element instead of being flattened -- ``--rcopts '!*,build'`` becoming
     ``[['!*', 'build']]``, not ``['!*', 'build']``. Explicitly overriding
-    ``nargs=None`` here (a single string per flag occurrence, argparse's own
-    default) avoids the double-collection.
+    ``nargs=None`` here (a single string per flag occurrence) avoids the
+    double-collection regardless of what the field's own default would be.
 
     The split parts are mapped through the field's OWN element factory (so
     ``Arg[list[int], Extend(",")]`` yields ints, not strings) and fed to
@@ -2682,9 +2687,10 @@ def Count(**kw: object) -> "_argparse.Namespace":
 def Append(type: "Factory" = str, **kw: object) -> "_argparse.Namespace":
     """Create an append-action argument, accumulating repeated flag values.
 
-    Explicitly clears nargs: a bare `list`/`list[T]` annotation's implicit
-    builder defaults to action="extend", nargs="*" (space-separated), which
-    would make append() collect a *list* per occurrence instead of a scalar.
+    Explicitly clears nargs to `None` (one scalar value per flag occurrence)
+    regardless of the field's own declared collection kind or any ambient
+    `NS(nargs=...)`, so `append()` always collects one scalar per occurrence
+    instead of gathering a list of tokens per occurrence.
     """
     return NS(action="append", type=type, nargs=None, kwargs=kw)
 

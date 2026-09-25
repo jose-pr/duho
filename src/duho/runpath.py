@@ -389,7 +389,11 @@ _TOKEN_SEPARATORS = ":;"
 
 
 def _split_tokens(text: str) -> "_ty.List[str]":
-    """Split ``text`` on any run of ``:``/``;`` (see :data:`_TOKEN_SEPARATORS`)."""
+    """Split ``text`` on each ``:``/``;`` character (see :data:`_TOKEN_SEPARATORS`).
+
+    A doubled separator (``"a::b"``) yields an empty-string token between
+    them (``["a", "", "b"]``), not a collapsed run.
+    """
     return _re.split("[" + _TOKEN_SEPARATORS + "]", text)
 
 
@@ -1481,9 +1485,11 @@ def register(
     ``app(source=...)`` glob ``.py`` files directly and never consult command
     providers, so pointed at a step directory they register each step FILE as
     its own single-step ``ModuleCommand`` instead of an ordered RunPath).
-    Called automatically when ``duho.runpath`` is imported; call it explicitly
-    if you prefer no import side effects (import the module then... it's
-    already registered -- see :func:`unregister` to opt back out).
+    Called automatically (with the default ``base``/``step_adapter``) as a
+    side effect of ``import duho.runpath`` -- most apps never need to call it
+    at all. Call it explicitly, after the import, when you want a non-default
+    ``base``/``step_adapter``; see :func:`unregister` to remove the provider
+    entirely instead.
 
     ``base`` (default ``None`` -> keeps the CURRENT :data:`_BASE`, which is
     ``LoggingArgs`` until changed) sets the class every subsequently-built

@@ -296,11 +296,14 @@ class ModuleCommand:
         # walks the MRO -- without the author needing to import/subclass
         # `duho.Args` or the app's root explicitly).
         #
-        # A STRICT-subclass check distinguishes "a real declared class" from
-        # "the module did `from duho import Args` for its own use but never
-        # subclassed it" -- `getattr(module, "Args", None)` would resolve to
-        # `duho.args.Args` (or `Cmd`/`Cli`) itself there, which this correctly
-        # treats as "nothing declared", not a usable class.
+        # An identity check (not a subclass check) distinguishes "a real
+        # declared class" from "the module did `from duho import Args` for
+        # its own use but never subclassed it" -- `getattr(module, "Args",
+        # None)` would resolve to `duho.args.Args` (or `Cmd`) itself there,
+        # which this correctly treats as "nothing declared", not a usable
+        # class. A subclass of either (including one that also mixes in
+        # `Cli`) still passes, since `not in (_Args, _Cmd)` only excludes the
+        # two bare base classes themselves.
         args_cls = getattr(module, "Args", None)
         self.args_cls: "type | None" = (
             args_cls

@@ -154,6 +154,23 @@ def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):
     )
 
 
+class _NoSourceNoFields(_NoSourceWithFields):
+    """A plain subclass declaring NO fields of its own -- only inherits
+    `_NoSourceWithFields.name` via the MRO. On Python 3.9,
+    `getattr(cls, "__annotations__", None)` follows the MRO and returns the
+    BASE's annotations here, spuriously warning about a class that has
+    nothing of its own to lose."""
+
+
+def test_missing_source_does_not_warn_for_a_subclass_with_no_own_fields(caplog):
+    with mock.patch.object(_introspect, "getclsdef", return_value=None):
+        with caplog.at_level(logging.WARNING, logger="duho._introspect"):
+            _introspect.get_clsargs(_NoSourceNoFields)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("_NoSourceNoFields" in r.getMessage() for r in warnings)
+
+
 def test_loggingargs_flags_survive_a_missing_source(tmp_path):
     """LoggingArgs seeds `_duho_constants_` itself (like Args/Cmd/Cli),
     so its own -v/-q/--loglevel flags -- and now --verbose/--quiet too --

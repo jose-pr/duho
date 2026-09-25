@@ -199,7 +199,27 @@ def _class_constants(cls: type) -> "dict[str, list]":
     if cls.__module__ not in _SKIP_MODULES:
         clsdef = getclsdef(cls)
         if clsdef is None:
-            if getattr(cls, "__annotations__", None):
+            # Never `getattr(cls, "__annotations__", None)`: on Python 3.9,
+            # that FOLLOWS THE MRO when `cls` itself declares no annotations
+            # of its own, silently returning an ancestor's `__annotations__`
+            # instead -- so a plain subclass with no fields of its own
+            # (RunPath's generated command classes, e.g.) spuriously
+            # inherited its base's annotations and logged this warning on
+            # every run. `inspect.get_annotations` (3.10+) is the correct,
+            # non-inheriting way to ask "does `cls` ITSELF declare any" --
+            # it also transparently handles PEP 649's lazy `__annotate__`
+            # (3.14+), where a class's own annotations are NOT necessarily
+            # materialized into `vars(cls)["__annotations__"]` at all, so a
+            # plain `vars(cls).get("__annotations__")` would (wrongly) never
+            # find them even for a class that plainly declares its own.
+            # `inspect.get_annotations` doesn't exist yet on the 3.9 floor,
+            # where `vars(cls)` alone is already correct (no lazy mechanism
+            # to account for).
+            if hasattr(_inspect, "get_annotations"):
+                has_own_annotations = bool(_inspect.get_annotations(cls))
+            else:
+                has_own_annotations = bool(vars(cls).get("__annotations__"))
+            if has_own_annotations:
                 # A class with annotated fields whose source we could not locate
                 # (a PyInstaller/py2exe freeze, a .pyc-only install, Nuitka, REPL/
                 # exec, zipapp) silently loses its flags/env/docstrings -- every

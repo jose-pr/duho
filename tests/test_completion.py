@@ -4,6 +4,7 @@ import argparse
 import enum
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import typing as ty
@@ -276,6 +277,42 @@ def test_bash_function_name_is_namespaced_and_collision_resistant():
         func_a = script_a.splitlines()[1].split("(")[0]
         func_b = script_b.splitlines()[1].split("(")[0]
         assert func_a != func_b
+
+
+def test_zsh_sibling_function_names_do_not_collide():
+    """Two sibling subcommands that only differ in punctuation (`a-b`/`a_b`)
+    both sanitise to the same identifier fragment; without a hash suffix per
+    path segment, the second definition silently overwrote the first zsh
+    function, so completion for the first subcommand dispatched into the
+    second's instead."""
+
+    class ADash(Args):
+        """a-b"""
+
+        dash: bool = False
+        "dash-only flag"
+        ("--dash",)
+
+    class AUnder(Args):
+        """a_b"""
+
+        under: bool = False
+        "under-only flag"
+        ("--under",)
+
+    class Root(Args):
+        """root"""
+
+        _subcommands_ = [ADash, AUnder]
+
+    ADash._parsername_ = "a-b"
+    AUnder._parsername_ = "a_b"
+    parser = Root._parser_()
+    script = completion.zsh(parser)
+    funcids = set(re.findall(r"^(_[A-Za-z0-9_]+) \(\) \{", script, re.MULTILINE))
+    # One function per node (root + the two subcommands); no two collapse to
+    # the same name despite `a-b`/`a_b` sanitising identically.
+    assert len(funcids) == 3
 
 
 # --- Hostile choice values are escaped, not executed -----------------------

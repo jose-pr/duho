@@ -694,6 +694,44 @@ def test_zsh_positional_completion_does_not_error(tmp_path):
 
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_node_with_its_own_positional_still_reaches_its_subcommand(tmp_path):
+    """A node that has BOTH its own positional AND a subcommand
+    table shared one `_arguments -C` call between a plain numbered
+    positional and the `*::` rest spec, which made zsh's own bookkeeping of
+    "which word is which" ambiguous -- the subcommand was never reached at
+    all, on top of the dispatched child then misreading its own position
+    count (both fixed by folding everything into `*::` and by resetting
+    `$words`/`$CURRENT` explicitly before dispatch)."""
+
+    class Deploy(Args):
+        """deploy"""
+
+        force: bool = False
+        "force flag"
+        ("--force",)
+
+    Deploy._parsername_ = "deploy"
+
+    class EnvApp(Args):
+        """An app with a root positional AND a subcommand table."""
+
+        _completion_ = True
+        env: ty.Literal["prod", "dev"] = "dev"
+        "environment"
+        ("env",)
+        _subcommands_ = [Deploy]
+
+    parser = EnvApp._parser_()
+    parser.prog = "EnvApp"
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_EnvApp", script)
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_EnvApp", "EnvApp", "EnvApp prod deploy -")
+    assert "invalid argument" not in out
+    assert "--force" in out
+
+
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_hostile_subcommand_name_does_not_execute(tmp_path):
     """Security: a hostile `_parsername_` must not run as shell code
     when the root's subcommand list is completed."""
@@ -949,3 +987,21 @@ def test_powershell_hostile_choice_is_quoted_when_inserted(tmp_path):
     reply = _pwsh_complete(script, "hostileapp --mode ", tmp_path)
     assert "'dry run'" in reply
     assert "'$(rm -rf /)'" in reply
+@pytest.mark.skipif(_ZSH is None, reason="zsh not available")
+def test_zsh_dispatches_to_a_subcommand_name_needing_quotes(tmp_path):
+    """`$line` preserves whatever quoting the user themselves typed
+    around a subcommand name, so a bare (unquoted) case label like `'my
+    sub')` never matched `$line[1]` when the name needed quoting (a space
+    here) -- `${(Q)line[1]}` strips that quoting before the comparison."""
+    parser = argparse.ArgumentParser(prog="QuotedSub", add_help=False)
+    sub = parser.add_subparsers(dest="cmd")
+    sp = sub.add_parser("my sub")
+    sp.add_argument("--fast", action="store_true")
+    script = completion.zsh(parser)
+    fpath_dir = tmp_path / "comp"
+    _write_zsh_script(fpath_dir, "_QuotedSub", script)
+    out = _zsh_drive(
+        _ZSH, str(fpath_dir), "_QuotedSub", "QuotedSub", "QuotedSub 'my sub' -"
+    )
+    assert "invalid argument" not in out
+    assert "--fast" in out

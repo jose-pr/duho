@@ -308,6 +308,16 @@ def test_fish_choice_escaped_for_the_dynamic_eval_too():
     assert "it\\\\\\'s" in script
 
 
+def test_fish_word_always_escapes_percent():
+    """Unlike zsh, fish expands a bare `%self`/`%<job>` job-id token
+    even inside an already-`_fish_word`-escaped value, so `%` cannot share
+    zsh's safe set -- it must always be backslash-escaped for fish's
+    dynamic (second) evaluation."""
+    assert completion._fish_word("%self") == "\\%self"
+    # zsh's escaper is unaffected -- `%` stays in ITS safe set.
+    assert completion._zsh_word("%self") == "%self"
+
+
 def test_prog_with_whitespace_rejected():
     parser = _Danger._parser_()
     parser.prog = "evil prog"

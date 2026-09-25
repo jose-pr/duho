@@ -103,7 +103,10 @@ def _zsh_word(value: object) -> str:
     return "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
 
 
-_FISH_WORD_SAFE = _ZSH_WORD_SAFE
+# Unlike zsh, fish expands a bare `%self`/`%<job>` job-id token even inside a
+# value that has otherwise been through this escaper, so `%` cannot share
+# zsh's safe set: it must always be backslash-escaped.
+_FISH_WORD_SAFE = _ZSH_WORD_SAFE - frozenset("%")
 
 
 def _fish_word(value: object) -> str:
@@ -726,60 +729,122 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
 # --------------------------------------------------------------------------
 
 
-def _fish_seen(name: str) -> str:
-    return f"__fish_seen_subcommand_from {_fish_word(name)}"
+def _fish_func_name(root_prog: str) -> str:
+    """A collision-resistant fish function name for ``root_prog``'s resolved-
+    path helper, mirroring `_bash_func_name`'s hashing (distinct progs that
+    sanitise the same way, or a prog matching a fish builtin/another
+    completion's helper, still get distinct functions)."""
+    safe = _func_name(root_prog)
+    digest = _hashlib.sha1(root_prog.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"__duho_complete_{safe}_{digest}_path"
 
 
-def _fish_condition(spec: CompletionSpec) -> "str | None":
-    """Build the `-n` gating condition for `spec`'s own completions.
+def _fish_path_resolver(path_func: str, specs: "list[CompletionSpec]") -> "list[str]":
+    """Emit a fish function that resolves the (sub)command path typed so far.
 
-    The root is gated on `__fish_use_subcommand` (true only before any
-    subcommand has been chosen) -- but only when the app actually HAS
-    subcommands; otherwise there is nothing to gate against and no
-    condition is emitted. A deeper node chains one
-    `__fish_seen_subcommand_from <segment>` per path segment as SEPARATE
-    fish commands (`; and`, not the string `" and "`, which fish parses as
-    extra arguments to a single call -- the original bug), AND excludes
-    each of its OWN direct children (`; and not __fish_seen_subcommand_from
-    <child>`) so a grandchild's own flags/names don't also appear at this
-    level once the grandchild has been chosen.
+    `__fish_seen_subcommand_from <name>` only asks "does this word appear
+    ANYWHERE on the command line", with no notion of position or depth: a
+    subcommand name reused at a deeper level (root `run` vs. nested `db
+    run`) makes the ROOT `run` node's own gate true too, leaking its flags
+    into the nested one. Resolving the exact path by walking the command
+    line -- exactly as the bash and PowerShell emitters already do -- and
+    then gating on exact path equality removes the ambiguity entirely:
+    `commandline -opc` gives fish's own tokenized, already-dequoted words up
+    to the cursor, so (unlike bash/PowerShell) no extra quote-stripping is
+    needed to recognise a subcommand name the user had to quote.
     """
-    if not spec.path:
-        if not spec.subcommands:
-            return None
-        return "__fish_use_subcommand"
-    parts = [_fish_seen(p) for p in spec.path]
-    parts.extend(f"not {_fish_seen(c)}" for c in spec.subcommands)
-    return " ; and ".join(parts)
+    lines: "list[str]" = []
+    lines.append(f"function {path_func}")
+    lines.append("    set -l tokens (commandline -opc)")
+    lines.append("    set -l cmd_path ''")
+    lines.append("    set -l skip 0")
+    lines.append("    set -l n (count $tokens)")
+    lines.append("    for i in (seq 2 $n)")
+    lines.append("        set -l w $tokens[$i]")
+    lines.append("        if test $skip -gt 0")
+    lines.append("            set skip (math $skip - 1)")
+    lines.append("            continue")
+    lines.append("        end")
+    lines.append("        if string match -q -- '-*' $w")
+    lines.append("            set -l is_vflag 0")
+    for s in specs:
+        vflags = _value_flag_names(s)
+        if not vflags:
+            continue
+        lines.append(f'            if test "$cmd_path" = {_fsq(_cmd_key(s))}')
+        cond = " -o ".join(f'"$w" = {_fsq(f)}' for f in vflags)
+        lines.append(f"                if test {cond}")
+        lines.append("                    set is_vflag 1")
+        lines.append("                end")
+        lines.append("            end")
+    lines.append("            if test $is_vflag -eq 1")
+    lines.append("                set skip 1")
+    lines.append("            end")
+    lines.append("        else")
+    lines.append("            set -l is_sub 0")
+    for s in specs:
+        if not s.subcommands:
+            continue
+        lines.append(f'            if test "$cmd_path" = {_fsq(_cmd_key(s))}')
+        cond = " -o ".join(f'"$w" = {_fsq(n)}' for n in s.subcommands)
+        lines.append(f"                if test {cond}")
+        lines.append("                    set is_sub 1")
+        lines.append("                end")
+        lines.append("            end")
+    lines.append("            if test $is_sub -eq 1")
+    lines.append('                if test -n "$cmd_path"')
+    lines.append('                    set cmd_path "$cmd_path $w"')
+    lines.append("                else")
+    lines.append("                    set cmd_path $w")
+    lines.append("                end")
+    lines.append("            end")
+    lines.append("        end")
+    lines.append("    end")
+    lines.append("    echo $cmd_path")
+    lines.append("end")
+    lines.append("")
+    return lines
+
+
+def _fish_condition(spec: CompletionSpec, path_func: str) -> str:
+    """The `-n` gating condition for `spec`'s own completions: true exactly
+    when the resolved command path (from `path_func`) equals this node's
+    own path, so a node's flags and subcommand names appear only on its own
+    exact path -- never above, below, or at a same-named sibling path."""
+    return f"test ({path_func}) = {_fsq(_cmd_key(spec))}"
 
 
 def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a fish completion script (`complete -c <prog> ...` lines) for `parser`.
 
-    Each rule is gated by `_fish_condition` so a node's flags and
-    subcommand names appear only on its own exact path, not above or below
-    it. Choice/free-value options use `-x` (require a value, no file
-    completion mixed in); Path-typed options keep `-r -F` for fish's native
-    file completion. Every value reaching a `-a` or `-n`
-    argument -- which fish tokenizes and expands AGAIN at completion time --
-    is escaped for that second pass with `_fish_word` before being wrapped
-    for the static parse with `_fsq`, fish's own quoter that also escapes a
-    trailing backslash: `it's`, `dry run`, `$(touch x)` and a
-    Windows-style `C:\\` choice all round-trip as literal text instead of
-    running or corrupting the file.
+    Each rule is gated by `_fish_condition`, which resolves the exact
+    (sub)command path via a generated helper function (see
+    `_fish_path_resolver`) so a node's flags and subcommand names appear
+    only on its own exact path -- not above, below, or at a same-named
+    sibling path elsewhere in the tree. Choice/free-value options use `-x`
+    (require a value, no file completion mixed in); Path-typed options keep
+    `-r -F` for fish's native file completion. Every value reaching a `-a`
+    or `-n` argument -- which fish tokenizes and expands AGAIN at
+    completion time -- is escaped for that second pass with `_fish_word`
+    before being wrapped for the static parse with `_fsq`, fish's own
+    quoter that also escapes a trailing backslash: `it's`, `dry run`,
+    `$(touch x)` and a Windows-style `C:\\` choice all round-trip as literal
+    text instead of running or corrupting the file.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
     prog_q = _fsq(root_prog)
+    specs = _all_specs(root)
+    path_func = _fish_func_name(root_prog)
 
     lines: "list[str]" = []
     lines.append(f"# fish completion for {root_prog}")
     lines.append(f"complete -c {prog_q} -f")
     lines.append("")
+    lines.extend(_fish_path_resolver(path_func, specs))
 
-    for cspec in _all_specs(root):
-        cond = _fish_condition(cspec)
-        cond_args = ["-n", _fsq(cond)] if cond else []
+    for cspec in specs:
+        cond_args = ["-n", _fsq(_fish_condition(cspec, path_func))]
 
         for name, sub in cspec.subcommands.items():
             parts = (

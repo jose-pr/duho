@@ -721,6 +721,56 @@ def test_fish_completes_at_depth_two_without_leaking(tmp_path):
 
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")
+def test_fish_same_named_nested_subcommand_does_not_leak_parent_flags(tmp_path):
+    """`__fish_seen_subcommand_from <name>` only asks "does this word
+    appear ANYWHERE on the command line", with no notion of depth -- a
+    subcommand name reused at a deeper level (root `run` vs. nested `db
+    run`) made the ROOT `run` node's own gate true too, leaking its flags
+    into the nested one. Resolving the exact path (mirroring bash/PowerShell)
+    and gating on exact equality removes the ambiguity."""
+
+    class RootRun(Args):
+        """run at the root"""
+
+        fast: bool = False
+        "root run's own flag"
+        ("--fast",)
+
+    class DbRun(Args):
+        """run nested under db"""
+
+        dbrunflag: bool = False
+        "db run's own flag"
+        ("--dbrunflag",)
+
+    class Db(Args):
+        """db"""
+
+        _subcommands_ = [DbRun]
+
+    DbRun._parsername_ = "run"
+    RootRun._parsername_ = "run"
+    Db._parsername_ = "db"
+
+    class SameNameApp(Args):
+        """root"""
+
+        _completion_ = True
+        _subcommands_ = [RootRun, Db]
+
+    parser = SameNameApp._parser_()
+    parser.prog = "SameNameApp"
+    script = completion.fish(parser)
+    script_path = tmp_path / "samename.fish"
+    script_path.write_text(script, newline="\n")
+    out, err = _fish_drive(_FISH, script_path, "SameNameApp db run -", tmp_path)
+    assert err == ""
+    flags = {line.split("\t")[0] for line in out.splitlines() if line}
+    assert "--dbrunflag" in flags
+    assert "--fast" not in flags
+
+
+@pytest.mark.skipif(_FISH is None, reason="fish not available")
 def test_fish_choice_option_does_not_offer_files():
     """A choice option must use `-x`, not `-r` (which still allows
     file completion for its value alongside the declared choices)."""

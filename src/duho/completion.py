@@ -224,16 +224,20 @@ class CompletionPositional:
 class CompletionSpec:
     """Shell-agnostic view of a single (sub)parser and its subcommand tree."""
 
+    # Field order matters: this is a plain dataclass, so positional
+    # construction binds by position. `prog` through `help` matches the
+    # pre-existing order exactly; `path` (added later) goes LAST instead of
+    # in 2nd position, so it no longer shifts every field after it.
     prog: str
-    #: The subcommand names from the root down to THIS spec, e.g. ``("Db",
-    #: "Migrate")``; ``()`` for the root. Used by every emitter as the join
-    #: key for "which node am I completing" lookups.
-    path: "tuple[str, ...]" = ()
     options: "list[CompletionOption]" = _dc.field(default_factory=list)
     positionals: "list[CompletionPositional]" = _dc.field(default_factory=list)
     subcommands: "dict[str, CompletionSpec]" = _dc.field(default_factory=dict)
     #: One-line help for THIS (sub)command, used as the fish ``-d`` description.
     help: str = ""
+    #: The subcommand names from the root down to THIS spec, e.g. ``("Db",
+    #: "Migrate")``; ``()`` for the root. Used by every emitter as the join
+    #: key for "which node am I completing" lookups.
+    path: "tuple[str, ...]" = ()
 
 
 def _is_path_type(action: _argparse.Action) -> bool:

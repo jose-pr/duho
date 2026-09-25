@@ -99,6 +99,27 @@ def test_spec_is_the_public_entry_point():
     assert isinstance(completion.spec(parser), completion.CompletionSpec)
 
 
+def test_completion_spec_positional_field_order_matches_the_documented_prefix():
+    """``CompletionSpec`` is a plain dataclass, so positional construction
+    binds by position -- ``path`` (added after the original design) must sit
+    LAST, not in 2nd position, so it doesn't shift ``options``/
+    ``positionals``/``subcommands``/``help`` for a positional caller."""
+    spec = completion.CompletionSpec(
+        "myprog",  # prog
+        [],  # options
+        [],  # positionals
+        {},  # subcommands
+        "a help string",  # help
+        ("Sub",),  # path
+    )
+    assert spec.prog == "myprog"
+    assert spec.options == []
+    assert spec.positionals == []
+    assert spec.subcommands == {}
+    assert spec.help == "a help string"
+    assert spec.path == ("Sub",)
+
+
 def test_walk_skips_suppressed_option_and_subcommand():
     """An option or subcommand hidden via help=SUPPRESS never reaches
     a completion script."""

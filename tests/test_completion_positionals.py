@@ -8,6 +8,7 @@ hostile value, and a parse-only check misses all three. Every shell-driving
 helper here is timeout-bounded so a hang never wedges the whole run.
 """
 
+import argparse
 import os
 import pathlib
 import shutil
@@ -285,6 +286,27 @@ def test_bash_completes_flags_after_all_positionals_consumed():
         script, _bash_func(parser), ["tool", "Convert", "in.txt", "yaml", "--"], 4
     )
     assert "--env" in reply and "--color" in reply
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_hidden_positional_still_occupies_its_slot():
+    """A positional hidden via `help=argparse.SUPPRESS` used to be
+    dropped from the walk entirely, which shifted every LATER positional's
+    completion one slot early -- so the choice-bearing positional right
+    after a hidden one never got offered at all."""
+
+    parser = argparse.ArgumentParser(prog="hiddenposapp")
+    parser.add_argument("secretpos", help=argparse.SUPPRESS)
+    parser.add_argument("color", choices=["red", "blue"])
+    script = completion.bash(parser)
+    func = completion._bash_func_name(parser.prog)
+    # Nothing typed for the hidden positional yet: no candidates of its own.
+    reply = _complete_bash(script, func, ["hiddenposapp", ""], 1)
+    assert reply == []
+    # Once its (arbitrary) value is given, the NEXT positional's choices
+    # must appear -- not nothing, and not the hidden one's (there are none).
+    reply = _complete_bash(script, func, ["hiddenposapp", "secretval", ""], 2)
+    assert set(reply) == {"red", "blue"}
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")

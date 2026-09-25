@@ -221,6 +221,11 @@ class CompletionPositional:
     name: str
     choices: "tuple[str, ...] | None" = None
     is_path: bool = False
+    #: Hidden via ``help=argparse.SUPPRESS``: still occupies its ordinal slot
+    #: (every emitter counts positions sequentially to know which one is
+    #: pending), but offers no candidates of its own. Field goes LAST so
+    #: positional construction of the other fields is unaffected.
+    hidden: bool = False
 
 
 @_dc.dataclass
@@ -292,16 +297,24 @@ def _walk(
     for action in parser._actions:
         if action is subparsers_action:
             continue
-        if getattr(action, "help", None) is _argparse.SUPPRESS:
-            # Hidden from --help; keep it hidden from completion too.
+        is_positional = not action.option_strings
+        hidden = getattr(action, "help", None) is _argparse.SUPPRESS
+        if hidden and not is_positional:
+            # A hidden OPTION carries no ordinal position, so it can simply
+            # be omitted from completion entirely.
             continue
-        if not action.option_strings:
-            # Positional argument.
+        if is_positional:
+            # A hidden POSITIONAL still occupies its ordinal slot -- every
+            # emitter counts positions sequentially to know which one is
+            # pending, so dropping it here would shift every later
+            # positional's completions one slot early. Keep the entry, just
+            # with no candidates of its own.
             spec.positionals.append(
                 CompletionPositional(
                     name=action.dest,
-                    choices=_choices_tuple(action),
-                    is_path=_is_path_type(action),
+                    choices=None if hidden else _choices_tuple(action),
+                    is_path=False if hidden else _is_path_type(action),
+                    hidden=hidden,
                 )
             )
             continue
@@ -317,18 +330,26 @@ def _walk(
     if subparsers_action is not None:
         # argparse keeps each subcommand's one-line help in the pseudo-actions,
         # not on the subparser -- capture it here for the fish `-d` description,
-        # and skip any subcommand hidden via `help=argparse.SUPPRESS`.
+        # and skip any subcommand hidden via `help=argparse.SUPPRESS`. A
+        # pseudo-action exists only for the PRIMARY name passed to
+        # `add_parser` (never per-alias), so suppressing by that name alone
+        # leaves an alias of a hidden subcommand completable; key suppression
+        # off the underlying parser object instead, since every alias of the
+        # same subcommand maps to the same parser.
         help_by_name: "dict[object, str]" = {}
-        suppressed: "set[object]" = set()
+        suppressed_dests: "set[object]" = set()
+        choices = subparsers_action.choices or {}
         for a in getattr(subparsers_action, "_choices_actions", []):
             dest = getattr(a, "dest", None)
             if getattr(a, "help", None) is _argparse.SUPPRESS:
-                suppressed.add(dest)
+                suppressed_dests.add(dest)
             else:
                 help_by_name[dest] = getattr(a, "help", None) or ""
-        choices = subparsers_action.choices or {}
+        suppressed_parsers = {
+            id(choices[dest]) for dest in suppressed_dests if dest in choices
+        }
         for name, subparser in choices.items():
-            if name in suppressed:
+            if id(subparser) in suppressed_parsers:
                 continue
             sub_spec = _walk(subparser, prog=f"{spec.prog} {name}", path=path + (name,))
             sub_spec.help = help_by_name.get(name, "")

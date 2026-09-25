@@ -153,6 +153,41 @@ def test_walk_skips_suppressed_option_and_subcommand():
     assert "Visible" in top.subcommands
 
 
+def test_walk_hides_an_alias_of_a_suppressed_subcommand_too():
+    """A `help=argparse.SUPPRESS` pseudo-action exists only for the PRIMARY
+    name passed to `add_parser` -- never per-alias -- so keying suppression
+    off that dest name alone left an alias of a hidden subcommand fully
+    completable. Suppression must follow the underlying parser object,
+    since every alias maps to the same one."""
+    parser = argparse.ArgumentParser(prog="aliasapp")
+    sub = parser.add_subparsers(dest="cmd")
+    sub.add_parser("hidden", help=argparse.SUPPRESS, aliases=["hid"])
+    sub.add_parser("visible", help="a visible one")
+
+    top = completion.spec(parser)
+    assert "hidden" not in top.subcommands
+    assert "hid" not in top.subcommands
+    assert "visible" in top.subcommands
+
+
+def test_walk_keeps_a_hidden_positional_slot_but_offers_no_candidates():
+    """A positional hidden via `help=argparse.SUPPRESS` must still occupy
+    its ordinal slot -- every emitter counts positions sequentially to know
+    which one is pending, so dropping the entry entirely shifted every
+    later positional's completions one slot early."""
+    parser = argparse.ArgumentParser(prog="hiddenpos")
+    parser.add_argument("secret", help=argparse.SUPPRESS)
+    parser.add_argument("color", choices=["red", "blue"])
+
+    top = completion.spec(parser)
+    assert len(top.positionals) == 2
+    secret, color = top.positionals
+    assert secret.hidden is True
+    assert secret.choices is None
+    assert color.hidden is False
+    assert color.choices == ("red", "blue")
+
+
 def test_enum_field_gets_completion_choices():
     """An Enum-typed field offers its member names as choices, even
     though duho leaves argparse's own `choices` unset for Enum fields."""

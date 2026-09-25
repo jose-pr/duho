@@ -869,18 +869,33 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
     ``_``-prefixed helper file that command files in the same directory can
     import (the ``_`` prefix means "not a command", not "unimportable"). The
     directory is removed from ``sys.path`` again immediately after, and any
-    module this pulled in beyond the command file's own synthetic key (the
-    helper module itself, imported under its own bare name) is popped back out
-    of ``sys.modules`` -- so a *different* discovered directory that also ships
-    a same-named helper is never served a stale cached one. This only supports
-    the bare/absolute form (``from _helpers import x``); a relative
-    ``from ._helpers import x`` still fails, since these files have no real
-    parent package.
+    module this pulled in that lives INSIDE ``directory`` (the helper module
+    itself, imported under its own bare name) -- beyond the command file's own
+    synthetic key -- is popped back out of ``sys.modules``, so a *different*
+    discovered directory that also ships a same-named helper is never served a
+    stale cached one. This only supports the bare/absolute form (``from
+    _helpers import x``); a relative ``from ._helpers import x`` still fails,
+    since these files have no real parent package.
+
+    **Scoped to this directory.** Only a module whose ``__file__`` resolves
+    *inside* ``directory`` is ever popped -- a command file routinely imports
+    shared helper classes, or ordinary stdlib/third-party modules, as a normal
+    side effect of executing its body; blindly popping every name added to
+    ``sys.modules`` during the import (as an earlier version of this function
+    did) evicted THOSE too, so a second discovered file sharing one of those
+    classes lost its ``isinstance``/``is`` identity against the first (and a
+    popped stdlib module simply reimported cleanly, but with a rebuilt C
+    extension state, on the next access -- unnecessary churn ``duho.env``
+    warned about on every run). A module with no resolvable ``__file__``
+    (a namespace package, a C extension) is left alone -- there is no
+    "inside/outside" ``directory`` to test, and leaving it in place is the
+    safe default.
     """
     directory = _Path(directory)
     if not directory.is_dir():
         raise ImportError("not a directory: %s" % directory, path=_os.fspath(directory))
 
+    resolved_dir = directory.resolve()
     commands: "list[Command]" = []
     dirstr = _os.fspath(directory)
     for path in sorted(directory.glob("*.py")):
@@ -908,10 +923,32 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
                 pass
             own_key = module.__name__ if module is not None else None
             for extra in set(_sys.modules) - before_modules:
-                if extra != own_key:
+                if extra == own_key:
+                    continue
+                if _module_inside(_sys.modules.get(extra), resolved_dir):
                     _sys.modules.pop(extra, None)
         commands.extend(_commands_in_module(module, stem=stem))
     return commands
+
+
+def _module_inside(module: object, directory: "_Path") -> bool:
+    """True if ``module``'s own file resolves to a path inside ``directory``.
+
+    Used by :func:`_discover_from_path` to decide whether a module pulled into
+    ``sys.modules`` while importing a command file is a SIBLING helper (evict
+    it, so a same-named helper in a different discovered directory is never
+    served this stale one) or anything else the command file merely imported
+    as a normal side effect (a shared helper class, a stdlib/third-party
+    module) -- which must be left in ``sys.modules`` untouched.
+    """
+    modfile = getattr(module, "__file__", None)
+    if not modfile:
+        return False
+    try:
+        resolved = _Path(modfile).resolve()
+    except OSError:  # pragma: no cover - a vanished/unreadable path
+        return False
+    return resolved == directory or directory in resolved.parents
 
 
 # --------------------------------------------------------------------------

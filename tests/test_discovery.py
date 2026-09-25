@@ -946,6 +946,92 @@ def test_sibling_helper_does_not_bleed_across_directories(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# Directory discovery: only a SIBLING module gets evicted from sys.modules
+# --------------------------------------------------------------------------
+
+_USES_STDLIB = '''\
+"""Imports a stdlib module as a normal side effect."""
+import fractions
+from duho import Cmd
+
+F = fractions.Fraction
+
+
+class UsesFractions(Cmd):
+    """Uses fractions."""
+
+    def __call__(self):
+        return "ok"
+'''
+
+
+def test_directory_discovery_does_not_evict_stdlib_modules(tmp_path):
+    """A command file's own ``import fractions`` must survive discovery's
+    post-import ``sys.modules`` sweep. Before the fix, EVERY module newly
+    present in ``sys.modules`` after importing the command file was popped,
+    stdlib/third-party included -- not just the sibling-helper convention this
+    cleanup exists for -- so a stdlib module was silently evicted every run.
+
+    ``fractions`` is removed from ``sys.modules`` first (it may already be
+    cached from an unrelated earlier import in this process, in which case it
+    would never appear as a "new" module during discovery and the eviction bug
+    could never trigger for it)."""
+    _write(tmp_path, "usesfractions.py", _USES_STDLIB)
+    import fractions as _preexisting
+
+    sys.modules.pop("fractions", None)
+    try:
+        discover_commands(tmp_path)
+        # Not evicted by discovery's post-import sweep -- still cached, so a
+        # follow-up `import fractions` is a no-op returning the SAME object
+        # discovery's own import produced, not a second fresh reimport.
+        assert "fractions" in sys.modules
+        kept = sys.modules["fractions"]
+        import fractions
+
+        assert fractions is kept
+    finally:
+        sys.modules["fractions"] = _preexisting
+
+
+def test_directory_discovery_preserves_shared_module_identity_across_files(
+    tmp_path, monkeypatch
+):
+    """A shared helper module reachable via an EXISTING ``sys.path`` entry
+    (not the sibling-``_helpers.py``-in-this-directory convention) must not be
+    evicted either -- two discovered command files importing the same shared
+    class must see the SAME class object, not two independently re-executed
+    copies."""
+    lib_dir = tmp_path / "lib"
+    lib_dir.mkdir()
+    _write(lib_dir, "shared_lib.py", "class Base:\n    pass\n")
+    monkeypatch.syspath_prepend(str(lib_dir))
+
+    cmds_dir = tmp_path / "cmds"
+    cmds_dir.mkdir()
+    _write(
+        cmds_dir,
+        "one.py",
+        '"""One."""\nfrom shared_lib import Base\nfrom duho import Cmd\n\n\n'
+        "class One(Cmd):\n    def __call__(self):\n        return Base\n",
+    )
+    _write(
+        cmds_dir,
+        "two.py",
+        '"""Two."""\nfrom shared_lib import Base\nfrom duho import Cmd\n\n\n'
+        "class Two(Cmd):\n    def __call__(self):\n        return Base\n",
+    )
+
+    commands = discover_commands(cmds_dir)
+    one_cls = next(c for c in commands if getattr(c, "__name__", "") == "One")
+    two_cls = next(c for c in commands if getattr(c, "__name__", "") == "Two")
+    assert duho.main(one_cls, [], setup_logging=False) is duho.main(
+        two_cls, [], setup_logging=False
+    )
+    sys.modules.pop("shared_lib", None)
+
+
+# --------------------------------------------------------------------------
 # discover_commands('name'): an importable package wins over a CWD shadow
 # --------------------------------------------------------------------------
 

@@ -669,8 +669,8 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
     _run(steps)
     lines = calls.read_text(encoding="utf-8").splitlines()
     # success() runs INSIDE the try, before finally_ -- matching
-    # discovery.run_command's own main-then-success-then-finally_ order (D008;
-    # [minor] behavior change: this used to be finally_-then-success, which
+    # discovery.run_command's own main-then-success-then-finally_ order
+    # ([minor] behavior change: this used to be finally_-then-success, which
     # left success() seeing a ctx that finally_ had already torn down). Each
     # fires exactly once.
     assert lines == ["success:ctx", "finally:ctx"]
@@ -707,7 +707,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
     # explicit !strict makes it resilient again (the run completes).
     _run(steps, rcopts=["!strict"])
     lines = calls.read_text(encoding="utf-8").splitlines()
-    # finally_ always runs; success() is gated on the aggregate outcome (D007)
+    # finally_ always runs; success() is gated on the aggregate outcome
     # -- a step that failed, even resiliently, means success() does NOT fire,
     # matching discovery.run_command's own "success only on a clean result"
     # contract.
@@ -930,7 +930,7 @@ def test_two_symlinks_one_file_different_effective_options(tmp_path):
     loaded, present, _broken = _load_steps(steps, "steps", _Selection.parse([]))
     # Both directory entries resolve to different effective enabled state from
     # the SAME physical file -- symlink-transparent, since the parse reads the
-    # entry's own name. `step2` is disabled, so (D010) it is never imported
+    # entry's own name. `step2` is disabled, so it is never imported
     # and never appears in `loaded`; it is still `present` on disk though.
     by_name = {s.name: s for s in loaded}
     assert by_name["step"].file_enabled is True
@@ -1760,7 +1760,7 @@ def test_async_init_hook_raises_type_error(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Filename/pattern grammar edge cases (D062).
+# Filename/pattern grammar edge cases.
 # --------------------------------------------------------------------------
 
 

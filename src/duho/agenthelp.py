@@ -139,7 +139,7 @@ def _render_type(tp) -> str:
 
 def _render_annotation(tp):
     """A readable, version-independent type string for a declared annotation
-    (never raises) -- e.g. always ``list[int]``, ``int | None`` (C019).
+    (never raises) -- e.g. always ``list[int]``, ``int | None``.
     """
     if tp is _NOT_DEFINED or tp is None:
         return None
@@ -262,7 +262,7 @@ def _expand_action_help(action, prog: str) -> str:
 
 
 def _default_and_source(dest, builder, action, sources):
-    """``(default, default_source)`` for one field (C001).
+    """``(default, default_source)`` for one field.
 
     ``action.default`` may already have been overwritten by
     ``_stage_layers``/``_apply_default_layers_one`` with the CURRENT env var
@@ -364,7 +364,7 @@ def _conflict_groups(builders):
 def _synthesized_example(spec):
     """A minimal invocation line built from a command's required arguments.
 
-    Appends ``<command>`` whenever the spec has subcommands (C020): duho's own
+    Appends ``<command>`` whenever the spec has subcommands: duho's own
     subparsers are always built ``required=True``, so whether a command needs
     a subcommand has nothing to do with whether some OTHER option is also
     required -- the old ``and not any(required options)`` condition dropped
@@ -469,7 +469,7 @@ def _muted_color(parser):
 def stash_default_provenance(parser, cls=None) -> None:
     """Snapshot each of ``parser``'s actions' CLASS default (and env/config
     provenance) onto the action itself, for :class:`duho.formatters.DefaultsFormatter`
-    and :func:`describe_parser`'s own builder-less fallback to read (C001).
+    and :func:`describe_parser`'s own builder-less fallback to read.
 
     ``DefaultsFormatter._get_help_string`` only ever receives ``action``, never
     ``parser`` -- argparse's own ``HelpFormatter`` API has no seam for it --
@@ -533,7 +533,7 @@ def describe_parser(
         _seen = set()
     builders, clsargs = _cls_metadata(parser)
     cls = getattr(parser, "_duho_cls_", None)
-    # C001: which of THIS parser's fields are currently showing a live
+    # Which of THIS parser's fields are currently showing a live
     # env/config value on `action.default` -- populated by
     # `_stage_layers`/`_apply_default_layers_one` only once an actual parse
     # is underway (e.g. via `duho.main`/`duho.parse`/`duho.app`); absent
@@ -556,13 +556,13 @@ def describe_parser(
     # description that genuinely contains a literal `%%`; read it as stored.
     spec["description"] = (parser.description or "").strip()
     if root:
-        # C021: version comes from the APP'S ROOT class, not this node's own
+        # Version comes from the APP'S ROOT class, not this node's own
         # `cls` -- a subcommand-scoped document (``AGENT_HELP=1 app sub
         # --help``) would otherwise report `version: null` for a subcommand
         # that (like almost every subcommand) declares no `_version_` of its
         # own. `root_cls` is `None` only when `describe_parser` was called
         # directly on a raw/never-rooted parser, in which case `cls` is the
-        # best available fallback (matches the pre-C021 behavior there).
+        # best available fallback (matches the earlier behavior there).
         version = None
         version_cls = root_cls if root_cls is not None else cls
         if version_cls is not None:
@@ -598,8 +598,8 @@ def describe_parser(
     if subparsers_action is not None:
         # argparse registers alias names as extra keys pointing at the SAME
         # subparser object; `unique_subcommands` groups by identity so each
-        # command is described once, under one canonical name (D048/O029/C056:
-        # previously a hand-copy of this exact grouping, kept separately in
+        # command is described once, under one canonical name (previously a
+        # hand-copy of this exact grouping, kept separately in
         # `duho.mcp`, that could silently diverge from this one).
         for canonical, alias_names, subparser in _parsers.unique_subcommands(
             parser, seen=_seen
@@ -616,7 +616,7 @@ def describe_parser(
     spec["subcommands"] = subcommands
 
     if root:
-        # Exit codes, like version, come from the APP'S ROOT class (C021) --
+        # Exit codes, like version, come from the APP'S ROOT class --
         # a subcommand can still return one of the app's documented codes
         # even though it declares no `_exit_codes_` of its own. Examples stay
         # scoped to the CURRENT command (`cls`, not `root_cls`): an app's
@@ -649,7 +649,7 @@ def render(spec: "dict") -> str:
     keeps the framework's zero-eager-``json`` contract (see
     ``tests/test_config_json.py::test_json_import_is_lazy``).
 
-    ``ensure_ascii=True`` (C008): a non-ASCII character (an arrow in a
+    ``ensure_ascii=True``: a non-ASCII character (an arrow in a
     docstring, a Latin-1 accent) written through a piped Windows stdout's
     text layer raises ``UnicodeEncodeError`` (empty output, exit 1) or comes
     out console-code-page-encoded instead of UTF-8. ASCII-escaping every
@@ -667,7 +667,7 @@ def print_agent_help(
 ) -> None:
     """Print ``cls``'s agent-help JSON document to ``file`` (default stdout).
 
-    Written via :func:`duho._compat.write_machine` (C008/O042): raw UTF-8
+    Written via :func:`duho._compat.write_machine`: raw UTF-8
     bytes with LF-only newlines, bypassing ``file``'s text-mode encoding and
     newline translation, the same writer ``args.py``'s agent-help actions use
     -- so this standalone entry point and the ``-h``/``--help-agents``

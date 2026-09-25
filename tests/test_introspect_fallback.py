@@ -10,7 +10,7 @@ Covers the "never raises" contract of ``_introspect.getclsdef``:
   ``inspect.getsource`` fallback instead of giving up at the first ``OSError``
   (GH #1).
 
-Also covers C007: without source, a class with annotated fields must WARN
+Also covers: without source, a class with annotated fields must WARN
 (not silently DEBUG-log, which duho's own -v/--loglevel can't raise until
 AFTER the parser -- the very thing that lost its shape -- is already built),
 and ``LoggingArgs`` itself (duho's own ``-v``/``-q``/``--loglevel``) must keep
@@ -133,14 +133,14 @@ def test_getclsdef_falls_back_when_module_index_hits_oserror(tmp_path):
 class _NoSourceWithFields:
     """A real class (defined in this real .py file) used only to have its
     ``getclsdef`` lookup monkeypatched to ``None``, simulating a frozen/
-    .pyc-only build that ships no source for it (C007)."""
+    .pyc-only build that ships no source for it."""
 
     name: str = "x"
     "A name."
 
 
 def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):
-    """C007: the diagnostic must be WARNING, not DEBUG -- it fires while the
+    """The diagnostic must be WARNING, not DEBUG -- it fires while the
     parser is still being built, before an app's own -v/--loglevel could
     possibly raise the level high enough to see a DEBUG record."""
     with mock.patch.object(_introspect, "getclsdef", return_value=None):
@@ -155,7 +155,7 @@ def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):
 
 
 def test_loggingargs_flags_survive_a_missing_source(tmp_path):
-    """C007: LoggingArgs seeds `_duho_constants_` itself (like Args/Cmd/Cli),
+    """LoggingArgs seeds `_duho_constants_` itself (like Args/Cmd/Cli),
     so its own -v/-q/--loglevel flags -- and now --verbose/--quiet too --
     never depended on an AST scan that a frozen build can't perform. A
     subclass built the same way (no source at all) must still get them.
@@ -184,7 +184,7 @@ def test_loggingargs_flags_survive_a_missing_source(tmp_path):
         assert rc == 0
 
 
-# --- C013: a BOM or a PEP 263 encoding cookie must not lose flags/docstrings -
+# --- A BOM or a PEP 263 encoding cookie must not lose flags/docstrings -----
 
 
 _BOM_SOURCE = '''\
@@ -207,7 +207,7 @@ def test_module_index_bom_source_keeps_flags_and_docstring(tmp_path):
     "UTF-8 with signature") used to raise SyntaxError on U+FEFF from a plain
     `read_text(encoding="utf-8")`, which is not an OSError -- getclsdef gave
     up before ever trying the inspect.getsource fallback, silently dropping
-    every flag/docstring (C013)."""
+    every flag/docstring."""
     mod_path = tmp_path / "bom_mod.py"
     mod_path.write_bytes(b"\xef\xbb\xbf" + _BOM_SOURCE.encode("utf-8"))
 
@@ -249,7 +249,7 @@ _LATIN1_SOURCE = (
 def test_module_index_latin1_cookie_source_keeps_flags_and_docstring(tmp_path):
     """A PEP 263 `# -*- coding: latin-1 -*-` source with real non-ASCII bytes
     used to raise UnicodeDecodeError from a plain `read_text(encoding="utf-8")`
-    -- also not an OSError, also skipping the getsource fallback (C013)."""
+    -- also not an OSError, also skipping the getsource fallback."""
     mod_path = tmp_path / "latin1_mod.py"
     mod_path.write_bytes(_LATIN1_SOURCE.encode("latin-1"))
 

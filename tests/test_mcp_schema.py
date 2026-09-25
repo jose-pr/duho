@@ -353,7 +353,7 @@ def test_explicit_help_override_wins_over_the_docstring():
 
 def test_iso_format_schema_types_match_the_args_ladders_own_set():
     """``mcp._ISO_FORMATS`` is built from ``args._ISOFORMAT_FACTORIES``'s own
-    keys (A070), not a second, independently hand-kept type list -- adding an
+    keys, not a second, independently hand-kept type list -- adding an
     ISO type to one ladder without the other now fails loudly here instead of
     the MCP schema silently disagreeing with what the CLI itself accepts."""
     import duho.args as args_mod

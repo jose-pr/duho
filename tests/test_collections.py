@@ -232,7 +232,7 @@ def test_list_option_explicit_nargs_star_restores_space_separated():
     assert inst.xs == ["a", "b", "c"]
 
 
-# --- CLI wins over a layered default, for every collection kind (A005) ----
+# --- CLI wins over a layered default, for every collection kind ----------
 
 
 class ListNonEmptyDefaultArgs(Args):
@@ -273,7 +273,7 @@ def test_list_config_value_replaced_by_cli(tmp_path):
     assert inst.paths == ["c"]
 
 
-# --- A006: a zero-token variadic POSITIONAL never crashes or duplicates ---
+# --- a zero-token variadic POSITIONAL never crashes or duplicates --------
 
 
 class SetPositionalArgs(Args):
@@ -307,7 +307,7 @@ def test_list_positional_with_tokens_replaces_default():
     assert inst.items == ["a"]
 
 
-# --- A021: a parser reused across multiple parse_args() calls does not ----
+# --- a parser reused across multiple parse_args() calls does not ---------
 # --- share (and leak mutations through) a list/set/dict default -----------
 
 
@@ -326,7 +326,7 @@ def test_mutable_default_not_shared_across_parses_of_one_parser():
     assert c.tags == []
 
 
-# --- A049: a variadic list positional with Choice() can be omitted --------
+# --- a variadic list positional with Choice() can be omitted -------------
 
 
 class ChoiceListPositionalArgs(Args):

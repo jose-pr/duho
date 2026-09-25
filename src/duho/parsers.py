@@ -10,9 +10,9 @@ def pop_action(parser: _argparse.ArgumentParser, name: str) -> _argparse.Action:
     Removes the action from the parser's action list, its option-string map,
     the owning argument group's ``_group_actions`` -- ``format_help`` renders
     from the group lists, so missing the last one left a "removed" flag still
-    visible in help output (M20) -- AND every ``_mutually_exclusive_groups``
+    visible in help output -- AND every ``_mutually_exclusive_groups``
     entry it belonged to, so a required mutex group's error no longer names a
-    flag that no longer exists (C038).
+    flag that no longer exists.
     """
     index = None
     for idx, action in enumerate(parser._actions):
@@ -49,8 +49,8 @@ def insert_action(
     chosen by whether the action has option strings -- the same split
     ``add_argument`` itself uses): without this, ``format_help`` (which
     renders from the GROUP lists, never ``parser._actions`` directly) never
-    shows the reinserted flag -- the M20 defect ``pop_action`` fixes, now
-    fixed in the opposite direction too (C038).
+    shows the reinserted flag -- the defect ``pop_action`` fixes, now
+    fixed in the opposite direction too.
     """
     if index is None:
         parser._actions.append(action)
@@ -85,7 +85,7 @@ class _NoOpAction(_argparse.Action):
     which IS a ``_HelpAction``), plus duho's ``--print-completion``/
     ``--help-agents`` actions (see :func:`_is_terminal_action`). Swapping the
     *instance's* class, never argparse's or duho's own class, keeps the
-    surgery local and thread-safe (M1); the caller restores it in a
+    surgery local and thread-safe; the caller restores it in a
     ``finally``.
     """
 
@@ -113,7 +113,7 @@ class _RelaxedSubParsersAction(_argparse._SubParsersAction):
             # assignment with `if self.dest is not SUPPRESS` -- a subparsers
             # action built via a plain `add_subparsers()` (no explicit `dest=`)
             # otherwise leaves a literal `"==SUPPRESS=="` key on the returned
-            # namespace (C044).
+            # namespace.
             if self.dest is not _argparse.SUPPRESS:
                 setattr(namespace, self.dest, parser_name)
             self._duho_action_called_ = True  # type: ignore[attr-defined]
@@ -132,7 +132,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction) -> None:
 
     Per-instance surgery: swaps only this action's class to
     :class:`_RelaxedSubParsersAction` and nulls its ``choices`` (so argparse's
-    name check is skipped). Reentrant via a depth counter (C034): a NESTED
+    name check is skipped). Reentrant via a depth counter: a NESTED
     disable (this action is already relaxed) only bumps the depth and leaves
     the saved original state alone, so the matching, non-outermost
     :func:`enable_subparser_check` calls only decrement it -- only the
@@ -140,7 +140,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction) -> None:
     saved the already-relaxed state, so the inner ``enable`` restored THAT
     (still relaxed) and the outer ``enable`` found nothing left to restore,
     leaving the action permanently relaxed. No ``argparse`` class attribute is
-    ever mutated (M1); safe for distinct parser instances used concurrently,
+    ever mutated; safe for distinct parser instances used concurrently,
     but this action itself is ordinary, unsynchronized instance state -- two
     threads racing the SAME action need their own external lock.
     """
@@ -156,7 +156,7 @@ def disable_subparser_check(action: _argparse._SubParsersAction) -> None:
 def enable_subparser_check(action: _argparse._SubParsersAction) -> None:
     """Restore the class + choices saved by :func:`disable_subparser_check`.
 
-    Reentrant (C034): only the call that brings the depth counter back to
+    Reentrant: only the call that brings the depth counter back to
     ``0`` (the OUTERMOST ``enable`` matching the OUTERMOST ``disable``)
     actually restores anything; an inner call just decrements.
     """
@@ -182,7 +182,7 @@ def find_subparsers(
     The one lookup every parser-tree walker needs (a parser can carry at most
     one, since argparse itself raises on a second ``add_subparsers()`` call);
     shared here instead of a hand-written ``for action in parser._actions:
-    isinstance(...)`` loop repeated at each call site (D048).
+    isinstance(...)`` loop repeated at each call site.
     """
     for action in parser._actions:
         if isinstance(action, _argparse._SubParsersAction):
@@ -195,8 +195,8 @@ def strip_subparsers(parser: _argparse.ArgumentParser):
     and whichever argument group it belongs to, returning what
     :func:`_restore_subparsers` needs to put it back in the exact same place.
 
-    Removing only from ``_actions`` (a past, buggy shortcut this replaces --
-    D048) leaves the action listed in its owning group's ``_group_actions``,
+    Removing only from ``_actions`` (a past, buggy shortcut this replaces)
+    leaves the action listed in its owning group's ``_group_actions``,
     which ``format_help``/usage formatting renders from -- so a caller that
     stripped it for good (e.g. a subcommand's ``parents=`` donor parser, which
     never wants the whole app's command tree inherited downward) still showed
@@ -267,7 +267,7 @@ def unique_subcommands(
     call) so a subparser reached under multiple paths is never yielded twice;
     omit it (the default) for a single-level call. Previously copied by hand,
     with the same grouping/tie-break logic, by ``duho.agenthelp`` and
-    ``duho.mcp`` (O029/C056) -- a fix to canonical-name selection used to have
+    ``duho.mcp`` -- a fix to canonical-name selection used to have
     to land in both copies to not silently diverge.
     """
     if seen is None:
@@ -338,14 +338,14 @@ def prerun_parse(
       trailing token instead of re-entering the parser's own (possibly
       duho-patched) ``parse_known_args``, whatever it is. This is what makes
       the exported ``duho.parsers.prerun_parse`` safe to call directly on any
-      duho root that has ``_subcommands_`` (A079), and what lets
+      duho root that has ``_subcommands_``, and what lets
       ``duho.app``'s advisory ``register`` prepass run on a root that already
       has built-in subcommands without a ``KeyError('#cls')`` from a
-      double-popped selection marker (D016).
+      double-popped selection marker.
     * Every TERMINAL action (:func:`_is_terminal_action`: ``-h``/``--help``,
       ``--version``, ``--print-completion``, ``--help-agents``) is swapped to
       a no-op for the duration of the call, also restored afterward -- widened
-      from the original, help-only version (C005/D017): before, only
+      from the original, help-only version: before, only
       ``--help`` was silenced, so ``--version`` printed twice (once here, once
       on the real parse afterward) and ``--print-completion`` wrote two
       concatenated scripts.
@@ -358,7 +358,7 @@ def prerun_parse(
     bad ``type=`` conversion) is ALSO silenced: it raises ``SystemExit(2)``
     without writing usage/error text, for a caller (``duho.app``'s advisory
     prepass) that re-parses for real right after and reports any error
-    exactly once, itself (D017). ``quiet=False`` (the default --
+    exactly once, itself. ``quiet=False`` (the default --
     ``duho.parse_globals``'s case, which never re-parses) leaves
     ``parser.error()`` writing normally, so a genuinely missing global is
     still reported, once, here.
@@ -366,7 +366,7 @@ def prerun_parse(
     All surgery is per-instance, restored in ``finally``: no ``argparse``/duho
     CLASS is ever mutated, and ``parser`` itself is back to its original shape
     (subparsers action included) before this returns or raises -- safe for
-    repeated and nested calls, since nothing here is shared state (C034).
+    repeated and nested calls, since nothing here is shared state.
     """
     saved_subparsers = strip_subparsers(parser)
 

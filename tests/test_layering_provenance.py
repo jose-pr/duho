@@ -12,7 +12,7 @@ import duho
 from duho import NS, Arg, Args
 
 # --------------------------------------------------------------------------
-# A028 / A031: a layered/instance value must go through a `type=` factory
+# A layered/instance value must go through a `type=` factory
 # exactly once, never twice -- and duho.parse(instance) must only treat a
 # field the caller EXPLICITLY passed to __init__ as an override, not a
 # placeholder Args.__init__ itself seeded for an omitted field.
@@ -47,7 +47,7 @@ def test_cli_value_runs_through_factory_exactly_once(monkeypatch):
 
 
 def test_parse_instance_value_is_not_reconverted(monkeypatch):
-    # A031/A028: an already-parsed instance's field is a FINAL value -- piping
+    # An already-parsed instance's field is a FINAL value -- piping
     # it through duho.parse(instance) again must not re-run the factory.
     monkeypatch.delenv("DUHO_TEST_BANG_TOKEN", raising=False)
     once = duho.parse(_NonIdempotent, ["--token", "c"])
@@ -58,7 +58,7 @@ def test_parse_instance_value_is_not_reconverted(monkeypatch):
 
 
 def test_parse_instance_seeded_placeholder_does_not_outrank_env(monkeypatch):
-    # A031: a bare `bool` field NOT explicitly passed to __init__ is seeded to
+    # A bare `bool` field NOT explicitly passed to __init__ is seeded to
     # its effective default by Args.__init__ (so a direct instance has the
     # same attribute surface as a parsed one) -- that placeholder must not be
     # mistaken for an explicit instance override that would outrank env.
@@ -96,7 +96,7 @@ def test_parse_instance_placeholder_lets_env_through(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# A032: env/config layers must respect conflicts= groups.
+# env/config layers must respect conflicts= groups.
 # --------------------------------------------------------------------------
 
 
@@ -127,7 +127,7 @@ def test_cli_sibling_drops_stale_layered_conflicts_member(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# A033: a bad env/config value for a subcommand the user did NOT select must
+# A bad env/config value for a subcommand the user did NOT select must
 # never crash an unrelated command (or --help).
 # --------------------------------------------------------------------------
 
@@ -171,7 +171,7 @@ def test_bad_env_for_unselected_subcommand_does_not_break_help(monkeypatch, caps
 
 
 # --------------------------------------------------------------------------
-# A037/A038: value_sources provenance must be scoped per actually-selected
+# value_sources provenance must be scoped per actually-selected
 # parser, not merged across every sibling at build time, and must never be
 # inherited via the MRO from an unrelated already-parsed class.
 # --------------------------------------------------------------------------
@@ -243,7 +243,7 @@ def test_value_sources_of_never_parsed_subclass_ignores_parsed_base():
 
 
 # --------------------------------------------------------------------------
-# R021: value_sources on a SUBCOMMAND instance must also report inherited
+# value_sources on a SUBCOMMAND instance must also report inherited
 # root/global fields, not just the subcommand's own declared fields.
 # --------------------------------------------------------------------------
 

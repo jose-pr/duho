@@ -262,7 +262,7 @@ def test_value_sources_unavailable_returns_empty_dict():
 
 @pytest.mark.requires_toml
 def test_parse_config_kwarg_overrides_class_config_attr(tmp_path):
-    """R037: an explicit ``config=`` to ``duho.parse`` beats a class-level
+    """An explicit ``config=`` to ``duho.parse`` beats a class-level
     ``_config_`` -- both point at REAL files with DIFFERENT values here, so
     the precedence documented in docs/guide/config.md is actually exercised."""
 
@@ -281,7 +281,7 @@ def test_parse_config_kwarg_overrides_class_config_attr(tmp_path):
 
 @pytest.mark.requires_toml
 def test_main_config_kwarg_overrides_class_config_attr(tmp_path):
-    """Same precedence (R037), through ``duho.main``."""
+    """Same precedence, through ``duho.main``."""
 
     class BothConfiguredCmd(Args):
         _config_ = None
@@ -302,7 +302,7 @@ def test_main_config_kwarg_overrides_class_config_attr(tmp_path):
 
 
 class _ChoiceLayered(Args):
-    """A008: Literal/Choice fields backed by env and config."""
+    """Literal/Choice fields backed by env and config."""
 
     mode: "Arg[str, NS(choices=('fast', 'slow'), env='DUHO_TEST_MODE')]" = "fast"
     ("--mode",)
@@ -339,7 +339,7 @@ def test_valid_env_choice_still_works(monkeypatch):
 
 
 class _ConfigFileMayBeMissing(Args):
-    """A011: a class-level ``_config_`` pointing at a not-yet-created file."""
+    """A class-level ``_config_`` pointing at a not-yet-created file."""
 
     target: str = "dev"
     ("--target",)
@@ -352,7 +352,7 @@ def test_missing_class_level_config_is_skipped_not_a_crash(tmp_path):
         assert not missing.exists()
         result = duho.parse(_ConfigFileMayBeMissing, [])
         assert result.target == "dev"
-        # --help must not crash either (the whole point of A011).
+        # --help must not crash either.
         with pytest.raises(SystemExit) as exc:
             duho.parse(_ConfigFileMayBeMissing, ["--help"])
         assert exc.value.code == 0
@@ -388,7 +388,7 @@ def test_config_loader_returning_none_is_treated_as_empty(tmp_path):
 
 
 class _EmptyEnvArgs(Args):
-    """A036: an env var set to the empty string."""
+    """An env var set to the empty string."""
 
     paths: "Arg[list[str], NS(env='DUHO_TEST_PATHS')]" = []
     ("--paths",)

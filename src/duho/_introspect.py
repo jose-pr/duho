@@ -43,12 +43,12 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
     A qualname maps to a LIST, not a single node: the same qualname can be
     defined more than once in one file (an if/else branch, a
     try/except ImportError fallback) -- see ``getclsdef`` for how the live
-    one is picked (C014).
+    one is picked.
 
     Source is read as BYTES and decoded via ``tokenize.detect_encoding``,
     which honors both a UTF-8 BOM and a PEP 263 ``# -*- coding: ... -*-``
-    cookie (M11 originally forced a plain UTF-8 ``read_text``, which raised
-    on either -- C013).
+    cookie (this previously forced a plain UTF-8 ``read_text``, which raised
+    on either).
     """
     index: "dict[str, list[_ast.ClassDef]]" = {}
     raw = _Path(filename).read_bytes()
@@ -102,7 +102,7 @@ def _pick_live_classdef(
 ) -> "_ast.ClassDef | None":
     """Pick the ClassDef Python actually bound to ``cls`` out of several
     sharing one qualname (an if/else or try/except fallback both defining the
-    same name -- C014).
+    same name).
 
     Matches by ``node.lineno`` against ``inspect.getsourcelines(cls)[1]`` (the
     real class's own start line); falls back to the LAST candidate (the prior
@@ -164,8 +164,7 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
         return None
     except (OSError, TypeError, SyntaxError, ValueError):
         # ValueError covers UnicodeDecodeError from the getsource fallback (which
-        # reads via tokenize/linecache) as well as other malformed-source cases
-        # (M11/M18).
+        # reads via tokenize/linecache) as well as other malformed-source cases.
         return None
 
 
@@ -206,7 +205,7 @@ def _class_constants(cls: type) -> "dict[str, list]":
                 # exec, zipapp) silently loses its flags/env/docstrings -- every
                 # field falls back to a derived `--field-name` option, a
                 # no-default positional becomes a REQUIRED option, and short
-                # aliases/help text vanish (C007). This happens while the parser
+                # aliases/help text vanish. This happens while the parser
                 # is still being BUILT, before an app's own `-v`/`--loglevel`
                 # could raise the level to see a DEBUG-level diagnostic, so it
                 # must be loud enough to be seen by default (this runs once per
@@ -237,7 +236,7 @@ def _class_constants(cls: type) -> "dict[str, list]":
                     except (ValueError, TypeError, SyntaxError):
                         # A non-literal expression (a call, a name) ends the
                         # current field's metadata run: reset attribution so a
-                        # LATER literal/docstring is not misattributed to it (M18).
+                        # LATER literal/docstring is not misattributed to it.
                         argument = None
                     else:
                         result.setdefault(argument, []).append(value)
@@ -260,7 +259,7 @@ def get_clsargs_constants(cls: type) -> "dict[str, list]":
     flattening every class's own list together and reading position 0 of the
     result. A subclass that overrides only the flags still inherits the
     base's help text, and one that overrides only the help text still
-    inherits the base's flags (C036).
+    inherits the base's flags.
     """
     per_class: "dict[type, dict[str, list]]" = {}
     names: "set[str]" = set()
@@ -364,7 +363,7 @@ def _raw_public_annotations(base: type) -> "dict[str, object]":
     neither problem.
 
     When source isn't available (a frozen build, REPL/exec, a dynamically
-    created class -- the existing C007 gap, where flags/docstrings are
+    created class -- the existing gap, where flags/docstrings are
     already unavailable too), falls back to whatever ``__annotations__``
     already holds -- accepting, in this rare case only, both the runtime
     self-shadow risk and (3.14 only) the cross-field entanglement risk this
@@ -373,7 +372,7 @@ def _raw_public_annotations(base: type) -> "dict[str, object]":
     Private (``_``-prefixed) names are dropped here, before anything ever
     tries to resolve them: a private field's unresolvable annotation (a
     function-local type, a ``TYPE_CHECKING``-only import) must never crash
-    parser build for a name nobody will ever see as a CLI flag (C015).
+    parser build for a name nobody will ever see as a CLI flag.
     """
     clsdef = None if base.__module__ in _SKIP_MODULES else getclsdef(base)
     if clsdef is not None:
@@ -400,7 +399,7 @@ def _resolve_public_type_hints(cls: type) -> "dict[str, object]":
     Only if that raises does this fall back to
     :func:`_resolve_public_type_hints_isolated`, which re-resolves each
     PUBLIC field completely independently of every other -- fixing the two
-    C015 failure modes without weakening the common case:
+    failure modes without weakening the common case:
 
     * A private field's annotation can't be resolved at all (a class or enum
       defined inside a function, a ``TYPE_CHECKING``-only import) and
@@ -500,7 +499,7 @@ def _unwrap_annotated(hint, name: str, cls: type) -> "tuple[object, list]":
       via ``__value__`` before the ``Annotated`` check;
     * a ``Union``/``Optional`` with exactly ONE ``Annotated`` member (e.g.
       ``Optional[Arg[int, NS(...)]]``) -- lifts that member's metadata and
-      rebuilds the union from the bare types (C037). More than one
+      rebuilds the union from the bare types. More than one
       ``Annotated`` member is ambiguous and raises, naming the field.
 
     Returns ``(bare_type, metadata_list)``; ``metadata_list`` is ``[]`` when
@@ -562,7 +561,7 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
             )
 
         # ClassVar/Final are declarations, not CLI fields: a `count: ClassVar[int]`
-        # or `MAX: Final[int]` must never become a `--count`/`--max` flag (C9).
+        # or `MAX: Final[int]` must never become a `--count`/`--max` flag.
         # `get_origin(ClassVar[int]) is ClassVar` on 3.9+; a bare `ClassVar`/
         # `Final` (unsubscripted) is caught by the identity check.
         if hint is _ty.ClassVar or hint is _ty.Final:

@@ -456,7 +456,7 @@ def import_from_path(base_name: str, path: "_Path") -> "_ModuleType":
     Public counterpart of the ``_unique_module_name`` + ``_import_from_path``
     pair this module already used internally for its own filesystem-based
     discovery (:class:`CmdBuilder`, :func:`discover_commands`) -- exposed
-    (D037) so an external command-provider package (``duho.runpath`` is the
+    so an external command-provider package (``duho.runpath`` is the
     first, and so far only, consumer) can import a ``.py`` file the exact
     same way without reaching into either private helper directly.
     """
@@ -510,7 +510,7 @@ def unregister_command_provider(
     pair (matched the same way ``list.remove`` would).
 
     A no-op if that exact pair is not currently registered, so a caller does
-    not need to track whether it already unregistered (D037). Before this,
+    not need to track whether it already unregistered. Before this,
     the provider seam had no supported way to opt back out: a consumer
     needing one (test isolation, a plugin reloading itself) had no choice but
     to reach into ``_PROVIDERS`` directly.
@@ -572,7 +572,7 @@ class CmdBuilder:
 
     #: Declared so a type checker sees the documented
     #: ``duho.app(commands=[CmdBuilder(...).command])`` recipe as a properly
-    #: typed ``Command`` (D029), not the ``object`` a provider's own loose
+    #: typed ``Command``, not the ``object`` a provider's own loose
     #: ``Callable[[Path, str], object]`` signature would otherwise infer.
     command: "Command"
 
@@ -623,7 +623,7 @@ class CmdBuilder:
         # is never registered under a real dotted name -- `self.qualname`
         # alone would clobber `sys.modules["json"]` for the rest of the
         # process the first time an app builds a command named "json" from a
-        # file, even though `json` itself was never imported yet (D005).
+        # file, even though `json` itself was never imported yet.
         module = import_from_path("duho._cmdbuilder." + self.qualname, path)
         return self._wrap_module(module, stem=path.stem)
 
@@ -634,7 +634,7 @@ class CmdBuilder:
         ``sys.path``-derived resolution; if that resolution does not include
         the exact directory the caller pointed at, this raises instead of
         silently importing whatever OTHER same-named package ``sys.path``
-        happens to resolve first (D041).
+        happens to resolve first.
         """
         import importlib.util as _importutil
 
@@ -765,7 +765,7 @@ def _looks_like_path(source: object) -> bool:
     ``discover_commands("mycmds")`` (or ``app(source="mycmds")``) run from a
     directory that happens to contain an unrelated ``./mycmds/`` would import
     THAT directory's ``.py`` files -- silently executing code from wherever the
-    user is standing and shadowing the intended package (D019/security).
+    user is standing and shadowing the intended package (a security-relevant concern).
     """
     if isinstance(source, _Path) or (
         isinstance(source, _os.PathLike) and not isinstance(source, str)
@@ -860,7 +860,7 @@ def _discover_from_package(dotted_name: str) -> "list[Command]":
 def _discover_from_path(directory: "_Path") -> "list[Command]":
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
-    **Sibling imports (D018).** While importing each file, ``directory`` is
+    **Sibling imports.** While importing each file, ``directory`` is
     temporarily prepended to ``sys.path`` so a bare ``from _helpers import x``
     resolves -- the documented convention for factoring shared code into a
     ``_``-prefixed helper file that command files in the same directory can
@@ -962,7 +962,7 @@ def discover_entry_points(group: str) -> "list[Command]":
 
     ``importlib.metadata`` is imported lazily (inside :func:`_compat.iter_entry_points`)
     so a plain ``import duho`` never pays its cost -- only calling this triggers
-    the load (plan 02 P1). The result is sorted by resolved subcommand name for
+    the load. The result is sorted by resolved subcommand name for
     deterministic ``--help`` output.
     """
     commands: "list[Command]" = []

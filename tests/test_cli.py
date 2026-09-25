@@ -326,8 +326,8 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
 
 @pytest.mark.requires_toml
 def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
-    """An explicit ``config=`` to app() overrides the root's ``_config_``
-    (R037): both are set here to REAL files with DIFFERENT values, so a
+    """An explicit ``config=`` to app() overrides the root's ``_config_``:
+    both are set here to REAL files with DIFFERENT values, so a
     refactor that let ``_config_`` shadow ``config=`` would fail this."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()

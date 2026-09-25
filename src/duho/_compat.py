@@ -14,7 +14,7 @@ UNION_ORIGINS: tuple = (
     *([_types.UnionType] if hasattr(_types, "UnionType") else []),
 )
 
-#: The one true set of truthy/falsy text tokens (A074/C046/D052): every
+#: The one true set of truthy/falsy text tokens: every
 #: bool-ish text parser in duho (the layered CLI/env/config converter, the
 #: strict CLI text factory, ``Env.bool``, ``logging.traceback_enabled``)
 #: matches against these, case-insensitively after ``.strip()``, instead of
@@ -29,7 +29,7 @@ def get_level_names_mapping() -> dict[str, int]:
     """Get mapping of level names to level integers.
 
     Fallback for Python < 3.11, which lacks getLevelNamesMapping (added in
-    3.11, not 3.10 -- C063).
+    3.11, not 3.10).
     """
     if hasattr(_logging, "getLevelNamesMapping"):
         return _logging.getLevelNamesMapping()
@@ -50,9 +50,9 @@ def iter_entry_points(group: str) -> "list":
     * **3.9** -- ``entry_points()`` takes no arguments, returns a plain
       ``dict`` keyed by group name, and does NOT de-duplicate by
       distribution. Left as-is, a duplicated distribution returned every
-      entry point twice, which made ``duho.app``'s M6 collision registry log
+      entry point twice, which made ``duho.app``'s collision registry log
       a bogus "registered by more than one source" WARNING on every
-      invocation, help included (C035). Mirrors 3.10+'s own dedup here:
+      invocation, help included. Mirrors 3.10+'s own dedup here:
       iterate distributions directly, skip one whose normalized name was
       already seen (first copy on ``sys.path`` wins, matching 3.10+), and
       collect only the matching group's entry points from what's left.
@@ -60,7 +60,7 @@ def iter_entry_points(group: str) -> "list":
     ``importlib.metadata`` is imported lazily *inside* this helper (never at
     module top) so a plain ``import duho`` never pays its import cost -- only an
     app that actually opts into ``entry_points=`` discovery triggers the load
-    (startup budget, plan 02 P1).
+    (startup budget).
     """
     import importlib.metadata as _md
 
@@ -88,7 +88,7 @@ def iter_entry_points(group: str) -> "list":
 def write_machine(text: str, stream=None) -> None:
     """Write machine-consumed (non-prose) text -- JSON agent-help documents, a
     completion script, an MCP frame -- as literal UTF-8 bytes with LF-only
-    newlines (C008/O042).
+    newlines.
 
     On Windows, writing through the normal ``stream.write(str)`` text layer
     (1) translates every ``\\n`` to ``\\r\\n``, and (2) encodes using the
@@ -115,8 +115,7 @@ def write_machine(text: str, stream=None) -> None:
 
 def write_human(text: str, stream=None) -> None:
     """Write human-facing prose -- help text, a CLI's status/error messages --
-    tolerating any character the stream's own encoding can't represent
-    (C008/O042).
+    tolerating any character the stream's own encoding can't represent.
 
     Unlike :func:`write_machine`, human output should still look right in the
     reader's own terminal/code page (an accented letter renders correctly

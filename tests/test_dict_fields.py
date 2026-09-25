@@ -123,7 +123,7 @@ def test_dict_config_table(tmp_path):
     assert result.labels == {"a": 1, "b": 2}
 
 
-# --- A005: CLI replaces a layered dict default, like list/set/tuple do ----
+# --- CLI replaces a layered dict default, like list/set/tuple do ---------
 
 
 class DictNonEmptyDefaultArgs(Args):
@@ -144,7 +144,7 @@ def test_dict_repeated_flag_still_accumulates_after_replacing():
     assert result.opts == {"b": "2", "c": "3"}
 
 
-# --- A054: NS(nargs="*") on a dict field merges each space-separated token
+# --- NS(nargs="*") on a dict field merges each space-separated token
 
 
 class DictNargsStarArgs(Args):

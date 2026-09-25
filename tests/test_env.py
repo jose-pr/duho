@@ -72,7 +72,7 @@ class TestBool:
 
     def test_truthy_set_matches_the_layered_converter(self):
         """Env.bool and the layered converter share one truthy table now
-        (`duho._compat.BOOL_TRUE`, D052), so there is nothing left to drift --
+        (`duho._compat.BOOL_TRUE`), so there is nothing left to drift --
         they differ only in strictness (Env.bool is lenient about unknown
         values, the layered converter raises), never in which words are true.
         """
@@ -84,7 +84,7 @@ class TestBool:
     def test_strips_whitespace(self, monkeypatch):
         # The cmd.exe `set VAR=1 && ...` trailing-space pitfall: a layered
         # NS(env=...) bool field already stripped before matching; Env.bool
-        # didn't (D052).
+        # didn't.
         monkeypatch.setenv("MA_DEBUG", " 1 ")
         assert Env("ma").bool("DEBUG") is True
 
@@ -160,7 +160,7 @@ class TestPaths:
         assert Env("ma").paths("CMDS_PATH") == []
 
     def test_empty_segments_are_dropped_leading_trailing_doubled(self, monkeypatch):
-        """D001 (security): a leading, trailing, or doubled separator must NOT
+        """Security: a leading, trailing, or doubled separator must NOT
         produce an empty path segment. An empty segment used to become
         ``ty("")`` -- ``Path("")`` is ``Path(".")`` -- silently meaning the
         current directory (unlike here; unlike POSIX ``$PATH`` too). On this
@@ -382,7 +382,7 @@ class TestCompanionModuleAutoload:
     def test_broken_companion_module_import_error_propagates(
         self, monkeypatch, tmp_path
     ):
-        """D028: an ImportError raised INSIDE an existing companion module
+        """An ImportError raised INSIDE an existing companion module
         (not the companion's own absence) must propagate, not be swallowed.
 
         ``from os import no_such_name`` raises a plain ``ImportError`` (not a
@@ -398,7 +398,7 @@ class TestCompanionModuleAutoload:
     def test_broken_companion_module_missing_dependency_propagates(
         self, monkeypatch, tmp_path
     ):
-        """D028: a companion module's OWN failed import (e.g. a stdlib module
+        """A companion module's OWN failed import (e.g. a stdlib module
         missing on the 3.9 floor, or any other missing dependency) must
         propagate -- it is a different name than the companion module itself,
         so it is not mistaken for "no companion module shipped"."""
@@ -447,7 +447,7 @@ class TestCompanionModuleAutoload:
 
 
 class TestAutoloadSkippedForUnsafePrefix:
-    """D053: autoload never runs for a prefix that would import something
+    """Autoload never runs for a prefix that would import something
     other than a genuine ``<prefix>env`` companion module."""
 
     def test_empty_prefix_does_not_autoload(self, monkeypatch, tmp_path):
@@ -488,7 +488,7 @@ class TestAutoloadSkippedForUnsafePrefix:
 
 
 class TestBoolAnnotationNotShadowed:
-    """D055: on Python 3.14 (PEP 649 lazy annotations), a class body defining
+    """On Python 3.14 (PEP 649 lazy annotations), a class body defining
     a method named ``bool`` next to a ``bool``-typed annotation must not have
     that annotation resolve to the method itself."""
 

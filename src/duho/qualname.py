@@ -95,7 +95,7 @@ class QualName:
 
         # Slice by the length of the (validated) prefix, NOT ``idx + 1``: an empty
         # base leaves the loop unentered, and ``idx + 1`` then dropped the first
-        # part instead of returning self unchanged (M19).
+        # part instead of returning self unchanged.
         return self.qualjoin(*parts[len(other) :])
 
     def camelcase(
@@ -143,7 +143,7 @@ class DotQualNamed(QualName, str):
         # Drop empty segments (a leading, trailing or doubled separator), same
         # as `_qualparts` -- otherwise a name like "a." or "a..b" carries a ""
         # part downstream, and `QualName.camelcase`'s `part[0]` raises
-        # IndexError on it (O036).
+        # IndexError on it.
         return [part for part in name.split(cls.SEPARATOR) if part]
 
     @classmethod

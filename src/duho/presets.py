@@ -11,7 +11,7 @@ from .logging import parse_loglevels
 def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     """Apply parsed ``loglevels``/``verbose``/``quiet`` fields to loggers.
 
-    Module-level (A012/D049) so it works on ANY object carrying
+    Module-level so it works on ANY object carrying
     ``LoggingArgs``'s data fields, not just a ``LoggingArgs`` instance --
     notably a plain ``Cmd`` leaf dispatched under a ``class MyApp(LoggingArgs,
     Cli)`` root (the README's recommended app shape). argparse copies the
@@ -26,12 +26,12 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     ``_logger_`` of its own.
 
     Prefers ``ns._verbose_loglevel_()`` -- a bound method, so a subclass
-    override is honored (C042) -- over the base implementation, which is used
+    override is honored -- over the base implementation, which is used
     only when ``ns``'s own class doesn't define one at all (again, the plain
     ``Cmd`` leaf case).
     """
     loglevels = ns.loglevels.copy()
-    # C006: a bare `--loglevel LEVEL` (parsed as {"": LEVEL}) should raise the
+    # A bare `--loglevel LEVEL` (parsed as {"": LEVEL}) should raise the
     # app's OWN logger, not just root -- but only when nothing more specific
     # (-v/-q, or an explicit `name:LEVEL` entry for this logger) already
     # claims the default. An explicit `-v`/`-q` still wins over a bare level.
@@ -54,7 +54,7 @@ class LoggingArgs(Args):
 
     ``LoggingArgs`` is a **data mixin** (verbosity fields + ``_set_loglevels_``
     + the ``_logger_`` property); it defines no ``__call__`` and is
-    NOT itself runnable. Since Plan 13's ``Args``/``Cmd`` split, combine it
+    NOT itself runnable. Since the ``Args``/``Cmd`` split, combine it
     with ``Cmd`` to get a runnable command with logging::
 
         class MyApp(LoggingArgs, Cmd):
@@ -76,7 +76,7 @@ class LoggingArgs(Args):
     action already exists (e.g. supplied by a parent parser).
     """
 
-    # C007: seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. LoggingArgs
+    # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. LoggingArgs
     # used to be deliberately left UNSEEDED so `_introspect._class_constants`
     # would AST-scan this class body for a trailing docstring + flags-tuple
     # after each field. Every field now carries its flags/help directly in
@@ -101,9 +101,9 @@ class LoggingArgs(Args):
         ),
     ] = {}
 
-    # C018/R006: the shipped header and this class's own docstring have long
-    # promised `--verbose`/`--quiet` alongside `-v`/`-q`; only the short forms
-    # were ever actually declared. Adding the long spellings (rather than
+    # The shipped header and this class's own docstring have long promised
+    # `--verbose`/`--quiet` alongside `-v`/`-q`; only the short forms were
+    # ever actually declared. Adding the long spellings (rather than
     # correcting the docs to match the shorter reality) is additive and a
     # PATCH pre-1.0.
     verbose: _ty.Annotated[

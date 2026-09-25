@@ -1,4 +1,4 @@
-"""Regression tests for A002: `bool` was called directly on CLI text wherever
+"""Regression tests for a bug where `bool` was called directly on CLI text wherever
 it appeared as a Literal member, a Union member, or a collection/dict
 element/value type. Plain ``bool(text)`` is true for almost any non-empty
 string, so ``--flag False`` silently became ``True`` in every one of those
@@ -106,7 +106,7 @@ def test_dict_bool_values_parse_strictly():
 
 
 class _EnvListBoolArgs(Args):
-    """A list[bool] field layered from an env var (A002 x convert_layered)."""
+    """A list[bool] field layered from an env var, exercising convert_layered."""
 
     bs: "Arg[list[bool], NS(env='STRICTBOOL_BS')]" = []
     ("--bs",)

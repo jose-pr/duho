@@ -72,7 +72,7 @@ def test_parse_globals_forwards_parser_kwargs():
 
 
 # --------------------------------------------------------------------------
-# A015: parse_globals must apply the same env/config layers duho.main/parse do
+# parse_globals must apply the same env/config layers duho.main/parse do
 # --------------------------------------------------------------------------
 
 
@@ -110,7 +110,7 @@ class _RequiredEnvRoot(Cli):
 
 
 def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
-    # A015: pre-fix, parse_globals never applied env/config layers at all, so
+    # Pre-fix, parse_globals never applied env/config layers at all, so
     # a required global suppliable only by env raised SystemExit(2) here even
     # though the full duho.parse of the same class succeeds.
     monkeypatch.setenv("DUHO_TEST_GLOBALS_TOKEN", "tok")
@@ -120,7 +120,7 @@ def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# A079: the EXPORTED duho.parsers.prerun_parse must be safe to call directly
+# the EXPORTED duho.parsers.prerun_parse must be safe to call directly
 # on a duho root that still has its own subparsers action -- not just
 # through parse_globals (which used to work around this itself).
 # --------------------------------------------------------------------------

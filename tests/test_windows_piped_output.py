@@ -1,4 +1,4 @@
-"""Regression tests for piped-stdout encoding crashes on Windows (C008/O042).
+"""Regression tests for piped-stdout encoding crashes on Windows.
 
 Windows redirects/pipes ``sys.stdout`` through the console's ANSI code page
 (``cp1252`` on this machine and on GitHub's ``windows-latest``) with STRICT

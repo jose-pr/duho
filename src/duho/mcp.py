@@ -164,7 +164,7 @@ _ISO_FORMAT_NAMES = {
 }
 
 #: The actual lookup used below, built from ``args._ISOFORMAT_FACTORIES``'s
-#: own KEYS (A070) rather than a second, independently hand-kept type list --
+#: own KEYS rather than a second, independently hand-kept type list --
 #: adding/removing an ISO type there now surfaces here as a loud ``KeyError``
 #: (a missing format name) instead of the MCP schema silently disagreeing
 #: with what the CLI itself accepts.

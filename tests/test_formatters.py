@@ -48,7 +48,7 @@ def test_defaults_formatter_skips_false_and_required():
 
 
 # --------------------------------------------------------------------------
-# C041: empty sized containers are noise too, same as None/""/False
+# Empty sized containers are noise too, same as None/""/False
 # --------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ def test_defaults_formatter_skips_empty_containers():
 
 
 # --------------------------------------------------------------------------
-# C001: DefaultsFormatter shows only the CLASS default, never a live
+# DefaultsFormatter shows only the CLASS default, never a live
 # env/config value, for human --help too
 # --------------------------------------------------------------------------
 
@@ -138,7 +138,7 @@ def test_no_color_beats_force_color(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# C016: colored help never misaligns (pre-3.14) or double-colors (3.14+)
+# Colored help never misaligns (pre-3.14) or double-colors (3.14+)
 # --------------------------------------------------------------------------
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -169,7 +169,7 @@ def test_color_help_alignment_matches_plain_help_when_forced(monkeypatch):
     # coloring, but not necessarily argparse's native one (a 3.14+
     # `ArgumentParser`'s own `color` default is independent of which
     # formatter class is used) -- strip both sides so the comparison is
-    # about LAYOUT, the thing C016 was actually about.
+    # about LAYOUT, the thing this test is actually about.
     plain = ColorAlignApp._parser_(formatter_class=argparse.HelpFormatter).format_help()
     assert _ANSI.sub("", colored) == _ANSI.sub("", plain)
 

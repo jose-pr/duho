@@ -392,7 +392,7 @@ def test_empty_module_contributes_nothing(tmp_path):
 def test_reexported_class_is_deduped(tmp_path, caplog):
     # deploy.py defines Deploy; reexport.py imports it unchanged. The
     # __module__ boundary filter must yield Deploy only once (from deploy.py).
-    # Sibling imports now work (D018 -- the directory is on sys.path for the
+    # Sibling imports now work (the directory is on sys.path for the
     # duration of each file's import), so reexport.py's `from deploy import
     # Deploy` SUCCEEDS; Deploy is filtered out by the module-boundary dedup,
     # not by a failed import, so no warning is logged for it either.
@@ -600,7 +600,7 @@ def test_cmdbuilder_source_already_a_module(tmp_path):
 def test_import_from_path_is_the_public_unique_name_plus_import(tmp_path):
     """``import_from_path`` is the public counterpart of the
     ``_unique_module_name`` + ``_import_from_path`` pair this module already
-    used internally -- exposed (D037) so an external command-provider package
+    used internally -- exposed so an external command-provider package
     (``duho.runpath``) never has to reach into either private helper."""
     from duho.discovery import import_from_path
 
@@ -805,7 +805,7 @@ def test_all_escape_hatch_allows_a_deliberate_reexported_entrypoint(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# CmdBuilder: namespaced loose-file import key (D005)
+# CmdBuilder: namespaced loose-file import key
 # --------------------------------------------------------------------------
 
 
@@ -831,7 +831,7 @@ def test_cmdbuilder_loose_file_key_is_namespaced(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# CmdBuilder: a package directory must verify the qualname resolves to it (D041)
+# CmdBuilder: a package directory must verify the qualname resolves to it
 # --------------------------------------------------------------------------
 
 
@@ -882,7 +882,7 @@ def test_cmdbuilder_package_dir_succeeds_when_it_resolves_via_sys_path(
 
 
 # --------------------------------------------------------------------------
-# Directory discovery: sibling _helpers imports (D018)
+# Directory discovery: sibling _helpers imports
 # --------------------------------------------------------------------------
 
 _HELPERS_GREETING = '''\
@@ -946,7 +946,7 @@ def test_sibling_helper_does_not_bleed_across_directories(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# discover_commands('name'): an importable package wins over a CWD shadow (D019)
+# discover_commands('name'): an importable package wins over a CWD shadow
 # --------------------------------------------------------------------------
 
 
@@ -990,7 +990,7 @@ def test_bare_name_falls_back_to_cwd_dir_when_not_importable(tmp_path, monkeypat
 
 
 # --------------------------------------------------------------------------
-# A private (leading-underscore) class is never discovered as a command (D020)
+# A private (leading-underscore) class is never discovered as a command
 # --------------------------------------------------------------------------
 
 _PRIVATE_BASE_AND_SUBCLASS = '''\
@@ -1021,7 +1021,7 @@ def test_private_prefixed_class_is_not_discovered(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# A package's module command is named after the package, not --init-- (D026)
+# A package's module command is named after the package, not --init--
 # --------------------------------------------------------------------------
 
 
@@ -1056,7 +1056,7 @@ def test_cmdbuilder_package_module_command_named_after_package_dotted_import(
 
 
 # --------------------------------------------------------------------------
-# Entry points: a module's own _parsername_ wins (D027); _cli_name removed (D060)
+# Entry points: a module's own _parsername_ wins; _cli_name removed
 # --------------------------------------------------------------------------
 
 
@@ -1116,7 +1116,7 @@ def test_entry_point_name_used_when_module_declares_none(tmp_path, monkeypatch):
 
 
 def test_cli_name_alias_no_longer_honored(tmp_path):
-    """D060 [minor]: `_cli_name` was dropped -- only `_parsername_` names a
+    """`_cli_name` was dropped -- only `_parsername_` names a
     module command now. A module declaring only `_cli_name` falls back to its
     file-stem-derived name instead."""
     path = _write(
@@ -1130,7 +1130,7 @@ def test_cli_name_alias_no_longer_honored(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Repeated discovery reuses an unchanged file's module (D034)
+# Repeated discovery reuses an unchanged file's module
 # --------------------------------------------------------------------------
 
 
@@ -1180,7 +1180,7 @@ def test_rediscovery_after_file_change_gets_a_fresh_import(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Coverage gaps: error/degrade paths users will actually hit (D056)
+# Coverage gaps: error/degrade paths users will actually hit
 # --------------------------------------------------------------------------
 
 

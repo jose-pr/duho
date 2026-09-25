@@ -44,7 +44,7 @@ def _resolve_colorama():
 
 
 def __getattr__(name: str):
-    # Only forward PUBLIC stdlib names (C045): duho.logging is documented as
+    # Only forward PUBLIC stdlib names: duho.logging is documented as
     # "wraps stdlib logging", not as a transparent re-export of it. Forwarding
     # dunders too made `duho.logging.__path__` resolve to STDLIB logging's own
     # package path, so the import system treated `duho.logging` as a package
@@ -79,7 +79,7 @@ def _getcolor(color: str):
     # separator -- underscores so colorama's "_EX" bright variants
     # (LIGHTRED_EX, ...) are recognized as names too, instead of falling
     # through to the "already an ANSI code" passthrough and being rendered as
-    # literal text in front of every log line (C043).
+    # literal text in front of every log line.
     if _COLOR_NAME_RE.match(color):
         colorama = _resolve_colorama()
         if not colorama:
@@ -102,13 +102,13 @@ def add_logging_level(
     both work), registers the level name, refreshes the ``-v``/``-q``
     verbosity table (:func:`initverbose`) so the new level immediately
     participates in it regardless of whether anything has configured logging
-    yet (C012), and optionally gives it a color for
+    yet, and optionally gives it a color for
     :class:`DefaultFormatter`.
 
     Unless ``force`` is set, refuses (``ValueError``) to clobber an existing
     ``logging``/``Logger`` attribute that duho itself did not install --
     guarding both the given ``NAME`` (as before) and its lower-cased method
-    name (C039): a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
+    name: a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
     silently replace ``logging.log``/``Logger.exception``.
     """
     name = name.upper()
@@ -134,7 +134,7 @@ def add_logging_level(
         if self.isEnabledFor(level):
             # stacklevel=2 skips this wrapper's own frame so the record
             # attributes the CALLER (`logger.<name>(...)`), not
-            # `duho/logging.py:log_logger`, as the log site (C011).
+            # `duho/logging.py:log_logger`, as the log site.
             kwargs.setdefault("stacklevel", 2)
             self.log(level, message, *args, **kwargs)
 
@@ -142,7 +142,7 @@ def add_logging_level(
 
     def log_root(msg, *args, **kwargs):
         # Same stacklevel reasoning as log_logger, for the module-level
-        # `logging.<name>(...)` form (C011). Calls the ROOT LOGGER'S `.log()`
+        # `logging.<name>(...)` form. Calls the ROOT LOGGER'S `.log()`
         # directly rather than the module-level `logging.log(...)` wrapper:
         # that wrapper is an extra stdlib frame on top of `Logger.log`, which
         # made `stacklevel=2` under-count by one and misattribute the record
@@ -188,7 +188,7 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
         # behavior, and what tests/test_logging_color.py pins); the one
         # place duho itself decides otherwise is `init_stderr_logging`, which
         # passes `color=False` when the target stream isn't a TTY or
-        # NO_COLOR/FORCE_COLOR says so (C010).
+        # NO_COLOR/FORCE_COLOR says so.
         self._duho_color_enabled = color
         super().__init__(fmt, datefmt, style, validate)
 
@@ -244,7 +244,7 @@ def parse_loglevels(
     names (``DEBUG``, ``debug`` and ``Debug`` are all accepted) or may be a
     plain integer. Surrounding whitespace around a name or level is
     stripped. An entry that resolves to neither raises
-    ``argparse.ArgumentTypeError`` naming the bad token (C009) -- argparse
+    ``argparse.ArgumentTypeError`` naming the bad token -- argparse
     reports this as a normal "invalid value" usage error instead of the
     entry silently disappearing from the returned mapping.
     """
@@ -275,7 +275,7 @@ def parse_loglevels(
 
 #: Tag set on the handler ``init_stderr_logging`` installs, so a later call
 #: (direct or via ``duho.main``/``duho.app``) can tell it already ran for
-#: this logger and skip adding a second one (C040).
+#: this logger and skip adding a second one.
 _STDERR_HANDLER_TAG = "_duho_stderr_handler_"
 
 
@@ -284,13 +284,13 @@ def init_stderr_logging(
 ) -> "_logging.Logger":
     """Initialize logging to stderr with color support.
 
-    Idempotent (C040): a repeat call on the same logger (directly, or via
+    Idempotent: a repeat call on the same logger (directly, or via
     ``duho.main``/``duho.app`` each time they run) finds the handler this
     function installed last time (tagged, never matched by identity/count)
     and does not add a second one -- calling it twice no longer duplicates
     every log line. ``level``, when given, is still (re)applied.
 
-    Color is gated the same way duho's own ``--help`` formatters are (C010):
+    Color is gated the same way duho's own ``--help`` formatters are:
     ANSI only when the stream is a TTY, off when ``NO_COLOR`` is set, forced
     on with ``FORCE_COLOR`` -- so redirecting/piping output, or a CI log,
     never receives raw escape bytes. When color is enabled and colorama is
@@ -328,7 +328,7 @@ TRACEBACK_ENV = "DUHO_TRACEBACK"
 
 #: Values of :data:`TRACEBACK_ENV` that mean "off" (case-insensitive, after
 #: stripping); an empty/unset variable is off. Anything else enables
-#: tracebacks. The shared ``_compat.BOOL_FALSE`` table (A074/C046/D052), so
+#: tracebacks. The shared ``_compat.BOOL_FALSE`` table, so
 #: an unset/empty variable and every other declared bool field agree on what
 #: "off" means.
 _FALSEY = _BOOL_FALSE
@@ -373,7 +373,7 @@ def log_exception(
 
     ``stacklevel=2`` skips this helper's own frame, so the record attributes
     the caller's except-block, not ``duho/logging.py:log_exception``, as the
-    log site (C011).
+    log site.
     """
     if traceback_enabled():
         logger.log(level, msg, *args, exc_info=True, stacklevel=2)

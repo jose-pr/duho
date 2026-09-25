@@ -1,5 +1,5 @@
-"""Regression tests for A004: a Literal composed into a multi-member Union
-lost its membership check. `_union_spec` resolves each member through
+"""Regression tests for a Literal composed into a multi-member Union
+losing its membership check. `_union_spec` resolves each member through
 `_factory_for` but previously dropped every member's `choices`, so
 `Union[Literal["auto"], int]` accepted ANY text for the Literal member (and,
 because `str`-like conversions rarely raise, could silently shadow a later

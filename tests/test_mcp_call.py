@@ -1,6 +1,6 @@
 """Tests for ``duho.mcp.call_tool``: argv synthesis + return convention.
 
-Decision 4's return convention: ``None``/``0`` -> success with captured
+The return convention: ``None``/``0`` -> success with captured
 stdout; a non-zero int -> ``isError: true`` + captured stdout + a trailing
 ``exit code: N`` line; a JSON-serialisable object/list -> passed through as
 one text block holding its JSON dump.

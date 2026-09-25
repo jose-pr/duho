@@ -1,7 +1,8 @@
-"""Regression tests for A053: `_enum_name_factory` validated by iterating
-the enum, which skips ALIASES (an alias name would never be recognized) and,
-since Python 3.11, skips multi-bit `Flag` composite members too (so the same
-declaration accepts a composite name on 3.9 but rejects it on 3.11+).
+"""Regression tests for a bug where `_enum_name_factory` validated by
+iterating the enum, which skips ALIASES (an alias name would never be
+recognized) and, since Python 3.11, skips multi-bit `Flag` composite members
+too (so the same declaration accepts a composite name on 3.9 but rejects it
+on 3.11+).
 Validating against `enum_cls.__members__` (which always includes both) fixes
 this uniformly across the supported version range.
 

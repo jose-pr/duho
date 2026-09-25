@@ -4,9 +4,9 @@ Covers the named-color resolution path: a single ``"red"`` spec and the
 compound ``"red+white"`` fore+back spec both resolve through colorama, and a
 missing colorama degrades to plain (empty) output without crashing.
 
-Also covers C043 (colorama's ``"..._EX"`` bright color names) and C010
-(``init_stderr_logging`` gates ANSI on NO_COLOR/FORCE_COLOR/TTY the same way
-the ``--help`` formatters do, instead of always emitting escape codes).
+Also covers colorama's ``"..._EX"`` bright color names, and
+``init_stderr_logging`` gating ANSI on NO_COLOR/FORCE_COLOR/TTY the same way
+the ``--help`` formatters do, instead of always emitting escape codes.
 """
 
 import io
@@ -121,7 +121,7 @@ def test_add_logging_level_missing_colorama_no_crash(monkeypatch):
 
 
 def test_getcolor_bright_ex_name_resolves_with_colorama():
-    """C043: colorama's "_EX" bright variants must resolve as NAMES, not be
+    """colorama's "_EX" bright variants must resolve as NAMES, not be
     passed through verbatim as literal text (they contain "_", which the old
     `color.isalpha()` check rejected)."""
     colorama = pytest.importorskip("colorama")

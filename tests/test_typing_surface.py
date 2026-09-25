@@ -26,7 +26,7 @@ import duho
 
 
 def test_arg_is_the_real_typing_annotated():
-    """``duho.Arg`` must be ``typing.Annotated`` itself (A041), not a plain
+    """``duho.Arg`` must be ``typing.Annotated`` itself, not a plain
     variable assigned it -- mypy does not treat the latter as a type alias,
     so every documented ``Arg[int, Meta(...)]`` field failed type-checking.
     """
@@ -64,22 +64,22 @@ CONSUMER_SOURCE = textwrap.dedent("""
             return 0
 
 
-    reveal_type(Build)  # type[Build], not type[Cmd] (A042)
+    reveal_type(Build)  # type[Build], not type[Cmd]
 
     parsed = duho.parse(App, [])
-    reveal_type(parsed)  # App, not Any (A042)
+    reveal_type(parsed)  # App, not Any
 
     p = duho.parser(App)
-    reveal_type(p)  # a _Parser[App], not Any (A042)
+    reveal_type(p)  # a _Parser[App], not Any
 
     code = duho.run_command(Deploy, parsed)
     reveal_type(code)  # int
 
     builder = duho.CmdBuilder("mypkg.mod", Path("."))
-    reveal_type(builder.command)  # Command, not object (D029)
+    reveal_type(builder.command)  # Command, not object
 
     exit_code = duho.app(root=App, commands=[Deploy, Build])
-    reveal_type(exit_code)  # int -- app(commands=[a Cmd subclass, ...]) (D029)
+    reveal_type(exit_code)  # int -- app(commands=[a Cmd subclass, ...])
 
     tools = dmcp.describe_tools(App)
     reveal_type(tools)  # list[dict[...]]

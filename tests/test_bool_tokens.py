@@ -1,4 +1,4 @@
-"""Regression tests for the single shared bool-token table (A074/C046/D052).
+"""Regression tests for the single shared bool-token table.
 
 Four places used to define the truthy/falsy word sets independently, and had
 already drifted: ``logging._FALSEY`` lacked "n"/"f" so ``DUHO_TRACEBACK=n``
@@ -19,7 +19,7 @@ from duho.logging import traceback_enabled
 
 
 def test_args_bool_tables_are_compat_tables():
-    """A044/C046/D052: one shared table, not four hand-copied literals."""
+    """One shared table, not four hand-copied literals."""
     assert ArgumentBuilder._BOOL_TRUE is _compat.BOOL_TRUE
     assert ArgumentBuilder._BOOL_FALSE is _compat.BOOL_FALSE
 
@@ -57,7 +57,7 @@ def test_env_bool_strips_whitespace_like_the_layered_converter(monkeypatch):
     assert Env("wsapp", autoload=False).bool("DEBUG") is True
 
 
-# --- A025: a bool field set True by a layer can be turned back off --------
+# --- a bool field set True by a layer can be turned back off --------------
 
 
 def test_env_layered_bool_can_be_turned_off_from_cli(monkeypatch):
@@ -75,7 +75,7 @@ def test_env_layered_bool_can_be_turned_off_from_cli(monkeypatch):
 
 class _ConfigBoolArgs(Args):
     """A bool field on a class with a config source -- config can ALSO set
-    it True with no CLI way back to False, for the same reason (A025). The
+    it True with no CLI way back to False, for the same reason. The
     static `_config_` declaration is what `layered` keys off; the actual
     file loaded per-call is overridden via the `config=` kwarg below."""
 

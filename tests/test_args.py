@@ -727,7 +727,7 @@ def test_positional_never_gets_required_kwarg():
 class OptionalTypedPositionalNoDefaultArgs(Args):
     """An `Optional[T]` positional with NO explicit default. `Optional[T]`
     means "not required" for an option; a positional with no default used to
-    stay required anyway (A026)."""
+    stay required anyway."""
 
     target: "ty.Optional[int]"
     "Target"
@@ -753,8 +753,7 @@ class OptionalNoDefaultOptionNoAssignArgs(Args):
 
 def test_effective_default_is_none_for_non_required_option_without_default():
     """`_effective_default_()` used to return NOT_DEFINED here, so a direct
-    instance had no attribute at all, although a parsed one gets None
-    (A027)."""
+    instance had no attribute at all, although a parsed one gets None."""
     [builder] = [
         b
         for b in OptionalNoDefaultOptionNoAssignArgs._getargs_()
@@ -788,7 +787,7 @@ def test_count_helper():
 class CountNoDefaultArgs(Args):
     """Same as the README's `Arg[int, Count()]` row, with NO `= 0` default --
     Count/Const/store_false with no declared default used to become a
-    mandatory option (A051)."""
+    mandatory option."""
 
     verbose: Arg[int, Count()]
     "Verbosity"
@@ -840,7 +839,7 @@ def test_const_with_no_default_is_not_required():
 
 class RawKwargsConstArgs(Args):
     """`const=` supplied through the raw NS(kwargs={...}) escape hatch must
-    still be seen by the store_const/append_const build-time check (A052)."""
+    still be seen by the store_const/append_const build-time check."""
 
     fast: Arg[int, NS(kwargs={"action": "store_const", "const": 5})] = 0
     "Fast mode"
@@ -909,7 +908,7 @@ def test_extend_helper_flattens_across_repeated_occurrences():
 
 class ExtendNonEmptyDefaultArgs(Args):
     """A declared non-empty default used to be silently discarded regardless
-    of whether the flag was ever given (A007): Extend() put its own
+    of whether the flag was ever given: Extend() put its own
     `default=[]` into the raw kwargs= escape hatch, which always wins."""
 
     paths: Arg[list, Extend(":")] = ["/usr/bin"]
@@ -931,7 +930,7 @@ def test_extend_cli_value_replaces_declared_default():
 
 class ExtendIntArgs(Args):
     """Extend() on a typed list[int] must convert the split parts through
-    the element factory instead of leaving them as strings (A020)."""
+    the element factory instead of leaving them as strings."""
 
     nums: Arg["list[int]", Extend(",")] = []
     "Numbers"
@@ -945,7 +944,7 @@ def test_extend_composes_with_element_factory():
 
 
 class ExtendSetArgs(Args):
-    """Extend() on a set field must produce a set, not a list (A020)."""
+    """Extend() on a set field must produce a set, not a list."""
 
     tags: Arg["set[str]", Extend(",")] = set()
     "Tags"
@@ -959,7 +958,7 @@ def test_extend_on_set_field_produces_a_set_and_dedups():
 
 
 class ExtendEnvArgs(Args):
-    """An Extend() field layered from an env var (A020c)."""
+    """An Extend() field layered from an env var."""
 
     paths: Arg[list, Extend(":"), NS(env="DUHO_TEST_A020_PATH")] = []
     "Search path"
@@ -973,7 +972,7 @@ def test_extend_env_value_is_split_not_nested(monkeypatch):
 
 
 class ExtendConfigArgs(Args):
-    """An Extend() field sourced from a TOML value (A020c)."""
+    """An Extend() field sourced from a TOML value."""
 
     paths: Arg[list, Extend(",")] = []
     "Search path"
@@ -998,7 +997,7 @@ def test_extend_config_array_values_are_split_and_flattened(tmp_path):
 
 class AppendSetArgs(Args):
     """Append() forces argparse's stdlib list-only "append" action, which
-    does not compose with a set field's own collection action (A020)."""
+    does not compose with a set field's own collection action."""
 
     tags: Arg["set[str]", Append()] = set()
     "Tags"
@@ -1057,7 +1056,7 @@ class DirectListDefaultArgs(Args):
 
 def test_direct_instance_does_not_share_class_level_mutable_default():
     """Mutating a directly-built instance's list field used to mutate the
-    CLASS ATTRIBUTE itself (A022): `hasattr(self, name)` is already True for
+    CLASS ATTRIBUTE itself: `hasattr(self, name)` is already True for
     a field with a class-level default, so `Args.__init__` skipped seeding a
     fresh copy onto the instance, and the instance just read the class
     attribute by inheritance."""
@@ -1089,7 +1088,7 @@ def test_no_default_list_field_is_not_shared_across_parses():
     assert _NoDefaultListArgs().items == []
 
 
-# --- shared positional/bare-bool detection (A068) ---
+# --- shared positional/bare-bool detection ---
 
 
 class IsPositionalArgs(Args):
@@ -1120,7 +1119,7 @@ def test_is_bare_bool_flag_excludes_literal_bool():
     """A `Literal[True, False]` field carries `choices` and must go through
     type=+choices= like any other Literal -- it is NOT a bare store_true/
     BooleanOptionalAction flag, even though its declared type is `bool`-ish
-    (A068 -- this is the exact disagreement duho.mcp independently re-derived
+    (this is the exact disagreement duho.mcp independently re-derived
     and got wrong)."""
     builders = {b.name: b for b in IsPositionalArgs._getargs_()}
     assert builders["bare_bool"].is_bare_bool_flag is True
@@ -1241,8 +1240,8 @@ def test_parser_no_longer_accepts_an_init_kwarg():
 
 
 def test_type_to_spec_ladder_is_reexported_unchanged_from_fieldspec():
-    """The type -> argparse-spec ladder moved into its own internal module
-    (A071), but every public/cross-module name stays importable from
+    """The type -> argparse-spec ladder moved into its own internal module,
+    but every public/cross-module name stays importable from
     ``duho.args`` exactly as before -- a re-export, not a copy."""
     import duho._fieldspec as fieldspec_mod
     import duho.args as args_mod
@@ -1257,7 +1256,7 @@ def test_type_to_spec_ladder_is_reexported_unchanged_from_fieldspec():
 
 def test_layering_pipeline_is_reexported_unchanged_from_layers():
     """The env/config/instance layering pipeline moved into its own internal
-    module (A071), but every public/cross-module name stays importable from
+    module, but every public/cross-module name stays importable from
     ``duho.args`` exactly as before -- a re-export, not a copy."""
     import duho._layers as layers_mod
     import duho.args as args_mod

@@ -31,7 +31,7 @@ class _EnvArgs(Args):
 
 
 def test_bad_env_value_message(monkeypatch, capsys):
-    # R020: a bad env value is reported the same way a bad CLI value would be
+    # A bad env value is reported the same way a bad CLI value would be
     # -- usage text + exit 2, never a raw traceback.
     monkeypatch.setenv("DUHO_T5_PORT", "not-an-int")
     with pytest.raises(SystemExit) as excinfo:
@@ -58,7 +58,7 @@ class _ConfigArgs(Args):
 
 @pytest.mark.requires_toml
 def test_bad_config_value_message(tmp_path, capsys):
-    # R020: same usage-text-and-exit-2 contract as a bad env value.
+    # Same usage-text-and-exit-2 contract as a bad env value.
     config = tmp_path / "app.toml"
     config.write_text('port = "not-an-int"\n')
     with pytest.raises(SystemExit) as excinfo:
@@ -96,8 +96,8 @@ def test_union_factory_exhaustion_message():
 
 def test_union_factory_exhaustion_message_reaches_the_user(capsys):
     # A user never calls `action.type(...)` directly -- go through the real
-    # argparse path and check the message actually printed to stderr (A018:
-    # argparse only preserves a factory's own message for ArgumentTypeError,
+    # argparse path and check the message actually printed to stderr
+    # (argparse only preserves a factory's own message for ArgumentTypeError,
     # otherwise it substitutes its own generic "invalid <x> value").
     with pytest.raises(SystemExit):
         duho.parse(_UnionArgs, ["--value", "definitely-not-a-number"])
@@ -120,7 +120,7 @@ class _DictArgs(Args):
 
 def test_dict_missing_equals_message_reaches_the_user(capsys):
     # Previously argparse printed a bare `_KVFactory` object repr and address
-    # instead of the crafted "expected KEY=VALUE" message (A018).
+    # instead of the crafted "expected KEY=VALUE" message.
     with pytest.raises(SystemExit):
         duho.parse(_DictArgs, ["-D", "noequals"])
     err = capsys.readouterr().err
@@ -186,11 +186,10 @@ def test_main_on_non_runnable_args_message():
 
 
 # --------------------------------------------------------------------------
-# R044 fix-readiness pins (finding show.py R044): exact "invalid choice"
-# text for a BARE (non-Union) Literal/Choice/Enum field. A validating-factory
-# fix for the Union case (A004) must not be applied to the bare single-type
-# Literal factory too, or these degrade from argparse's own
-# "invalid choice: ... (choose from ...)" to a generic "invalid <x> value".
+# Exact "invalid choice" text for a BARE (non-Union) Literal/Choice/Enum
+# field. A validating-factory fix for the Union case must not be applied to
+# the bare single-type Literal factory too, or these degrade from argparse's
+# own "invalid choice: ... (choose from ...)" to a generic "invalid <x> value".
 # --------------------------------------------------------------------------
 
 
@@ -235,9 +234,9 @@ class _BareEnumArgs(Args):
 
 
 def test_bare_enum_invalid_choice_message(capsys):
-    # Pre-fix this printed argparse's generic "invalid _factory value: ..."
-    # (A018/A053); fixed to a crafted "invalid choice" message naming the
-    # valid member names, matching Literal/Choice.
+    # Pre-fix this printed argparse's generic "invalid _factory value: ...";
+    # fixed to a crafted "invalid choice" message naming the valid member
+    # names, matching Literal/Choice.
     with pytest.raises(SystemExit):
         duho.parse(_BareEnumArgs, ["--color", "GREEN2"])
     err = capsys.readouterr().err

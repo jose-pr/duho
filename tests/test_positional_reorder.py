@@ -82,7 +82,7 @@ def test_shape_detected_for_fixed_then_variadic_positionals():
 
 
 def test_shape_detected_for_single_variadic_positional():
-    """A LONE variadic positional (no sibling) is ALSO the risky shape (A067):
+    """A LONE variadic positional (no sibling) is ALSO the risky shape:
     a flag touching its own run gets swallowed as "unrecognized arguments"
     (bpo-14191) just like the two-positional case does -- see
     `test_lone_variadic_positional_with_flag_inside` below."""
@@ -239,12 +239,12 @@ def test_variadic_nargs_flag_bails_unreordered_not_worse_than_baseline():
 
 
 # --------------------------------------------------------------------------
-# A lone variadic positional (no sibling) is ALSO the risky shape (A067)
+# A lone variadic positional (no sibling) is ALSO the risky shape
 # --------------------------------------------------------------------------
 
 
 def test_lone_variadic_positional_with_flag_inside():
-    """The exact A067 shape: a flag placed touching a LONE variadic
+    """The exact shape: a flag placed touching a LONE variadic
     positional's own run, with no sibling positional at all. This used to be
     swallowed as "unrecognized arguments" (bpo-14191) even though a previous
     version of the gate's docstring claimed a lone variadic positional was
@@ -255,7 +255,7 @@ def test_lone_variadic_positional_with_flag_inside():
 
 
 # --------------------------------------------------------------------------
-# Attached short-option values and unambiguous long prefixes (A048)
+# Attached short-option values and unambiguous long prefixes
 # --------------------------------------------------------------------------
 
 

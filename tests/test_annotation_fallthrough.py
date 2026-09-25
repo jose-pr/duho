@@ -1,5 +1,5 @@
-"""Regression tests for A029: an annotation `_factory_for` doesn't recognize
-fell through to calling the raw annotation itself on CLI text. `frozenset[str]`
+"""Regression tests for annotations `_factory_for` doesn't recognize, which used
+to fall through to calling the raw annotation itself on CLI text. `frozenset[str]`
 silently split text into characters, `Sequence[str]`/`Iterable[str]` failed
 per-value at PARSE time instead of once at build, a PEP 695 `type X = ...`
 alias (3.12+) crashed every parser build (`TypeAliasType` isn't callable),
@@ -19,8 +19,8 @@ import duho
 from duho import Args
 
 # --------------------------------------------------------------------------
-# frozenset: now routed through the same collection ladder as set (A029
-# "optionally route frozenset through the set branch").
+# frozenset: now routed through the same collection ladder as set
+# (optionally routing frozenset through the set branch).
 # --------------------------------------------------------------------------
 
 
@@ -69,7 +69,7 @@ def test_unsupported_generic_origin_raises_at_build_time():
 # Annotated nested inside a Union (e.g. Optional[Arg[int, NS(...)]]): the
 # single Annotated member's metadata is lifted out of the Union and applied
 # to the field, rather than crashing with a bare TypeError from an
-# unhashable-metadata dict lookup or silently dropping the metadata (C037).
+# unhashable-metadata dict lookup or silently dropping the metadata.
 # --------------------------------------------------------------------------
 
 from duho import Arg, NS  # noqa: E402
@@ -166,7 +166,7 @@ def test_pep695_type_alias_list_field_converts():
 
 
 # --------------------------------------------------------------------------
-# C037: a PEP 695 alias WRAPPING Annotated (`type Port = Annotated[int,
+# A PEP 695 alias WRAPPING Annotated (`type Port = Annotated[int,
 # NS(...)]`) must unwrap through `__value__` -- the bare alias case above
 # never carried metadata, so it never exercised this.
 # --------------------------------------------------------------------------
@@ -193,7 +193,7 @@ def test_pep695_type_alias_wrapping_annotated_unwraps_metadata():
 
 
 # --------------------------------------------------------------------------
-# C037: more than one Annotated member inside a Union is ambiguous -- a
+# More than one Annotated member inside a Union is ambiguous -- a
 # field-named error, never a silent pick of one or a crash naming nobody.
 # --------------------------------------------------------------------------
 

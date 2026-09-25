@@ -41,7 +41,7 @@ NOT_DEFINED = _introspect.NOT_DEFINED
 _NONETYPE = type(None)
 
 #: {id(instance): frozenset(explicitly-passed field names)} for every `Args`
-#: instance built via `__init__` (A031). `Args.__init__` seeds a class-body
+#: instance built via `__init__`. `Args.__init__` seeds a class-body
 #: default for every declared field the caller did NOT pass (so a directly
 #: built instance has the same attribute surface as a parsed one, e.g. a bare
 #: `bool` field materializes to `False`) -- those seeded placeholders must
@@ -88,12 +88,12 @@ _type = type
 _T = _ty.TypeVar("_T")
 
 #: Bound to :class:`Args`: lets ``duho.parse``/``duho.parse_globals`` return the
-#: caller's own subclass instead of erasing it to ``Args``/``Any`` (A042).
+#: caller's own subclass instead of erasing it to ``Args``/``Any``.
 _A = _ty.TypeVar("_A", bound="Args")
 
 #: Bound to ``type[Cmd]``: lets ``Cli.subcommand``/``@Cli.subcommand`` and
 #: ``Cli._register_subcmd_`` return the decorated CLASS's own type instead of
-#: widening it to ``type[Cmd]`` (A042).
+#: widening it to ``type[Cmd]``.
 _C = _ty.TypeVar("_C", bound="type[Cmd]")
 
 NS = _argparse.Namespace
@@ -376,7 +376,7 @@ def _write_machine_text(text: str, file=None) -> None:
     Thin alias kept under its original name (used at several call sites in
     this module); the actual implementation is the shared
     ``duho._compat.write_machine`` writer also used by ``duho.agenthelp`` and
-    ``duho.mcp`` (C008/O042), so every machine-readable output path agrees.
+    ``duho.mcp``, so every machine-readable output path agrees.
     """
     _compat.write_machine(text, file)
 
@@ -507,7 +507,7 @@ class _AgentHelpAction(_argparse._HelpAction):
     exits 0; otherwise it defers to the normal human ``_HelpAction``.
     """
 
-    #: The app's ROOT duho class (for version/exit-code lookup -- C021: kept
+    #: The app's ROOT duho class (for version/exit-code lookup -- kept
     #: distinct from THIS parser's own ``_duho_cls_``, which stays the current
     #: node so a subcommand-scoped document still reports the APP's version
     #: and exit codes, not its own usually-unset ones); the trigger env-var
@@ -525,14 +525,14 @@ class _AgentHelpAction(_argparse._HelpAction):
             )
             _compat.write_machine(_agenthelp.render(spec), _sys.stdout)
             parser.exit()
-        # Human help (C001): show only each field's CLASS default, never a
+        # Human help: show only each field's CLASS default, never a
         # live env/config value `_stage_layers`/`_apply_default_layers_one`
         # may have already installed as `action.default` for THIS invocation
         # -- `DefaultsFormatter` only ever sees `action`, never `parser`, so
         # the class default + provenance is stashed onto each action here,
         # the one place in the print path that still has both.
         _agenthelp.stash_default_provenance(parser)
-        # C008/O042: write via the stream's own encoding with a lossy
+        # Write via the stream's own encoding with a lossy
         # fallback (`errors="backslashreplace"`) instead of argparse's own
         # `_print_message`, which writes strict-encoded text and raises
         # `UnicodeEncodeError` (empty output, exit 1) for a docstring/help
@@ -579,7 +579,7 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
     3. On the top-level parser only, when ``_agent_help_ = True``, add the opt-in
        ``--help-agents`` flag (guarded against a duplicate dest).
 
-    ``agent_root_cls`` (C021) is the APP's true root class, threaded down from
+    ``agent_root_cls`` is the APP's true root class, threaded down from
     :meth:`Args._parser_`'s own recursive ``_subcommands_`` build (mirrors how
     ``_inherited_formatter_class_`` propagates the effective help formatter) --
     ``None`` at the true top level, where ``cls`` itself IS the root. It is
@@ -673,7 +673,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         if isinstance(flags_expr, set):
             # A set has no defined iteration order, so `flags[0]` (positional
             # detection) is nondeterministic and previously crashed. Reject it
-            # with a clear build-time error naming the field (M15).
+            # with a clear build-time error naming the field.
             raise ValueError(
                 f"argument {name!r}: flags must be given as a list or tuple, "
                 f"not a set {flags_expr!r} (a set has no guaranteed order)"
@@ -705,8 +705,8 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             if origin in _compat.UNION_ORIGINS and _NONETYPE in args:
                 required = False
 
-            # One dispatch ladder, shared by the top level and every Union member
-            # (C6). A plain/custom type yields factory=None -- keep the seeded
+            # One dispatch ladder, shared by the top level and every Union member.
+            # A plain/custom type yields factory=None -- keep the seeded
             # `_factory` (e.g. a `from_type` custom factory) for that case.
             spec = _factory_for(cls, name)
             if spec.factory is not None:
@@ -730,7 +730,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 # AFTER this method returns) -- baked in the type-derived
                 # shape too early: the documented `NS(nargs="*")` opt-back and
                 # a `NS(flags=...)` that makes the field positional were both
-                # unable to change it (A016). The downgrade itself now lives
+                # unable to change it. The downgrade itself now lives
                 # in `ArgumentBuilder._kwargs`, computed from the FINAL flags
                 # and nargs once every override is known; here we only record
                 # that this `nargs` came from the type ladder (not a user
@@ -843,7 +843,7 @@ _TYPE_INCOMPATIBLE_ACTIONS = frozenset(
 _CONST_REQUIRED_ACTIONS = frozenset({"store_const", "append_const"})
 
 #: Zero-argument (flag-only) actions with no declared default get an
-#: implicit one instead of `required=True` (A051) -- argparse's own natural
+#: implicit one instead of `required=True` -- argparse's own natural
 #: resting value for each, so `_effective_default_` agrees.
 _ZERO_ARG_ACTION_DEFAULTS = {
     "count": 0,
@@ -856,7 +856,7 @@ _ZERO_ARG_ACTION_DEFAULTS = {
 def _is_positional(flags: "_ty.Sequence[str]") -> bool:
     """A flag tuple whose sole entry has no leading ``-`` is a positional.
 
-    The one place this decision is made (A068) -- ``ArgumentBuilder._kwargs``
+    The one place this decision is made -- ``ArgumentBuilder._kwargs``
     and the ``is_positional`` property below both call this, instead of each
     re-deriving ``len(flags) == 1 and not flags[0].startswith("-")``
     independently (and, before this fix, disagreeing with a THIRD copy in
@@ -896,7 +896,7 @@ class ArgumentBuilder(_argparse.Namespace):
     #: ``NS(conflicts=...)``/``Meta(conflicts=...)``'s mutually-exclusive-group
     #: key; ``None`` for a field in no group. Declared here (rather than read
     #: via ``getattr(..., "conflicts", None)``) so every consumed metadata key
-    #: has ONE declaration, matching ``Meta``'s own field list (A050).
+    #: has ONE declaration, matching ``Meta``'s own field list.
     conflicts: "str | None" = None
     #: Whether THIS member's group must be satisfied (``NS(conflicts_required=True)``);
     #: a group is required if ANY of its members sets this.
@@ -916,13 +916,13 @@ class ArgumentBuilder(_argparse.Namespace):
     collection: "_type | None" = None
     #: ``duho.Extend()``'s split callable, or ``None``. Consumed by
     #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
-    #: the field's own element type (A020); never read afterwards.
+    #: the field's own element type; never read afterwards.
     split: "_ty.Callable | None" = None
     #: True when `nargs` came from the type ladder (a `list`/`set`/`tuple`
     #: field) rather than an explicit `NS(nargs=...)` override. Lets
     #: `_kwargs` downgrade a repeatable OPTION to one value per occurrence
     #: without also clobbering a deliberate opt-back into space-separated
-    #: multi-value (A016).
+    #: multi-value.
     _implicit_nargs_: bool = False
 
     @property
@@ -936,13 +936,13 @@ class ArgumentBuilder(_argparse.Namespace):
         ``BooleanOptionalAction`` flag with no value of its own -- as opposed
         to a `bool` that carries `choices` (a `Literal[True, False]` field,
         which must go through `type=`+`choices=` like any other `Literal`) or
-        one with an explicit `action=` override (A068).
+        one with an explicit `action=` override.
         """
         return self.type is bool and not self.action and self.choices is None
 
     #: Truthy/falsy strings a layered bool value maps to True/False
     #: (case-insensitive, whitespace-stripped). The one shared table
-    #: (``_compat.BOOL_TRUE``/``BOOL_FALSE``, A074/C046/D052) aliased here so
+    #: (``_compat.BOOL_TRUE``/``BOOL_FALSE``) aliased here so
     #: existing readers of ``ArgumentBuilder._BOOL_TRUE``/``_BOOL_FALSE`` keep
     #: working. Unlike ``Env.bool`` (which treats an unrecognized string as
     #: False) the layered converter is STRICT -- an explicit config/env value
@@ -956,7 +956,7 @@ class ArgumentBuilder(_argparse.Namespace):
         A string always runs through ``self.type`` (the CLI text factory), so a
         bad value raises exactly the error argparse would. A non-string raw
         (TOML int/float/bool/date/list-element) goes through
-        :meth:`_convert_non_str` (A017).
+        :meth:`_convert_non_str`.
         """
         factory = self.type
         if isinstance(raw, str):
@@ -964,7 +964,7 @@ class ArgumentBuilder(_argparse.Namespace):
         return self._convert_non_str(raw, factory)
 
     def _convert_non_str(self, raw, factory):
-        """Shared lossless-widening rule for a non-string raw value (A017).
+        """Shared lossless-widening rule for a non-string raw value.
 
         Used by both :meth:`_convert_single` (``self.type``) and
         :meth:`convert_layered`'s dict-table branch (the per-value factory,
@@ -1022,8 +1022,8 @@ class ArgumentBuilder(_argparse.Namespace):
             return raw
 
     def _check_layered_choices(self, value):
-        """Validate a converted layered/instance value against ``self.choices``
-        (A008): ``set_defaults`` bypasses argparse's own choices check
+        """Validate a converted layered/instance value against ``self.choices``:
+        ``set_defaults`` bypasses argparse's own choices check
         entirely, so a Literal/``Choice(...)`` field silently accepted any
         env or config text without this. Checked per element for a
         collection, per value for a dict; an Enum field never carries
@@ -1062,8 +1062,8 @@ class ArgumentBuilder(_argparse.Namespace):
           (a TOML array) converts element-wise then coerces to the collection.
         * **scalar**: via :meth:`_convert_single`.
 
-        The result is checked against ``self.choices`` before it is returned
-        (A008), the same membership check argparse itself would apply to a
+        The result is checked against ``self.choices`` before it is returned,
+        the same membership check argparse itself would apply to a
         CLI-supplied value.
 
         ``source`` names the layer ("env"/"config") for error messages; the
@@ -1115,7 +1115,7 @@ class ArgumentBuilder(_argparse.Namespace):
                 # duho.Extend(): `self.type` SPLITS one string into several
                 # elements rather than converting a single one, so it must
                 # NOT be run once per array element like a plain per-element
-                # factory would (A020) -- a *string* raw is the whole thing
+                # factory would -- a *string* raw is the whole thing
                 # to split; a *list/tuple/set* raw (a TOML array) splits each
                 # STRING element and flattens the parts together, widening a
                 # non-string element (already fully typed) via the base
@@ -1160,8 +1160,8 @@ class ArgumentBuilder(_argparse.Namespace):
         # nargs once every NS(nargs=...)/NS(flags=...) override is already
         # applied (both land on `self` before `_kwargs` ever runs), so the
         # documented `NS(nargs="*")` opt-back and a `NS(flags=...)` override
-        # that makes the field positional both work (A016). `_CollectionAction`
-        # (bound to list/set/tuple/frozenset alike, see A005) already has its
+        # that makes the field positional both work. `_CollectionAction`
+        # (bound to list/set/tuple/frozenset alike) already has its
         # own single-value-per-occurrence branch, so no action swap is needed.
         if self._implicit_nargs_ and nargs == "*" and not positional:
             nargs = None
@@ -1182,7 +1182,7 @@ class ArgumentBuilder(_argparse.Namespace):
             # `Literal[True, False]` (carries choices) or an explicit
             # action= override is excluded by `is_bare_bool_flag` -- those go
             # through type=+choices= like any other Literal, since argparse
-            # forbids choices= on a store_true action (C10).
+            # forbids choices= on a store_true action.
             no_flag = any(
                 f.startswith("--no-") for f in self.flags if f.startswith("--")
             )
@@ -1191,7 +1191,7 @@ class ArgumentBuilder(_argparse.Namespace):
                     # BooleanOptionalAction tries to synthesize a --no-<flag>
                     # pair for a flag that ALREADY starts with --no- -- 3.14+
                     # rejects that outright, and 3.9-3.13 built the confusing
-                    # --no-verify/--no-no-verify pair (A046). A plain
+                    # --no-verify/--no-no-verify pair. A plain
                     # store_false under the SAME flag means what a
                     # True-default --no-* flag always meant: presence sets
                     # False, absence keeps the True default.
@@ -1202,7 +1202,7 @@ class ArgumentBuilder(_argparse.Namespace):
                 # A field that can receive True from a layer OTHER than the
                 # CLI (env=, or the owning class has a config source) needs a
                 # way to turn it back off from the command line -- store_true
-                # can only ever SET True, never re-assert False (A025).
+                # can only ever SET True, never re-assert False.
                 kwargs["action"] = _argparse.BooleanOptionalAction
             else:
                 kwargs["action"] = "store_true"
@@ -1216,7 +1216,7 @@ class ArgumentBuilder(_argparse.Namespace):
 
         if action is _argparse.BooleanOptionalAction:
             # Python 3.14 removed the (already-deprecated) type/choices/
-            # metavar parameters outright (A046) -- drop them here, not only
+            # metavar parameters outright -- drop them here, not only
             # when duho itself picked the action, so an explicit
             # NS(action=argparse.BooleanOptionalAction) override is covered
             # too.
@@ -1236,7 +1236,7 @@ class ArgumentBuilder(_argparse.Namespace):
         if action == "append" and self.collection not in (None, list):
             # duho.Append() forces argparse's stdlib "append" action, which
             # always produces a *list* -- it doesn't compose with a set/tuple
-            # field's own collection action (A020). Fail loud at build time
+            # field's own collection action. Fail loud at build time
             # instead of silently returning the wrong collection type.
             raise ValueError(
                 f"argument {self.name!r}: duho.Append() does not support a "
@@ -1287,8 +1287,8 @@ class ArgumentBuilder(_argparse.Namespace):
                 # instead (mirrors the enforcement a Union/Literal member
                 # already gets, see `_choice_checked`) and drop `choices=`
                 # from `add_argument` for this shape entirely -- so argparse
-                # never validates anything itself here, on any version
-                # (A049). `metavar` still shows the allowed values.
+                # never validates anything itself here, on any version.
+                # `metavar` still shows the allowed values.
                 if "type" in kwargs:
                     kwargs["type"] = _choice_checked(kwargs["type"], self.choices)
                 kwargs.pop("choices", None)
@@ -1300,7 +1300,7 @@ class ArgumentBuilder(_argparse.Namespace):
                 "default" in kwargs or self.required is False
             ):
                 # An optional positional (a real default, or an Optional[T]
-                # with none at all -- A026) needs nargs="?", otherwise
+                # with none at all) needs nargs="?", otherwise
                 # argparse makes it required and ignores the default.
                 kwargs["nargs"] = "?"
             kwargs.pop("required", None)
@@ -1316,13 +1316,13 @@ class ArgumentBuilder(_argparse.Namespace):
                 # mutex group ("mutually exclusive arguments must be
                 # optional"), so this can never become `required=True` here
                 # -- group-level requiredness is exactly what
-                # `conflicts_required=` expresses instead (A023).
+                # `conflicts_required=` expresses instead.
                 kwargs["required"] = False
             elif action in _ZERO_ARG_ACTION_DEFAULTS and "default" not in kwargs:
                 # A flag-style zero-argument action (count/store_const/
                 # append_const/store_false) with no declared default gets
                 # argparse's own natural resting value instead of becoming a
-                # mandatory flag (A051).
+                # mandatory flag.
                 kwargs["required"] = False
                 kwargs["default"] = _ZERO_ARG_ACTION_DEFAULTS[action]
             else:
@@ -1333,7 +1333,7 @@ class ArgumentBuilder(_argparse.Namespace):
         # Copy a mutable default so each parser build gets its OWN list/set/
         # dict (the builder is cached on the class, so without this every
         # build would share the same object). A second, per-PARSE copy (for
-        # a parser reused across multiple parse_args() calls, A021) happens
+        # a parser reused across multiple parse_args() calls) happens
         # in `_initparser_`'s wrapped `parse_known_args`. Covers both the
         # collection-branch default ([]/set()) and an override default (e.g.
         # an explicit Extend(sep, default=[...])). Tuples are immutable.
@@ -1362,8 +1362,7 @@ class ArgumentBuilder(_argparse.Namespace):
             # (removed in 3.11) -- reset to the exact help duho passed in so
             # an NS(help=argparse.SUPPRESS) flag stays hidden (the identity
             # check argparse itself uses to hide it) and no literal
-            # "%(default)s" leaks into agent-help JSON on the floor versions
-            # (A047).
+            # "%(default)s" leaks into agent-help JSON on the floor versions.
             action.help = help
         return action
 
@@ -1376,7 +1375,7 @@ class ArgumentBuilder(_argparse.Namespace):
         field with no default -- callers seeding an instance leave those unset.
         A non-required OPTION with no declared default (e.g. ``Optional[int]``)
         resolves to ``None``, matching what argparse itself leaves on the
-        namespace when the flag is absent (A027).
+        namespace when the flag is absent.
         """
         kwargs = self._kwargs()
         if "default" in kwargs:
@@ -1410,7 +1409,7 @@ def _has_variadic_positional(parser: "_argparse.ArgumentParser") -> bool:
       run -- with no sibling positional at all -- ALSO gets swallowed as
       "unrecognized arguments" (bpo-14191); a previous version of this
       docstring claimed a lone variadic positional was unaffected, which was
-      not actually true (verified this session, bare stdlib: A067).
+      not actually true (verified this session, bare stdlib).
 
     Both shapes are handled by the same reorder pass below, so this only
     needs to detect "at least one variable-arity positional" -- no sibling
@@ -1473,7 +1472,7 @@ def _add_fields(
     # A `conflicts=` key must use the SAME `group=` title (or no title)
     # everywhere it appears -- otherwise members that share a conflicts=
     # string land in TWO separate mutex groups (one per title) and are no
-    # longer mutually exclusive at all, silently (A024).
+    # longer mutually exclusive at all, silently.
     conflicts_titles: "dict[str, object]" = {}
     for arg in cls._getargs_():
         conflicts = arg.conflicts
@@ -1494,7 +1493,7 @@ def _add_fields(
             else:
                 conflicts_titles[conflicts] = group_title
 
-    # A025: a bool field that can receive True from a layer OTHER than the
+    # A bool field that can receive True from a layer OTHER than the
     # CLI needs a way to turn it back off from the command line (see
     # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
     # per-field signal; a config source is a per-CLASS one.
@@ -1625,7 +1624,7 @@ def _reorder_argv_for_variadic_positional(
 
     Recognizes a flag by exact key, by its ``--flag=value`` split, by an
     attached short-option value (``-fVALUE``), and by an unambiguous
-    ``allow_abbrev`` long-option prefix (``--filt`` for ``--filter``) (A048)
+    ``allow_abbrev`` long-option prefix (``--filt`` for ``--filter``)
     -- the same spellings argparse itself accepts, so a flag written that way
     between two positionals is hoisted exactly like its long/separate-token
     form is.
@@ -1777,7 +1776,7 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
     ``root_defaults`` (optional ``{dest: effective_default}``) lets the caller
     skip suppression for a dest the child DELIBERATELY re-declares with a default
     differing from the root's: that override is intentional and must win, so the
-    child keeps its own default rather than deferring to the root (M16).
+    child keeps its own default rather than deferring to the root.
 
     ``value_sources`` / config layering are unaffected: they operate on the root
     parser's own actions, not these child copies.
@@ -1795,7 +1794,7 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
             and action.default != root_defaults[action.dest]
         ):
             # The child re-declares this field with a different default -- a
-            # deliberate override; keep it (M16).
+            # deliberate override; keep it.
             continue
         action.default = _argparse.SUPPRESS
 
@@ -1828,7 +1827,7 @@ class Args(_argparse.Namespace):
     #: ``duho.discovery.Command`` (whose ``Protocol`` requires this member) --
     #: without it, the documented ``app(commands=[SomeCmd])``/
     #: ``run_command(SomeCmd, ...)`` failed type-checking even though they run
-    #: correctly (D029). Already excluded from CLI-field discovery like every
+    #: correctly. Already excluded from CLI-field discovery like every
     #: other leading-underscore name, ``ClassVar`` or not.
     _parsername_: "_ty.ClassVar[str]"
 
@@ -1860,7 +1859,7 @@ class Args(_argparse.Namespace):
         # already `hasattr`-true via inheritance, which used to skip seeding
         # entirely -- so a direct instance read the CLASS ATTRIBUTE itself,
         # and mutating a mutable one (`instance.files.append(...)`) mutated
-        # every other instance and every later parse's default too (A022).
+        # every other instance and every later parse's default too.
         # `vars(self)` only sees THIS instance's own attributes, so the gap
         # still gets filled with `_effective_default_()`'s fresh copy.
         super().__init__(**kwargs)
@@ -1871,7 +1870,7 @@ class Args(_argparse.Namespace):
             default = builder._effective_default_()
             if default is not NOT_DEFINED:
                 setattr(self, name, default)
-        # A031: remember exactly which fields THIS CALL passed, outside
+        # Remember exactly which fields THIS CALL passed, outside
         # vars(self) -- see `_duho_explicit_instance_fields`. A subclass that
         # isn't weak-referenceable (e.g. declares `__slots__` without
         # `__weakref__`) simply isn't tracked; `duho.parse(instance)` then
@@ -1902,7 +1901,7 @@ class Args(_argparse.Namespace):
         args: list[ArgumentBuilder] = []
         for name, decl in clsargs.items():
             if decl.annotations:
-                # SUPPRESS anywhere in the metadata hides the field (M17).
+                # SUPPRESS anywhere in the metadata hides the field.
                 if _argparse.SUPPRESS in decl.annotations:
                     continue
                 options: dict = {}
@@ -1912,7 +1911,7 @@ class Args(_argparse.Namespace):
                     # PEP-727-style object with a str `.documentation` contributes
                     # help text. Any other metadata (a bare `Annotated[int, "doc"]`
                     # string, an int, ...) is ignored silently, as Annotated's
-                    # own semantics require (C8).
+                    # own semantics require.
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
                         # an unset (sentinel) field never overrides a type-derived
@@ -2032,7 +2031,7 @@ class Args(_argparse.Namespace):
         )
         if effective_formatter is not None:
             kwargs.setdefault("formatter_class", effective_formatter)
-        # C021: the APP's true root class, threaded down through the whole
+        # The APP's true root class, threaded down through the whole
         # `_subcommands_` tree the same way `_inherited_formatter_class_` is
         # (see the recursive `sub._parser_(...)` call below) -- `None` here
         # means THIS call is the actual top level, so `cls` itself is the
@@ -2193,7 +2192,7 @@ class Args(_argparse.Namespace):
             # Install this class's own env/config/instance placeholders as
             # not-yet-converted defaults (Design Q2/Q4) -- lazily, right here,
             # so a value belonging to a subcommand this invocation never
-            # reaches is never even resolved (A033).
+            # reaches is never even resolved.
             _stage_layers(parser, cls)
 
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
@@ -2201,13 +2200,13 @@ class Args(_argparse.Namespace):
             )
 
             # Convert whichever placeholders the CLI left untouched, report a
-            # bad one through `parser.error` (R020), and merge this parser's
-            # own provenance up into its parent's (A037/R021) -- see
+            # bad one through `parser.error`, and merge this parser's
+            # own provenance up into its parent's -- see
             # `_finalize_layers`/`_merge_layers_upward`.
             _finalize_layers(parser, cls, parsed)
             _merge_layers_upward(parser)
 
-            # A021: per-PARSE mutable-default copy, scoped to THIS parser's
+            # Per-PARSE mutable-default copy, scoped to THIS parser's
             # own actions (a subcommand's redeclared fields are a different
             # action set, handled the same way when ITS OWN wrapped
             # parse_known_args runs).
@@ -2219,7 +2218,7 @@ class Args(_argparse.Namespace):
                 if isinstance(_default, (list, set, dict)) and (
                     getattr(parsed, _dest, None) is _default
                 ):
-                    # A021: `_kwargs` already gives each parser BUILD its own
+                    # `_kwargs` already gives each parser BUILD its own
                     # copy of a mutable default, but argparse puts that SAME
                     # object onto every namespace a REUSED parser produces
                     # when the field is never touched by this parse -- so two
@@ -2245,7 +2244,7 @@ class Args(_argparse.Namespace):
             # Drop the `_CollectionAction`/`UpdateAction` sidecars
             # (`_duho_items_<dest>` / `_duho_dict_seen_<dest>`) before
             # constructing the instance so this internal bookkeeping never leaks
-            # into vars(instance) or the documented clone pattern (M12).
+            # into vars(instance) or the documented clone pattern.
             for _sidecar in [
                 k
                 for k in parsed.__dict__
@@ -2263,7 +2262,7 @@ class Args(_argparse.Namespace):
             # for a nested selection `_cls` has already been rebound to the
             # DEEPEST selected class by the `pop("#cls")` above, while
             # `parser` is still the ROOT's, which by now holds the merged
-            # chain (A037/R021). Per-class, not per-instance -- keeps Args
+            # chain. Per-class, not per-instance -- keeps Args
             # instances themselves free of framework bookkeeping in
             # vars()/__dict__.
             _cls._duho_last_parser_ = parser  # type: ignore[attr-defined]
@@ -2332,7 +2331,7 @@ class Args(_argparse.Namespace):
 
         # Wire this class's own declared fields (and their titled/mutually-
         # exclusive groups) onto the parser -- shared with
-        # `runtime._add_module_declared_fields` (A069) so a module command
+        # `runtime._add_module_declared_fields` so a module command
         # gets the exact same `NS(group=...)`/`NS(conflicts=...)` support a
         # class command does.
         _add_fields(parser, cls, parent_dests=parent_dests, strict=True)
@@ -2347,7 +2346,7 @@ class Args(_argparse.Namespace):
 class Cmd(Args):
     """An executable command: a data ``Args`` plus the command contract.
 
-    ``Args`` (Plan 13) is pure data -- a Namespace of parsed values, not
+    ``Args`` is pure data -- a Namespace of parsed values, not
     required to run. ``Cmd`` adds the *executable* contract on top:
     ``__call__(self)`` is the command entrypoint (``instance()`` runs the
     command).
@@ -2361,7 +2360,7 @@ class Cmd(Args):
 
     A ``Cmd`` subclass that does not override ``__call__`` raises
     ``NotImplementedError`` naming the class when dispatched -- the same
-    loud-failure spirit as Plan 04's earlier "missing ``__call__``". Data-only
+    loud-failure spirit as an earlier "missing ``__call__``". Data-only
     ``Args`` subclasses stay non-runnable by design: ``duho.main`` rejects them
     with a clear error rather than silently no-op'ing (the whole point of the
     split is that "runnable" is explicit).
@@ -2654,12 +2653,12 @@ def Extend(
     The split parts are mapped through the field's OWN element factory (so
     ``Arg[list[int], Extend(",")]`` yields ints, not strings) and fed to
     whichever collection action the field's declared type already uses --
-    ``list``, ``set``, or ``tuple`` (A020) -- so this composes with a typed
+    ``list``, ``set``, or ``tuple`` -- so this composes with a typed
     or non-list collection instead of forcing a stdlib list-only action. The
     field's own declared default (or the type ladder's empty collection when
     none is declared) is used as-is; it is NOT overridden here, so it is kept
     when the flag is absent and replaced -- like any other collection option
-    -- on the first CLI occurrence (A007).
+    -- on the first CLI occurrence.
     """
     kwargs.setdefault("nargs", None)
     if isinstance(split, str):
@@ -2747,8 +2746,8 @@ def print_agent_help(cls, file=None) -> None:
 def _setup_instance_logging(
     instance, setup_logging: bool, root_cls: "type | None" = None
 ) -> None:
-    """Initialize stderr logging + apply verbosity for a parsed instance
-    (A072): the identical block ``duho.main`` and ``duho.app`` each ran
+    """Initialize stderr logging + apply verbosity for a parsed instance:
+    the identical block ``duho.main`` and ``duho.app`` each ran
     inline, now shared by both entry points.
 
     A no-op unless `setup_logging` is true. Prefers the parsed instance's own
@@ -2759,12 +2758,12 @@ def _setup_instance_logging(
     (argparse copies the parent parser's parsed values onto the shared
     instance regardless of which class gets constructed); apply them under
     the root's own command name via the module-level
-    :func:`duho.presets._apply_loglevels` instead of the missing bound method
-    (A012/D049). This is the documented ``class MyApp(LoggingArgs, Cli)`` +
+    :func:`duho.presets._apply_loglevels` instead of the missing bound method.
+    This is the documented ``class MyApp(LoggingArgs, Cli)`` +
     plain ``Cmd`` leaves shape from the README, which previously left
     ``-v``/``-q``/``--loglevel`` silently doing nothing.
 
-    ``init_stderr_logging`` is idempotent (C040), so it is called
+    ``init_stderr_logging`` is idempotent, so it is called
     unconditionally here rather than only when the root logger has no
     handlers yet -- a caller managing its own logging entirely should pass
     ``setup_logging=False`` instead.
@@ -2794,7 +2793,7 @@ def _maybe_await(result):
 
     ``asyncio`` is imported lazily here (not at module top) so a plain
     ``import duho`` never pays its import cost -- only a command that actually
-    returns a coroutine triggers the load (startup budget, plan 02).
+    returns a coroutine triggers the load (startup budget).
 
     Gates on ``inspect.isawaitable`` (not the narrower
     ``inspect.iscoroutine``, which only recognizes NATIVE coroutine objects)
@@ -2867,7 +2866,7 @@ def main(
     selected leaf is a plain `Cmd` under a `LoggingArgs` root -- when `cls`
     itself is a `LoggingArgs` (see `_setup_instance_logging`).
 
-    Since Plan 13's Args/Cmd split, dispatch expects the selected class to be
+    Since the Args/Cmd split, dispatch expects the selected class to be
     a ``Cmd`` (executable, defines ``__call__``). A bare data ``Args`` -- with
     no ``__call__`` -- raises a clear ``NotImplementedError`` ("Args holds data;
     make it a Cmd to run it") rather than silently doing nothing.
@@ -2946,7 +2945,7 @@ def parse_globals(
     Builds ``cls``'s root parser (``cls._parser_(**parser_kwargs)``), applies
     the same env/config/class-default layers ``duho.main``/``duho.parse`` do
     (``config`` overrides ``cls._config_``; precedence CLI > env > config >
-    class default -- A015), and parses ``argv`` with help/version/print-
+    class default), and parses ``argv`` with help/version/print-
     completion suppressed and subcommand descent skipped entirely, so a
     consumer can resolve config-file-driven command search paths (or any
     other global, including one backed by ``NS(env=...)`` or only made
@@ -2955,7 +2954,7 @@ def parse_globals(
     prepass ``duho.app`` already runs -- it wraps
     :func:`duho.parsers.prerun_parse` verbatim rather than reimplementing the
     subparser-detach/terminal-action patching it performs and restores in a
-    ``finally`` (A073: this used to duplicate a buggy, dead-branch version of
+    ``finally`` (this used to duplicate a buggy, dead-branch version of
     that same detach here; ``prerun_parse`` now does it once, correctly, for
     every caller).
 

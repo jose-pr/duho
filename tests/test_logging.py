@@ -247,14 +247,14 @@ def test_formatter_does_not_leak_across_handlers():
 
 
 def test_default_formatter_has_no_dead_levelsize_override_hook():
-    """C058: `_levelsize` was always None (no setter); the dead indirection
+    """`_levelsize` was always None (no setter); the dead indirection
     was removed, so a formatter instance no longer carries the attribute."""
     formatter = DefaultFormatter()
     assert not hasattr(formatter, "_levelsize")
 
 
 # --------------------------------------------------------------------------
-# A012/D049: duho.main/duho.app must not skip logging setup just because the
+# duho.main/duho.app must not skip logging setup just because the
 # DEEPEST selected class (a plain Cmd leaf) has no _set_loglevels_ of its own
 # -- the root class they were called/built with does.
 # --------------------------------------------------------------------------
@@ -366,7 +366,7 @@ def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
 
 
 # --------------------------------------------------------------------------
-# C006: a bare `--loglevel LEVEL` must also raise the app's own logger, not
+# A bare `--loglevel LEVEL` must also raise the app's own logger, not
 # just root -- unless -v/-q was given, in which case -v/-q decides the app's
 # own level and the bare entry only still affects root.
 # --------------------------------------------------------------------------
@@ -416,7 +416,7 @@ def test_named_loglevel_entry_still_wins_over_the_bare_default():
 
 
 # --------------------------------------------------------------------------
-# C009: --loglevel's help/metavar must show the real grammar, and
+# --loglevel's help/metavar must show the real grammar, and
 # parse_loglevels must validate instead of silently dropping bad input.
 # --------------------------------------------------------------------------
 
@@ -451,7 +451,7 @@ def test_parse_loglevels_raises_on_an_unresolved_entry():
 
 
 def test_verbose_and_quiet_accept_their_long_flag_spellings():
-    """C018/R006: the header/docstring promised --verbose/--quiet; adding the
+    """The header/docstring promised --verbose/--quiet; adding the
     long spellings (rather than correcting the docs) is the chosen fix."""
     parser = _C006App._parser_()
     ns = parser.parse_args(["--verbose", "--verbose", "--quiet"])
@@ -460,7 +460,7 @@ def test_verbose_and_quiet_accept_their_long_flag_spellings():
 
 
 # --------------------------------------------------------------------------
-# C011: custom-level wrappers and log_exception must attribute records to
+# custom-level wrappers and log_exception must attribute records to
 # the CALLER, not to duho/logging.py's own wrapper functions.
 # --------------------------------------------------------------------------
 
@@ -491,7 +491,7 @@ def test_custom_level_and_log_exception_attribute_records_to_the_caller(caplog):
 
 
 # --------------------------------------------------------------------------
-# C012: add_logging_level must refresh the -v/-q table itself, so a custom
+# add_logging_level must refresh the -v/-q table itself, so a custom
 # level participates in it regardless of whether logging was already
 # configured (previously that refresh only happened inside
 # init_stderr_logging, which main/app skipped once any handler existed).
@@ -507,7 +507,7 @@ def test_add_logging_level_refreshes_the_verbose_table_immediately():
 
 
 # --------------------------------------------------------------------------
-# C039: add_logging_level's collision guard must also check the LOWER-CASE
+# add_logging_level's collision guard must also check the LOWER-CASE
 # method name it installs, not just the upper-case level name.
 # --------------------------------------------------------------------------
 
@@ -530,7 +530,7 @@ def test_add_logging_level_force_replaces_an_earlier_duho_level():
 
 
 # --------------------------------------------------------------------------
-# C040: init_stderr_logging must be idempotent on its own, independent of
+# init_stderr_logging must be idempotent on its own, independent of
 # any caller-side "does the logger already have handlers" guard.
 # --------------------------------------------------------------------------
 
@@ -560,7 +560,7 @@ def test_main_setup_logging_does_not_stack_handlers_across_repeated_calls(
 
 
 # --------------------------------------------------------------------------
-# C042: _set_loglevels_ must call the (possibly overridden) bound
+# _set_loglevels_ must call the (possibly overridden) bound
 # `_verbose_loglevel_`, not hard-code LoggingArgs's own implementation.
 # --------------------------------------------------------------------------
 
@@ -581,7 +581,7 @@ def test_set_loglevels_honors_a_verbose_loglevel_override():
 
 
 # --------------------------------------------------------------------------
-# C045: duho.logging's forwarding __getattr__ must not masquerade as stdlib
+# duho.logging's forwarding __getattr__ must not masquerade as stdlib
 # logging for dunders (__path__ made it look like a real package).
 # --------------------------------------------------------------------------
 

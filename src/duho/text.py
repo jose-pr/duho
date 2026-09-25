@@ -160,7 +160,7 @@ def range(
     ``str.format`` spec (including its leading ``:``, e.g. ``":03d"``) applied
     to each member. Shadows the builtin ``range`` inside this module by design
     (not exported on :data:`__all__`, so ``from duho.text import *`` cannot
-    shadow it for a star-importer -- O035).
+    shadow it for a star-importer).
 
     Raises :class:`ValueError` -- never silently yields an empty or surprising
     range -- for: mismatched-kind endpoints (one digit, one letter), a

@@ -123,7 +123,7 @@ def test_grouped_and_conflicting():
         parser.parse_args(["--json", "--yaml"])
 
 
-# --- A023: a conflicts= member without a default is not forced required ---
+# --- a conflicts= member without a default is not forced required --------
 
 
 class ExclusiveNoDefaults(Args):
@@ -156,7 +156,7 @@ def test_conflicts_member_without_default_still_conflicts():
         parser.parse_args(["--name", "bob", "--id", "5"])
 
 
-# --- A024: a conflicts= key must use the same group= everywhere -----------
+# --- a conflicts= key must use the same group= everywhere -----------------
 
 
 class ConflictsAcrossTitles(Args):

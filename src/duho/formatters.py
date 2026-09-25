@@ -42,12 +42,12 @@ class DefaultsFormatter(_argparse.HelpFormatter):
     suffix when the effective default is ``None``, ``""``, ``False``, or an empty
     sized container (``[]``, ``{}``, ``()``, ``set()``) -- an unset optional, a
     ``store_true`` flag, or duho's own resting default for every list/set/dict
-    field (C041) -- those contribute noise, not information. An explicit
+    field -- those contribute noise, not information. An explicit
     ``%(default)s`` already in the help text is left untouched, and a
     ``SUPPRESS``-defaulted action (``--help``/``--version``, inherited-suppressed
     fields) never gains a suffix.
 
-    Shows the field's CLASS default, never a live env/config value (C001):
+    Shows the field's CLASS default, never a live env/config value:
     ``duho.agenthelp.stash_default_provenance`` -- called from ``args.py``'s
     ``_AgentHelpAction`` right before it renders human help -- snapshots each
     action's declared default (and, when the value actually came from env or
@@ -55,7 +55,7 @@ class DefaultsFormatter(_argparse.HelpFormatter):
     ``_duho_default_source_``. Falls back to plain ``action.default`` when
     those are absent (a parser built but never run through that print path,
     e.g. calling ``cls._parser_().format_help()`` directly in a test) --
-    identical to the pre-C001 behavior there, since nothing has layered
+    identical to the previous behavior there, since nothing has layered
     ``action.default`` away from its class default in that case either.
     """
 
@@ -111,7 +111,7 @@ def _color_enabled(stream=None) -> bool:
 
 #: 3.14+ colors help itself (``ArgumentParser(color=True)`` is that version's
 #: own default, honoring ``NO_COLOR``/``FORCE_COLOR``/``PYTHON_COLORS`` on its
-#: own) -- duho's own coloring is skipped there entirely (C016) rather than
+#: own) -- duho's own coloring is skipped there entirely rather than
 #: nesting ANSI codes around argparse's own theme (a duho reset cancelling an
 #: argparse color code before the colon it was meant to color, etc).
 _NATIVE_HELP_COLOR = _sys.version_info >= (3, 14)
@@ -128,7 +128,7 @@ class ColorHelpFormatter(_argparse.HelpFormatter):
     section headings are bold and option invocations (``-v, --verbose``) are
     colored.
 
-    The invocation is colored strictly AFTER layout (C016): pre-3.14 argparse
+    The invocation is colored strictly AFTER layout: pre-3.14 argparse
     measures an action's invocation with plain ``len()`` -- both when tracking
     the widest invocation (``add_argument``, which drives the shared help
     column) and when padding an individual line to it (``_format_action``) --

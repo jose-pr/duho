@@ -92,7 +92,7 @@ def test_walk_captures_subcommand_choices_and_path():
 
 
 def test_spec_is_the_public_entry_point():
-    """C053: a documented public function builds the CompletionSpec tree,
+    """A documented public function builds the CompletionSpec tree,
     not just the private `_walk`."""
     parser = App._parser_()
     assert completion.spec(parser) == completion._walk(parser)
@@ -100,7 +100,7 @@ def test_spec_is_the_public_entry_point():
 
 
 def test_walk_skips_suppressed_option_and_subcommand():
-    """C049: an option or subcommand hidden via help=SUPPRESS never reaches
+    """An option or subcommand hidden via help=SUPPRESS never reaches
     a completion script."""
 
     class Hidden(Args):
@@ -133,7 +133,7 @@ def test_walk_skips_suppressed_option_and_subcommand():
 
 
 def test_enum_field_gets_completion_choices():
-    """C025: an Enum-typed field offers its member names as choices, even
+    """An Enum-typed field offers its member names as choices, even
     though duho leaves argparse's own `choices` unset for Enum fields."""
 
     class Color(enum.Enum):
@@ -201,7 +201,7 @@ def test_bash_script_is_syntactically_valid():
 
 
 def test_bash_function_name_is_namespaced_and_collision_resistant():
-    """C051: two progs that only differ in punctuation get DIFFERENT bash
+    """Two progs that only differ in punctuation get DIFFERENT bash
     function names, and the function is namespaced away from bash-completion
     helpers like `_filedir`."""
 
@@ -426,10 +426,10 @@ def test_print_completion_standalone_function():
     assert "CompletionApp" in out
 
 
-# --- stale-docs regression (C054) -------------------------------------------
+# --- stale-docs regression --------------------------------------------------
 
 
 def test_walk_docstring_mentions_all_four_emitters():
-    """C054: the internal walk's docstring used to say 'three emitters',
+    """The internal walk's docstring used to say 'three emitters',
     stale since the PowerShell emitter was added."""
     assert "three emitters" not in (completion._walk.__doc__ or "")

@@ -201,7 +201,7 @@ def _run_one(
             return 1
         # Normalise inside the isolation boundary: a target returning a non-int,
         # non-None value must not abort the whole fan-out via an escaping
-        # ValueError/TypeError from int() -- it is that one target's failure (M5).
+        # ValueError/TypeError from int() -- it is that one target's failure.
         try:
             return 0 if result is None else int(result)
         except (TypeError, ValueError):

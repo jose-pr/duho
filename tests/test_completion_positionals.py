@@ -129,7 +129,7 @@ def test_bash_emits_positional_choices():
 
 
 def test_zsh_emits_numbered_positional_specs():
-    """C002/C004: zsh positionals use the required `N:message:action` form
+    """zsh positionals use the required `N:message:action` form
     (1-based), not the `name:name:action` form `_arguments` rejects on
     every Tab."""
     script = completion.zsh(Tool._parser_())
@@ -260,12 +260,12 @@ def test_bash_after_flag_value_does_not_break_subcommand():
     assert "Convert" in reply
 
 
-# --- Positional-then-flag / opt=value / free & Path flags (C003/C024/C028/C029) -
+# --- Positional-then-flag / opt=value / free & Path flags -------------------
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_after_a_positional_value():
-    """C003: a positional value must not be mistaken for a subcommand word,
+    """A positional value must not be mistaken for a subcommand word,
     and completion must resume for the NEXT positional's own choices."""
     parser = _tool_parser()
     script = completion.bash(parser)
@@ -277,7 +277,7 @@ def test_bash_completes_after_a_positional_value():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_flags_after_all_positionals_consumed():
-    """C003: options placed after positionals (a common argparse usage) are
+    """Options placed after positionals (a common argparse usage) are
     completed, not silently dropped."""
     parser = _tool_parser()
     script = completion.bash(parser)
@@ -289,7 +289,7 @@ def test_bash_completes_flags_after_all_positionals_consumed():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_free_value_flag_offers_nothing():
-    """C024: a value-taking flag with neither choices nor a Path type must
+    """A value-taking flag with neither choices nor a Path type must
     not fall through to the general flag/subcommand candidate list."""
     parser = _tool_parser()
     script = completion.bash(parser)
@@ -301,7 +301,7 @@ def test_bash_free_value_flag_offers_nothing():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_path_flag_completes_files(tmp_path):
-    """C028: a Path-typed flag gets native file completion, not the general
+    """A Path-typed flag gets native file completion, not the general
     flag/subcommand list."""
     (tmp_path / "afile.txt").write_text("x")
     parser = _tool_parser()
@@ -314,7 +314,7 @@ def test_bash_path_flag_completes_files(tmp_path):
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_completes_split_opt_equals_value():
-    """C029: `--opt=value` arrives as the three words `--opt`, `=`, `value`
+    """`--opt=value` arrives as the three words `--opt`, `=`, `value`
     (COMP_WORDBREAKS splits on `=`) -- both the walker (using the value to
     descend correctly) and direct `--opt=<TAB>` completion must handle it."""
     parser = _tool_parser()
@@ -340,7 +340,7 @@ def test_bash_completes_split_opt_equals_value():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_value_flag_scoped_per_command_path():
-    """C048: a flag that is boolean at one level and value-taking at another
+    """A flag that is boolean at one level and value-taking at another
     is resolved per command path, not merged globally."""
 
     class Deploy(Args):
@@ -595,7 +595,7 @@ class Nest(Args):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_completes_at_depth_three(tmp_path):
-    """C002: the old zsh emitter only worked at the root; a grandchild
+    """The old zsh emitter only worked at the root; a grandchild
     command (`Nest Db Migrate Up -<TAB>`) errored or offered nothing."""
     parser = Nest._parser_()
     parser.prog = "Nest"
@@ -611,7 +611,7 @@ def test_zsh_completes_at_depth_three(tmp_path):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_completes_root_subcommands_and_does_not_leak_siblings(tmp_path):
-    """C026/C003 (zsh side): at `Nest Db <TAB>`, only Migrate is offered --
+    """On the zsh side, at `Nest Db <TAB>`, only Migrate is offered --
     not Ship (a sibling of Db) and not Up/Down (Migrate's own children)."""
     parser = Nest._parser_()
     parser.prog = "Nest"
@@ -625,7 +625,7 @@ def test_zsh_completes_root_subcommands_and_does_not_leak_siblings(tmp_path):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_positional_completion_does_not_error(tmp_path):
-    """C002/C004: a Path positional used to make EVERY Tab in that command
+    """A Path positional used to make EVERY Tab in that command
     error (`invalid argument: src:src:_files`)."""
     parser = Tool._parser_()
     parser.prog = "Tool"
@@ -638,7 +638,7 @@ def test_zsh_positional_completion_does_not_error(tmp_path):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_hostile_subcommand_name_does_not_execute(tmp_path):
-    """C004 (security): a hostile `_parsername_` must not run as shell code
+    """Security: a hostile `_parsername_` must not run as shell code
     when the root's subcommand list is completed."""
 
     class CondRoot(Args):
@@ -663,8 +663,8 @@ def test_zsh_hostile_subcommand_name_does_not_execute(tmp_path):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_hostile_choice_does_not_execute(tmp_path):
-    """C004 (security): `$(...)` in a choice value must not run at Tab-time
-    in zsh -- the finding this plan treats as its core (zsh's `_arguments`
+    """Security: `$(...)` in a choice value must not run at Tab-time
+    in zsh -- this is the core risk (zsh's `_arguments`
     evaluates a `(a b c)` action list with `eval`)."""
     parser = _hostile_parser("safe2 $(touch pwned_choice)")
     script = completion.zsh(parser)
@@ -702,7 +702,7 @@ def _fish_drive(fish_path, script_path, cmdline, cwd, timeout=10):
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")
 def test_fish_completes_at_depth_two_without_leaking(tmp_path):
-    """C026: fish's old `and`-string bug + missing negation leaked
+    """Fish's old `and`-string bug + missing negation leaked
     grandchild names/flags into a parent level and offered root names again
     after a subcommand was chosen."""
     parser = Nest._parser_()
@@ -722,7 +722,7 @@ def test_fish_completes_at_depth_two_without_leaking(tmp_path):
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")
 def test_fish_choice_option_does_not_offer_files():
-    """C050: a choice option must use `-x`, not `-r` (which still allows
+    """A choice option must use `-x`, not `-r` (which still allows
     file completion for its value alongside the declared choices)."""
     script = completion.fish(Tool._parser_())
     assert "-x" in script
@@ -730,7 +730,7 @@ def test_fish_choice_option_does_not_offer_files():
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")
 def test_fish_hostile_choice_does_not_execute(tmp_path):
-    """C004 (security): `$(...)`/`(...)` in a choice value must not run when
+    """Security: `$(...)`/`(...)` in a choice value must not run when
     fish expands a `complete -a` argument at Tab-time."""
     parser = _hostile_parser("safe2 $(touch pwned_fish)")
     script = completion.fish(parser)
@@ -743,7 +743,7 @@ def test_fish_hostile_choice_does_not_execute(tmp_path):
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")
 def test_fish_hostile_subcommand_name_does_not_execute(tmp_path):
-    """C004 (security): a hostile subcommand name must not run when it
+    """Security: a hostile subcommand name must not run when it
     appears as a fish `-n __fish_seen_subcommand_from` condition or `-a`
     completion value."""
 
@@ -811,7 +811,7 @@ def _pwsh_complete(script, line, cwd, timeout=15):
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
 def test_powershell_completes_after_a_positional_value(tmp_path):
-    """C003 (PowerShell side): a positional value must not be mistaken for
+    """On the PowerShell side, a positional value must not be mistaken for
     a subcommand word."""
     parser = _tool_parser()
     script = completion.powershell(parser)
@@ -821,7 +821,7 @@ def test_powershell_completes_after_a_positional_value(tmp_path):
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
 def test_powershell_free_value_flag_offers_nothing(tmp_path):
-    """C024 (PowerShell side): a free-value flag falls through to native
+    """On the PowerShell side, a free-value flag falls through to native
     file completion (no candidates of our own), not the flag/subcommand list."""
     parser = _tool_parser()
     script = completion.powershell(parser)
@@ -831,7 +831,7 @@ def test_powershell_free_value_flag_offers_nothing(tmp_path):
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
 def test_powershell_hostile_choice_is_quoted_when_inserted(tmp_path):
-    """C031 (security-adjacent): a candidate containing whitespace or a
+    """Security-adjacent: a candidate containing whitespace or a
     PowerShell metacharacter is inserted as ONE quoted literal, not split or
     left able to run on Enter."""
     parser = _hostile_parser("dry run")

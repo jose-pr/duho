@@ -1,5 +1,5 @@
 """Regression tests for BooleanOptionalAction compatibility across Python
-versions (A046, A047).
+versions.
 
 A `bool` field that defaults to `True` becomes `argparse.BooleanOptionalAction`
 (`--flag`/`--no-flag`). Two version-specific argparse behaviors around that
@@ -7,14 +7,14 @@ action needed handling:
 
 * Python 3.14 removed the (already-deprecated) `type`/`choices`/`metavar`
   parameters outright, and rejects any option string starting with `--no-`
-  (A046) -- a bare `bool = True` field whose auto-derived flag already starts
+  -- a bare `bool = True` field whose auto-derived flag already starts
   with `--no-` (or one given an explicit `metavar=`) crashed parser
   construction on 3.14+, on every invocation including `--help`.
 * Python 3.9/3.10's `BooleanOptionalAction.__init__` unconditionally appends
   " (default: %(default)s)" to any non-None help (removed in 3.11) -- this
   broke `NS(help=argparse.SUPPRESS)` (the option became visible again, since
   argparse hides a help string only by IDENTITY with SUPPRESS) and would leak
-  a raw "%(default)s" placeholder into agent-help JSON (A047).
+  a raw "%(default)s" placeholder into agent-help JSON.
 
 All classes are declared at module level so the AST-derived flag tuples
 resolve from a real file.
@@ -29,7 +29,7 @@ from duho import Arg, Args, NS
 
 class NoPrefixTrueDefaultArgs(Args):
     """A True-default bool whose auto-derived flag ALREADY starts with
-    `--no-` (A046): BooleanOptionalAction tried to synthesize a
+    `--no-`: BooleanOptionalAction tried to synthesize a
     `--no-no-verify` pair, which 3.14+ rejects outright."""
 
     no_verify: bool = True
@@ -90,7 +90,7 @@ def test_suppressed_true_default_bool_stays_out_of_help():
     """On 3.9/3.10, BooleanOptionalAction's own help-rewriting turned
     SUPPRESS into a new string ("==SUPPRESS== (default: %(default)s)"),
     defeating argparse's identity check for hiding it, so the option
-    reappeared in usage/help (A047)."""
+    reappeared in usage/help."""
     parser = SuppressedTrueDefaultArgs._parser_()
     help_text = parser.format_help()
     assert "--telemetry" not in help_text

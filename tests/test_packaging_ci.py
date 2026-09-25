@@ -1,5 +1,4 @@
-"""Regression tests for the 2026-09-24 review's packaging/CI findings
-(sub-plan 27.02): R029, R030, R031, R032, R039, R062, R063, R064, R067, R075.
+"""Tests for packaging metadata and CI workflow configuration.
 
 These check the *configuration* (pyproject.toml, .gitignore, the workflow
 YAML files) rather than actual GitHub Actions runs -- nothing here executes
@@ -28,7 +27,7 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# -- R029: *.local.* neither gitignored nor excluded from sdist/wheel --------
+# -- *.local.* neither gitignored nor excluded from sdist/wheel --------------
 
 
 def test_gitignore_covers_every_local_file_not_just_md():
@@ -93,7 +92,7 @@ def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path):
     assert any(n.endswith("src/duho/AGENTS.md") for n in sdist_names)
 
 
-# -- R075: explicit wheel `packages` config dropped --------------------------
+# -- explicit wheel `packages` config dropped ---------------------------------
 
 
 def test_pyproject_does_not_pin_wheel_packages():
@@ -103,7 +102,7 @@ def test_pyproject_does_not_pin_wheel_packages():
     ), "hatchling auto-detects the src/ layout; an explicit packages list can break editable builds"
 
 
-# -- R039: PEP 639 license fields ---------------------------------------------
+# -- PEP 639 license fields -----------------------------------------------
 
 
 def test_pyproject_uses_pep639_license_fields():
@@ -115,7 +114,7 @@ def test_pyproject_uses_pep639_license_fields():
     ), "the legacy classifier must not sit alongside the PEP 639 fields"
 
 
-# -- R068: stale pyproject comment about a root AGENTS.md --------------------
+# -- stale pyproject comment about a root AGENTS.md ---------------------------
 
 
 def test_pyproject_does_not_claim_a_root_agents_md_exists():
@@ -123,7 +122,7 @@ def test_pyproject_does_not_claim_a_root_agents_md_exists():
     assert "There is no committed repo-root AGENTS.md" in text
 
 
-# -- R067: .gitignore root category rule + missing entries -------------------
+# -- .gitignore root category rule + missing entries ---------------------------
 
 
 def test_gitignore_has_root_category_rule_and_reincludes():
@@ -148,7 +147,7 @@ def test_gitignore_claude_entry_is_slashless():
     ), "a trailing slash would not match the .claude symlink"
 
 
-# -- R032: Python 3.14 present in CI matrices and classifiers ----------------
+# -- Python 3.14 present in CI matrices and classifiers -----------------------
 
 
 def test_pyproject_classifies_python_3_14():
@@ -162,7 +161,7 @@ def test_test_workflow_runs_python_3_14():
 
 
 def test_release_workflow_gate_covers_python_3_14():
-    # release.yml no longer keeps its own matrix -- it reuses test.yml (R063)
+    # release.yml no longer keeps its own matrix -- it reuses test.yml
     # -- so the 3.14 gate is exercised by asserting that reuse, not a second
     # copy of the version list.
     text = _read(_WORKFLOWS / "release.yml")
@@ -177,7 +176,7 @@ def test_test_workflow_checks_formatting_with_black():
     assert "black --check src tests examples benchmarks" in text
 
 
-# -- R031: publish-pypi is re-run-safe ----------------------------------------
+# -- publish-pypi is re-run-safe -----------------------------------------------
 
 
 def test_release_workflow_publish_is_skip_existing():
@@ -185,7 +184,7 @@ def test_release_workflow_publish_is_skip_existing():
     assert "skip-existing: true" in text
 
 
-# -- R062: GitHub release objects pinned to the tagged commit -----------------
+# -- GitHub release objects pinned to the tagged commit ------------------------
 
 
 def test_release_workflow_pins_target_commitish():
@@ -193,7 +192,7 @@ def test_release_workflow_pins_target_commitish():
     assert "target_commitish: ${{ github.sha }}" in text
 
 
-# -- R063: the release gate actually exercises test.yml's own checks --------
+# -- the release gate actually exercises test.yml's own checks ------------------
 
 
 def test_release_workflow_reuses_test_workflow_via_workflow_call():
@@ -203,7 +202,7 @@ def test_release_workflow_reuses_test_workflow_via_workflow_call():
     assert "workflow_call" in test_text
 
 
-# -- R064: the built wheel is installed and inspected, not just built -------
+# -- the built wheel is installed and inspected, not just built -----------------
 
 
 def test_release_workflow_verifies_the_installed_wheel():
@@ -214,7 +213,7 @@ def test_release_workflow_verifies_the_installed_wheel():
     assert "AGENTS.md" in text
 
 
-# -- R030: docs deploy ownership -- docs.yml deploys, release.yml only gates -
+# -- docs deploy ownership -- docs.yml deploys, release.yml only gates --------
 
 
 def test_release_workflow_does_not_deploy_pages():

@@ -66,7 +66,7 @@ def _validate_app(app: str) -> None:
     in the generated shell/batch text, so it must be a dotted ASCII identifier
     (the same grammar Python itself requires for ``python -m <app>``) -- never
     a hyphenated distribution name, a path (which could escape ``bin/`` via
-    ``..``), or text containing shell/batch metacharacters (O038).
+    ``..``), or text containing shell/batch metacharacters.
     """
     if (
         not app
@@ -83,10 +83,10 @@ def _validate_interpolated(value: str, what: str, *, path_like: bool = False) ->
     """Raise :class:`ValueError` unless ``value`` is safe to bake into a launcher.
 
     Applies to ``libdir`` and ``python``, both of which are written verbatim
-    inside double quotes in the generated POSIX/``.cmd`` text (O038, O040):
+    inside double quotes in the generated POSIX/``.cmd`` text:
     non-ASCII is rejected outright (cmd.exe decodes a batch file with the
     console's OEM code page, not UTF-8, so a non-ASCII byte baked into the
-    ``.cmd`` is mis-decoded there -- O040), as are quotes, backticks, ``$``,
+    ``.cmd`` is mis-decoded there), as are quotes, backticks, ``$``,
     ``%`` and newlines. ``path_like`` additionally rejects an absolute path or
     one containing ``..`` (``libdir`` is joined under the app root).
     """
@@ -124,7 +124,7 @@ def _posix_launcher(app: str, libdir: str, python: str) -> str:
     Both ``cd`` calls run with ``CDPATH=`` cleared: bash's ``cd`` PRINTS the
     resolved directory to stdout when ``CDPATH`` is exported and the target is
     relative, which would make the surrounding ``$(...)`` capture two lines
-    instead of one and fail the next ``cd`` under ``set -e`` (O039) -- this
+    instead of one and fail the next ``cd`` under ``set -e`` -- this
     breaks a developer's own shell rc, not just a hostile environment.
     """
     return (
@@ -163,7 +163,7 @@ def _windows_launcher(app: str, libdir: str, python: str) -> str:
     <app> %*``. ``PYTHON`` defaults to ``<python>`` when unset so a caller can
     override the interpreter. Generic -- no project names. The text embeds
     literal CRLF line endings, and the caller writes it with ``newline=""`` so
-    Python does not translate them again (O032 -- this used to say Python
+    Python does not translate them again (this used to say Python
     writes it with "the platform newline", which is wrong on POSIX).
     """
     return (
@@ -247,7 +247,7 @@ def generate_launchers(
     the same forbidden characters -- all three are interpolated into generated
     shell/batch text, so a hyphenated/path-like/hostile value would otherwise
     produce a launcher that cannot work, escapes ``bin/``, or executes
-    unintended commands (O038, O040).
+    unintended commands.
     """
     _validate_app(app)
     _validate_interpolated(libdir, "libdir", path_like=True)
@@ -346,7 +346,7 @@ class ScaffoldCmd(_Cli):
             print("duho.scaffold: %s" % (exc,), file=_sys.stderr)
             return 1
         for path in written:
-            # O042: both launchers are already written by this point --
+            # Both launchers are already written by this point --
             # a `print(path)` that then raises `UnicodeEncodeError` (a
             # non-cp1252 path piped on Windows) reported a successful run as
             # a crash (exit 1), and the "obvious" re-run was then refused by

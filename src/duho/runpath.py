@@ -3,7 +3,7 @@
 **Opt-in module.** Core duho never imports this; you activate it explicitly with
 ``import duho.runpath`` (which auto-registers a command provider as an import
 side-effect) or with an explicit :func:`register` call. Either way it plugs into
-the shipped :func:`duho.register_command_provider` hook (Plan 13) and needs *zero*
+the shipped :func:`duho.register_command_provider` hook and needs *zero*
 core changes -- it is the first consumer of that seam.
 
 What it adds
@@ -275,7 +275,7 @@ def _strict_or_warn(
     missing/disabled ``REQUIRED`` dep, a duplicate step name, an invalid
     ``PRIORITY``, a dependency-cycle break, a dependent skipped because its own
     ``REQUIRED`` step failed, a step's own non-zero return) so these near-
-    identical copies can't drift apart from each other (D035). ``warn_suffix``
+    identical copies can't drift apart from each other. ``warn_suffix``
     is appended only on the warning path (some callers want extra detail there
     that would be redundant in the raised message).
     """
@@ -285,7 +285,7 @@ def _strict_or_warn(
 
 
 def _reject_coroutine(result: object, where: str) -> None:
-    """Refuse a coroutine ``result`` from RunPath user code (D059).
+    """Refuse a coroutine ``result`` from RunPath user code.
 
     RunPath predates async support and never awaits anything itself; the only
     place duho ever awaits user code is ``Cmd.__call__`` (via
@@ -324,8 +324,8 @@ class _Step:
     always concrete booleans here, defaults folded in by
     :func:`_parse_file_modifiers` -- never ``None`` the way a ``--rcopts``
     pattern's own, still-optional override can be). ``file_enabled``/
-    ``file_strict`` are read-only convenience properties over ``opts`` (D036:
-    one option record, not three).
+    ``file_strict`` are read-only convenience properties over ``opts`` (one
+    option record, not three).
     """
 
     __slots__ = (
@@ -406,20 +406,20 @@ class _Opts:
 
     Shared by both :meth:`_Selection.parse` (a ``--rcopts`` comma-entry) and
     :func:`_parse_file_modifiers` (a step's own filename) -- ONE token grammar
-    AND one carrier class, not three (D036: this used to be ``_Opts`` ->
+    AND one carrier class, not three (this used to be ``_Opts`` ->
     ``_FileOpts`` -> ``_Step.file_*``, a rename at each hop that hid they were
-    the same record, and directly caused the D009 forced-strict bug below).
+    the same record, and directly caused a forced-strict bug below).
 
     Each token after the matcher is ``key`` (``True``), ``!key`` (``False``),
     or ``key=value`` (a string value). Two token KEYS are recognized
     specially: ``strict`` and ``enable``. Both ``.strict`` and ``.enabled``
     are ``Optional[bool]``: ``None`` means "no such token was present", NOT
     "false" -- this is what lets a caller tell "not specified" from
-    "explicitly set", and is the fix for D009 (a ``--rcopts`` entry carrying
-    some OTHER token, like ``enable`` or a ``key=value`` extra, must never be
-    mistaken for an explicit ``strict``/``!strict`` override just because
-    *some* token was present). Everything else lands in ``extra`` for forward
-    compatibility (not yet consumed by anything).
+    "explicitly set" (a ``--rcopts`` entry carrying some OTHER token, like
+    ``enable`` or a ``key=value`` extra, must never be mistaken for an
+    explicit ``strict``/``!strict`` override just because *some* token was
+    present). Everything else lands in ``extra`` for forward compatibility
+    (not yet consumed by anything).
     """
 
     __slots__ = ("strict", "enabled", "extra")
@@ -513,7 +513,7 @@ def _parse_step_filename(stem: str) -> "_ty.Optional[_ty.Tuple[int, str]]":
     etc. are skipped). Uses ``str.isdecimal()``, not ``.isdigit()``: a Unicode
     "digit" like a superscript ``'²'`` passes ``.isdigit()`` but makes
     ``int()`` raise, which used to crash :func:`is_runpath_dir` on an
-    unrelated stray file (D062); every ``isdecimal()`` string converts cleanly.
+    unrelated stray file; every ``isdecimal()`` string converts cleanly.
     """
     if "-" not in stem:
         return None
@@ -540,7 +540,7 @@ def _iter_step_files(
     matches ``10-a.PY`` too (the filesystem is case-insensitive), but Python's
     own import machinery refuses that spelling, so the file used to be
     imported-and-fail on Windows while POSIX silently ignored it -- the same
-    directory behaved differently by OS (D062).
+    directory behaved differently by OS.
     """
     found: "list[_ty.Tuple[int, str, _Path, _Opts]]" = []
     for path in directory.iterdir():
@@ -587,7 +587,7 @@ def _normalize_step_names(
     A bare string (``REQUIRED = "provision"``) is an easy slip: iterated
     directly it yields one-character "dependencies", and for ``BEFORE``/
     ``AFTER`` (whose missing names are a silent no-op) it does NOTHING with no
-    diagnostic at all (D033). Wrap it in a single-element list instead, and
+    diagnostic at all. Wrap it in a single-element list instead, and
     warn so the author notices.
     """
     if not value:
@@ -617,7 +617,7 @@ def _resolve_priority(
 
     A non-numeric ``PRIORITY`` used to raise a bare, unattributed
     ``ValueError`` straight out of ``int()`` that aborted the run even in
-    resilient mode (D033); this names the step and file, and follows the
+    resilient mode; this names the step and file, and follows the
     normal strict-vs-resilient policy (falling back to the filename prefix
     when resilient).
     """
@@ -655,15 +655,15 @@ def _load_steps(
       them too (see the module docstring's "REQUIRED and a failed dependency").
 
     Only ENABLED steps (``selection.decide(name, opts.enabled)``) are ever
-    imported (D010): a disabled or deselected step's module body never runs,
+    imported: a disabled or deselected step's module body never runs,
     which also means it never enters :func:`_order_steps`'s graph, so it can
     never transitively reorder an enabled step via a stale ``PRIORITY``/
-    ``BEFORE``/``AFTER``/``REQUIRED`` (D011).
+    ``BEFORE``/``AFTER``/``REQUIRED``.
 
     Two files that resolve to the SAME step name are a duplicate: the later
     file is skipped (kept out of the ordering graph, which is keyed by name)
     with a warning/error naming both files, rather than one silently
-    overwriting the other's ordering edges (D032).
+    overwriting the other's ordering edges.
 
     A step whose **import** fails with an ``ImportError``/``NotImplementedError``
     (an *environmental* failure: a missing optional dependency, a not-yet-provided
@@ -753,7 +753,7 @@ def _order_steps(
 
     Ties (no remaining predecessor) break by the step's RANK in the
     ``(priority, name)``-sorted base order, popped from a min-heap -- this is
-    what makes the sort STABLE (D006): the old implementation did whole
+    what makes the sort STABLE: the old implementation did whole
     "passes" over the remaining steps, which let a step reordered by one
     dependency jump ahead of every unrelated LATER step in the same pass
     instead of only past its own dependency. With the heap, only steps that
@@ -774,7 +774,7 @@ def _order_steps(
     layer raises the missing/disabled ``REQUIRED`` warning/error (unchanged).
     Since :func:`_load_steps` now only ever passes ENABLED steps here, a
     disabled step is simply absent from this graph, so its edges can never
-    reorder an enabled step (D011) -- this function no longer needs to know
+    reorder an enabled step -- this function no longer needs to know
     about "present but disabled" at all.
 
     A genuine cycle (spanning any mix of the three relations) is broken
@@ -782,7 +782,7 @@ def _order_steps(
     (priority, name) step still stuck is forced through (as if its remaining
     predecessors were satisfied) and a single warning names every step still
     stuck at that point -- NOT the smallest step alone, but also not
-    unrelated steps outside the stuck set (D058: the previous "dump everything
+    unrelated steps outside the stuck set (an earlier "dump everything
     remaining, in bulk" fallback broke a downstream step's own unrelated,
     non-cyclic dependency too). Ordering then resumes normally: any step that
     was only blocked by the forced one gets emitted next via the heap, and
@@ -833,7 +833,7 @@ def _order_steps(
             continue
         stuck = [s for s in ordered if s.name not in done]
         # Name only the steps in the ACTUAL cycle containing the step about to
-        # be forced through, not every step merely blocked behind it (D058):
+        # be forced through, not every step merely blocked behind it:
         # a step whose own dependency chain leads into a cycle, without being
         # part of it, must not be reported as if it were. Chase one unresolved
         # predecessor at a time from the step about to break; the walk must
@@ -875,10 +875,9 @@ class _Selection:
     ``Optional[bool]`` -- ``None`` unless that entry carried its own explicit
     ``strict``/``!strict`` token, in which case it overrides the matching
     step's own effective strict setting, scoped to just that pattern's
-    matches, NOT run-wide (D009/D036: previously guessed from whether the
-    entry had ANY tokens at all, which made ``pattern:enable`` -- an entry
-    with no strict token whatsoever -- silently force every matching step
-    strict).
+    matches, NOT run-wide (this used to be guessed from whether the entry had
+    ANY tokens at all, which made ``pattern:enable`` -- an entry with no
+    strict token whatsoever -- silently force every matching step strict).
 
     ``strict``/``strict_explicit`` are the separate RUN-WIDE flag, set only by
     a BARE standalone ``strict``/``!strict`` entry (no attached pattern). It
@@ -917,7 +916,7 @@ class _Selection:
         ``!strict`` token (e.g. ``step1:!strict``) instead scopes that strict
         override to steps matching ``step1`` only -- the CLI-side equivalent
         of a filename's own ``!strict`` token. The pattern itself is
-        ``.strip()``-ed (D062), so a spaced-out entry like ``build : !strict``
+        ``.strip()``-ed, so a spaced-out entry like ``build : !strict``
         still matches ``build``, not ``"build "``.
         """
         patterns: "list[_ty.Tuple[str, _Opts]]" = []
@@ -966,7 +965,7 @@ class _Selection:
         per-pattern ``--rcopts`` entry matching ``name`` that carries an
         EXPLICIT ``strict``/``!strict`` token (later matching entries win,
         same as :meth:`decide`) -- an entry with no such token never touches
-        this at all, regardless of what other tokens it has (D009) -- then an
+        this at all, regardless of what other tokens it has -- then an
         EXPLICIT bare ``--rcopts strict``/``!strict`` (run-wide, wins last of
         all).
         """
@@ -1068,7 +1067,7 @@ _LIFECYCLE_FILENAME = "__main__.py"
 class _Lifecycle:
     """The optional ``__main__.py`` lifecycle hooks for one RunPath directory.
 
-    Named ``_Lifecycle``/``_load_lifecycle`` (D064: an earlier design used an
+    Named ``_Lifecycle``/``_load_lifecycle`` (an earlier design used an
     ``_init.py`` file, renamed to ``__main__.py`` during execution, but the
     code kept saying ``_Init``/``_load_init``/a ``"._init"`` module key -- a
     traceback from this file used to show module ``..._init``, a file that
@@ -1103,9 +1102,9 @@ def _load_lifecycle(
     to before this lifecycle existed (no ``ctx``, steps called with ``self``
     only). When present, imports it the same way steps are imported (the
     public ``discovery.import_from_path``, ending in ``.__main__`` rather than
-    the stale ``._init`` -- D064) and reads the three optional hooks off it.
+    the stale ``._init``) and reads the three optional hooks off it.
 
-    Called BEFORE :func:`_load_steps` (D031): a ``__main__.py`` doing
+    Called BEFORE :func:`_load_steps`: a ``__main__.py`` doing
     module-level setup (e.g. adding a sibling ``lib/`` to ``sys.path`` for
     shared step helpers) must already be in effect by the time step modules
     are imported, or those imports fail and are silently skipped as
@@ -1185,7 +1184,7 @@ def _is_bare_passthrough(params: "_ty.Sequence[_inspect.Parameter]") -> bool:
 def _step_wants_ctx(entrypoint: "_ty.Callable[..., object]") -> bool:
     """True if a step's entrypoint accepts a 2nd positional ``ctx`` argument.
 
-    Inspects ``entrypoint`` itself first, with ``follow_wrapped=False`` (D014):
+    Inspects ``entrypoint`` itself first, with ``follow_wrapped=False``:
     ``inspect.signature`` follows ``__wrapped__`` by default, which reads the
     ORIGINAL wrapped callable's signature instead of an ``@functools.wraps``
     ``step_adapter`` shim's own, explicitly different one -- a documented
@@ -1293,7 +1292,7 @@ class RunPathCmd(_Cmd):
         logger = self._runpath_logger_()
         selection = _Selection.parse(getattr(self, "rcopts", None) or [])
 
-        # D031: the lifecycle is imported before any step, so its module-level
+        # The lifecycle is imported before any step, so its module-level
         # setup is already in effect for every step import.
         lifecycle = _load_lifecycle(directory, self._parsername_, logger)
 
@@ -1322,7 +1321,7 @@ class RunPathCmd(_Cmd):
         codes: "list[int]" = [0]
         try:
             for step in steps:
-                # R012: a step whose own REQUIRED dependency actually ran (or
+                # A step whose own REQUIRED dependency actually ran (or
                 # tried to import) and failed is skipped too, rather than
                 # running against a broken prerequisite. Fatality for the
                 # SKIPPED dependent follows its own strict setting.
@@ -1389,7 +1388,7 @@ class RunPathCmd(_Cmd):
                     # A raising finally_ must not mask the real step failure
                     # (if any is currently propagating) nor the aggregate exit
                     # code: log and swallow it (matches
-                    # discovery.run_command's own guarded finally_ -- D008).
+                    # discovery.run_command's own guarded finally_).
                     _log_exception(logger, "__main__.py finally_() failed: %s", exc)
         return max(codes)
 
@@ -1417,7 +1416,7 @@ _BASE: "type" = _presets.LoggingArgs
 
 #: Attrs that only make sense on an app ROOT (``Cli``'s own sandwich-named
 #: config attrs), masked back to a neutral default on every built RunPathCmd
-#: subclass (D013): without this, ``register(base=<a Cli app root>)`` made a
+#: subclass: without this, ``register(base=<a Cli app root>)`` made a
 #: RunPath command inherit the root's ``_subcommands_``/``_version_``/etc,
 #: turning ``myapp rc`` into "pick a nested subcommand" or adding an
 #: unintended ``--version`` flag. ``base`` is meant to share a root's
@@ -1448,8 +1447,7 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
     ``RunPathCmd.__call__`` (wins over anything ``_BASE`` declares, regardless
     of MRO order), and the app-root-only attrs in :data:`_MASKED_ROOT_ATTRS`
     are reset to neutral defaults, so a ``base`` that happens to be an app's
-    own ``Cli`` root never turns this into anything but the step runner
-    (D013).
+    own ``Cli`` root never turns this into anything but the step runner.
     """
     directory = _Path(path)
     name = directory.name.replace("_", "-")

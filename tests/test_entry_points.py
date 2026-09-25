@@ -160,7 +160,7 @@ def test_missing_group_yields_no_commands():
 
 
 def test_duplicated_distribution_dedupes_entry_points(tmp_path, monkeypatch):
-    """C035: a distribution visible TWICE on sys.path (user site + venv, a
+    """A distribution visible TWICE on sys.path (user site + venv, a
     stray checkout's ``.egg-info``/``.dist-info`` on ``PYTHONPATH``) used to
     return every entry point twice on Python 3.9 only -- 3.10+'s own
     ``entry_points()`` already de-duplicates by distribution name. Doubled

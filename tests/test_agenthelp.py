@@ -117,7 +117,7 @@ def _opt(spec, dest):
 
 
 # --------------------------------------------------------------------------
-# C001: env/config secret values are never leaked as agent-help defaults
+# Env/config secret values are never leaked as agent-help defaults
 # --------------------------------------------------------------------------
 
 
@@ -415,7 +415,7 @@ def test_print_agent_help_writes_json(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# C019: agent-help type strings are version-independent
+# Agent-help type strings are version-independent
 # --------------------------------------------------------------------------
 
 
@@ -461,7 +461,7 @@ def test_type_strings_are_version_independent():
 
 
 # --------------------------------------------------------------------------
-# C020: the synthesized minimal invocation always includes <command>
+# The synthesized minimal invocation always includes <command>
 # --------------------------------------------------------------------------
 
 
@@ -495,7 +495,7 @@ def test_synthesized_example_keeps_command_with_required_root_option():
 
 
 # --------------------------------------------------------------------------
-# C021: subcommand-scoped agent help still reports the APP's version/exit
+# Subcommand-scoped agent help still reports the APP's version/exit
 # codes, while examples stay scoped to the current command
 # --------------------------------------------------------------------------
 
@@ -518,7 +518,7 @@ def test_env_trigger_scoped_help_reports_root_version_and_exit_codes(
 
 
 # --------------------------------------------------------------------------
-# C022 (agenthelp half): the usage text in an agent-help document is never
+# (agenthelp half): the usage text in an agent-help document is never
 # colored, even when argparse's native 3.14+ color is forced on
 # --------------------------------------------------------------------------
 

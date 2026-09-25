@@ -1,4 +1,4 @@
-"""Regression tests for A003: a collection ELEMENT type (or dict VALUE type)
+"""Regression tests for a collection ELEMENT type (or dict VALUE type)
 bypassed `_factory_for` entirely and used the raw declared type as the CLI
 text factory. `list[Color]` looked enum members up by VALUE (breaking the
 documented by-name rule) instead of by name, `list[date]` never reached

@@ -187,7 +187,7 @@ def test_framework_bases_have_seeded_constants():
 
 
 def test_logging_args_preset_is_source_independent():
-    # C007: LoggingArgs used to be deliberately left UNSEEDED so its class
+    # LoggingArgs used to be deliberately left UNSEEDED so its class
     # body would be AST-scanned for a trailing docstring + flags-tuple after
     # each field. It now declares every field's flags/help directly as
     # NS(...) metadata instead (read from the live Annotated object, not
@@ -237,7 +237,7 @@ def test_dynamic_class_build_skips_getsource(monkeypatch):
     assert calls == [], "getsource must not be called for dynamic classes (P5)"
 
 
-# --- C014: the same qualname defined twice (if/else, try/except) must pick --
+# --- The same qualname defined twice (if/else, try/except) must pick -------
 # --- the branch Python actually ran, never just "the last one in the file" --
 
 _DUP_QUALNAME_SOURCE = '''\
@@ -290,7 +290,7 @@ def test_duplicate_qualname_if_else_picks_the_live_branch(tmp_path):
     the same qualname used to let the LATER (dead) ClassDef silently
     overwrite the live one; `getclsdef` must pick the one whose `lineno`
     matches `inspect.getsourcelines(cls)` -- the branch Python actually
-    executed (C014)."""
+    executed."""
     mod_path = tmp_path / "dupmod.py"
     mod_path.write_text(_DUP_QUALNAME_SOURCE, encoding="utf-8")
 
@@ -319,7 +319,7 @@ def test_duplicate_qualname_if_else_picks_the_live_branch(tmp_path):
 def test_duplicate_qualname_try_except_picks_the_live_branch(tmp_path):
     """Same as above for a `try`/`except ImportError` fallback shape -- the
     `except` branch never runs (the import always succeeds), but its
-    ClassDef comes LAST in the file and used to win (C014)."""
+    ClassDef comes LAST in the file and used to win."""
     mod_path = tmp_path / "dupmod2.py"
     mod_path.write_text(_DUP_QUALNAME_SOURCE, encoding="utf-8")
 
@@ -344,7 +344,7 @@ def test_duplicate_qualname_try_except_picks_the_live_branch(tmp_path):
         sys.modules.pop("dupmod2", None)
 
 
-# --- C015: a private field's unresolvable annotation must never crash a ------
+# --- A private field's unresolvable annotation must never crash a ----------
 # --- public field's own resolution -------------------------------------------
 
 
@@ -377,7 +377,7 @@ def test_private_field_unresolvable_annotation_does_not_crash_public_fields():
     assert ns.public == "x"
 
 
-# --- C036: a subclass overriding only flags (or only help) still inherits ---
+# --- A subclass overriding only flags (or only help) still inherits --------
 # --- the base's help (or flags) -- never flattened, positional element 0 ----
 
 

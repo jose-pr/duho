@@ -4,7 +4,7 @@ An :class:`Env` presents a single typed view over ``os.environ`` keys sharing a
 common prefix (``MYAPP_DEBUG``, ``MYAPP_CMDS_PATH``, ...), plus an optional
 companion ``<prefix>env`` module of defaults an app may ship.
 
-Distinct from the per-field ``NS(env=...)`` default layer (Plan 05): that resolves
+Distinct from the per-field ``NS(env=...)`` default layer: that resolves
 one argparse field; this is the app-level accessor a driver reads settings through
 (command search paths, ``DEBUG``, import hooks).
 
@@ -45,7 +45,7 @@ _List = list
 #: ensured -- see ``__init__``). Restricting autoload to ``[A-Za-z0-9_]``
 #: keeps a dotted prefix like ``"my.app"`` (normalised to ``"MY.APP_"``) from
 #: importing an unrelated top-level package (``my``) while looking for
-#: ``my.app_env`` (D053).
+#: ``my.app_env``.
 _VALID_PREFIX_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 )
@@ -118,7 +118,7 @@ class Env(_abc.MutableMapping):
         #: `os.environ`/`self._defaults` (an override in `self._env` is
         #: removed outright instead -- see `__delitem__`). Makes the
         #: `MutableMapping` surface (`pop`/`clear`/`popitem`/`in`) consistent
-        #: WITHOUT ever mutating the real process environment (D054).
+        #: WITHOUT ever mutating the real process environment.
         self._deleted: "set[str]" = set()
         if autoload and prefix and _VALID_PREFIX_CHARS.issuperset(prefix):
             modname = f"{prefix.lower()}env"
@@ -132,7 +132,7 @@ class Env(_abc.MutableMapping):
                 # (a plain `ImportError`, or a `ModuleNotFoundError` for some
                 # OTHER name raised by code inside an existing companion
                 # module) propagates instead of silently discarding every
-                # shipped default (D028).
+                # shipped default.
                 missing = exc.name or ""
                 if missing != modname and not modname.startswith(missing + "."):
                     raise
@@ -173,7 +173,7 @@ class Env(_abc.MutableMapping):
         # environment -- record a tombstone that `__getitem__`/`__iter__`
         # honour instead, so `pop()`/`clear()`/`popitem()` (the stdlib
         # `MutableMapping` mixins, built on `__delitem__`+`__iter__`) see the
-        # key as gone without touching `os.environ` (D054). Raise `KeyError`
+        # key as gone without touching `os.environ`. Raise `KeyError`
         # only when the key is not visible from ANY layer, matching a normal
         # mapping's `del`.
         envkey = f"{self.prefix}{key}"
@@ -212,7 +212,7 @@ class Env(_abc.MutableMapping):
         ``on``); anything else (including a missing key) is ``False``.
 
         The truthy set is the same shared ``_compat.BOOL_TRUE`` the layered
-        (env/config) converter uses (A074/C046/D052) -- but this accessor
+        (env/config) converter uses -- but this accessor
         stays LENIENT where that one is strict: an unrecognized value here is
         ``False`` rather than a user error.
         """
@@ -225,7 +225,7 @@ class Env(_abc.MutableMapping):
 
         A missing or empty value yields ``[]`` -- an empty list, NOT ``[ty("")]``.
         The old single-empty-string contract turned a missing ``<PREFIX>_CMDS_PATH``
-        into ``[Path("")] == [Path(".")]`` and glob-imported the whole CWD (C11);
+        into ``[Path("")] == [Path(".")]`` and glob-imported the whole CWD;
         ``[""]`` as "one empty path" has no legitimate use.
         """
         raw = self.get(key, "")
@@ -251,7 +251,7 @@ class Env(_abc.MutableMapping):
         treated as the current directory. This is deliberately unlike POSIX
         ``$PATH``, where an empty entry means the CWD: here, an empty CMDS_PATH
         segment used to become ``ty("")`` -- ``Path("")`` is ``Path(".")`` --
-        which glob-imported and executed every file in the CWD (D001/security).
+        which glob-imported and executed every file in the CWD (a security-relevant fix).
         A caller who genuinely wants the current directory writes it
         explicitly as a ``"."`` segment, which IS still honoured. Note this
         method does NOT delegate to :meth:`list` -- ``list``'s generic contract

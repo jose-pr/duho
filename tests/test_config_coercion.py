@@ -1,4 +1,4 @@
-"""Regression tests for A017: config/JSON layer value coercion was lossy and
+"""Regression tests for config/JSON layer value coercion being lossy and
 inconsistent with the CLI. ``_convert_single`` ran the CLI text factory on
 already-typed values too, so ``int(1.5)`` truncated instead of rejecting,
 ``str(["a", "b"])`` stringified a list instead of rejecting it, and a native
@@ -23,7 +23,7 @@ from duho import Args
 
 def _assert_usage_error(exc_info, capsys):
     # A bad config value is reported the same way a bad CLI value would be --
-    # usage text + exit 2, never a raw traceback (R020).
+    # usage text + exit 2, never a raw traceback.
     assert exc_info.value.code == 2
     assert "usage:" in capsys.readouterr().err
 

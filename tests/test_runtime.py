@@ -1000,7 +1000,7 @@ def test_finally_does_not_mask_original_exception(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# run_command delivers the documented "duho" logger fallback (R018)
+# run_command delivers the documented "duho" logger fallback
 # --------------------------------------------------------------------------
 
 _MODULE_HOOK_READS_LOGGER = '''\
@@ -1067,7 +1067,7 @@ def test_run_command_does_not_override_an_existing_logger(tmp_path):
 
 def test_register_hook_logger_uses_module_commands_own_resolution():
     """The 3-arg ``register`` hook's logger and ``ModuleCommand._logger_for``
-    must be ONE shared resolution (D047), not two independently-maintained
+    must be ONE shared resolution, not two independently-maintained
     copies that could silently diverge -- a bare structural check that the
     duplicate ``runtime._HOOK_LOGGER`` is gone and the call site reuses
     ``command._logger_for``.
@@ -1358,7 +1358,7 @@ def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Overriding a command deregisters its aliases too (D024)
+# Overriding a command deregisters its aliases too
 # --------------------------------------------------------------------------
 
 
@@ -1398,7 +1398,7 @@ def test_cmds_path_override_deregisters_the_shadowed_commands_aliases(
     Before the fix, `_deregister_subparser` popped only the primary name from
     argparse's `_name_parser_map`; the shadowed command's alias (`d`) stayed
     registered and kept SILENTLY dispatching to the OLD command even though
-    `deploy` itself now ran the override (D024). The module override declares
+    `deploy` itself now ran the override. The module override declares
     no alias of its own, so the correct post-fix outcome for `d` is an
     ordinary "invalid choice" (the alias is gone, not secretly re-pointed) --
     never a silent run of the shadowed built-in.
@@ -1427,7 +1427,7 @@ class _DeployPatch(duho.LoggingArgs, duho.Cmd):
 def test_commands_override_reusing_the_same_alias_does_not_crash():
     """A class-command override that reuses the shadowed command's own alias
     must not raise argparse's `conflicting subparser alias` (3.11+) nor
-    silently leave the alias pointing at the old command (3.9) (D024)."""
+    silently leave the alias pointing at the old command (3.9)."""
     rc = app(
         RootWithAliasedBuiltin,
         commands=[_DeployPatch],
@@ -1446,7 +1446,7 @@ def test_commands_override_reusing_the_same_alias_does_not_crash():
 
 # --------------------------------------------------------------------------
 # commands=/source=/entry_points= are additive with a root's own
-# _subcommands_, not a replacement for them (D025)
+# _subcommands_, not a replacement for them
 # --------------------------------------------------------------------------
 
 
@@ -1477,7 +1477,7 @@ def test_source_arg_is_additive_with_root_builtins(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Override/collision logging: deferred, once, and INFO vs WARNING (D042)
+# Override/collision logging: deferred, once, and INFO vs WARNING
 # --------------------------------------------------------------------------
 
 
@@ -1515,7 +1515,7 @@ def test_genuine_collision_between_two_explicit_sources_still_warns(tmp_path, ca
 
 # --------------------------------------------------------------------------
 # register()'s ArgumentError rewrap only blames a global when one actually
-# conflicted (D043)
+# conflicted
 # --------------------------------------------------------------------------
 
 _MODULE_CMD_REGISTER_SELF_COLLISION = '''\
@@ -1555,7 +1555,7 @@ def test_register_hook_self_collision_error_does_not_blame_a_global(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# A non-command in commands=... fails loudly (D045)
+# A non-command in commands=... fails loudly
 # --------------------------------------------------------------------------
 
 
@@ -1571,7 +1571,7 @@ def test_commands_arg_with_a_non_command_raises_typeerror():
 
 
 # --------------------------------------------------------------------------
-# A keyword-only register() logger parameter is passed by keyword (D061)
+# A keyword-only register() logger parameter is passed by keyword
 # --------------------------------------------------------------------------
 
 _MODULE_CMD_REGISTER_KWONLY_LOGGER = '''\
@@ -1610,7 +1610,7 @@ def test_register_hook_keyword_only_logger_is_called_by_keyword(tmp_path):
 
 # --------------------------------------------------------------------------
 # register()'s arity detection reads its OWN signature, not a wrapped
-# function's (functools.wraps guidance, mirrors runpath's D014 fix)
+# function's (functools.wraps guidance, mirrors the fix in runpath)
 # --------------------------------------------------------------------------
 
 _MODULE_CMD_REGISTER_WRAPPED = '''\
@@ -1758,7 +1758,7 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# D021: app() must thread env/config down to a class command's OWN nested
+# app() must thread env/config down to a class command's OWN nested
 # `_subcommands_`, and to a module command's declared `Args` class -- not
 # only to the root and top-level class commands.
 # --------------------------------------------------------------------------
@@ -1928,7 +1928,7 @@ def test_app_discovered_class_command_keeps_redeclared_default(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# D023: a required global given AFTER the subcommand must be accepted, just
+# a required global given AFTER the subcommand must be accepted, just
 # like one given before it -- for both a module and a class command.
 # --------------------------------------------------------------------------
 

@@ -313,7 +313,7 @@ def test_snakecase_lowercases_all_letters(name):
 @settings(deadline=None, max_examples=200)
 @given(text=st.text(alphabet=string.ascii_letters + string.digits + ":,", max_size=30))
 def test_parse_loglevels_shapes_or_raises_cleanly(text):
-    """C009: an entry that doesn't resolve to a known level name (matched
+    """An entry that doesn't resolve to a known level name (matched
     case-insensitively) or an integer now raises
     ``argparse.ArgumentTypeError`` -- so argparse reports it as a normal
     "invalid value" usage error -- instead of silently vanishing from the

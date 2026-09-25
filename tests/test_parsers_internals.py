@@ -64,7 +64,7 @@ def test_pop_then_insert_action_restores_flag():
 
 
 def test_insert_action_default_appends_and_restores_help_visibility():
-    """C038: the old default (``index=-1``) used ``list.insert(-1, x)``
+    """The old default (``index=-1``) used ``list.insert(-1, x)``
     semantics -- inserting BEFORE the last action, not at the end -- and
     never re-added the action to its group, so a popped-then-reinserted flag
     parsed fine but vanished from ``--help``."""
@@ -85,7 +85,7 @@ def test_insert_action_default_appends_and_restores_help_visibility():
 
 
 def test_pop_action_removes_from_mutually_exclusive_group():
-    """C038: popping a member of a REQUIRED mutex group left it in
+    """Popping a member of a REQUIRED mutex group left it in
     ``_mutually_exclusive_groups``, so the group's own error kept naming a
     flag that no longer existed."""
     parser = argparse.ArgumentParser()
@@ -145,7 +145,7 @@ def test_disable_enable_subparser_check_round_trip():
 
 
 def test_disable_subparser_check_is_reentrant():
-    """C034: a NESTED disable used to save the already-relaxed state, so the
+    """A NESTED disable used to save the already-relaxed state, so the
     inner ``enable`` restored THAT (still relaxed) and the outer ``enable``
     found nothing left to restore -- the action stayed permanently relaxed. A
     depth counter now means only the OUTERMOST pair actually saves/restores.
@@ -178,7 +178,7 @@ def test_disable_subparser_check_is_reentrant():
 
 
 # --------------------------------------------------------------------------
-# C044: the relaxed subparsers action must not leak a "==SUPPRESS==" key
+# the relaxed subparsers action must not leak a "==SUPPRESS==" key
 # --------------------------------------------------------------------------
 
 
@@ -264,7 +264,7 @@ def test_exception_mid_parse_restores_all_surgery(monkeypatch):
 
 
 def test_strip_and_restore_subparsers_removes_from_the_actual_group_list():
-    """A073: a naive removal (matching what ``parse_globals`` used to do by
+    """A naive removal (matching what ``parse_globals`` used to do by
     hand) tried ``parser._subparsers._actions.remove(action)`` -- but that IS
     the SAME list object as ``parser._actions`` (already emptied by the first
     removal), so the second removal was always a dead branch and the action
@@ -442,7 +442,7 @@ def test_unique_subcommands_seen_set_prevents_double_yield_across_calls():
 
 
 def test_unique_subcommands_is_the_one_shared_walk_used_by_agenthelp_and_mcp():
-    """D048/O029/C056: both modules used to carry their own hand-written copy
+    """Both modules used to carry their own hand-written copy
     of this exact alias-grouping walk, free to silently drift apart. Both now
     call through this one function instead."""
     import duho.agenthelp as agenthelp_mod

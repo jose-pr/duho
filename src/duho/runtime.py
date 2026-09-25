@@ -390,6 +390,8 @@ def _register_class_command(
     subparsers: "_argparse._SubParsersAction",
     command: type,
     base_parser: "_argparse.ArgumentParser",
+    *,
+    inherited_config_hint: bool = False,
 ) -> "_argparse.ArgumentParser":
     """Register a class command under ``subparsers`` with parent-arg inheritance.
 
@@ -400,8 +402,25 @@ def _register_class_command(
     appear on the subcommand too. Returns the built subparser so the caller can
     link it to the app's root (``_duho_parent_parser_``) for the
     lazy env/config layering and provenance-merge machinery in ``args.py``.
+
+    ``inherited_config_hint`` is ``app()``'s own ``config is not None``
+    (whether a config FILE is coming, whatever ``command`` itself declares) --
+    forwarded to ``_parser_`` as ``_inherited_config_hint_``, the SAME hint a
+    STATIC ``_subcommands_`` tree already gets recursively from its root's own
+    ``_parser_`` call. Without it, a ``commands=``/``source=``/CMDS_PATH
+    class command (resolved by :func:`_resolve_commands`, never reachable via
+    ``root._subcommands_``) only got the reversible ``--no-*`` spelling for a
+    bool field when the command's OWN class happened to declare its own
+    ``_config_`` -- never from the app-level ``config=``/env layering that
+    threads down to it regardless (see ``_apply_app_config_layers``), so a
+    config/env value that later flips such a field back to ``True`` had no
+    CLI-side way to override it back to ``False``.
     """
-    return command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
+    return command._parser_(  # type: ignore[attr-defined]
+        subparsers,
+        parents=[base_parser],
+        _inherited_config_hint_=inherited_config_hint,
+    )
 
 
 def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
@@ -723,6 +742,18 @@ def _build_parser(
         parser_kwargs["name"] = name
     if description is not None:
         parser_kwargs["description"] = description
+    elif root is None:
+        # `root_cls` here is duho's OWN bare `Args` framework class (an app
+        # with no root, only discovered/explicit `commands=`), never
+        # something the user wrote -- `_parser_`'s `kwargs.setdefault
+        # ("description", cls.__doc__)` would otherwise leak `Args`'s OWN
+        # docstring (the framework's internal field-declaration contract) as
+        # this app's top-level `--help` description. Passing an explicit
+        # empty description here (rather than leaving it unset) pre-empts
+        # that `setdefault` for exactly this synthesized-root case, while a
+        # real user-supplied `root` class keeps using its own docstring as
+        # before.
+        parser_kwargs["description"] = ""
     has_config = config is not None
     parser = root_cls._parser_(  # type: ignore[attr-defined]
         **parser_kwargs, _inherited_config_hint_=has_config
@@ -912,6 +943,7 @@ def _register_commands(
     root_cls: type,
     prepass_args: object,
     cmds_path_overridden: "set[str]",
+    inherited_config_hint: bool = False,
 ) -> "tuple[_argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]]":
     """Register every resolved command on ``parser`` and resolve collisions.
 
@@ -920,6 +952,12 @@ def _register_commands(
     collects override/collision log records for :func:`app` to flush once
     logging is actually configured. Split out of :func:`app`;
     no behavior change, the full suite is the guard.
+
+    ``inherited_config_hint`` is ``app()``'s own ``config is not None``,
+    forwarded to :func:`_register_class_command` for every dynamically
+    resolved class command (``commands=``/``source=``/CMDS_PATH) -- see that
+    function's docstring for why a command resolved this way needs it too,
+    not just one reachable via a root's static ``_subcommands_`` tree.
     """
     notices: "list[tuple[int, str]]" = []
 
@@ -1044,7 +1082,12 @@ def _register_commands(
 
         if kind == "class":
             command_cls = _ty.cast(type, command)
-            child_parser = _register_class_command(subparsers, command_cls, base_parser)
+            child_parser = _register_class_command(
+                subparsers,
+                command_cls,
+                base_parser,
+                inherited_config_hint=inherited_config_hint,
+            )
             # Link this class command's own parser to the app root
             # so its (and, recursively, any of ITS OWN nested subcommands')
             # provenance merges upward once actually selected -- the same
@@ -1376,6 +1419,7 @@ def app(
         root_cls,
         prepass_args,
         cmds_path_overridden,
+        inherited_config_hint=config is not None,
     )
 
     required_root_actions = _finalize_command_tree(

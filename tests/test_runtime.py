@@ -892,6 +892,65 @@ def test_commands_arg_class_command(tmp_path):
         sys.modules.pop("_direct_deploy", None)
 
 
+class ServeBoolCmd(duho.Cmd):
+    """Serve, with a bool field a config table can set True."""
+
+    reload: bool = False
+    "reload"
+
+    def __call__(self):
+        return self.reload
+
+
+def test_dynamic_commands_bool_field_gets_reversible_no_flag(tmp_path):
+    """A class command reached via ``commands=`` (never ``root._subcommands_``)
+    must ALSO get the reversible ``--no-*`` spelling for a bool field once a
+    config file is in play -- otherwise a config table that sets the field
+    True has no CLI-side way back to False. Before the fix this only worked
+    for a STATIC ``_subcommands_`` tree; a dynamically resolved command
+    lacked the config hint entirely and ``--no-reload`` was simply an
+    unrecognized argument.
+    """
+    cfg = tmp_path / "app.json"
+    cfg.write_text('{"ServeBoolCmd": {"reload": true}}')
+    # The config-supplied True still applies with no flag at all.
+    rc = app(
+        commands=[ServeBoolCmd], config=cfg, argv=["ServeBoolCmd"], setup_logging=False
+    )
+    assert rc is True
+    # --no-reload overrides it back to False.
+    rc = app(
+        commands=[ServeBoolCmd],
+        config=cfg,
+        argv=["ServeBoolCmd", "--no-reload"],
+        setup_logging=False,
+    )
+    assert rc is False
+
+
+def test_source_discovered_commands_bool_field_gets_reversible_no_flag(tmp_path):
+    """The same fix, via ``source=`` discovery instead of an explicit
+    ``commands=`` list -- ``_resolve_commands``'s OTHER dynamic base source."""
+    _write(
+        tmp_path,
+        "serve.py",
+        '"""Serve."""\n'
+        "from duho import Cmd\n\n\n"
+        "class Serve(Cmd):\n"
+        '    """Serve."""\n\n'
+        "    reload: bool = False\n"
+        '    "reload"\n\n'
+        "    def __call__(self):\n"
+        "        return self.reload\n",
+    )
+    cfg = tmp_path / "app.json"
+    cfg.write_text('{"Serve": {"reload": true}}')
+    rc = app(
+        source=tmp_path, config=cfg, argv=["Serve", "--no-reload"], setup_logging=False
+    )
+    assert rc is False
+
+
 def test_parent_args_inherited_by_subcommand(tmp_path):
     """Global root options (-v) are accepted on a subcommand (parents=)."""
     _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
@@ -899,6 +958,58 @@ def test_parent_args_inherited_by_subcommand(tmp_path):
     # name because each subparser inherits the root parser via parents=.
     rc = app(Root, source=tmp_path, argv=["backup", "-v"], setup_logging=False)
     assert rc == 0
+
+
+# --------------------------------------------------------------------------
+# A rootless app() must never leak duho's OWN framework docstring as --help
+# --------------------------------------------------------------------------
+
+
+class _Deployish(duho.Cmd):
+    """Deploy the thing."""
+
+    x: int = 0
+
+    def __call__(self):
+        return 0
+
+
+def test_rootless_app_help_does_not_leak_args_docstring(capsys):
+    """``duho.app(commands=[...])`` with no ``root`` builds its top-level
+    parser from duho's OWN bare ``Args`` class (a synthesized, root-less
+    fallback -- see ``runtime._build_parser``), never something the caller
+    wrote. Before the fix, ``Args.__doc__`` (the framework's internal
+    field-declaration contract, meant for someone reading duho's own source)
+    leaked straight into this app's ``--help`` description."""
+    with pytest.raises(SystemExit):
+        app(commands=[_Deployish], argv=["--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert "Base class for a duho command" not in out
+    assert "declare CLI" not in out
+
+
+def test_rootless_app_help_still_honors_an_explicit_description(capsys):
+    """The fix must not swallow a caller-supplied ``description=`` -- only
+    duho's OWN unrequested class docstring is suppressed."""
+    with pytest.raises(SystemExit):
+        app(
+            commands=[_Deployish],
+            argv=["--help"],
+            description="My rootless app",
+            setup_logging=False,
+        )
+    out = capsys.readouterr().out
+    assert "My rootless app" in out
+
+
+def test_app_with_real_root_still_shows_its_own_docstring(capsys):
+    """A REAL user-supplied root's docstring must keep showing up -- the fix
+    only suppresses duho's own synthesized ``Args`` fallback, never an
+    app's actual root class."""
+    with pytest.raises(SystemExit):
+        app(Root, commands=[_Deployish], argv=["--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert Root.__doc__ in out
 
 
 # --------------------------------------------------------------------------

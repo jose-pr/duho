@@ -49,12 +49,15 @@ def _registered_prog(bash_script: str) -> str:
     return line.rsplit(" ", 1)[-1]
 
 
-def test_print_completion_defaults_to_the_class_name_fallback():
-    """Unchanged default for the standalone function: no sys.argv[0] magic,
-    just the parser's own prog (class name, since none was declared)."""
+def test_print_completion_defaults_to_argv0_when_name_is_unset(monkeypatch):
+    """The standalone function applies the EXACT same rule the injected
+    `--print-completion` flag does (see the `_action_defaults_prog_to_argv0`
+    test below): default to the invoked command's argv[0] stem, not the bare
+    class name nobody types, when no `_parsername_` was declared."""
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/app"])
     buf = io.StringIO()
     duho.print_completion(_App, "bash", file=buf)
-    assert _registered_prog(buf.getvalue()) == "_App"
+    assert _registered_prog(buf.getvalue()) == "app"
 
 
 def test_print_completion_prog_override_wins():

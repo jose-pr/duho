@@ -11,6 +11,9 @@ AST-derived flags resolve normally.
 """
 
 import enum
+import typing as _t
+
+import pytest
 
 import duho
 from duho import Args
@@ -51,3 +54,37 @@ def test_flag_composite_member_name_is_accepted():
     # composites there, though not on 3.9), so this closes a version-dependent
     # gap rather than a universally-broken one.
     assert duho.parse(_FlagArgs, ["--p", "RW"]).p == _Perm.RW
+
+
+# --------------------------------------------------------------------------
+# A `Literal[...]` of specific Enum MEMBERS (not a bare Enum annotation) must
+# resolve by NAME, the same as `_enum_spec` does -- it previously fell
+# through to the enum CLASS itself as the factory, which looks members up by
+# VALUE, so the exact name the metavar/choices advertised was rejected.
+# --------------------------------------------------------------------------
+
+
+class _LiteralColor(enum.Enum):
+    RED = 1
+    BLUE = 2
+    GREEN = 3
+
+
+class _LiteralEnumArgs(Args):
+    # Only a SUBSET of the enum's members -- a Literal is allowed to narrow.
+    c: "_t.Literal[_LiteralColor.RED, _LiteralColor.BLUE]" = _LiteralColor.RED
+    ("--c",)
+
+
+def test_literal_of_enum_members_accepts_the_member_name():
+    assert duho.parse(_LiteralEnumArgs, ["--c", "RED"]).c is _LiteralColor.RED
+
+
+def test_literal_of_enum_members_rejects_a_member_not_in_the_subset():
+    with pytest.raises(SystemExit):
+        duho.parse(_LiteralEnumArgs, ["--c", "GREEN"])
+
+
+def test_literal_of_enum_members_metavar_shows_plain_names():
+    help_text = _LiteralEnumArgs._parser_().format_help()
+    assert "{RED,BLUE}" in help_text

@@ -165,12 +165,28 @@ class _CollectionAction(_argparse.Action):
         if values is self.default:
             # A zero-token variable-arity (nargs="*") POSITIONAL: argparse
             # hands the action's own default object back as `values` when no
-            # tokens were consumed. Coerce a FRESH collection from it
-            # instead of treating it as a user-supplied value -- otherwise a
-            # `set` default crashes (`set([<the default set>])`, unhashable)
-            # and a `list` default gets doubled. The fresh coercion also
-            # means the returned instance never aliases the action's default
-            # object, so a later mutation can't leak into a future parse.
+            # tokens were consumed.
+            from ._layers import _LayeredDefault  # lazy: avoids a circular
+
+            # import (`_layers` imports this module's `_CollectionAction`/
+            # `UpdateAction` at module scope to classify actions for env/
+            # config layering).
+            if isinstance(values, _LayeredDefault):
+                # `values` is a not-yet-converted env/config/instance
+                # placeholder, not a real collection default -- pass it
+                # through UNCHANGED so `_finalize_layers` still sees the
+                # exact same object (`is`, not `==`) and converts it; wrapping
+                # it in `self._collection_(...)` here would either raise
+                # (the placeholder isn't iterable) or silently discard it.
+                setattr(namespace, self.dest, values)
+                return
+            # A REAL collection default (no layer touched this field): coerce
+            # a FRESH one from it instead of treating it as a user-supplied
+            # value -- otherwise a `set` default crashes (`set([<the default
+            # set>])`, unhashable) and a `list` default gets doubled. The
+            # fresh coercion also means the returned instance never aliases
+            # the action's default object, so a later mutation can't leak
+            # into a future parse.
             setattr(namespace, self.dest, self._collection_(values))
             return
         sidecar = "_duho_items_" + self.dest
@@ -245,7 +261,13 @@ def _isoformat_factory(cls: type) -> "Factory":
         return cls.fromisoformat
 
     def _factory(text: str, /, _cls=cls):
-        if text.endswith(("Z", "z")):
+        # A non-str `text` (a native TOML/JSON date/datetime object passed
+        # through the env/config layer) has no `.endswith` -- let
+        # `fromisoformat` itself reject it (a TypeError, caught by
+        # `_convert_non_str`'s fallback the same way 3.11+'s bare
+        # `cls.fromisoformat` already does there) instead of crashing here
+        # with an unrelated AttributeError.
+        if isinstance(text, str) and text.endswith(("Z", "z")):
             text = text[:-1] + "+00:00"
         return _cls.fromisoformat(text)
 
@@ -283,12 +305,40 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
         lit_ty = type(lit)
         if lit_ty not in literal_types:
             literal_types.append(lit_ty)
+    metavar = None
     if len(literal_types) == 1:
         lit_ty = literal_types[0]
-        # bool is never a valid CLI text factory on its own: bool(text) is
-        # true for almost any non-empty string, so Literal[True, False] with
-        # "--flag False" silently became True.
-        factory: "Factory" = _bool_from_text if lit_ty is bool else lit_ty
+        if lit_ty is bool:
+            # bool is never a valid CLI text factory on its own: bool(text) is
+            # true for almost any non-empty string, so Literal[True, False]
+            # with "--flag False" silently became True.
+            factory: "Factory" = _bool_from_text
+        elif isinstance(lit_ty, type) and issubclass(lit_ty, _enum.Enum):
+            # A Literal of specific Enum MEMBERS (as opposed to a bare Enum
+            # annotation, handled by `_enum_spec`) previously fell through to
+            # `factory = lit_ty` -- the enum CLASS itself, which looks members
+            # up by VALUE (`Color("RED")`), not by name, so a "choose from"
+            # name that argparse's own metavar/choices already advertised
+            # (`{Color.RED,Color.BLUE}`, from `repr()`-ing the raw members)
+            # was rejected outright. Resolve by NAME instead, scoped to only
+            # the members THIS Literal actually lists (a subset is allowed),
+            # matching `_enum_spec`'s own by-name convention.
+            names = tuple(member.name for member in args)
+            valid = frozenset(names)
+
+            def factory(  # type: ignore[misc]
+                text: str, /, _enum_cls=lit_ty, _valid=valid, _names=names
+            ):
+                if text not in _valid:
+                    raise _ConversionError(
+                        f"invalid choice: {text!r} (choose from "
+                        f"{', '.join(_names)})"
+                    )
+                return _enum_cls[text]
+
+            metavar = "{" + ",".join(names) + "}"
+        else:
+            factory = lit_ty
     else:
         # Mixed-type Literal: try each declared literal's own type, but only
         # accept a conversion that round-trips to one of the declared values (a
@@ -308,7 +358,15 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
                 f"could not convert {text!r} using any of {_literals}"
             )
 
-    return _FieldSpec(factory, tuple(args), None, None, None, NOT_DEFINED, None)
+        if bool in literal_types:
+            # A mixed-type Literal that ALSO accepts bool (e.g.
+            # ``Literal[True, "auto"]``) must still accept a native bool from
+            # an env/config layer -- `ArgumentBuilder._convert_non_str` reads
+            # this attribute to widen a raw bool for a composite factory it
+            # doesn't otherwise recognize by identity.
+            factory._duho_union_bool_ok_ = True  # type: ignore[attr-defined]
+
+    return _FieldSpec(factory, tuple(args), metavar, None, None, NOT_DEFINED, None)
 
 
 def _union_spec(members: "list", name: str) -> "_FieldSpec":
@@ -357,13 +415,30 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
         factories.append(f)
     factories = tuple(factories)
 
-    def factory(text: str, /, _factories=factories):
+    # For the error message only: the ORIGINAL annotation types (`int`,
+    # `str`, ...), not `_factories` -- those are the resolved conversion
+    # CALLABLES (bound closures, `_bool_from_text`, a `_choice_checked`
+    # wrapper), whose `repr()` is an unreadable
+    # `<function ... at 0x...>` rather than the member type the user wrote.
+    _member_names = tuple(getattr(m, "__name__", repr(m)) for m in members)
+
+    def factory(text: str, /, _factories=factories, _names=_member_names):
         for f in _factories:
             try:
                 return f(text)
             except (TypeError, ValueError):
                 pass
-        raise _ConversionError(f"could not convert {text!r} using any of {_factories}")
+        raise _ConversionError(
+            f"could not convert {text!r} using any of {', '.join(_names)}"
+        )
+
+    if bool in members:
+        # A multi-member Union that ALSO accepts bool (e.g.
+        # ``Union[bool, int]``) must still accept a native bool from an
+        # env/config layer -- `ArgumentBuilder._convert_non_str` reads this
+        # attribute to widen a raw bool for a composite factory it doesn't
+        # otherwise recognize by identity.
+        factory._duho_union_bool_ok_ = True  # type: ignore[attr-defined]
 
     return _scalar_spec(factory)
 
@@ -470,7 +545,14 @@ def _element_spec(elem_ty, name: str, what: str) -> "tuple":
             f"a collection; nested collections are not supported"
         )
     factory = spec.factory if spec.factory is not None else elem_ty
-    if elem_ty is bool:
+    if factory is bool:
+        # `elem_ty is bool` alone misses an `Optional[bool]` element: its
+        # single-member Union spec RESOLVES to the raw `bool` builtin (see
+        # `_union_spec`'s single-member branch) without `elem_ty` itself
+        # ever being literally `bool`. Checking the RESOLVED factory instead
+        # catches that case too, so `list[Optional[bool]]`/`dict[str,
+        # Optional[bool]]` reject "false" the same strict way a bare
+        # `bool` element does, instead of silently truthy-casting the text.
         factory = _bool_from_text
     if spec.choices is not None:
         factory = _choice_checked(factory, spec.choices)

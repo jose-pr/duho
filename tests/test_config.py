@@ -309,13 +309,18 @@ class _ChoiceLayered(Args):
 
 
 def test_env_value_rejects_invalid_choice(monkeypatch, capsys):
+    # A bad layered value is rejected the same as a bad CLI one -- usage text
+    # + exit 2 -- but the raw value is never echoed back (it could be a
+    # secret): the message names the field/variable and expected type only.
     monkeypatch.setenv("DUHO_TEST_MODE", "banana")
     with pytest.raises(SystemExit) as exc:
         duho.parse(_ChoiceLayered, [])
     monkeypatch.delenv("DUHO_TEST_MODE", raising=False)
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "invalid choice: 'banana'" in err
+    assert "environment variable 'DUHO_TEST_MODE' for field 'mode'" in err
+    assert "expected str" in err
+    assert "banana" not in err
     assert "usage:" in err
 
 
@@ -327,7 +332,9 @@ def test_config_value_rejects_invalid_choice(tmp_path, capsys):
         duho.parse(_ChoiceLayered, [], config=cfg)
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "invalid choice: 'banana'" in err
+    assert "config value for field 'mode' on _ChoiceLayered" in err
+    assert "expected str" in err
+    assert "banana" not in err
     assert "usage:" in err
 
 

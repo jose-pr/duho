@@ -79,6 +79,33 @@ def test_finish_parse_raises_when_no_command_was_selected():
         duho.finish_parse(plain)
 
 
+def test_finish_parse_strips_collection_action_sidecars():
+    """The internal `parse_known_args` patch strips the `_CollectionAction`/
+    `UpdateAction` sidecars (`_duho_items_<dest>`/`_duho_dict_seen_<dest>`)
+    before constructing an instance -- the manual `finish_parse` recipe
+    builds the instance itself, so it must do the same cleanup, or this
+    bookkeeping leaks into the constructed instance's own `vars()`."""
+
+    class Serve(Cmd):
+        tags: "list[str]" = []
+        opts: "dict[str, str]" = {}
+
+        def __call__(self):
+            return 0
+
+    root = argparse.ArgumentParser()
+    subparsers = root.add_subparsers()
+    Serve._parser_(subparsers, name="serve")
+
+    namespace = root.parse_args(["serve", "--tags", "a", "--opts", "k=v"])
+    instance = duho.finish_parse(namespace)
+    assert isinstance(instance, Serve)
+    assert instance.tags == ["a"]
+    assert instance.opts == {"k": "v"}
+    leaked = [k for k in vars(instance) if k.startswith("_duho_")]
+    assert leaked == []
+
+
 def test_duho_parser_accepts_an_explicit_prog_override():
     class App(Cli):
         def __call__(self):
@@ -95,3 +122,48 @@ def test_duho_parse_accepts_prog_via_parser_kwargs():
 
     result = duho.parse(App2, [], parser_kwargs={"prog": "myapp2"})
     assert type(result)._duho_last_parser_.prog == "myapp2"
+
+
+# --------------------------------------------------------------------------
+# The subcommand selector's PRIVATE dest (`_duho_command_`, chosen so a root
+# field literally named `command` is never clobbered) must never leak into
+# user-facing "required"/"invalid choice" error text -- only the usage
+# synopsis defaulted to a clean `{...}` from `choices`; the ERROR messages
+# fall back to the action's DEST when no `metavar` is set.
+# --------------------------------------------------------------------------
+
+
+def test_missing_subcommand_error_does_not_leak_the_private_dest(capsys):
+    class Deploy(Cmd):
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        _subcommands_ = [Deploy]
+
+        def __call__(self):
+            return 0
+
+    with pytest.raises(SystemExit):
+        duho.main(Root, [], setup_logging=False)
+    err = capsys.readouterr().err
+    assert "_duho_command_" not in err
+    assert "required: {Deploy}" in err
+
+
+def test_invalid_subcommand_choice_error_does_not_leak_the_private_dest(capsys):
+    class Deploy(Cmd):
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        _subcommands_ = [Deploy]
+
+        def __call__(self):
+            return 0
+
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["zz"], setup_logging=False)
+    err = capsys.readouterr().err
+    assert "_duho_command_" not in err
+    assert "argument {Deploy}: invalid choice: 'zz'" in err

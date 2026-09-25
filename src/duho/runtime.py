@@ -694,6 +694,7 @@ def _build_parser(
     root: "type | None",
     name: "str | None",
     description: "str | None",
+    config: "str | _Path | None" = None,
 ) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type]":
     """Build the top-level parser and a help-free base parser for ``root``.
 
@@ -701,6 +702,13 @@ def _build_parser(
     ``Args``/``LoggingArgs`` subclass supplying global options; ``None`` yields a
     bare data ``Args`` root so an app with only external commands still works.
     ``name`` / ``description`` override the parser prog / description when given.
+
+    ``config`` -- ``app()``'s own ``config=`` kwarg -- is passed through as a
+    hint (`_inherited_config_hint_`) even though it is applied to the parser
+    LATER, by `_apply_app_config_layers`: a root class declares no `_config_`
+    of its own still needs to know a config table is coming, so a layered
+    bool field gets the reversible `--no-*` form instead of a bare
+    ``store_true`` that can never turn a config-supplied ``True`` back off.
 
     The **base parser** carries the same global options but is built with
     ``add_help=False``. It is the one used as ``parents=`` for each subcommand:
@@ -715,8 +723,13 @@ def _build_parser(
         parser_kwargs["name"] = name
     if description is not None:
         parser_kwargs["description"] = description
-    parser = root_cls._parser_(**parser_kwargs)  # type: ignore[attr-defined]
-    base_parser = root_cls._parser_(add_help=False)  # type: ignore[attr-defined]
+    has_config = config is not None
+    parser = root_cls._parser_(  # type: ignore[attr-defined]
+        **parser_kwargs, _inherited_config_hint_=has_config
+    )
+    base_parser = root_cls._parser_(  # type: ignore[attr-defined]
+        add_help=False, _inherited_config_hint_=has_config
+    )
     # base_parser exists only to donate the root's *options* to each subcommand
     # via `parents=`. When the root carries `_subcommands_`, `_parser_` also gave
     # it a subparsers action -- inheriting that would nest the whole command tree
@@ -840,7 +853,7 @@ def _prepare_app_parser(
     offers a module ``register`` hook the already-parsed globals. Split out
     of :func:`app`; no behavior change, the full suite is the guard.
     """
-    parser, base_parser, root_cls = _build_parser(root, name, description)
+    parser, base_parser, root_cls = _build_parser(root, name, description, config)
 
     # Resolve the config table ONCE (a not-yet-created class-level
     # `_config_` is skipped, not a crash) and stash the root's own slice on
@@ -1048,6 +1061,15 @@ def _register_commands(
         registry[cmd_name] = (kind, command)
         for n in names:
             claimed[n] = (kind, command)
+
+    # Same rule `Args._parser_` applies to its own static `_subcommands_`
+    # tree: without an explicit `metavar`, argparse falls back to the
+    # ACTION'S DEST (never `choices`) for its "required"/"invalid choice"
+    # ERROR text, leaking the private `_duho_command_` dest. Set it from the
+    # FINAL registry (primary names only, sorted for a deterministic
+    # message) now that every command -- static builtins and CMDS_PATH-
+    # discovered alike -- is registered.
+    subparsers.metavar = "{" + ",".join(sorted(registry)) + "}"
 
     return subparsers, registry, notices
 

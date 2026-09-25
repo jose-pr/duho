@@ -59,6 +59,19 @@ _NONETYPE = type(None)
 #: `type(self)(**self._get_kwargs())` clone pattern and instance equality/repr.
 _duho_explicit_instance_fields: "dict[int, frozenset]" = {}
 
+#: {id(instance): parser} recording which parser produced THIS specific
+#: instance, for `duho.value_sources`. Kept OUT of `vars(instance)` for the
+#: same reason as `_duho_explicit_instance_fields` above (id()-keyed,
+#: `weakref.finalize`-cleaned -- see that constant's docstring). This is the
+#: per-INSTANCE complement to `Args._duho_last_parser_` (set alongside it,
+#: below): the class-level attribute alone means parsing the SAME class
+#: twice (two different config files, say) makes the OLDER instance's
+#: `value_sources()` silently report the NEWER parse's provenance once the
+#: class attribute is overwritten. `value_sources` prefers this dict and
+#: only falls back to the class attribute for an instance that predates this
+#: fix, or one whose class isn't weak-referenceable.
+_duho_instance_last_parser_: "dict[int, object]" = {}
+
 if _ty.TYPE_CHECKING:
     from typing_extensions import Self as _Self  # type: ignore
 
@@ -155,6 +168,13 @@ class Meta:
         times: Arg[int, Meta(flags=("-n", "--times"))] = 1
     """
 
+    # Field order matters: `Meta` is a plain dataclass, so positional
+    # construction (`Meta("help text")`) binds by position. The prefix
+    # through `version` matches the pre-existing (pre-`Meta`-rewrite) order
+    # exactly; `flags` takes over `dest`'s old slot (the removed `dest`
+    # field, a documented [minor] break); every field added SINCE then
+    # (`default`) goes LAST, immediately before the `kwargs` escape hatch,
+    # which stays last of all (see its own docstring: applied last).
     help: "_ty.Any" = _META_UNSET
     env: "_ty.Any" = _META_UNSET
     conflicts: "_ty.Any" = _META_UNSET
@@ -163,13 +183,13 @@ class Meta:
     action: "_ty.Any" = _META_UNSET
     nargs: "_ty.Any" = _META_UNSET
     const: "_ty.Any" = _META_UNSET
-    default: "_ty.Any" = _META_UNSET
     choices: "_ty.Any" = _META_UNSET
     metavar: "_ty.Any" = _META_UNSET
     required: "_ty.Any" = _META_UNSET
     type: "_ty.Any" = _META_UNSET
     version: "_ty.Any" = _META_UNSET
     flags: "_ty.Any" = _META_UNSET
+    default: "_ty.Any" = _META_UNSET
     kwargs: "_ty.Any" = _META_UNSET
 
     def _duho_options_(self) -> "dict[str, object]":
@@ -448,6 +468,34 @@ def _guard_recursive_build(cls):
     return ids
 
 
+def _completion_default_prog(root_parser, explicit_prog: bool) -> str:
+    """Resolve the ``prog`` a completion script should bind to.
+
+    Shared by :class:`_PrintCompletionAction` (the auto-injected
+    ``--print-completion`` flag) and :func:`print_completion` (the standalone
+    function) so both apply the EXACT same rule: an explicitly declared name
+    (``_parsername_``/``duho.app(name=...)``, ``explicit_prog=True``) always
+    wins; otherwise default to the stem of ``sys.argv[0]`` -- the command
+    actually invoked -- instead of ``root_parser.prog`` falling back to the
+    CLASS NAME, which almost never matches (``MyApp`` vs. ``myapp``).
+    """
+    prog = root_parser.prog
+    if not explicit_prog:
+        argv0_stem = _pathlib.Path(_sys.argv[0]).stem
+        if argv0_stem.endswith("-script"):
+            argv0_stem = argv0_stem[: -len("-script")]
+        if argv0_stem and argv0_stem != "__main__":
+            from . import completion as _completion
+
+            try:
+                _completion._validate_prog(argv0_stem)
+            except ValueError:
+                pass
+            else:
+                prog = argv0_stem
+    return prog
+
+
 class _PrintCompletionAction(_argparse.Action):
     """argparse Action for --print-completion: emits a shell completion
     script for the *root* parser tree and exits 0, mirroring how the
@@ -482,18 +530,7 @@ class _PrintCompletionAction(_argparse.Action):
 
         emitter = getattr(_completion, values)
         root = self.root_parser if self.root_parser is not None else parser
-        prog = root.prog
-        if not self.explicit_prog:
-            argv0_stem = _pathlib.Path(_sys.argv[0]).stem
-            if argv0_stem.endswith("-script"):
-                argv0_stem = argv0_stem[: -len("-script")]
-            if argv0_stem and argv0_stem != "__main__":
-                try:
-                    _completion._validate_prog(argv0_stem)
-                except ValueError:
-                    pass
-                else:
-                    prog = argv0_stem
+        prog = _completion_default_prog(root, self.explicit_prog)
         _write_machine_text(emitter(root, prog=prog), _sys.stdout)
         parser.exit()
 
@@ -999,7 +1036,18 @@ class ArgumentBuilder(_argparse.Namespace):
           field, for example).
         """
         if isinstance(raw, bool):
-            if factory is bool or factory is _bool_from_text:
+            if (
+                factory is bool
+                or factory is _bool_from_text
+                or getattr(factory, "_duho_union_bool_ok_", False)
+            ):
+                # The last check covers a Union/Literal factory that ALSO
+                # accepts bool as one of its members (`Union[bool, int]`,
+                # `Literal[True, "auto"]`) -- that composite callable is
+                # neither `bool` nor `_bool_from_text` by identity, but a raw
+                # bool is still one of its declared shapes, so it must not be
+                # rejected here as "a boolean but the field expects
+                # 'factory'" (a regression: this used to be accepted).
                 return raw
             raise ValueError(
                 f"{raw!r} is a boolean but the field expects "
@@ -1201,11 +1249,24 @@ class ArgumentBuilder(_argparse.Namespace):
                     kwargs["action"] = "store_false"
                 else:
                     kwargs["action"] = _argparse.BooleanOptionalAction
-            elif layered:
+            elif layered and not no_flag:
                 # A field that can receive True from a layer OTHER than the
                 # CLI (env=, or the owning class has a config source) needs a
                 # way to turn it back off from the command line -- store_true
-                # can only ever SET True, never re-assert False.
+                # can only ever SET True, never re-assert False. Excluded
+                # when `no_flag`: a FALSE-default field whose own flag
+                # already reads as a negation (e.g. a field literally named
+                # `no_verify`, auto-deriving `--no-verify`) means the OPPOSITE
+                # of the True-default case above -- presence of that flag is
+                # the field's own plain, honest "on" spelling, not a reversal
+                # of a default. BooleanOptionalAction would try to double the
+                # negation (crashing outright on 3.14, see above); falling
+                # through to plain store_true instead keeps that meaning
+                # (env/config still supply the value when the CLI doesn't
+                # mention the flag at all -- only overriding a layered True
+                # back to False through THIS specific flag has no natural
+                # spelling, an inherent limit of a field name that begins
+                # with "no_").
                 kwargs["action"] = _argparse.BooleanOptionalAction
             else:
                 kwargs["action"] = "store_true"
@@ -1439,6 +1500,7 @@ def _add_fields(
     *,
     parent_dests: "_ty.FrozenSet[str] | None" = None,
     strict: bool = True,
+    config_hint: bool = False,
 ) -> "dict":
     """Add ``cls``'s own declared fields to ``parser`` (titled/mutually-
     exclusive groups included).
@@ -1499,8 +1561,16 @@ def _add_fields(
     # A bool field that can receive True from a layer OTHER than the
     # CLI needs a way to turn it back off from the command line (see
     # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
-    # per-field signal; a config source is a per-CLASS one.
-    _has_config_source = getattr(cls, "_config_", None) is not None
+    # per-field signal; a config source is a per-CLASS one -- either `cls`'s
+    # own declared `_config_`, or `config_hint` (threaded down from
+    # `_parser_`/`_initparser_`): a class built as part of a `_subcommands_`
+    # tree whose ROOT has `_config_` (its own table cascades to every
+    # subcommand's slice, see `_stash_layer_state`), or one `duho.main`/
+    # `duho.parse`/`duho.parse_globals` is about to call with an explicit
+    # `config=` kwarg -- something no class attribute alone could reveal,
+    # since that kwarg is only known at the CALL site, after the parser is
+    # already built.
+    _has_config_source = getattr(cls, "_config_", None) is not None or config_hint
 
     # Titled argument groups (NS(group="...")), created lazily per title.
     # Persisted on the parser so a parents=[...] merge / subclass override can
@@ -1961,6 +2031,7 @@ class Args(_argparse.Namespace):
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         _inherited_formatter_class_=None,
         _inherited_agent_root_cls_=None,
+        _inherited_config_hint_=None,
         **kwargs,
     ) -> "_Parser[_Self]":
         """Build (or attach) this class's ``argparse.ArgumentParser``.
@@ -2048,6 +2119,13 @@ class Args(_argparse.Namespace):
             if _inherited_agent_root_cls_ is not None
             else cls
         )
+        # Threaded down through the whole `_subcommands_` tree the same way
+        # `agent_root_cls` is (see the recursive `sub._parser_(...)` call
+        # below): a caller that already knows it will pass `config=` to
+        # `duho.main`/`duho.parse`/`duho.parse_globals` records that here so
+        # every node -- root and every nested subcommand -- can react to it
+        # (see `_initparser_`'s `external_config`), not just the root.
+        external_config = bool(_inherited_config_hint_)
         if subparser:
             kwargs.setdefault(
                 "help",
@@ -2084,6 +2162,7 @@ class Args(_argparse.Namespace):
                 parent_dests=parent_dests,
                 explicit_prog=explicit_prog,
                 agent_root_cls=agent_root_cls,
+                external_config=external_config,
             )
 
             # A private, sandwich-named dest -- never a name a
@@ -2097,6 +2176,17 @@ class Args(_argparse.Namespace):
             )
             if subcommands:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
+                # argparse falls back to the ACTION'S DEST (never `choices`)
+                # for its "required" / "invalid choice" ERROR text when no
+                # `metavar` is set -- only the usage SYNOPSIS defaults to a
+                # `{...}` built from `choices`. Set it explicitly so the
+                # private `_duho_command_` dest never leaks into either
+                # message (it used to show "the following arguments are
+                # required: _duho_command_"); `instance.command` stays gone
+                # regardless (a documented [minor] break).
+                subparsers.metavar = (
+                    "{" + ",".join(_command_name(sub) for sub in subcommands) + "}"
+                )
                 # Dests this (root) class declares itself: an option given BEFORE the
                 # subcommand parses into these on the root namespace. A child that
                 # inherits the same field (via MRO) re-declares it with its own
@@ -2110,11 +2200,21 @@ class Args(_argparse.Namespace):
                 root_defaults = {
                     n: b._effective_default_() for n, b in root_builders.items()
                 }
+                # A config table reaches every subcommand's own slice
+                # (`_stash_layer_state` recurses the same table down the
+                # tree), so propagate "a config could apply here" too --
+                # either inherited from a caller's own `config=` hint, or
+                # because THIS class (root, or an intermediate node in a
+                # multi-level tree) declares `_config_` itself.
+                propagated_config_hint = external_config or (
+                    getattr(cls, "_config_", None) is not None
+                )
                 for sub in subcommands:
                     child = sub._parser_(
                         subparsers,
                         _inherited_formatter_class_=effective_formatter,
                         _inherited_agent_root_cls_=agent_root_cls,
+                        _inherited_config_hint_=propagated_config_hint,
                     )
                     # Link child -> parent so `_merge_layers_upward`
                     # (run from the child's own `_initparser_`-patched
@@ -2136,6 +2236,7 @@ class Args(_argparse.Namespace):
         parent_dests: "_ty.FrozenSet[str] | None" = None,
         explicit_prog: bool = False,
         agent_root_cls: "type | None" = None,
+        external_config: bool = False,
     ):
         """Populate an already-created ``parser`` with this class's own fields.
 
@@ -2148,6 +2249,12 @@ class Args(_argparse.Namespace):
         when ``_completion_`` is set. Override to add parser-level
         configuration ``_parser_`` doesn't itself expose (call
         ``super()._initparser_(parser, ...)`` first to keep this behavior).
+
+        ``external_config`` -- threaded down from :meth:`_parser_` -- tells
+        :func:`_add_fields` that a config table WILL reach this class even
+        though `cls` itself declares no `_config_` (an explicit `config=`
+        kwarg to `duho.main`/`duho.parse`/`duho.parse_globals`, or a root
+        ancestor's own `_config_` cascading down the `_subcommands_` tree).
         """
         parent_dests = parent_dests if parent_dests is not None else frozenset()
 
@@ -2270,6 +2377,17 @@ class Args(_argparse.Namespace):
             # instances themselves free of framework bookkeeping in
             # vars()/__dict__.
             _cls._duho_last_parser_ = parser  # type: ignore[attr-defined]
+            # Also record it per-INSTANCE (see `_duho_instance_last_parser_`)
+            # so parsing this same class again later doesn't retroactively
+            # change what an EARLIER instance's `value_sources()` reports.
+            try:
+                _pkey = id(instance)
+                _duho_instance_last_parser_[_pkey] = parser
+                _weakref.finalize(
+                    instance, _duho_instance_last_parser_.pop, _pkey, None
+                )
+            except TypeError:
+                pass
             return instance, unk
 
         parser.parse_known_args = parse_known_args  # type: ignore
@@ -2338,7 +2456,13 @@ class Args(_argparse.Namespace):
         # `runtime._add_module_declared_fields` so a module command
         # gets the exact same `NS(group=...)`/`NS(conflicts=...)` support a
         # class command does.
-        _add_fields(parser, cls, parent_dests=parent_dests, strict=True)
+        _add_fields(
+            parser,
+            cls,
+            parent_dests=parent_dests,
+            strict=True,
+            config_hint=external_config,
+        )
 
         # Agent help: stash the class for the emitter, make --help env-aware, and
         # add the opt-in --help-agents flag. See `_install_agent_help`.
@@ -2732,6 +2856,12 @@ def print_completion(cls, shell: str, file=None, *, prog: "str | None" = None) -
         )
     parser = cls._parser_()
     emitter = getattr(_completion, shell)
+    if prog is None:
+        # Same rule the injected --print-completion flag applies (see
+        # `_completion_default_prog`): default to the invoked command's
+        # argv[0] stem instead of registering the bare class name, unless
+        # the class declared a real name of its own.
+        prog = _completion_default_prog(parser, bool(vars(cls).get("_parsername_")))
     _write_machine_text(emitter(parser, prog=prog), file)
 
 
@@ -2881,7 +3011,7 @@ def main(
     any OTHER value the command returns (an ``int``, or anything else destined
     for ``sys.exit``) passes straight through unchanged.
     """
-    parser = cls._parser_()
+    parser = cls._parser_(_inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)
     instance = parser.parse_args(argv)
 
@@ -2929,12 +3059,14 @@ def parse(
     parser_kwargs = parser_kwargs or {}
     if isinstance(spec, type):
         cls = spec
-        parser = cls._parser_(**parser_kwargs)
+        parser = cls._parser_(
+            **parser_kwargs, _inherited_config_hint_=config is not None
+        )
         _apply_layers(parser, cls, config=config)
         return parser.parse_args(argv)
 
     cls = type(spec)
-    parser = cls._parser_(**parser_kwargs)
+    parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config, instance=spec)
     return parser.parse_args(argv)
 
@@ -2977,7 +3109,7 @@ def parse_globals(
     """
     from .parsers import prerun_parse as _prerun_parse
 
-    parser = cls._parser_(**parser_kwargs)
+    parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)
     return _prerun_parse(parser, argv)
 
@@ -3012,6 +3144,18 @@ def finish_parse(namespace: "_argparse.Namespace") -> "Args":
             "attached to a plain argparse parser."
         )
     cls = ns.pop("#cls")
+    # Drop the `_CollectionAction`/`UpdateAction` sidecars
+    # (`_duho_items_<dest>`/`_duho_dict_seen_<dest>`) the same way the
+    # internal `parse_known_args` patch does before constructing an instance
+    # -- this manual-recipe path builds the instance itself, so it must strip
+    # them itself too, or this bookkeeping leaks into vars(instance) and the
+    # documented `type(self)(**self._get_kwargs())` clone pattern.
+    for sidecar in [
+        k
+        for k in ns
+        if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
+    ]:
+        del ns[sidecar]
     return cls(**ns)
 
 

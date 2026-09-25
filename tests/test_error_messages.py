@@ -32,14 +32,17 @@ class _EnvArgs(Args):
 
 def test_bad_env_value_message(monkeypatch, capsys):
     # A bad env value is reported the same way a bad CLI value would be
-    # -- usage text + exit 2, never a raw traceback.
+    # -- usage text + exit 2, never a raw traceback. Names the variable and
+    # the expected type, but never echoes the raw value back: it could itself
+    # be a secret (e.g. a malformed token), and this message reaches stderr.
     monkeypatch.setenv("DUHO_T5_PORT", "not-an-int")
     with pytest.raises(SystemExit) as excinfo:
         duho.parse(_EnvArgs, [])
     assert excinfo.value.code == 2
     msg = capsys.readouterr().err
     assert re.search(r"environment variable 'DUHO_T5_PORT' for field 'port'", msg)
-    assert "not-an-int" in msg
+    assert "expected int" in msg
+    assert "not-an-int" not in msg
     assert "usage:" in msg
 
 
@@ -58,7 +61,8 @@ class _ConfigArgs(Args):
 
 @pytest.mark.requires_toml
 def test_bad_config_value_message(tmp_path, capsys):
-    # Same usage-text-and-exit-2 contract as a bad env value.
+    # Same usage-text-and-exit-2 contract as a bad env value, and the same
+    # redaction: the raw config value is never echoed back.
     config = tmp_path / "app.toml"
     config.write_text('port = "not-an-int"\n')
     with pytest.raises(SystemExit) as excinfo:
@@ -66,7 +70,8 @@ def test_bad_config_value_message(tmp_path, capsys):
     assert excinfo.value.code == 2
     msg = capsys.readouterr().err
     assert "config value for field 'port' on _ConfigArgs" in msg
-    assert "not-an-int" in msg
+    assert "expected int" in msg
+    assert "not-an-int" not in msg
     assert "usage:" in msg
 
 

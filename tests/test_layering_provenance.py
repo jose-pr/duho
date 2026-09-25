@@ -6,6 +6,8 @@ All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags/env/docstrings resolve normally (never via ``-c``).
 """
 
+import typing as _t
+
 import pytest
 
 import duho
@@ -283,3 +285,142 @@ def test_value_sources_on_subcommand_includes_root_fields(tmp_path, monkeypatch)
     assert sources["token"] == "env"
     assert sources["verbose"] == "config"
     assert sources["target"] == "config"
+
+
+# --------------------------------------------------------------------------
+# value_sources() is a per-INSTANCE report -- an OLDER instance of the same
+# class must not retroactively change once the class is parsed again.
+# --------------------------------------------------------------------------
+
+
+class RepeatParsed(Args):
+    x: "Arg[int, NS(env='DUHO_TEST_REPEAT_X')]" = 1
+    ("--x",)
+
+
+def test_value_sources_does_not_flip_for_an_older_instance_of_the_same_class(
+    monkeypatch,
+):
+    monkeypatch.setenv("DUHO_TEST_REPEAT_X", "5")
+    older = duho.parse(RepeatParsed, [])  # x=5, sourced from env
+    monkeypatch.delenv("DUHO_TEST_REPEAT_X", raising=False)
+    newer = duho.parse(RepeatParsed, ["--x", "2"])  # x=2, sourced from the CLI, no env
+
+    # Parsing the class a SECOND time must not retroactively change what the
+    # FIRST (older) instance reports.
+    assert duho.value_sources(older) == {"x": "env"}
+    assert duho.value_sources(newer) == {"x": "cli"}
+
+
+# --------------------------------------------------------------------------
+# A Union factory's exhaustion error must name the declared member TYPES
+# (int, str, ...), not repr() the resolved conversion callables.
+# --------------------------------------------------------------------------
+
+
+class UnionExhaustion(Args):
+    value: "Arg[_t.Union[int, float], NS()]" = 0
+    ("--value",)
+
+
+def test_union_conversion_error_names_member_types(capsys):
+    with pytest.raises(SystemExit):
+        duho.parse(UnionExhaustion, ["--value", "not-a-number"])
+    err = capsys.readouterr().err
+    assert "could not convert 'not-a-number' using any of int, float" in err
+    assert "0x" not in err  # no <function ... at 0x...> repr leaking through
+
+
+# --------------------------------------------------------------------------
+# A layered value for a field whose action ACCUMULATES onto the existing
+# namespace value (count/append) must not be staged as a not-yet-converted
+# placeholder: `-v` with a config `verbose = 1` tried `1 + placeholder`.
+# --------------------------------------------------------------------------
+
+
+class LayeredCount(Args):
+    verbose: "Arg[int, NS(env='DUHO_TEST_COUNT_VERBOSE'), duho.Count()]" = 0
+    ("-v", "--verbose")
+
+
+def test_layered_count_field_starts_from_the_converted_value(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_COUNT_VERBOSE", "1")
+    result = duho.parse(LayeredCount, [])
+    monkeypatch.delenv("DUHO_TEST_COUNT_VERBOSE", raising=False)
+    assert result.verbose == 1
+
+
+def test_layered_count_field_cli_increments_on_top_of_it(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_COUNT_VERBOSE", "1")
+    result = duho.parse(LayeredCount, ["-v"])
+    monkeypatch.delenv("DUHO_TEST_COUNT_VERBOSE", raising=False)
+    assert result.verbose == 2
+
+
+class LayeredAppend(Args):
+    tags: "Arg[_t.List[str], NS(env='DUHO_TEST_APPEND_TAGS'), duho.Append()]" = []
+    ("--tags",)
+
+
+def test_layered_append_field_starts_from_the_converted_value(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_APPEND_TAGS", "fromenv")
+    result = duho.parse(LayeredAppend, [])
+    monkeypatch.delenv("DUHO_TEST_APPEND_TAGS", raising=False)
+    assert result.tags == ["fromenv"]
+
+
+def test_layered_append_field_cli_appends_on_top_of_it(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_APPEND_TAGS", "fromenv")
+    result = duho.parse(LayeredAppend, ["--tags", "a", "--tags", "b"])
+    monkeypatch.delenv("DUHO_TEST_APPEND_TAGS", raising=False)
+    assert result.tags == ["fromenv", "a", "b"]
+
+
+class LayeredPositionalList(Args):
+    files: "Arg[_t.List[str], NS(flags=('files',), env='DUHO_TEST_POS_FILES')]" = []
+    ("files",)
+
+
+def test_layered_zero_token_positional_list_uses_the_converted_value(monkeypatch):
+    # A zero-token nargs="*" positional hands the action its own DEFAULT
+    # object back as `values` -- when that default is a not-yet-converted
+    # placeholder, it must be passed through untouched (for `_finalize_layers`
+    # to convert), never iterated/coerced as if it were a real collection.
+    monkeypatch.setenv("DUHO_TEST_POS_FILES", "fromenv")
+    result = duho.parse(LayeredPositionalList, [])
+    monkeypatch.delenv("DUHO_TEST_POS_FILES", raising=False)
+    assert result.files == ["fromenv"]
+
+
+# --------------------------------------------------------------------------
+# A cached/reused parser (`duho.parser(cls)` built once, `.parse_args()`
+# called more than once) must behave like a fresh one on EVERY call -- a
+# dest whose layered value applied on an earlier call, but not this one
+# (e.g. its env var was unset in between), must not keep the earlier call's
+# converted default/un-required state.
+# --------------------------------------------------------------------------
+
+
+class ReusedParserArgs(Args):
+    port: "Arg[int, NS(env='DUHO_TEST_REUSE_PORT')]" = 80
+    ("--port",)
+
+    name: "Arg[str, NS(env='DUHO_TEST_REUSE_NAME')]"
+    ("--name",)
+
+
+def test_reused_parser_does_not_leak_layered_state_across_calls(monkeypatch):
+    parser = duho.parser(ReusedParserArgs)
+    monkeypatch.setenv("DUHO_TEST_REUSE_PORT", "8080")
+    monkeypatch.setenv("DUHO_TEST_REUSE_NAME", "x")
+    first = parser.parse_args([])
+    assert first.port == 8080
+    assert first.name == "x"
+
+    monkeypatch.delenv("DUHO_TEST_REUSE_PORT", raising=False)
+    monkeypatch.delenv("DUHO_TEST_REUSE_NAME", raising=False)
+    # `name` has no class default and no env this time -- the parser must
+    # re-require it exactly as a freshly built one would, instead of
+    # silently reusing the first call's already-converted values.
+    with pytest.raises(SystemExit):
+        parser.parse_args([])

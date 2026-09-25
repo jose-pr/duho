@@ -135,3 +135,46 @@ class DocArgs(Args):
 def test_pep727_documentation_contributes_help():
     parser = DocArgs._parser_()
     assert "how many" in parser.format_help()
+
+
+# --------------------------------------------------------------------------
+# `Meta` is a plain dataclass, so positional construction binds by position.
+# A field added after the original design must go LAST, never in the middle
+# -- inserting one earlier silently shifts every field declared after it for
+# any caller using positional args.
+# --------------------------------------------------------------------------
+
+
+def test_meta_positional_field_order_matches_the_documented_prefix():
+    m = Meta(
+        "help text",  # help
+        "ENVVAR",  # env
+        "grp",  # conflicts
+        True,  # conflicts_required
+        "title",  # group
+        "store",  # action
+        None,  # nargs
+        None,  # const
+        (1, 2),  # choices
+        "N",  # metavar
+        False,  # required
+        int,  # type
+        "1.0",  # version
+        ("-x",),  # flags
+    )
+    assert m.help == "help text"
+    assert m.env == "ENVVAR"
+    assert m.conflicts == "grp"
+    assert m.conflicts_required is True
+    assert m.group == "title"
+    assert m.action == "store"
+    assert m.choices == (1, 2)
+    assert m.metavar == "N"
+    assert m.required is False
+    assert m.type is int
+    assert m.version == "1.0"
+    assert m.flags == ("-x",)
+    # `default` (added after `flags` took over the removed `dest` slot) sits
+    # LAST, right before the `kwargs` escape hatch -- not in the middle of
+    # the prefix above.
+    assert m.default is duho.args._META_UNSET

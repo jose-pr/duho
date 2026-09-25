@@ -13,7 +13,9 @@ All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags resolve normally.
 """
 
+import datetime
 import json
+import typing as _t
 
 import pytest
 
@@ -105,3 +107,89 @@ def test_config_dict_table_values_reject_fractional_float(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         duho.parse(_DictIntArgs, [], config=cfg)
     _assert_usage_error(exc, capsys)
+
+
+# --------------------------------------------------------------------------
+# A Union/Literal field that ALSO accepts bool as one of its members must
+# still accept a native bool from a config layer -- the identity check
+# `_convert_non_str` uses to allow a bare `bool`/`_bool_from_text` factory
+# through does not recognize a composite Union/Literal callable by identity,
+# even though bool is one of its declared members.
+# --------------------------------------------------------------------------
+
+
+class _UnionBoolArgs(Args):
+    b: "_t.Union[bool, int]" = 0
+    ("--b",)
+
+
+def test_config_union_field_accepts_native_bool(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"b": True}))
+    assert duho.parse(_UnionBoolArgs, [], config=cfg).b is True
+
+
+class _LiteralBoolArgs(Args):
+    lit: "_t.Literal[True, 'auto']" = "auto"
+    ("--lit",)
+
+
+def test_config_mixed_literal_field_accepts_native_bool(tmp_path):
+    cfg = tmp_path / "c.json"
+    cfg.write_text(json.dumps({"lit": True}))
+    assert duho.parse(_LiteralBoolArgs, [], config=cfg).lit is True
+
+
+# --------------------------------------------------------------------------
+# A `List[Optional[bool]]`/`Dict[str, Optional[bool]]` element must parse
+# "false" strictly, the same as a bare `bool` element does -- the
+# `Optional[bool]` element resolves to the raw `bool` builtin (a
+# single-member Union adopts its member's spec verbatim), which is truthy
+# for almost any non-empty string when called naively.
+# --------------------------------------------------------------------------
+
+
+class _OptBoolCollectionArgs(Args):
+    flags: "list[_t.Optional[bool]]" = []
+    ("--flags",)
+
+    opts: "dict[str, _t.Optional[bool]]" = None
+    ("--opts",)
+
+
+def test_optional_bool_list_element_parses_false_strictly():
+    result = duho.parse(_OptBoolCollectionArgs, ["--flags", "false"])
+    assert result.flags == [False]
+
+
+def test_optional_bool_dict_value_parses_false_strictly():
+    result = duho.parse(_OptBoolCollectionArgs, ["--opts", "k=false"])
+    assert result.opts == {"k": False}
+
+
+# --------------------------------------------------------------------------
+# A TOML `date`/`datetime` value (a native object, not a string) must not
+# crash on Python 3.9/3.10, where the pre-3.11 isoformat factory calls
+# `.endswith(...)` on `text` UNCONDITIONALLY before checking it is even a
+# string -- 3.11+'s `fromisoformat` classmethod doesn't have this branch at
+# all, so the crash was version-specific.
+# --------------------------------------------------------------------------
+
+
+class _DateConfigArgs(Args):
+    start: datetime.date = datetime.date(2000, 1, 1)
+    ("--start",)
+
+    at: "_t.Optional[datetime.datetime]" = None
+    ("--at",)
+
+
+@pytest.mark.requires_toml
+def test_config_native_toml_date_does_not_crash(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("start = 2024-01-02\nat = 2024-01-02T03:04:05Z\n")
+    result = duho.parse(_DateConfigArgs, [], config=cfg)
+    assert result.start == datetime.date(2024, 1, 2)
+    assert result.at == datetime.datetime(
+        2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc
+    )

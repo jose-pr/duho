@@ -32,6 +32,8 @@ import pathlib as _pathlib
 import typing as _ty
 
 from . import parsers as _parsers
+from ._fieldspec import _CollectionAction as _CollectionAction
+from ._fieldspec import UpdateAction as UpdateAction
 
 _LOGGER = _logging.getLogger(__name__)
 
@@ -218,9 +220,94 @@ class _LayeredDefault:
         return str(self.raw)
 
 
+#: argparse action types whose CLI occurrence REPLACES whatever is already on
+#: the namespace outright (a plain store, a bool flag, duho's own collection/
+#: dict actions) -- so a not-yet-converted `_LayeredDefault` placeholder
+#: default is safe: the CLI either leaves it completely untouched (identity
+#: check in `_finalize_layers`) or overwrites it wholesale. An explicit
+#: whitelist, not "everything except count/append/extend/append_const":
+#: an action type this ladder doesn't recognize at all (a user's own custom
+#: `Action` subclass) is conservatively treated as ACCUMULATING too, same as
+#: count/append -- see `_is_replace_semantics_action`.
+_REPLACE_SEMANTICS_ACTION_TYPES = (
+    _argparse._StoreAction,
+    _argparse._StoreConstAction,  # covers store_true/store_false (subclasses)
+    _argparse.BooleanOptionalAction,
+    _CollectionAction,
+    UpdateAction,
+)
+
+
+def _is_replace_semantics_action(action) -> bool:
+    """True when `action`'s CLI occurrence replaces its dest outright.
+
+    False for argparse's own count/append/extend/append_const -- each reads
+    whatever is ALREADY on the namespace and accumulates onto it (increments
+    a count, appends to a list), which crashes on a not-yet-converted
+    `_LayeredDefault` placeholder (e.g. `-v` with a config `verbose = 1`
+    raising ``TypeError: unsupported operand type(s) for +: '_LayeredDefault'
+    and 'int'``) -- and for any action type not in the whitelist above,
+    conservatively, for the same reason.
+    """
+    return isinstance(action, _REPLACE_SEMANTICS_ACTION_TYPES)
+
+
+def _field_type_desc(builder) -> str:
+    """A short, non-sensitive description of the type a layered value for
+    `builder` must convert to -- for an error message that names the
+    field/variable but never echoes the malformed raw value or the
+    conversion exception's own text: either one can itself carry whatever
+    secret the env var or config value held, printed right back onto the
+    CLI's stderr or an MCP ``isError`` result.
+    """
+    if builder.collection is dict:
+        return "a KEY=VALUE mapping"
+    if builder.collection is not None:
+        elem = getattr(builder.type, "__name__", None) or "value"
+        return f"a {builder.collection.__name__} of {elem}"
+    return getattr(builder.type, "__name__", None) or "value"
+
+
+def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
+    """Undo whatever the PREVIOUS `_stage_layers` call on this same (reused)
+    parser changed to its actions'/groups' ``default``/``required``, before
+    this call computes its own layering from scratch.
+
+    A cached, reused parser (``duho.parser(cls)`` built once, then
+    ``.parse_args()`` called more than once) otherwise only behaves like a
+    freshly built one for a dest THIS call also has a layered value for -- a
+    dest whose env var was UNSET this time (removed between calls) kept the
+    STALE placeholder default and ``required=False`` the earlier call
+    installed, forever, since nothing overwrote it again (a second parse with
+    the env var cleared would otherwise silently reuse the first parse's
+    already-converted value, and a REQUIRED field with no CLI/env/config
+    value on this call would never re-raise "required"). Restoring first,
+    unconditionally, then staging fresh makes a reused parser behave exactly
+    like a new one on every call.
+    """
+    prior_actions: "dict[str, tuple[object, object]] | None" = getattr(
+        parser, "_duho_prior_action_state_", None
+    )
+    if prior_actions:
+        actions_by_dest = {action.dest: action for action in parser._actions}
+        for name, (default, required) in prior_actions.items():
+            action = actions_by_dest.get(name)
+            if action is not None:
+                action.default = default
+                action.required = required
+    prior_groups: "dict[object, bool] | None" = getattr(
+        parser, "_duho_prior_group_state_", None
+    )
+    if prior_groups:
+        for key, group in (getattr(parser, "exclusive_groups", None) or {}).items():
+            group_key = key[1] if isinstance(key, tuple) else key
+            if group_key in prior_groups:
+                group.required = prior_groups[group_key]
+
+
 def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     """Install not-yet-converted env/config/instance placeholders on `parser`
-    for `cls`'s own declared fields (Design Q2/Q4 of the layering rewrite).
+    for `cls`'s own declared fields.
 
     Reads the raw config-table slice / instance overrides / env mapping
     `_stash_layer_state` already attached to `parser` (empty/`None` when this
@@ -229,69 +316,109 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     > env > config; CLI is enforced later, for free, by whichever value
     actually ends up on the parsed namespace (see `_finalize_layers`).
 
+    Restores whatever the previous call on a REUSED parser changed
+    (`_restore_prior_layer_state`) before computing anything, so a cached
+    parser's second `parse_args()` call is never contaminated by its first.
+
+    A field whose action ACCUMULATES onto the existing namespace value
+    (count/append/extend/append_const, or any action type this ladder
+    doesn't specifically recognize -- see `_is_replace_semantics_action`) is
+    converted EAGERLY here instead of staged as a deferred placeholder: the
+    CLI's own action then increments/appends ON TOP of this already-converted
+    starting value, exactly as it always has.
+
     Called from :meth:`Args._initparser_`'s patched ``parse_known_args``,
     every time it runs -- lazily, so a value that belongs to a subcommand the
     user's invocation never reaches is never even resolved.
     """
+    _restore_prior_layer_state(parser)
+
     config_table = getattr(parser, "_duho_raw_config_table_", None) or {}
     instance_overrides = getattr(parser, "_duho_instance_overrides_", None)
     env = getattr(parser, "_duho_env_", None)
 
-    sources: "dict[str, str]" = {}
-    placeholders: "dict[str, object]" = {}
-
+    # name -> (raw, kind); precedence instance > env > config, same as before.
+    raw_by_name: "dict[str, tuple[object, str]]" = {}
     for name, raw in _raw_config_values(cls, config_table).items():
-        placeholders[name] = _LayeredDefault(raw, "config")
-        sources[name] = "config"
+        raw_by_name[name] = (raw, "config")
     for name, raw in _raw_env_values(cls, env).items():
-        placeholders[name] = _LayeredDefault(raw, "env")
-        sources[name] = "env"
+        raw_by_name[name] = (raw, "env")
     if instance_overrides:
         # Instance values already ARE final Python objects (never
         # re-converted -- see `_finalize_layers`) and outrank env/config.
         for name, raw in instance_overrides.items():
-            placeholders[name] = _LayeredDefault(raw, "instance")
-            sources[name] = "instance"
+            raw_by_name[name] = (raw, "instance")
 
-    # Drop any dest whose action is SUPPRESS-suppressed on this parser: that
-    # dest is a root field inherited by a child parser, suppressed precisely
-    # so the value the root already parsed (from an option given BEFORE the
-    # subcommand) survives. Installing a placeholder default here would
-    # overwrite the SUPPRESS marker and clobber that parsed value -- the
-    # root parser's own staging already covers the real (root) field.
-    if placeholders:
-        actions_by_dest = {action.dest: action for action in parser._actions}
-        for name in list(placeholders):
+    actions_by_dest = {action.dest: action for action in parser._actions}
+    builders_by_name = {b.name: b for b in cls._getargs_()}
+
+    sources: "dict[str, str]" = {}
+    placeholders: "dict[str, object]" = {}
+    eager: "dict[str, object]" = {}
+    for name, (raw, kind) in raw_by_name.items():
+        action = actions_by_dest.get(name)
+        # Drop any dest whose action is SUPPRESS-suppressed on this parser:
+        # that dest is a root field inherited by a child parser, suppressed
+        # precisely so the value the root already parsed (from an option
+        # given BEFORE the subcommand) survives. Installing a placeholder/
+        # eager default here would overwrite the SUPPRESS marker and clobber
+        # that parsed value -- the root parser's own staging already covers
+        # the real (root) field.
+        if action is not None and action.default is _argparse.SUPPRESS:
+            continue
+        sources[name] = kind
+        if action is not None and _is_replace_semantics_action(action):
+            placeholders[name] = _LayeredDefault(raw, kind)
+            continue
+        if kind == "instance":
+            eager[name] = raw
+            continue
+        builder = builders_by_name.get(name)
+        try:
+            eager[name] = builder.convert_layered(raw, source=kind)
+        except (TypeError, ValueError):
+            what = (
+                f"environment variable {builder.env!r} for field {name!r}"
+                if kind == "env"
+                else f"config value for field {name!r} on {cls.__name__}"
+            )
+            parser.error(f"{what}: expected {_field_type_desc(builder)}")
+            return  # pragma: no cover - parser.error always raises SystemExit
+
+    touched = {**placeholders, **eager}
+    prior_actions: "dict[str, tuple[object, object]]" = {}
+    prior_groups: "dict[object, bool]" = {}
+    if touched:
+        for name in touched:
             action = actions_by_dest.get(name)
-            if action is not None and action.default is _argparse.SUPPRESS:
-                del placeholders[name]
-                sources.pop(name, None)
-
-    if placeholders:
-        parser.set_defaults(**placeholders)
+            if action is not None:
+                prior_actions[name] = (action.default, action.required)
+        parser.set_defaults(**touched)
         for action in parser._actions:
-            if action.dest in placeholders:
+            if action.dest in touched:
                 action.required = False
         # Part 1: a layered/instance value also un-requires the WHOLE
         # conflicts= group it belongs to -- argparse tracks a mutex group's
         # requiredness on the GROUP object, not on the member action, so
         # un-requiring only the action (above) is not enough.
-        builders_by_name = {b.name: b for b in cls._getargs_()}
         layered_conflicts = {
             getattr(builders_by_name[n], "conflicts", None)
-            for n in placeholders
+            for n in touched
             if getattr(builders_by_name.get(n), "conflicts", None)
         }
         if layered_conflicts:
             for key, group in (getattr(parser, "exclusive_groups", None) or {}).items():
                 group_key = key[1] if isinstance(key, tuple) else key
-                if group_key in layered_conflicts:
+                if group_key in layered_conflicts and group_key not in prior_groups:
+                    prior_groups[group_key] = group.required
                     group.required = False
 
     parser._duho_value_sources_ = sources  # type: ignore[attr-defined]
-    parser._duho_merged_defaults_ = {}  # type: ignore[attr-defined]
+    parser._duho_merged_defaults_ = dict(eager)  # type: ignore[attr-defined]
     parser._duho_placeholders_ = placeholders  # type: ignore[attr-defined]
-    parser._duho_builders_ = {b.name: b for b in cls._getargs_()}  # type: ignore[attr-defined]
+    parser._duho_builders_ = builders_by_name  # type: ignore[attr-defined]
+    parser._duho_prior_action_state_ = prior_actions  # type: ignore[attr-defined]
+    parser._duho_prior_group_state_ = prior_groups  # type: ignore[attr-defined]
 
 
 def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
@@ -359,13 +486,19 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
                 value = builder.convert_layered(
                     placeholder.raw, source=placeholder.kind
                 )
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError):
+                # Neither the raw value nor the exception text is echoed
+                # back: either can itself carry whatever secret the
+                # env var or config value held (e.g. a leaked token), and
+                # this message reaches CLI stderr / an MCP ``isError``
+                # result -- name the field/variable and the expected shape
+                # only.
                 what = (
                     f"environment variable {builder.env!r} for field {name!r}"
                     if placeholder.kind == "env"
                     else f"config value for field {name!r} on {cls.__name__}"
                 )
-                parser.error(f"{what}: invalid value {placeholder.raw!r} ({exc})")
+                parser.error(f"{what}: expected {_field_type_desc(builder)}")
                 return  # pragma: no cover - parser.error always raises SystemExit
         setattr(parsed, name, value)
         merged[name] = value
@@ -534,9 +667,11 @@ def _apply_default_layers_one(
         try:
             merged[name] = builders_by_name[name].convert_layered(raw, source="config")
         except (TypeError, ValueError) as exc:
+            # Neither the raw value nor the exception text is echoed:
+            # either can carry whatever secret the config value held.
             raise ValueError(
                 f"config value for field {name!r} on {cls.__name__}: "
-                f"invalid value {raw!r} ({exc})"
+                f"expected {_field_type_desc(builders_by_name[name])}"
             ) from exc
         sources[name] = "config"
 
@@ -545,9 +680,10 @@ def _apply_default_layers_one(
         try:
             merged[name] = builder.convert_layered(raw, source="env")
         except (TypeError, ValueError) as exc:
+            # Same redaction as above -- the env var itself could be secret.
             raise ValueError(
                 f"environment variable {builder.env!r} for field {name!r}: "
-                f"invalid value {raw!r} ({exc})"
+                f"expected {_field_type_desc(builder)}"
             ) from exc
         sources[name] = "env"
 
@@ -584,15 +720,20 @@ def value_sources(parsed) -> "dict[str, str]":
     "default") of each field on a parsed instance produced by
     `duho.parse`/`duho.main`.
 
-    Looks up the owning parser via the per-class `_duho_last_parser_`
-    linkage stashed during dispatch (see `_initparser_`), read through
-    ``type(parsed).__dict__`` rather than ``getattr`` -- ``getattr``
-    follows the MRO, so a never-parsed SUBCLASS of an already-parsed base (or
-    of bare ``Args``, parsed every time `duho.app` runs without a root) would
-    otherwise inherit its base's stale parser and report bogus sources
-    instead of the documented ``{}``. Returns `{}` when unavailable (e.g. the
-    instance wasn't produced via a parser built by this framework, or no
-    parse has happened yet for its class).
+    Looks up the owning parser via the per-INSTANCE
+    `_duho_instance_last_parser_` linkage stashed during dispatch (see
+    `_initparser_`) first -- falling back to the per-class
+    `_duho_last_parser_` one, read through ``type(parsed).__dict__`` rather
+    than ``getattr`` -- ``getattr`` follows the MRO, so a never-parsed
+    SUBCLASS of an already-parsed base (or of bare ``Args``, parsed every
+    time `duho.app` runs without a root) would otherwise inherit its base's
+    stale parser and report bogus sources instead of the documented ``{}``.
+    The per-instance lookup matters because the per-class one is shared by
+    EVERY instance of that class: without it, parsing the same class a
+    second time (a different config file, say) would silently change what an
+    OLDER, already-returned instance reports here too. Returns `{}` when
+    unavailable (e.g. the instance wasn't produced via a parser built by this
+    framework, or no parse has happened yet for its class).
 
     For a SUBCOMMAND instance, root/global fields are included too:
     `_merge_layers_upward` folds each actually-selected parser's own
@@ -607,7 +748,12 @@ def value_sources(parsed) -> "dict[str, str]":
     ("env"/"config"/"instance"), or "default" if no layer touched it (value
     == the untouched class default).
     """
-    parser = type(parsed).__dict__.get("_duho_last_parser_")
+    from .args import _duho_instance_last_parser_  # lazy: avoids a circular
+
+    # import (args.py re-exports this module's own public names).
+    parser = _duho_instance_last_parser_.get(id(parsed))
+    if parser is None:
+        parser = type(parsed).__dict__.get("_duho_last_parser_")
     if parser is None:
         return {}
     sources: "dict[str, str]" = getattr(parser, "_duho_value_sources_", None) or {}

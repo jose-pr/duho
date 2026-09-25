@@ -108,16 +108,20 @@ Step return codes
 ------------------
 
 A step's return value follows the same convention ``discovery.ModuleCommand``
-uses: ``None`` means success; a non-zero ``int`` means failure, handled through
-the exact same ``--rcopts``/filename strict-vs-resilient path as a raised
-exception (see "Strict vs. resilient" below) -- under strict it aborts the run,
-otherwise it is logged and the run continues. Any other return value is not an
-exit code and is ignored. ``RunPathCmd.__call__`` itself returns the MAXIMUM
-of every step's own code (a raised, swallowed failure contributes ``1``, since
+uses: ``None`` means success; a non-zero ``int`` means failure. Under strict
+(the default) that logs the failure, runs ``__main__.py``'s ``finally_`` hook,
+and returns the step's own code directly -- no exception, no traceback, unlike
+a step that *raises*, which still propagates. Under resilient it is logged and
+the run continues instead. Any other return value is not an exit code and is
+ignored. ``RunPathCmd.__call__`` itself returns the WORST of every step's own
+code, ranked by magnitude the same way :func:`duho.fanout.run_targets`
+aggregates target codes (a raised, swallowed failure contributes ``1``, since
 it has no numeric code of its own) -- so a resilient run whose steps all
 failed non-fatally still reports that failure via its exit code, instead of
-always returning ``0``. ``__main__.py``'s ``success`` hook only fires when
-that aggregate is still clean (no step failed, strictly or resiliently).
+always returning ``0``, and a negative step code (e.g. a step reporting a
+signal-like result) is never hidden by an earlier or later ``0``.
+``__main__.py``'s ``success`` hook only fires when that aggregate is still
+clean (no step failed, strictly or resiliently).
 
 ``REQUIRED`` and a failed dependency
 --------------------------------------
@@ -226,11 +230,14 @@ Three independent cases, each with its own default:
   by default; a bare ``--rcopts strict`` (no pattern) makes them errors instead.
 * **A step's own failure** (a raised exception, a non-zero return, or a
   skipped run because its own ``REQUIRED`` dependency failed) is **fatal by
-  default** -- it aborts the run. Opt ONE step out with its filename's
-  ``!strict`` token or a matching ``--rcopts name:!strict`` entry; a bare
-  ``--rcopts !strict`` (no pattern) makes every step resilient instead, and a
-  bare ``--rcopts strict`` makes every step fatal regardless of its own
-  filename token (the run-wide toggle wins last).
+  default** -- it aborts the run. A raised exception still propagates as a
+  traceback; a non-zero *return* instead ends the run cleanly, returning that
+  step's own code (see "Step return codes" above) with no exception raised.
+  Opt ONE step out with its filename's ``!strict`` token or a matching
+  ``--rcopts name:!strict`` entry; a bare ``--rcopts !strict`` (no pattern)
+  makes every step resilient instead, and a bare ``--rcopts strict`` makes
+  every step fatal regardless of its own filename token (the run-wide toggle
+  wins last).
 * **``__main__.py``'s ``init`` failing is always fatal**, regardless of any of
   the above -- every step depends on the ``ctx`` it produces, so there is no
   meaningful partial/resilient init.
@@ -251,6 +258,7 @@ from pathlib import Path as _Path
 from .args import Arg as _Arg, Cmd as _Cmd, Extend as _Extend
 from . import discovery as _discovery
 from . import presets as _presets
+from .fanout import _worst
 from .logging import log_exception as _log_exception
 
 __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
@@ -664,10 +672,14 @@ def _load_steps(
     never transitively reorder an enabled step via a stale ``PRIORITY``/
     ``BEFORE``/``AFTER``/``REQUIRED``.
 
-    Two files that resolve to the SAME step name are a duplicate: the later
-    file is skipped (kept out of the ordering graph, which is keyed by name)
-    with a warning/error naming both files, rather than one silently
-    overwriting the other's ordering edges.
+    Two files that resolve to the SAME step name are a duplicate ONLY when both
+    would actually be enabled (post ``--rcopts``): the later file is skipped
+    (kept out of the ordering graph, which is keyed by name) with a
+    warning/error naming both files, rather than one silently overwriting the
+    other's ordering edges. A DISABLED duplicate never wins the name and never
+    hides an enabled one, regardless of file order: whichever file among the
+    same-named entries is enabled is the one that is loaded, and no
+    warning/error is raised for the harmless disabled-vs-enabled case.
 
     A step whose **import** fails with an ``ImportError``/``NotImplementedError``
     (an *environmental* failure: a missing optional dependency, a not-yet-provided
@@ -679,20 +691,34 @@ def _load_steps(
     bugs, not environment.
     """
     present_names: "list[str]" = []
-    seen_paths: "dict[str, _Path]" = {}
+    seen: "dict[str, _ty.Tuple[_Path, bool]]" = {}
     to_import: "list[_ty.Tuple[int, str, _Path, _Opts]]" = []
     for nn, name, path, opts in _iter_step_files(directory):
-        if name in seen_paths:
-            _strict_or_warn(
-                "duho.runpath: duplicate step name %r: %s and %s"
-                % (name, seen_paths[name], path),
-                selection.strict,
-                logger,
-            )
-            continue
-        seen_paths[name] = path
-        present_names.append(name)
-        if selection.decide(name, opts.enabled):
+        enabled_here = selection.decide(name, opts.enabled)
+        prior = seen.get(name)
+        if prior is not None:
+            prior_path, prior_enabled = prior
+            if prior_enabled and enabled_here:
+                _strict_or_warn(
+                    "duho.runpath: duplicate step name %r: %s and %s"
+                    % (name, prior_path, path),
+                    selection.strict,
+                    logger,
+                )
+                continue
+            if not enabled_here:
+                # A disabled duplicate never displaces whatever is already
+                # on record for this name (enabled or disabled) -- it simply
+                # has no effect, so it can never hide an already-seen
+                # enabled step of the same name.
+                continue
+            # `enabled_here` and not `prior_enabled`: this file takes over
+            # the name from a disabled duplicate, which never competed for
+            # it in the first place.
+        else:
+            present_names.append(name)
+        seen[name] = (path, enabled_here)
+        if enabled_here:
             to_import.append((nn, name, path, opts))
 
     steps: "list[_Step]" = []
@@ -782,16 +808,20 @@ def _order_steps(
     about "present but disabled" at all.
 
     A genuine cycle (spanning any mix of the three relations) is broken
-    deterministically: when no ready step remains, the smallest-ranked
-    (priority, name) step still stuck is forced through (as if its remaining
-    predecessors were satisfied) and a single warning names every step still
-    stuck at that point -- NOT the smallest step alone, but also not
-    unrelated steps outside the stuck set (an earlier "dump everything
-    remaining, in bulk" fallback broke a downstream step's own unrelated,
-    non-cyclic dependency too). Ordering then resumes normally: any step that
-    was only blocked by the forced one gets emitted next via the heap, and
-    only a NEW dead end (if the mix has more than one entangled cycle)
-    triggers another warning+break.
+    deterministically: when no ready step remains, the chain of unresolved
+    predecessors starting from the smallest-ranked stuck step is walked until
+    it revisits a node, which identifies the actual cycle (a step merely
+    stuck BEHIND a cycle, without being part of it, is never included -- see
+    below); the smallest-ranked ``(priority, name)`` step AMONG THAT CYCLE
+    (not the smallest stuck step overall, which may not even be on the cycle)
+    is then forced through, as if its remaining predecessors were satisfied,
+    and a single warning names every step in the cycle. Forcing a step
+    outside the cycle through would let it jump its own still-unsatisfied
+    ``REQUIRED``/``AFTER`` predecessor, instead of only breaking the actual
+    deadlock. Ordering then resumes normally: any step that was only blocked
+    by the forced one gets emitted next via the heap, and only a NEW dead end
+    (if the mix has more than one entangled cycle) triggers another
+    warning+break.
     """
     ordered = sorted(steps, key=lambda s: (s.priority, s.name))
     by_name = {s.name: s for s in ordered}
@@ -855,12 +885,21 @@ def _order_steps(
                 break
             node = next(iter(remaining))
         cycle_names = path[seen_at[node] :] if node in seen_at else [start]
+        # Force through the smallest-ranked step that is actually IN the
+        # cycle, not `stuck[0]` (the smallest-ranked stuck step overall) --
+        # `stuck[0]` can be a step merely blocked behind the cycle via its
+        # own REQUIRED/AFTER on a cycle member, and forcing that one through
+        # would let it run ahead of a predecessor it still legitimately
+        # depends on, instead of only breaking the real deadlock.
+        break_name = min(cycle_names, key=lambda n: rank[n])
         message = (
             "duho.runpath: unresolved dependency cycle among %s "
             "(check REQUIRED/BEFORE/AFTER)" % ", ".join(sorted(cycle_names))
         )
-        _strict_or_warn(message, strict, logger, warn_suffix="; breaking at %r" % start)
-        _emit(stuck[0])
+        _strict_or_warn(
+            message, strict, logger, warn_suffix="; breaking at %r" % break_name
+        )
+        _emit(by_name[break_name])
     return emitted
 
 
@@ -1360,19 +1399,27 @@ class RunPathCmd(_Cmd):
                     continue
 
                 # A step's return value follows ModuleCommand's own
-                # convention: None -> success; a non-zero int -> failure,
-                # routed through the exact same strict-vs-resilient path as
-                # an exception. Anything else is not an exit code.
+                # convention: None -> success; a non-zero int -> failure.
+                # Anything else is not an exit code.
                 code = result if isinstance(result, int) else 0
+                codes.append(code)
                 if code:
                     failed_names.add(step.name)
-                    _strict_or_warn(
+                    message = (
                         "duho.runpath: step %r returned a non-zero exit code: %r"
-                        % (step.name, result),
-                        selection.step_strict(step.name, step.file_strict),
-                        logger,
+                        % (step.name, result)
                     )
-                codes.append(code)
+                    if selection.step_strict(step.name, step.file_strict):
+                        # Unlike a raised exception (which still propagates
+                        # as a traceback), a non-zero RETURN under strict
+                        # ends the run cleanly: log it, let the enclosing
+                        # try/finally still run __main__.py's finally_, and
+                        # report this step's own code through the aggregate
+                        # below -- never a generic exception that would lose
+                        # the actual numeric code.
+                        logger.error(message)
+                        break
+                    logger.warning(message)
 
             if (
                 lifecycle is not None
@@ -1394,7 +1441,7 @@ class RunPathCmd(_Cmd):
                     # code: log and swallow it (matches
                     # discovery.run_command's own guarded finally_).
                     _log_exception(logger, "__main__.py finally_() failed: %s", exc)
-        return max(codes)
+        return _worst(codes)
 
 
 # --------------------------------------------------------------------------

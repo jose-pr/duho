@@ -66,12 +66,19 @@ The generator walks the built parser tree, so it knows everything duho knows:
 - **Paths** — a `pathlib.Path`-typed field gets the shell's native file and
   directory completion.
 
-## Known limitation
+## Known limitations
 
-bash's `compgen -W` splits a candidate word list on whitespace: a choice
-value containing a space or a quote (`"eu west"`) completes as separate
-words there. zsh and fish do not have this limitation and offer such a
-value as one candidate; PowerShell inserts it as a single quoted literal.
+- bash's `compgen -W` splits a candidate word list on whitespace: a choice
+  value containing a space (`"eu west"`) completes as separate words there.
+  A quote or shell metacharacter inside a value does not cause this (it is
+  escaped so it can never merge with or swallow a *different* value), but
+  whitespace splitting itself is inherent to `compgen -W` and not worked
+  around. zsh and fish do not have this limitation and offer such a value as
+  one candidate; PowerShell inserts it as a single quoted literal.
+- zsh and fish tokenize a completion candidate through their own word/action
+  syntax, which has no way to carry a literal newline: a choice value
+  containing `\n` loses it there (the newline is dropped, not escaped to a
+  visible placeholder). bash and PowerShell do not have this limitation.
 
 ## Regenerating
 

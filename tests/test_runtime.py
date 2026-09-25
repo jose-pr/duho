@@ -2119,6 +2119,31 @@ def test_app_missing_required_global_reports_clear_error(tmp_path, capsys):
     assert "required" in err
 
 
+def test_app_required_global_shows_as_required_in_usage(tmp_path, capsys):
+    """The un-requiring above (so `--token` can follow the subcommand, or come
+    from config/env) must not make `--help` LOOK like `--token` is optional --
+    enforcement moved to a post-parse check, but the usage TEXT still owes the
+    user an accurate picture of what's actually mandatory. Checked at both the
+    root's own usage line and the subcommand's (inherited) one."""
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    with pytest.raises(SystemExit):
+        app(_TokenRootD023, source=tmp_path, argv=["--help"], setup_logging=False)
+    root_usage = capsys.readouterr().out
+    assert "--token TOKEN" in root_usage
+    assert "[--token TOKEN]" not in root_usage
+
+    with pytest.raises(SystemExit):
+        app(
+            _TokenRootD023,
+            source=tmp_path,
+            argv=["backup", "--help"],
+            setup_logging=False,
+        )
+    sub_usage = capsys.readouterr().out
+    assert "--token TOKEN" in sub_usage
+    assert "[--token TOKEN]" not in sub_usage
+
+
 # --------------------------------------------------------------------------
 # CMDS_PATH resolution: multi-dir joins, security, resilience, expansion
 # --------------------------------------------------------------------------

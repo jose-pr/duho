@@ -30,6 +30,13 @@ __all__ = [
     "ColorDefaultsFormatter",
 ]
 
+#: The attribute :func:`install_required_usage_formatter`'s formatter reads;
+#: set by ``duho.runtime`` on a root-declared required global it had to
+#: un-require on an ``app()``-built subparser (so the value can be supplied
+#: after the subcommand, or by a config/env layer) -- see
+#: :class:`_RequiredForUsageFormatter`.
+_DISPLAY_REQUIRED_ATTR = "_duho_display_required_"
+
 _RESET = _asicode(0)
 _HEADING_CODE = _asicode(1)  # bold
 _FLAG_CODE = _asicode(36)  # cyan
@@ -171,3 +178,63 @@ class ColorDefaultsFormatter(ColorHelpFormatter, DefaultsFormatter):
     so a colored line still gets its ``(default: X)`` suffix before color is
     spliced back in.
     """
+
+
+class _RequiredForUsageFormatter(_argparse.HelpFormatter):
+    """Show an action flagged :data:`_DISPLAY_REQUIRED_ATTR` as REQUIRED in
+    USAGE text, even though ``action.required`` is ``False``.
+
+    ``duho.runtime``'s ``app()`` un-requires a root-declared required global
+    on every subparser it builds so the value can be supplied AFTER the
+    subcommand (or via a config/env layer) instead of only before it --
+    enforcement moves to a post-parse check instead of argparse's own. argparse
+    derives BOTH parse-time enforcement and the ``[--opt]``-vs-``--opt`` USAGE
+    bracket from that one ``required`` flag, so un-requiring it for
+    enforcement's sake also (misleadingly) made ``--help`` show a genuinely
+    mandatory option as optional.
+
+    Flipping ``action.required`` back on only for the duration of usage
+    FORMATTING -- never touching real parsing, and restored immediately after
+    -- closes that display gap without re-enabling argparse's own (now
+    redundant, and differently timed) rejection. Composed onto whatever
+    formatter a parser already uses (see :func:`install_required_usage_formatter`),
+    so an author's own ``_help_formatter_`` keeps working unchanged.
+    """
+
+    def _format_usage(self, usage, actions, groups, prefix):
+        flagged = [
+            action
+            for action in actions
+            if getattr(action, _DISPLAY_REQUIRED_ATTR, False) and not action.required
+        ]
+        for action in flagged:
+            action.required = True
+        try:
+            return super()._format_usage(usage, actions, groups, prefix)
+        finally:
+            for action in flagged:
+                action.required = False
+
+
+def install_required_usage_formatter(parser) -> None:
+    """Compose :class:`_RequiredForUsageFormatter` onto ``parser``'s
+    ``formatter_class``, so any action flagged :data:`_DISPLAY_REQUIRED_ATTR`
+    renders as required in USAGE text.
+
+    ``formatter_class`` is a plain attribute argparse only consults lazily
+    (``ArgumentParser._get_formatter()``), so it can be replaced after the
+    parser is already built -- with a dynamically created subclass combining
+    the mixin with whatever formatter is already in effect (argparse's own
+    default, or an author's ``_help_formatter_``), rather than discarding it.
+    A no-op if ``parser`` already has one composed in (idempotent, safe to
+    call more than once, e.g. once for the root parser and once per
+    ``app()``-built subparser sharing the same un-required action).
+    """
+    current = getattr(parser, "formatter_class", _argparse.HelpFormatter)
+    if issubclass(current, _RequiredForUsageFormatter):
+        return
+    parser.formatter_class = type(
+        "_DuhoRequiredUsage" + current.__name__,
+        (_RequiredForUsageFormatter, current),
+        {},
+    )

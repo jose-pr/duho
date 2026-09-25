@@ -1141,6 +1141,8 @@ def _finalize_command_tree(
     against the parsed instance once parsing is done. Split out of
     :func:`app`; no behavior change, the full suite is the guard.
     """
+    from . import formatters as _formatters
+
     # Suppress the root's own optional dests on every registered subparser so an
     # option given BEFORE the subcommand (or supplied by the root env/config
     # layer) is not clobbered by the child's inherited default. This is the
@@ -1168,6 +1170,14 @@ def _finalize_command_tree(
     ]
     for action in required_root_actions:
         action.required = False
+        # Un-requiring the action for enforcement's sake also made argparse's
+        # own usage renderer show it as `[--opt]` (optional) -- flag it so
+        # `formatters.install_required_usage_formatter` (installed on
+        # `parser` below) still renders it as required in `--help`/usage
+        # text without re-enabling argparse's own (now redundant, and
+        # differently timed) rejection.
+        action._duho_display_required_ = True  # type: ignore[attr-defined]
+    _formatters.install_required_usage_formatter(parser)
     for sub_parser in (subparsers.choices or {}).values():
         _suppress_inherited_defaults(sub_parser, root_dests, root_defaults)
         # `parents=[base_parser]` copies EVERY root option onto each subparser,
@@ -1186,6 +1196,8 @@ def _finalize_command_tree(
             ):
                 action.required = False
                 action.default = _argparse.SUPPRESS
+                action._duho_display_required_ = True  # type: ignore[attr-defined]
+        _formatters.install_required_usage_formatter(sub_parser)
         # A `commands=`/`source=` class command's subparser
         # shares the root's Action OBJECTS via `parents=[base_parser]` --
         # `_suppress_inherited_defaults` correctly leaves a differing child

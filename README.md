@@ -197,8 +197,11 @@ typo as a phantom positional value.
 
 Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `NS(...)`
 (an `argparse.Namespace`) is the untyped form; `duho.Meta` is the typed,
-typo-safe form — a dataclass whose unknown keyword is a `TypeError` at
-class-definition time (`NS(hlep=...)` would silently vanish):
+typo-safe form — a dataclass whose unknown keyword is a `TypeError`
+(`NS(hlep=...)` would silently vanish) raised as soon as the annotation is
+evaluated: at class-definition time on Python 3.9-3.13 with eager
+annotations, or at first parser build on 3.14+ (PEP 649), under string
+annotations, or with `from __future__ import annotations`:
 
 ```python
 from duho import Args, Arg, Meta
@@ -208,10 +211,13 @@ class App(Args):
     ("--level",)
 ```
 
-`Meta` accepts everything `NS` does (`help`, `env`, `conflicts`,
-`conflicts_required`, `group`, `action`, `nargs`, `const`, `choices`, `metavar`,
-`required`, `type`, `version`, `dest`, `kwargs`) and only merges the fields you
-set. `NS` keeps working forever. Any metadata object exposing a str
+`Meta` accepts every field `NS` does EXCEPT `dest` (`help`, `env`, `conflicts`,
+`conflicts_required`, `group`, `action`, `nargs`, `const`, `default`, `choices`,
+`metavar`, `required`, `type`, `version`, `flags`, `kwargs`) and only merges the
+fields you set. A field's `dest` is always its declared name — there is no
+`dest=` override on `Meta`, so `Meta(dest=...)` is a `TypeError` at
+class-definition time instead of `NS(dest=...)`'s silently-ignored value.
+`NS` keeps working forever. Any metadata object exposing a str
 `.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
 
 ### Mutually exclusive options

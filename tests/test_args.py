@@ -1271,3 +1271,23 @@ def test_layering_pipeline_is_reexported_unchanged_from_layers():
     assert args_mod._raw_env_values is layers_mod._raw_env_values
     assert args_mod._raw_config_values is layers_mod._raw_config_values
     assert args_mod._resolve_config_dict is layers_mod._resolve_config_dict
+
+
+def test_directly_built_instance_seeds_every_defaulted_field_into_vars():
+    """``Args.__init__`` seeds a class-body default for every declared field
+    the caller did not pass, so a directly-built instance has the SAME
+    attribute surface as a parsed one (e.g. a bare ``bool`` field, whose
+    default only otherwise materializes via argparse). This is a deliberate,
+    documented behavior: it changes ``vars()``/``repr()``/``==`` for an
+    instance built with fewer kwargs than its declared fields, vs. a version
+    that only seeded EXPLICITLY-passed ones."""
+    instance = DefaultArgs(name="Charlie")
+    assert vars(instance)["name"] == "Charlie"
+    # `verbose` was never passed -- still present in vars(), seeded to its
+    # class-body default, not merely readable via class-attribute fallback.
+    assert "verbose" in vars(instance)
+    assert instance.verbose is False
+
+    other = DefaultArgs(name="Charlie")
+    assert instance == other
+    assert repr(instance) == repr(other)

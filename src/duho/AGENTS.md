@@ -133,9 +133,12 @@ just its annotation.
   a `date`/`datetime`/`time` element parses ISO text, and a `Literal` element enforces
   its choice set — not just a raw string.
 - `date`, `datetime`, `time` fields (scalar or as a collection element) parse ISO
-  format text. A trailing `Z` UTC marker (`"2024-01-01T00:00:00Z"`) is accepted on every
-  supported Python version (3.9/3.10 included, via an explicit shim; 3.11+ accepts it
-  natively). A basic, no-dash date (`"20240101"`) is NOT accepted on any version.
+  format text. A trailing `Z` UTC marker (`"2024-01-01T00:00:00Z"`) is accepted for
+  `datetime`/`time` on every supported Python version (3.9/3.10 included, via an
+  explicit shim; 3.11+ accepts it natively); a `date` value never accepts a trailing
+  `Z` on any version (a date has no time/UTC component). A basic, no-dash date
+  (`"20240101"`) is accepted for `date`/`datetime` on 3.11+ (native `fromisoformat`)
+  but NOT on 3.9/3.10.
 - A `list`/`set`/`tuple`/`dict[str, V]` OPTION's first CLI occurrence REPLACES a
   class/env/config/instance default rather than appending to it; a second and later
   occurrence of the same flag then accumulates normally. This applies uniformly across
@@ -178,13 +181,19 @@ just its annotation.
   `@Root.subcommand`-registered children) are ALWAYS registered too, regardless of
   what `commands=`/`source=`/`entry_points=` was passed — passing one of those never
   removes a root's own subcommands. `env`'s `env.paths("CMDS_PATH", ty=Path)` (splits on
-  `os.pathsep`/`PATHSEP`, NOT `.list`'s `":"` default — a Windows drive letter would
-  otherwise mis-split) is a LAYER that ALWAYS merges on top of whichever base command
+  `os.pathsep`, overridable only by this app's OWN prefixed `<PREFIX>PATHSEP` — e.g.
+  `MYAPP_PATHSEP`, never a bare/global `PATHSEP` — NOT `.list`'s `":"` default — a
+  Windows drive letter would otherwise mis-split) is a LAYER that ALWAYS merges on top
+  of whichever base command
   set was used; a `CMDS_PATH` command wins a name clash with the base (logged once
   logging is set up, never silent). Overriding a subcommand this way (or any other
   name-clash override) deregisters every alias (`_parseraliases_`) of the command it
-  replaces too, not just its primary name. A required global option is now honored
-  whether it appears before OR after the subcommand on the command line. Layers
+  replaces too, not just its primary name. For a command reached through
+  `commands=`/`source=`/`entry_points=`/`CMDS_PATH` discovery, a required global
+  option is honored whether it appears before OR after the subcommand on the
+  command line; a root's own statically declared `_subcommands_` tree (the
+  fallback used when none of those is given) is unaffected — a required root
+  option there must still come before the subcommand name. Layers
   env/config defaults onto root + each class command: **CLI > env > config > class
   default** (no "instance" layer here — that only exists for `parse()`). Attaches the
   resolved `Env` as `_env_`. A module command's own declared `Args` fields support
@@ -210,9 +219,13 @@ just its annotation.
   `"powershell"` (an unrecognized name raises `ValueError` listing the valid ones).
   Standalone counterpart to the `--print-completion` flag injected when `_completion_ =
   True` — builds `cls`'s parser tree fresh, independent of whether `_completion_` is
-  set. `prog` overrides the command name the emitted script binds to; it defaults to
-  the built parser's own `prog`. The `--print-completion` FLAG (as opposed to this
-  function) registers the completion script under the invoked command name
+  set. `prog` overrides the command name the emitted script binds to; an explicit
+  `_parsername_`/`duho.app(name=...)` always wins, otherwise it defaults to the stem
+  of THIS CALL's own `sys.argv[0]` — correct only when called from behind the app's
+  own `--print-completion` flag; a separate build/doc-generation script must pass
+  `prog=` explicitly or the script binds to ITS OWN name instead. The
+  `--print-completion` FLAG (as opposed to this function) registers the completion
+  script under the invoked command name
   (`sys.argv[0]`'s stem, minus a `-script` suffix) by default, rather than the root
   class's derived name, whenever no `_parsername_`/`duho.app(name=...)` was explicitly
   declared.
@@ -270,8 +283,11 @@ empty when absent).
   module of defaults (missing → silently ignored). Precedence, highest first: `**env`
   kwargs / a runtime `env[k] = v` write, then the real `os.environ`, then the companion
   module's shipped defaults. Methods incl. `.list(name, sep=":", ty=str)`, `.paths(name,
-  ty=str)` (splits on `os.pathsep`/a `PATHSEP` env-var override — NOT `.list`'s `":"`
-  default — so a path-list var never mis-splits a Windows drive letter), `.bool(name)` —
+  ty=str)` (splits on `os.pathsep`, overridable only by this app's own prefixed
+  `<PREFIX>PATHSEP` env var — never a bare/global `PATHSEP` — NOT `.list`'s `":"`
+  default — so a path-list var never mis-splits a Windows drive letter; also rejects a
+  bare drive-letter segment and any segment resolving to the CWD unless spelled `.`),
+  `.bool(name)` —
   truthy (case-insensitive, stripped) matches the shared `BOOL_TRUE` token set (see
   "Environment variables" below); anything else (incl. a missing key) is `False`. That
   set matches the layered env/config bool converter; the difference is strictness —
@@ -302,8 +318,9 @@ empty when absent).
   otherwise color follows whether the output stream is a TTY. Gates ANSI in both the
   argparse help formatters (`ColorHelpFormatter`/`ColorDefaultsFormatter`) and
   `init_stderr_logging`'s default log formatter.
-- **`PATHSEP`** — overrides `os.pathsep` as the separator `Env.paths(...)` (and the
-  `CMDS_PATH` convention below) splits on.
+- **`<PREFIX>PATHSEP`** (e.g. `MYAPP_PATHSEP`; scoped to this app's own prefix, never
+  a bare/global `PATHSEP`) — overrides `os.pathsep` as the separator `Env.paths(...)`
+  (and the `CMDS_PATH` convention below) splits on.
 - **`CMDS_PATH` convention** — not a literal single env var: a per-prefix
   `Env(prefix).paths("CMDS_PATH", ty=Path)` lookup (e.g. `MYAPP_CMDS_PATH` for
   `duho.app(env=Env("myapp"))`). See `app()` above for precedence — it always merges on

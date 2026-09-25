@@ -154,10 +154,13 @@ class App(Args):
 $ app --day 2026-01-01     # -> datetime.date(2026, 1, 1)
 ```
 
-A trailing `Z` (RFC 3339's UTC marker) is accepted on **every** supported
-Python version — including 3.9/3.10, where it's rewritten to `+00:00` before
-delegating to `fromisoformat` (which only started accepting `Z` natively on
-3.11). A basic, no-dash format like `20260101` works on 3.11+ (native
+A trailing `Z` (RFC 3339's UTC marker) is accepted for `datetime`/`time`
+values on **every** supported Python version — including 3.9/3.10, where
+it's rewritten to `+00:00` before delegating to `fromisoformat` (which only
+started accepting `Z` natively on 3.11). A `date` value never accepts a
+trailing `Z` on any version — a date has no time-of-day/UTC component, so
+`fromisoformat` rejects it the same way on every version. A basic, no-dash
+format like `20260101` works for `date`/`datetime` on 3.11+ (native
 `fromisoformat` accepts it there) but raises on 3.9/3.10 — stick to the
 dashed/colon-separated ISO forms if you need to support the older versions.
 

@@ -111,6 +111,21 @@ class Copy(Args):
     ("-f", "--force")
 ```
 
+**The flags-tuple/docstring idiom needs readable source.** Duho locates a
+class's own body by reading and parsing its source file at parser-build time,
+so it can tell a docstring/flags-tuple statement apart from an ordinary class
+attribute. A class whose source isn't available this way — defined in a REPL
+or via `exec`, or shipped as a frozen executable (PyInstaller, Nuitka), a
+`.pyc`-only install, or a zipapp — logs a one-time warning and falls back to a
+derived `--field-name` flag with no help text for every field, silently
+dropping any class-body flags/docstrings/`NS(env=...)`. Use `Meta`/`NS`
+metadata instead in that case — it needs no source lookup:
+
+```python
+class Copy(Args):
+    source: Arg[str, Meta(flags=("-s", "--source"), help="Source path")]
+```
+
 ### Supported Field Types
 
 | Annotation | Behavior |
@@ -122,7 +137,7 @@ class Copy(Args):
 | `set` / `set[T]` | Same option-vs-positional split as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
 | `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same option-vs-positional split as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
 | `dict` / `dict[str, V]` | Each occurrence is one `KEY=VALUE` token; repeated flags merge into one dict (`--opt k=1 --opt j=2` → `{"k": ..., "j": ...}`) via `UpdateAction`; the value half is converted with `V` (bare `dict` == `dict[str, str]`); only **`str` keys** are supported (a non-`str` key type is a clear build-time error); default is `{}` when no explicit default is given |
-| `datetime.date` / `datetime.datetime` / `datetime.time` | Parsed via the type's own `fromisoformat` (e.g. `2026-01-01`, `2026-01-01T12:00:00`). A trailing `Z` UTC marker (RFC 3339) is accepted on **every** supported Python version, including 3.9/3.10 (rewritten to `+00:00` before delegating). A basic, no-dash format like `20260101` works on 3.11+ (native `fromisoformat` accepts it) but is **not** supported on 3.9/3.10 |
+| `datetime.date` / `datetime.datetime` / `datetime.time` | Parsed via the type's own `fromisoformat` (e.g. `2026-01-01`, `2026-01-01T12:00:00`). A trailing `Z` UTC marker (RFC 3339) is accepted for `datetime`/`time` on **every** supported Python version, including 3.9/3.10 (rewritten to `+00:00` before delegating); a `date` value never accepts a trailing `Z` on any version (a date has no time/UTC component). A basic, no-dash format like `20260101` works for `date`/`datetime` on 3.11+ (native `fromisoformat` accepts it) but is **not** supported on 3.9/3.10 |
 | `typing.Optional[T]` / `T \| None` (3.10+) | Not required; tries `T` |
 | `typing.Union[A, B]` / `A \| B` (3.10+) | Tries each type in declaration order |
 | `Union`/`Optional` containing an `Enum` | The Enum member is matched by **name**, same as a bare `enum.Enum` field — a name match wins before falling through to a later `str` member, so declaration order matters (`Union[Color, str]` with `--c RED` yields `Color.RED`, while `--c other` yields the string `"other"`) |
@@ -359,8 +374,9 @@ lazily, so a synchronous app never pays for it), and the awaited value becomes
 the exit code. Module-command lifecycle hooks stay synchronous.
 
 **Subcommands**: set `_subcommands_` to a sequence of `Cmd` subclasses and
-`main`/`_parser_` wires up `add_subparsers(dest="command", required=True)`
-automatically — no manual subparser plumbing needed. Nested `_subcommands_`
+`main`/`_parser_` wires up `add_subparsers(dest="_duho_command_", required=True)`
+automatically — no manual subparser plumbing needed. The dest is private; a
+parsed instance has no `.command` attribute from this. Nested `_subcommands_`
 (a subcommand that itself declares `_subcommands_`) compose naturally into
 multi-level command trees, and `main` always dispatches to the deepest
 selected command via `__call__`.
@@ -683,9 +699,13 @@ duho.print_completion(MyApp, "bash", file=sys.stdout, prog="myapp")
 ```
 
 `print_completion`'s keyword-only `prog=` overrides the command name the script
-binds to — it otherwise defaults to the built parser's own `prog`
-(`_parsername_`, or the class name when unset), which for a CamelCase class
-like `MyApp` is almost never what someone actually types.
+binds to. An explicit `_parsername_`/`duho.app(name=...)` always wins;
+otherwise it defaults to the stem of *this call's own* `sys.argv[0]` — correct
+when called from behind the app's own `--print-completion` flag, but wrong
+when called from a separate build/doc-generation script, which would bind the
+completion script to that script's own name instead of `myapp`. Pass `prog=`
+explicitly whenever you generate a completion script from anywhere other than
+the target app's own invocation.
 
 Both paths walk the built parser tree, including nested `_subcommands_`:
 `Literal`/`Enum` fields offer their choices as completion candidates, and

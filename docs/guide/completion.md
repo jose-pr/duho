@@ -52,8 +52,14 @@ Generate a script without exposing the option at all:
 import sys
 import duho
 
-duho.print_completion(App, "bash", file=sys.stdout)
+duho.print_completion(App, "bash", file=sys.stdout, prog="app")
 ```
+
+Pass `prog=` explicitly here. With no `_parsername_`/`duho.app(name=...)` set,
+`print_completion` otherwise binds the script to the stem of *this call's own*
+`sys.argv[0]` — correct when it runs behind the app's own `--print-completion`
+flag, but wrong when it runs from a separate generation script, which would
+bind the completion script to its own name instead of `app`.
 
 ## What gets completed
 

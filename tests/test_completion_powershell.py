@@ -123,11 +123,18 @@ def test_powershell_script_is_pure_ascii_for_a_non_ascii_choice():
 # -- Tab must not be able to split into extra args or run on Enter. ---------
 
 
-def test_powershell_quotes_inserted_text_for_whitespace_and_metachars():
+def test_powershell_quotes_every_candidate_unconditionally():
+    """Every candidate is now always single-quoted (never conditionally, on
+    a character-class match): a candidate containing a Unicode
+    "smart quote" (never in the old ASCII metacharacter class) used to be
+    inserted completely unquoted, letting it close out of the argument."""
     script = completion.powershell(PShellApp._parser_())
-    # The candidate-quoting branch in the ForEach-Object pipeline.
     assert "CompletionResult" in script
-    assert '-replace "\'", "\'\'"' in script
+    # The doubled-character class covers the ASCII quote and PowerShell's
+    # Unicode single-quote-equivalent range (U+2018-U+201B).
+    assert "\\u2018\\u2019\\u201A\\u201B" in script
+    # No more conditional "does this need quoting" branch.
+    assert "-cmatch '[\\s`" not in script
 
 
 def test_powershell_case_sensitive_comparisons():

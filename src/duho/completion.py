@@ -1071,11 +1071,27 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append("    $prev = ''")
     lines.append("    for ($i = 1; $i -lt $elements.Count; $i++) {")
     lines.append("        $el = $elements[$i]")
+    lines.append("        # Skip any element whose extent reaches the cursor: the word")
+    lines.append("        # currently being completed always ends there, whether it is")
+    lines.append("        # empty or partially typed. A text-equality check here would")
     lines.append(
-        "        if ($el.Extent.StartOffset -ge $cursorPosition -or "
-        "$el.Extent.Text -eq $wordToComplete) { continue }"
+        "        # ALSO skip an earlier, already-typed element that happens to"
     )
-    lines.append("        $text = $el.Extent.Text")
+    lines.append("        # repeat the same text (e.g. a subcommand named the same as")
+    lines.append("        # the word being completed), dropping it from $cmdPath.")
+    lines.append("        if ($el.Extent.EndOffset -ge $cursorPosition) { continue }")
+    # Use the DEQUOTED value when the element is a literal string constant
+    # (the overwhelming common case for a native command's arguments), not
+    # its raw source text: a subcommand or value the user had to quote
+    # (spaces, a shell metacharacter) would otherwise never match our own
+    # unquoted comparison tables, since `.Extent.Text` keeps the user's
+    # quote characters. Anything else (a variable, an expression) falls
+    # back to the raw text, matching the previous behaviour.
+    lines.append(
+        "        $text = if ($el -is "
+        "[System.Management.Automation.Language.StringConstantExpressionAst]) "
+        "{ $el.Value } else { $el.Extent.Text }"
+    )
     lines.append("        $prev = $text")
     lines.append("        if ($skip) { $skip = $false; continue }")
     lines.append("        if ($text -clike '-*') {")
@@ -1174,9 +1190,21 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
         "| Sort-Object -Unique -CaseSensitive | ForEach-Object {"
     )
     lines.append("        $text = $_")
-    lines.append("        if ($text -cmatch '[\\s`\"''$();|&<>{}]') {")
-    lines.append('            $text = "\'" + ($text -replace "\'", "\'\'") + "\'"')
-    lines.append("        }")
+    # Always single-quote every inserted candidate, doubling both the ASCII
+    # single quote and PowerShell's Unicode "smart" single-quote range
+    # (U+2018-U+201B), which the tokenizer treats as equivalent quote
+    # characters when it delimits a string. The old code only quoted a
+    # candidate matching an ASCII metacharacter class and only doubled the
+    # ASCII quote, so a candidate containing a smart quote (never in that
+    # class) was inserted completely unquoted -- letting it close out of
+    # the argument the moment the completed line was run. Quoting
+    # unconditionally also means a bare `#` or `@` (a comment opener /
+    # splat sigil at the start of a token) is never inserted unquoted
+    # either, without needing its own special case.
+    lines.append(
+        '        $text = "\'" + ($text -replace '
+        "'[''\\u2018\\u2019\\u201A\\u201B]', '$0$0') + \"'\""
+    )
     lines.append(
         "        [System.Management.Automation.CompletionResult]::new("
         "$text, $_, 'ParameterValue', $_)"

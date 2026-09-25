@@ -961,7 +961,10 @@ def test_powershell_completes_after_a_positional_value(tmp_path):
     parser = _tool_parser()
     script = completion.powershell(parser)
     reply = _pwsh_complete(script, "tool Convert in.txt ", tmp_path)
-    assert set(reply) == {"json", "yaml", "toml"}
+    # Every inserted candidate is now always single-quoted (see
+    # test_powershell_quotes_every_candidate_unconditionally), including
+    # these plain, metacharacter-free choices.
+    assert set(reply) == {"'json'", "'yaml'", "'toml'"}
 
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
@@ -987,6 +990,98 @@ def test_powershell_hostile_choice_is_quoted_when_inserted(tmp_path):
     reply = _pwsh_complete(script, "hostileapp --mode ", tmp_path)
     assert "'dry run'" in reply
     assert "'$(rm -rf /)'" in reply
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_unicode_smart_quote_cannot_break_out(tmp_path):
+    """Security: PowerShell's tokenizer treats U+2018-U+201B as
+    equivalent to an ASCII single quote when it delimits a string. The old
+    quoting check only recognised ASCII shell metacharacters, so a candidate
+    containing a smart quote was inserted completely UNquoted -- closing out
+    of the argument early and running whatever followed as soon as the
+    completed line was executed."""
+    marker_name = "M_CURLY"
+    hostile = "q’;New-Item " + marker_name + ";’"
+    parser = _hostile_parser(hostile)
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = (hostile, "safe")
+    script = completion.powershell(parser)
+    ps_script = (
+        "$ErrorActionPreference = 'Stop'\n"
+        + script
+        + "\n"
+        + "function hostileapp { }\n"
+        + "$line = 'hostileapp --mode q'\n"
+        + "$r = TabExpansion2 -inputScript $line -cursorColumn $line.Length\n"
+        + "$m = $r.CompletionMatches | Where-Object { $_.CompletionText -like '*New-Item*' }\n"
+        + "Invoke-Expression ('hostileapp --mode ' + $m[0].CompletionText)\n"
+    )
+    result = subprocess.run(
+        [_PWSH, "-NoProfile", "-Command", "-"],
+        input=ps_script,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / marker_name).exists()
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_does_not_skip_an_earlier_word_equal_to_current():
+    """The old command-path walk skipped any element whose TEXT
+    equalled `$wordToComplete`, not just the one actually being completed --
+    so an earlier, already-typed word that happens to repeat that text (a
+    subcommand named the same as the value being completed) was wrongly
+    dropped from the resolved command path."""
+
+    class Go(Args):
+        """go"""
+
+        where: ty.Literal["go", "gone"] = "go"
+        "where"
+        ("where",)
+
+        fast: bool = False
+        "fast flag, only on Go"
+        ("--fast",)
+
+    class Repeat(Args):
+        """root"""
+
+        _subcommands_ = [Go]
+
+    Go._parsername_ = "go"  # matches the lowercase `where` choice too
+    parser = Repeat._parser_()
+    parser.prog = "repeatapp"
+    script = completion.powershell(parser)
+    # `repeatapp go go<TAB>`: the FIRST `go` is the subcommand; the word
+    # being completed is the second `go`, whose TEXT equals the first `go`'s
+    # too. The old code skipped any element whose text equalled
+    # `$wordToComplete`, so it also skipped the first (subcommand-
+    # identifying) `go`, leaving `$cmdPath` at the root and offering the
+    # root's own subcommand names instead of `where`'s choices.
+    reply = _pwsh_complete(script, "repeatapp go go", None)
+    assert set(reply) == {"'go'", "'gone'"}
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_dispatches_to_a_subcommand_name_needing_quotes():
+    """`$el.Extent.Text` keeps the user's OWN typed quoting around a
+    subcommand name (needed here because it contains a space), so comparing
+    it straight against our unquoted subcommand table never matched --
+    `$el.Value` (the already-dequoted literal) does."""
+    parser = argparse.ArgumentParser(prog="quotedsub", add_help=False)
+    sub = parser.add_subparsers(dest="cmd")
+    sp = sub.add_parser("my sub")
+    sp.add_argument("--fast", action="store_true")
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "quotedsub 'my sub' -", None)
+    assert "'--fast'" in reply
+
+
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_dispatches_to_a_subcommand_name_needing_quotes(tmp_path):
     """`$line` preserves whatever quoting the user themselves typed

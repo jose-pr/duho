@@ -54,9 +54,12 @@ _DEFAULT_WINDOWS_PYTHON = "python"
 #: Characters that could let ``libdir``/``python`` break out of the double
 #: quotes they are interpolated into (a stray quote), run a nested command (a
 #: backtick or ``$(...)`` in POSIX ``sh``), expand an unintended variable
-#: (``%...%`` in ``cmd.exe``, still expanded inside double quotes), or split
-#: the generated file into more than one line.
-_FORBIDDEN_INTERPOLATION_CHARS = frozenset("\"'`$%\n\r")
+#: (``%...%`` in ``cmd.exe``, still expanded inside double quotes), split the
+#: generated file into more than one line, or -- a backslash -- get parsed as
+#: an escape by the POSIX launcher's ``sh`` (e.g. a trailing ``\`` swallowing
+#: the closing quote it is baked right before) or misread as a Windows path
+#: separator inside the POSIX text.
+_FORBIDDEN_INTERPOLATION_CHARS = frozenset("\"'`$%\\\n\r")
 
 
 def _validate_app(app: str) -> None:
@@ -87,8 +90,9 @@ def _validate_interpolated(value: str, what: str, *, path_like: bool = False) ->
     non-ASCII is rejected outright (cmd.exe decodes a batch file with the
     console's OEM code page, not UTF-8, so a non-ASCII byte baked into the
     ``.cmd`` is mis-decoded there), as are quotes, backticks, ``$``,
-    ``%`` and newlines. ``path_like`` additionally rejects an absolute path or
-    one containing ``..`` (``libdir`` is joined under the app root).
+    ``%``, backslashes and newlines. ``path_like`` additionally rejects an
+    absolute path or one containing ``..`` (``libdir`` is joined under the
+    app root).
     """
     if not value.isascii():
         raise ValueError(
@@ -98,9 +102,9 @@ def _validate_interpolated(value: str, what: str, *, path_like: bool = False) ->
         )
     if any(ch in _FORBIDDEN_INTERPOLATION_CHARS for ch in value):
         raise ValueError(
-            "duho.scaffold: %s must not contain quotes, backticks, '$', '%%' "
-            "or newlines (it is interpolated into generated shell/batch "
-            "text): %r" % (what, value)
+            "duho.scaffold: %s must not contain quotes, backticks, '$', '%%', "
+            "backslashes or newlines (it is interpolated into generated "
+            "shell/batch text): %r" % (what, value)
         )
     if path_like:
         as_path = _Path(value)
@@ -243,11 +247,11 @@ def generate_launchers(
 
     Raises :class:`ValueError` for an ``app`` that is not a dotted ASCII
     identifier, a ``libdir`` that is not a relative, ``..``-free ASCII path
-    free of quote/backtick/``$``/``%``/newline characters, or a ``python`` with
-    the same forbidden characters -- all three are interpolated into generated
-    shell/batch text, so a hyphenated/path-like/hostile value would otherwise
-    produce a launcher that cannot work, escapes ``bin/``, or executes
-    unintended commands.
+    free of quote/backtick/``$``/``%``/backslash/newline characters, or a
+    ``python`` with the same forbidden characters -- all three are
+    interpolated into generated shell/batch text, so a
+    hyphenated/path-like/hostile value would otherwise produce a launcher that
+    cannot work, escapes ``bin/``, or executes unintended commands.
     """
     _validate_app(app)
     _validate_interpolated(libdir, "libdir", path_like=True)
@@ -335,9 +339,11 @@ class ScaffoldCmd(_Cli):
             # generate_launchers documents this as the refusal-to-overwrite
             # signal; the CLI reports it as a one-line error, not a traceback
             # for an expected, documented condition. The library function
-            # itself keeps raising -- only this CLI wrapper catches it.
+            # itself keeps raising -- only this CLI wrapper catches it. The
+            # exception message already names the conflict and tells the
+            # caller to pass --force, so printing it once is the whole error
+            # (a second, separate "pass --force" line duplicated that).
             print(str(exc), file=_sys.stderr)
-            print("duho.scaffold: pass --force to overwrite", file=_sys.stderr)
             return 1
         except OSError as exc:
             # Any other filesystem failure (permission denied, a read-only

@@ -1253,3 +1253,22 @@ def test_type_to_spec_ladder_is_reexported_unchanged_from_fieldspec():
     assert args_mod._bool_from_text is fieldspec_mod._bool_from_text
     assert args_mod._choice_checked is fieldspec_mod._choice_checked
     assert args_mod._ISOFORMAT_FACTORIES is fieldspec_mod._ISOFORMAT_FACTORIES
+
+
+def test_layering_pipeline_is_reexported_unchanged_from_layers():
+    """The env/config/instance layering pipeline moved into its own internal
+    module (A071), but every public/cross-module name stays importable from
+    ``duho.args`` exactly as before -- a re-export, not a copy."""
+    import duho._layers as layers_mod
+    import duho.args as args_mod
+
+    assert args_mod.value_sources is layers_mod.value_sources
+    assert args_mod._apply_layers is layers_mod._apply_layers
+    assert args_mod._apply_default_layers_one is layers_mod._apply_default_layers_one
+    assert args_mod._stash_layer_state is layers_mod._stash_layer_state
+    assert args_mod._stage_layers is layers_mod._stage_layers
+    assert args_mod._finalize_layers is layers_mod._finalize_layers
+    assert args_mod._merge_layers_upward is layers_mod._merge_layers_upward
+    assert args_mod._raw_env_values is layers_mod._raw_env_values
+    assert args_mod._raw_config_values is layers_mod._raw_config_values
+    assert args_mod._resolve_config_dict is layers_mod._resolve_config_dict

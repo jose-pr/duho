@@ -71,7 +71,7 @@ def _marker(root: Path) -> Path:
 
 
 # --------------------------------------------------------------------------
-# F-S6: an empty discovery source must never mean "the CWD"
+# An empty discovery source must never mean "the CWD"
 # --------------------------------------------------------------------------
 
 
@@ -114,7 +114,7 @@ def test_discover_commands_empty_path_behaves_like_explicit_dot(evil_cwd):
 
 
 # --------------------------------------------------------------------------
-# F-S5: PATHSEP is scoped to this app's own prefix, and dangerous segments
+# PATHSEP is scoped to this app's own prefix, and dangerous segments
 # (a bare drive letter, or anything else that resolves to the CWD) are
 # rejected outright -- covers a backslash, a forward-slash, and a
 # multi-character separator, whichever way the separator is spelled.

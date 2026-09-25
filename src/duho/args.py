@@ -502,7 +502,7 @@ class _AgentHelpAction(_argparse._HelpAction):
     of argparse's own ``_HelpAction`` -- the same blessed idiom ``parsers.py``
     uses (``_NoOpHelpAction``/``_RelaxedSubParsersAction``): argparse's classes
     are never mutated, so the surgery stays thread-safe and reentrant. When the
-    trigger env var (``_duho_agent_env`` or the ``AGENT_HELP`` default) is set
+    trigger env var (``_duho_agent_env_`` or the ``AGENT_HELP`` default) is set
     truthy, it prints the machine-readable agent document for THIS parser and
     exits 0; otherwise it defers to the normal human ``_HelpAction``.
     """
@@ -513,15 +513,15 @@ class _AgentHelpAction(_argparse._HelpAction):
     #: and exit codes, not its own usually-unset ones); the trigger env-var
     #: name (``None`` -> the ``AGENT_HELP`` default). Both are set as instance
     #: attrs right after the ``__class__`` swap.
-    _duho_agent_cls = None
-    _duho_agent_env = None
+    _duho_agent_cls_ = None
+    _duho_agent_env_ = None
 
     def __call__(self, parser, namespace, values, option_string=None):
         from . import agenthelp as _agenthelp
 
-        if _agenthelp.agent_help_requested(self._duho_agent_env):
+        if _agenthelp.agent_help_requested(self._duho_agent_env_):
             spec = _agenthelp.describe_parser(
-                parser, root=True, root_cls=self._duho_agent_cls
+                parser, root=True, root_cls=self._duho_agent_cls_
             )
             _compat.write_machine(_agenthelp.render(spec), _sys.stdout)
             parser.exit()
@@ -583,7 +583,7 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
     :meth:`Args._parser_`'s own recursive ``_subcommands_`` build (mirrors how
     ``_inherited_formatter_class_`` propagates the effective help formatter) --
     ``None`` at the true top level, where ``cls`` itself IS the root. It is
-    stashed on the (possibly swapped) help action as ``_duho_agent_cls`` so a
+    stashed on the (possibly swapped) help action as ``_duho_agent_cls_`` so a
     subcommand-scoped document (``AGENT_HELP=1 app sub --help``) still reports
     the APP's own ``_version_``/``_exit_codes_``, not the subcommand's usually
     unset ones -- ``_duho_cls_`` itself stays ``cls`` (the current node), since
@@ -598,8 +598,8 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
             action, _AgentHelpAction
         ):
             action.__class__ = _AgentHelpAction
-            action._duho_agent_cls = root_cls  # type: ignore[attr-defined]
-            action._duho_agent_env = env_name  # type: ignore[attr-defined]
+            action._duho_agent_cls_ = root_cls  # type: ignore[attr-defined]
+            action._duho_agent_env_ = env_name  # type: ignore[attr-defined]
 
     if not is_subcommand and getattr(cls, "_agent_help_", False):
         existing_dests = {action.dest for action in parser._actions}

@@ -25,6 +25,44 @@ class TestExpand:
     def test_nested_two_ranges_count(self):
         assert len(list(expand("x[1-2]y[1-2]"))) == 4
 
+    # 0.5.4's own outputs, captured by running its (recursive) expand() --
+    # the leftmost range varies fastest and the rightmost slowest. The
+    # iterative (itertools.product) rewrite changed that order; it must not.
+    @pytest.mark.parametrize(
+        "template,main_output",
+        [
+            ("x[1-2][a-b]", ["x1a", "x2a", "x1b", "x2b"]),
+            (
+                "x[1-2][a-b][P-Q]",
+                [
+                    "x1aP",
+                    "x2aP",
+                    "x1bP",
+                    "x2bP",
+                    "x1aQ",
+                    "x2aQ",
+                    "x1bQ",
+                    "x2bQ",
+                ],
+            ),
+            (
+                "x[0-1][0-1][0-1]",
+                [
+                    "x000",
+                    "x100",
+                    "x010",
+                    "x110",
+                    "x001",
+                    "x101",
+                    "x011",
+                    "x111",
+                ],
+            ),
+        ],
+    )
+    def test_multi_range_order_matches_0_5_4(self, template, main_output):
+        assert list(expand(template)) == main_output
+
     def test_many_ranges_do_not_hit_the_recursion_limit(self):
         # The old recursive implementation hit RecursionError around 1000
         # sequential ranges; the iterative (itertools.product) rewrite has no
@@ -80,21 +118,27 @@ class TestPysafe:
     def test_dotted_keyword_part(self):
         assert pysafe("a.class.b") == "a.class_.b"
 
-    def test_trailing_symbol_is_not_duplicated(self):
-        # Used to call removeprefix where removesuffix was meant, so the
-        # trailing symbol survived and was then spelled out a second time
-        # by the interior replace ("a+" -> "aplus_plus").
-        assert pysafe("a+") == "a_plus"
-        assert pysafe("x!") == "x_not"
+    def test_trailing_symbol_is_spelled_out_twice(self):
+        # Matches duho 0.5.4 exactly, quirk included: a trailing symbol is
+        # consumed by the startswith/endswith handling AND by the interior
+        # `replace` that follows it, so it is spelled out twice
+        # ("a+" -> "aplus_plus", not the more obvious "a_plus"). A later
+        # branch "fixed" this to "a_plus"/"x_not", which was itself the
+        # regression -- 0.5.4 never produced that.
+        assert pysafe("a+") == "aplus_plus"
+        assert pysafe("x!") == "xnot_not"
 
     def test_leading_and_trailing_symbol_both_handled(self):
-        assert pysafe("+x+") == "plus_x_plus"
+        assert pysafe("+x+") == "plus_xplus_plus"
 
-    def test_symbol_only_affects_its_own_dotted_part(self):
-        # The prefix/suffix rules apply per separator-split part, not to the
-        # whole dotted string -- "a.+" used to become "a.plus_plus".
-        assert pysafe("a.+") == "a.plus"
-        assert pysafe("x+") == "x_plus"
+    def test_symbol_substitution_runs_on_the_whole_dotted_string(self):
+        # The symbol substitution operates on the joined string, not on each
+        # separator-split part in isolation -- matching 0.5.4, where a symbol
+        # at a part boundary can affect its neighbor ("a.+" -> "a.plus_plus",
+        # not "a.plus"). A later branch scoped this to one part at a time,
+        # which was itself the regression.
+        assert pysafe("a.+") == "a.plus_plus"
+        assert pysafe("x+") == "xplus_plus"
 
     def test_leading_digit_is_prefixed(self):
         # Never documented as valid, but pysafe promises a valid identifier.
@@ -118,6 +162,69 @@ class TestPysafe:
         for value in ("1password", "!", "x!", "a+", "c++", "class", "a..b", ""):
             for part in pysafe(value).split("."):
                 assert part.isidentifier(), (value, pysafe(value), part)
+
+
+class TestPysafeVs054:
+    """Every value here was produced by running duho 0.5.4's own ``pysafe``.
+
+    Where 0.5.4 already returned a valid, non-keyword identifier for each of
+    its dotted parts (``main_valid=True``), this branch must return the exact
+    same string -- including 0.5.4's own quirks. Where 0.5.4's result was
+    itself invalid, this branch may differ, but must still produce a valid
+    identifier in every dotted part.
+    """
+
+    TABLE = [
+        ("a+", ".", "aplus_plus", True),
+        ("+a", ".", "plus_a", True),
+        ("+", ".", "plus", True),
+        ("!x", ".", "not_x", True),
+        ("x!", ".", "xnot_not", True),
+        ("a*", ".", "aall_all", True),
+        ("a.+b", ".", "a.plusb", True),
+        ("+.b", ".", "plus_.b", True),
+        ("1abc", ".", "1abc", False),
+        ("a.1b", ".", "a.1b", False),
+        ("a$b", ".", "a$b", False),
+        ("a.b-c", ".", "a.b_c", True),
+        ("not", ".", "not_", True),
+        ("a.not", ".", "a.not_", True),
+        ("!", ".", "not", False),
+        ("x.!", ".", "x.not_not", True),
+        ("é", ".", "é", True),
+        ("", ".", "_", True),
+        ("a..b", ".", "a..b", False),
+        ("class.+", ".", "class_.plus_plus", True),
+        ("a+.b+", ".", "aplus.bplus_plus", True),
+        ("3", ".", "3", False),
+        ("a b.c", ".", "a_b.c", True),
+        ("a b", " ", "a_b", True),
+        ("a-b", "-", "a_b", True),
+    ]
+
+    @pytest.mark.parametrize("value,separator,main_output,main_valid", TABLE)
+    def test_matches_0_5_4_or_improves_on_an_invalid_result(
+        self, value, separator, main_output, main_valid
+    ):
+        result = pysafe(value, separator=separator)
+        if main_valid:
+            assert result == main_output
+        else:
+            for part in result.split(separator):
+                assert part.isidentifier(), (value, result, part)
+
+    def test_non_dot_separator_does_not_leak_into_the_output(self):
+        # 0.5.4's `-`/space-to-`_` substitution runs on the WHOLE joined
+        # string, so it also converts the separator itself when the
+        # separator IS `-` or a space. A branch that instead substituted
+        # per-part (splitting on the separator first) left the separator
+        # character sitting untouched in the output.
+        assert pysafe("a b", separator=" ") == "a_b"
+        assert pysafe("a-b", separator="-") == "a_b"
+
+    def test_empty_separator_still_raises(self):
+        with pytest.raises(ValueError):
+            pysafe("ab", separator="")
 
 
 class TestSnakeCase:

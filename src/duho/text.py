@@ -63,57 +63,77 @@ def snakecase(name: str) -> str:
 #: Symbol -> word replacements applied by :func:`pysafe`.
 PYREPLACE = {"+": "plus", "!": "not", "*": "all"}
 
-#: Any character remaining after :data:`PYREPLACE` substitution that is still
-#: not valid in a Python identifier.
+#: Any character remaining after :func:`pysafe`'s substitutions that is still
+#: not valid in a Python identifier. Deliberately narrower than "not
+#: ``str.isidentifier``" -- it is only ever applied by :func:`_pysafe_fixup`
+#: to a part that already failed that check, so a valid non-ASCII identifier
+#: (PEP 3131 permits Unicode letters) is never reached, let alone mangled.
 _NON_IDENTIFIER = _re.compile(r"[^0-9A-Za-z_]")
 
 
-def _pysafe_part(part: str) -> str:
-    """Coerce one (non-dotted) ``part`` into a valid Python identifier.
+def _pysafe_fixup(part: str) -> str:
+    """Make one already ``separator``-split ``part`` a valid identifier.
 
-    Symbol substitution (:data:`PYREPLACE`) runs first, applied to this part
-    alone -- a whole-part match becomes the replacement word outright; a
-    leading/trailing symbol becomes ``<replacement>_<rest>``/``<rest>_<replacement>``;
-    any other occurrence is spelled out in place. Any character still not valid
-    in an identifier is then underscored, a leading digit is prefixed with
-    ``_``, and an empty part becomes ``"_"``. The keyword check
-    (``keyword.iskeyword``) runs LAST, so a substitution that happens to produce
-    a keyword (``PYREPLACE["!"] == "not"``) is still suffixed.
+    A no-op whenever ``part`` is already a valid, non-keyword identifier --
+    including one containing non-ASCII letters, which Python's own grammar
+    accepts (PEP 3131) and this must never rewrite. Otherwise: any character
+    not in ``[0-9A-Za-z_]`` is underscored, a leading digit is prefixed with
+    ``_``, an empty part becomes ``"_"``, and a part that is a keyword (either
+    still, or newly, after the substitutions above) gets a trailing
+    underscore.
     """
-    for symbol, replacement in PYREPLACE.items():
-        if part == symbol:
-            part = replacement
-            break
-        if part.startswith(symbol):
-            part = replacement + "_" + part[len(symbol) :]
-        if part.endswith(symbol):
-            part = part[: -len(symbol)] + "_" + replacement
-        part = part.replace(symbol, replacement)
-
-    part = part.replace("-", "_").replace(" ", "_")
+    if part and part.isidentifier() and not _keyword.iskeyword(part):
+        return part
     part = _NON_IDENTIFIER.sub("_", part)
-
-    if part[:1].isdigit():
-        part = "_" + part
     if not part:
         part = "_"
+    elif part[0].isdigit():
+        part = "_" + part
     if _keyword.iskeyword(part):
         part = part + "_"
-
     return part
 
 
 def pysafe(text: str, separator: str = ".") -> str:
     """Coerce ``text`` into a Python-safe (dotted) identifier.
 
-    Each ``separator``-delimited part is made into a valid Python identifier
-    independently (see :func:`_pysafe_part`): the symbols in :data:`PYREPLACE`
-    are spelled out, any other non-identifier character (including hyphens and
-    spaces) becomes ``_``, a leading digit is prefixed with ``_``, and a keyword
-    part gets a trailing underscore. Never returns an empty string, and never
-    returns a string containing a reserved keyword as one of its dotted parts.
+    Runs duho's original (0.5.x) transform first -- a per-part keyword suffix,
+    then a whole-string ``-``/space-to-``_`` substitution, then the
+    :data:`PYREPLACE` symbol spell-out, applied across the whole joined string
+    rather than to each part in isolation -- so every input that transform
+    already turned into a valid identifier still comes out byte-for-byte the
+    same here, quirks included (``pysafe("a+")`` is ``"aplus_plus"``, not the
+    more obvious ``"a_plus"``; a symbol at a dotted-part boundary, like
+    ``pysafe("a.+b")``, can affect the neighboring part). Only where THAT
+    result is not already a valid, non-keyword identifier for one of its
+    ``separator``-delimited parts does this go further (:func:`_pysafe_fixup`):
+    underscoring any character still not identifier-safe, prefixing a leading
+    digit, and suffixing a newly-produced keyword. Never returns an empty
+    string, and never returns a string containing a reserved keyword as one of
+    its dotted parts.
     """
-    return separator.join(_pysafe_part(part) for part in text.split(separator))
+    text = (
+        separator.join(
+            [(f"{n}_" if _keyword.iskeyword(n) else n) for n in text.split(separator)]
+        )
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    for symbol, replacement in PYREPLACE.items():
+        if text == symbol:
+            # A bare match becomes the replacement word outright -- but a
+            # substitution that happens to produce a keyword itself
+            # (PYREPLACE["!"] == "not") must still be suffixed, so this
+            # cannot just return early the way duho 0.5.x did.
+            text = replacement + ("_" if _keyword.iskeyword(replacement) else "")
+            break
+        if text.startswith(symbol):
+            text = replacement + "_" + text.removeprefix(symbol)
+        if text.endswith(symbol):
+            text = text.removeprefix(symbol) + "_" + replacement
+        text = text.replace(symbol, replacement)
+    text = text or "_"
+    return separator.join(_pysafe_fixup(part) for part in text.split(separator))
 
 
 def camelcase(text: str, separators: "_ty.Sequence[str] | str | None" = None) -> str:
@@ -208,11 +228,16 @@ def expand(text: str) -> "_ty.Iterator[str]":
     NOT zero-padded); ``expand("x[A-C]")`` yields ``xA``, ``xB``, ``xC``.
     Multiple ranges expand as their Cartesian product, computed iteratively
     (:func:`itertools.product`) rather than by recursion, so the number of
-    ranges in ``text`` is not bounded by Python's recursion limit. Text with no
-    range is yielded unchanged. A malformed range (reversed, mismatched-kind, or
-    a multi-character/mixed-case letter endpoint) raises :class:`ValueError`
-    rather than silently yielding nothing or a surprising result -- see
-    :func:`range`.
+    ranges in ``text`` is not bounded by Python's recursion limit -- but in the
+    same order the original recursive implementation produced: the LEFTMOST
+    range varies fastest and the RIGHTMOST varies slowest (``"x[1-2][a-b]"``
+    yields ``x1a``, ``x2a``, ``x1b``, ``x2b`` -- the opposite of
+    :func:`itertools.product`'s own left-to-right nesting, which is why the
+    ranges are iterated in reverse and each combination un-reversed before
+    use). Text with no range is yielded unchanged. A malformed range
+    (reversed, mismatched-kind, or a multi-character/mixed-case letter
+    endpoint) raises :class:`ValueError` rather than silently yielding nothing
+    or a surprising result -- see :func:`range`.
     """
     matches = list(_EXPAND_PATTERN.finditer(text))
     if not matches:
@@ -229,7 +254,8 @@ def expand(text: str) -> "_ty.Iterator[str]":
         pos = match.end()
     literals.append(text[pos:])
 
-    for combo in _itertools.product(*choices):
+    for reversed_combo in _itertools.product(*reversed(choices)):
+        combo = tuple(reversed(reversed_combo))
         pieces = [literals[0]]
         for value, literal in zip(combo, literals[1:]):
             pieces.append(value)

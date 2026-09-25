@@ -595,3 +595,31 @@ def test_duho_logging_getattr_rejects_dunders_and_private_names():
         getattr(duho_logging_mod, "_srcfile")
     # Public stdlib names still forward correctly.
     assert duho_logging_mod.getLogger is logging.getLogger
+
+
+# --------------------------------------------------------------------------
+# `--loglevel app:LEVEL` is documented as applying to the app.* logger
+# SUBTREE -- a descendant logger that already has its own explicit level
+# (set by an earlier import, or a previous run) must still pick it up, not
+# just one that would inherit it for free via Python's normal hierarchy.
+# --------------------------------------------------------------------------
+
+
+class _SubtreeLoggingApp(LoggingArgs, Cmd):
+    def __call__(self):
+        return 0
+
+
+def test_named_loglevel_reaches_a_child_logger_with_its_own_explicit_level():
+    child = logging.getLogger("duho_test_subtree.child")
+    child.setLevel(logging.WARNING)
+    try:
+        parser = _SubtreeLoggingApp._parser_()
+        ns = parser.parse_args(["--loglevel", "duho_test_subtree:DEBUG"])
+        ns._set_loglevels_()
+        assert child.getEffectiveLevel() == logging.DEBUG
+    finally:
+        child.setLevel(logging.NOTSET)
+        logging.getLogger("duho_test_subtree").setLevel(logging.NOTSET)
+        logging.getLogger("_SubtreeLoggingApp").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)

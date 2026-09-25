@@ -46,6 +46,20 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     loglevels.setdefault(default_logger, default)
     for name, level in loglevels.items():
         _logging.getLogger(name).setLevel(level)
+        if name:
+            # Python's logging hierarchy only derives an unset child's
+            # EFFECTIVE level from its parent -- a child that already has its
+            # OWN explicit level (set by an earlier import, a library, or a
+            # previous `--loglevel`) keeps it regardless of what happens to
+            # `name` afterwards. `--loglevel app:LEVEL` is documented as
+            # applying to the app.* SUBTREE, so also force the level onto
+            # every ALREADY-EXISTING descendant logger, not just ones that
+            # will inherit it for free. (No-op for the bare `""` root-logger
+            # key -- every logger already descends from actual root.)
+            prefix = name + "."
+            for existing_name in list(_logging.Logger.manager.loggerDict):
+                if existing_name.startswith(prefix):
+                    _logging.getLogger(existing_name).setLevel(level)
     return loglevels
 
 

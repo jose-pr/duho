@@ -408,19 +408,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ColorHelpFormatter`'s colored help no longer misaligns columns on Python
   3.9–3.13 (ANSI escape bytes were being counted toward column width) and no
   longer nests its own ANSI codes around argparse's native color on 3.14+.
-- **[minor]** An agent-help document's `"type"` string for a union
-  (`"int | None"`) or a `typing.List`/`typing.Dict`-style generic
-  (`"list[str]"`) is now identical on every supported interpreter instead of
-  drifting between Python versions. A `Literal` argument value is shown with
-  real Python repr quoting (e.g. `Literal['x, y', 'z']`) instead of losing
-  its quotes, which previously made a comma-containing value indistinguishable
-  from multiple separate literal members. **Known gap**: a PEP 585 bare
-  generic annotated directly as `list[str]`/`dict[str, int]`/`tuple[int,
-  ...]`/`set[str]`/`frozenset[str]` (as opposed to the equivalent spelled via
-  `typing.List`/`typing.Dict`/etc.) still renders without its type
-  arguments (`"list"`, `"dict"`, `"tuple"`) on Python 3.9/3.10, since such an
-  alias satisfies `isinstance(tp, type)` there and short-circuits before its
-  arguments are read; it renders correctly (`"list[str]"`) on 3.11+.
+- **[minor]** An agent-help document's `"type"` string is now identical on every
+  supported interpreter: a union renders as `"int | None"`, and a generic renders
+  with its arguments whether it is spelled `list[str]` or `typing.List[str]`
+  (`"list[str]"`, `"dict[str, int]"`, `"tuple[int, ...]"`; Python 3.9/3.10
+  previously dropped the arguments of a bare `list[str]`). A `Literal` argument
+  value is shown with Python repr quoting (e.g. `Literal['x, y', 'z']`) instead of
+  losing its quotes, which previously made a comma-containing value
+  indistinguishable from multiple separate literal members.
 - The synthesized "minimal invocation" example in agent-help now always
   includes `<command>` when the app has subcommands, and prefers a long
   (`--flag`) spelling over a short one when both are declared. A

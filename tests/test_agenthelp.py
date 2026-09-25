@@ -645,3 +645,23 @@ def test_print_agent_help_has_no_ansi_when_color_forced(tmp_path, monkeypatch):
         duho.print_agent_help(App, file=fh)
     doc = json.loads(out.read_text(encoding="utf-8"))
     assert "\x1b" not in doc["usage"]
+
+
+@pytest.mark.parametrize(
+    "annotation, expected",
+    [
+        (list[str], "list[str]"),
+        (dict[str, int], "dict[str, int]"),
+        (tuple[int, ...], "tuple[int, ...]"),
+        (set[str], "set[str]"),
+        (ty.List[int], "list[int]"),
+        (ty.Optional[list[str]], "list[str] | None"),
+        (int, "int"),
+    ],
+)
+def test_builtin_generic_type_strings_keep_their_arguments(annotation, expected):
+    """A bare ``list[str]``-style generic renders with its arguments on every
+    interpreter (3.9/3.10 treat such an alias as a ``type`` instance)."""
+    from duho.agenthelp import _render_type
+
+    assert _render_type(annotation) == expected

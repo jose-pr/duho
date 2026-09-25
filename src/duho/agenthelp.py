@@ -116,9 +116,9 @@ def _render_type(tp) -> str:
         # without this it recurses into the generic branch below and
         # stringifies as `Ellipsis` (`str(Ellipsis)`) instead of `...`.
         return "..."
-    if isinstance(tp, type):
-        return tp.__name__
     origin = _ty.get_origin(tp)
+    if origin is None and isinstance(tp, type):
+        return tp.__name__
     if origin is None:
         # A bare typing special form with no origin (rare here) -- fall back
         # to its own name, else its str() with the "typing." prefix dropped.

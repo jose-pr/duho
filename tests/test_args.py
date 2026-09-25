@@ -1238,3 +1238,18 @@ def test_parser_no_longer_accepts_an_init_kwarg():
     explicit ``init=`` is now an ordinary unrecognized keyword."""
     with pytest.raises(TypeError):
         SimpleArgs._parser_(init=True)
+
+
+def test_type_to_spec_ladder_is_reexported_unchanged_from_fieldspec():
+    """The type -> argparse-spec ladder moved into its own internal module
+    (A071), but every public/cross-module name stays importable from
+    ``duho.args`` exactly as before -- a re-export, not a copy."""
+    import duho._fieldspec as fieldspec_mod
+    import duho.args as args_mod
+
+    assert args_mod.Factory is fieldspec_mod.Factory
+    assert args_mod.UpdateAction is fieldspec_mod.UpdateAction
+    assert args_mod._factory_for is fieldspec_mod._factory_for
+    assert args_mod._bool_from_text is fieldspec_mod._bool_from_text
+    assert args_mod._choice_checked is fieldspec_mod._choice_checked
+    assert args_mod._ISOFORMAT_FACTORIES is fieldspec_mod._ISOFORMAT_FACTORIES

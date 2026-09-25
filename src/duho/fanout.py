@@ -22,14 +22,23 @@ fan-out and removed afterwards (no per-target handler churn, no leaked filter,
 no permanent mutation of global logging config). The current target is carried in
 a :class:`contextvars.ContextVar` set at the top of each worker call, so
 concurrent worker threads tag their own records without cross-talk. The filter
-never mutates the shared ``LogRecord`` (no rewritten ``msg``/``args``); it defers
-rendering the prefixed text until the record is actually formatted, by
-overriding the record's own ``getMessage`` for that call with a small,
-picklable object (never a closure -- see :class:`_PrefixedMessage`), so a
-mismatched-args log call still fails the same "--- Logging error ---" way it
-would outside a fan-out instead of raising into the target, and a tagged
-record still survives ``pickle.dumps`` (:class:`logging.handlers.SocketHandler`/
-``QueueHandler``).
+never rewrites the record's own ``msg``/``args``; it defers rendering the
+prefixed text until the record is actually formatted, by overriding
+``getMessage`` for that call with a small, picklable object (never a closure --
+see :class:`_PrefixedMessage`), so a mismatched-args log call still fails the
+same "--- Logging error ---" way it would outside a fan-out instead of raising
+into the target, and a tagged record still survives ``pickle.dumps``
+(:class:`logging.handlers.SocketHandler`/``QueueHandler``).
+
+On Python 3.12+ the filter returns a tagged COPY of the record rather than
+mutating the shared one in place (the stdlib's "a filter attached to a handler
+may return a replacement ``LogRecord``" support -- see
+:class:`TargetPrefixFilter`), so a handler on the same logger that never had
+the filter installed sees the record exactly as emitted, never the
+``[target]`` prefix. Before 3.12 that isolation does not exist in the stdlib:
+the tag is set on the shared record in place, so an unfiltered sibling handler
+also sees the prefix -- a documented limitation on 3.9-3.11, not something
+this module can work around.
 
 **Exit-code aggregation.** Each call's result is normalised to an exit code
 (``None`` -> ``0``; an ``int`` as-is (including negative -- see below); a
@@ -52,7 +61,9 @@ All union annotations are quoted so the module imports cleanly on Python 3.9.
 import concurrent.futures as _futures
 import contextlib as _contextlib
 import contextvars as _contextvars
+import copy as _copy
 import logging as _logging
+import sys as _sys
 import typing as _ty
 
 from .args import _maybe_await as _maybe_await
@@ -116,11 +127,10 @@ class TargetPrefixFilter(_logging.Filter):
 
     While a target's work runs, :data:`current_target` names it; this filter
     reads that context var and, when set, arranges for the record to render as
-    ``[<target>] <original>`` -- WITHOUT mutating ``record.msg``/``record.args``.
-    It never drops a record (``filter`` always returns ``True``) -- it only
-    annotates. When no target is active it is a no-op, so it is safe to leave
-    installed across code that is not fanning out (though :func:`target_logging`
-    removes it promptly regardless).
+    ``[<target>] <original>``. It never drops a record (``filter`` always
+    returns a true value) -- it only annotates. When no target is active it is
+    a no-op, so it is safe to leave installed across code that is not fanning
+    out (though :func:`target_logging` removes it promptly regardless).
 
     The prefix is applied by overriding the record's own ``getMessage`` with a
     :class:`_PrefixedMessage` instance that renders ``[<target>] ...`` from a
@@ -142,16 +152,35 @@ class TargetPrefixFilter(_logging.Filter):
     verbatim, including this attribute, and a closure over a per-call bound
     method is a local object pickle always rejects, regardless of what it
     captures.
+
+    **Isolation across handlers.** A single filter instance is installed on
+    every effective handler of the target logger (:func:`target_logging`), and
+    ``logging`` shares ONE record object across all of them, so tagging it in
+    place would leak the prefix into a handler that never had this filter
+    added. On Python 3.12+, ``filter`` returns a shallow COPY of the record
+    (a :class:`logging.LogRecord` return from a handler's filter replaces the
+    record for THAT handler only -- new in 3.12) with the tag applied to the
+    copy, leaving the original untouched for any sibling handler. Before 3.12
+    the stdlib only ever treats a filter's return value as true/false, so
+    there is no way to hand different handlers different records: the tag is
+    set on the shared record in place, and an unfiltered sibling handler on
+    the same logger sees the prefix too -- a documented limitation on
+    3.9-3.11.
     """
 
-    def filter(self, record: "_logging.LogRecord") -> bool:
+    def filter(
+        self, record: "_logging.LogRecord"
+    ) -> "_ty.Union[bool, _logging.LogRecord]":
         target = current_target.get()
-        if target is not None and not getattr(record, "_duho_target_tagged_", False):
-            record._duho_target_tagged_ = True  # type: ignore[attr-defined]
-            record.getMessage = _PrefixedMessage(  # type: ignore[method-assign]
-                target, record.msg, record.args
-            )
-        return True
+        if target is None or getattr(record, "_duho_target_tagged_", False):
+            return True
+        if _sys.version_info >= (3, 12):
+            record = _copy.copy(record)
+        record._duho_target_tagged_ = True  # type: ignore[attr-defined]
+        record.getMessage = _PrefixedMessage(  # type: ignore[method-assign]
+            target, record.msg, record.args
+        )
+        return record if _sys.version_info >= (3, 12) else True
 
 
 def _handlers_for(logger: "_logging.Logger") -> "list[_logging.Handler]":

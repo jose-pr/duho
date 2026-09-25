@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   path)` (unique-name-guaranteed, mtime-cached file import) and
   `unregister_command_provider(predicate, builder)` (the counterpart to
   `register_command_provider`, for test isolation / plugin reload).
+- **[minor]** `duho.mcp` gains two public exception classes,
+  `UnknownToolError` and `InvalidArgumentsError` (both `ValueError`
+  subclasses carrying a JSON-RPC `.code` of `-32602`). `call_tool` now
+  raises `UnknownToolError` for a tool name that does not resolve, and
+  `InvalidArgumentsError` when `arguments` is not a JSON object or fails
+  the tool's own schema — previously a malformed request like this was
+  returned as an ordinary `isError: true` tool result indistinguishable
+  from the dispatched command's own failure. A problem in the dispatched
+  command itself (a raised exception, a non-zero exit, `sys.exit`) is
+  still reported as an `isError: true` tool result, not an exception.
 - **`duho.completion.spec(parser, prog=None) -> CompletionSpec`** — public
   completion-spec builder. Shell completion now supports **PowerShell** as a
   fourth shell alongside bash/zsh/fish. An `Enum`-typed field now offers its
@@ -86,7 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - An env/config value that cannot convert without losing information (a
   fractional `float` into an `int` field, a `list`/`dict` into a scalar
   field, a `bool` into a non-bool field) now raises instead of silently
-  truncating, stringifying, or passing through unchanged.
+  truncating, stringifying, or passing through unchanged. A `Union[int, str]`
+  (or similar) field's config value that cannot losslessly become its `int`
+  member now falls through to its `str` member instead (`1.5` -> `"1.5"`,
+  not the previous silently truncated `1`). A config value fed into a
+  `pathlib.Path`-typed field is now converted to a `Path` instead of staying
+  an unconverted `str`/`int`.
 - A conversion error from an enum/dict/`Literal`/`Union` field now shows
   duho's own message on the CLI (e.g.
   `invalid choice: 'PURPLE' (choose from RED, GREEN, BLUE)`) instead of
@@ -97,14 +112,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   a `typing.NewType`, or `Annotated`/`Arg[...]` nested inside a `Union`),
   instead of silently misconverting values or crashing with an unrelated
   error.
-- **[minor]** `date`/`datetime`/`time` fields now accept a trailing `Z` (RFC
-  3339's UTC marker) on Python 3.9/3.10 too, matching `duho.mcp`'s
-  `format: date-time` hint, which already advertised it on every version.
-  Basic (no-dash) date formats remain unsupported on every version.
+- **[minor]** `datetime`/`time` fields now accept a trailing `Z` (RFC 3339's
+  UTC marker) on Python 3.9/3.10 too, matching `duho.mcp`'s `format:
+  date-time` hint, which already advertised it on every version. A `date`
+  field never accepts a trailing `Z` on any version (a date has no time/UTC
+  component). A basic, no-dash format (`20240101`) works for `date`/`datetime`
+  fields on Python 3.11+ (native `fromisoformat` accepts it there); it
+  remains unsupported on 3.9/3.10.
 - **[minor]** An `Enum` field's CLI value now matches against
   `enum_cls.__members__`, so a declared alias name is accepted, and a `Flag`
   composite member's name is accepted on Python 3.11+ too (previously
   rejected there).
+- A `Literal` of specific `Enum` members (e.g. `Literal[Color.RED,
+  Color.BLUE]`) now resolves an input by member NAME, matching the
+  `{RED,BLUE}` metavar it already advertised (a name previously raised).
 - **[minor]** A `list`/`dict[str, V]` option's first CLI occurrence now
   REPLACES a class/env/config/instance default instead of appending/merging
   onto it, matching how `set`/`tuple` fields already behaved (restores the
@@ -154,6 +175,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whitespace, and raises a clear error naming the bad token instead of
   silently dropping it. **[minor]** code that fed it deliberately malformed
   input now gets a parser error (exit 2) instead of a silent no-op.
+  `--loglevel app:LEVEL` now applies to the whole `app.*` logger subtree,
+  including a descendant logger (e.g. `app.cli`) that already had its own
+  explicit level set.
 - Log output (`init_stderr_logging`, and the default handler `duho.main`/
   `duho.app` install) is no longer unconditionally ANSI: color now follows
   the same `NO_COLOR`/`FORCE_COLOR`/TTY rule the `--help` formatters already
@@ -205,6 +229,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **(security)** `discover_commands`/`duho.app(source=...)` on a bare
   package name now prefers an importable package over a same-named directory
   relative to the current working directory.
+- **(security)** `discover_commands("")`/`discover_commands(Path(""))`/
+  `duho.app(source="")` now raise `ValueError` instead of silently scanning
+  and importing every file in the current working directory;
+  `discover_commands(".")` (or `discover_commands(Path("."))`) is unchanged
+  and still means the current directory explicitly.
 - A class whose name starts with `_` is no longer discovered/listed as a
   runnable subcommand. A package's own module command is now named after the
   package, not `--init--`. An entry point's advertised name is now used only
@@ -225,9 +254,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   later steps.
 - **[minor]** `RunPathCmd.__call__` no longer always returns `0` regardless
   of step outcomes: a step returning a non-zero `int` is now a failure, and
-  the command's own exit code is the max of every step's code. A resilient
-  run whose steps all failed non-fatally now returns non-zero instead of
-  always `0`.
+  the command's own exit code ranks every step's code by magnitude (the same
+  aggregator `duho.fanout` uses), so a negative step code (e.g. a
+  signal-killed subprocess) is no longer silently hidden behind an earlier or
+  later `0`. A resilient run whose steps all failed non-fatally now returns
+  non-zero instead of always `0`. A step returning a non-zero code under the
+  default strict mode no longer escapes as a generic `ValueError` traceback
+  that lost the actual code; the failure is logged, `__main__.py`'s
+  `finally_` hook still runs, and the step's own code is returned. Breaking
+  an unresolved dependency cycle now forces through the lowest-ranked step
+  that is actually part of the cycle, not merely the lowest-ranked stuck step
+  overall. A disabled duplicate step file no longer claims a step name ahead
+  of an enabled file of the same name, regardless of file-listing order; two
+  enabled files sharing a name still raise the existing duplicate error.
 - **[minor]** The `__main__.py` lifecycle now runs `success` before
   `finally_` (previously the reverse), gated on no failure; `finally_`
   errors are logged and swallowed rather than replacing the real step error.
@@ -251,12 +290,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   passthrough args, and `LoggingArgs` verbosity setup all reach an
   MCP-dispatched command exactly as they would under `duho.main`/
   `duho.parse`. `serverInfo.version` now reports duho's own version.
+- **(security)** `call_tool` now rejects a request whose parsed command
+  doesn't actually match the tool name it was dispatched under (an ancestor
+  with an optional/variadic positional could otherwise let a client's own
+  argument value select a completely different subcommand than the one
+  named) — such a request is now `isError: true` naming the tool.
+- **(security)** A field name shared between a parent tool and one of its
+  descendants no longer lets a value meant for the child leak into the
+  parent's own flag of the same name over MCP; each level's argv now only
+  ever sets that level's own field.
+- **(security)** A counting flag (`Count()`/`-v`-style) published over MCP
+  now caps at 10 occurrences; a request asking for more is `isError: true`
+  instead of building an oversized argv that could stall the server.
+- **(security)** An app's own import-time output (e.g. a stray top-level
+  `print`) can no longer corrupt the MCP stdio protocol stream; stdio is
+  isolated before the target app is even resolved.
+- **(security)** An invalid-UTF-8 request line no longer kills the MCP
+  stdio server process; it is now answered with a JSON-RPC parse error
+  (`-32700`) and the server keeps running.
+- `store_false` and `argparse.BooleanOptionalAction` bool fields (including
+  one whose `True` comes from an env/config layer) now round-trip correctly
+  over MCP — previously such a field could be inverted (a client asking for
+  `false` could set it `true`, or vice versa).
+- A dict field with a custom `type=` override (e.g. `LoggingArgs.loglevels`,
+  `--loglevel app=DEBUG` style) now works when called over MCP instead of
+  always failing with an invalid-value error.
+- Logging emitted during an MCP call no longer binds to the first call's
+  capture buffer for the life of the server; each call now captures its own
+  command's log output.
+- A `nargs="+"` positional with a declared default is now correctly
+  published as a required property in the tool's schema (it was previously
+  advertised as optional).
+- A dispatched command's non-zero `int` return now includes any captured
+  stderr text in the `isError` result, not just an "exit code: N" line.
+- A JSON-RPC *batch* request (a JSON array of request objects) is now
+  dispatched element by element instead of being rejected outright; an
+  empty batch array gets its own `-32600` error.
 - **[minor]** Fan-out's default `aggregate` now ranks a negative exit code
   (e.g. a signal-killed subprocess) as a failure instead of a plain `max`
   hiding it behind a succeeding target. `duho.fanout`'s per-target `[<target>]`
   log prefix no longer mutates the shared `LogRecord`. **[minor]** the
   record attribute the prefix filter sets was renamed to
-  `_duho_target_tagged_` (private; no known external reader).
+  `_duho_target_tagged_` (private; no known external reader). A fan-out
+  target's tagged log record is now picklable again, so a `SocketHandler`,
+  `QueueHandler`, or other pickling log handler no longer silently drops it.
 - `pysafe` no longer duplicates a trailing replacement symbol, applies
   symbol substitution per dotted part, and now always produces a valid
   identifier. Output changes for inputs containing a leading/trailing
@@ -298,6 +375,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the console's code page under the documented PowerShell install one-liner.
   The generated bash function name is now namespaced/hashed so two programs
   with similar names no longer redefine each other's completion function.
+  bash no longer merges every completion choice after one containing a `'`
+  or `"` into a single mangled candidate; `--opt=` with nothing typed yet no
+  longer falls back to filename completion. **(security)** PowerShell now
+  always single-quotes an inserted completion candidate, closing a
+  break-out via Unicode "smart quotes" (U+2018-U+201B) that the previous
+  ASCII-only quoting check missed; a completion choice containing `#`/`@` is
+  also now quoted instead of inserted bare. PowerShell no longer skips an
+  earlier, already-typed word that happens to repeat the text of the word
+  currently being completed, and can now dispatch to a subcommand name that
+  itself needs quoting. A positional hidden via `help=argparse.SUPPRESS` no
+  longer shifts every later positional's completions one slot early; a
+  hidden subcommand's alias is now hidden too (previously only its primary
+  name was). zsh now completes correctly for a node that has both its own
+  positional and a subcommand table (previously the subcommand table was
+  never reached); zsh sibling subcommands whose names sanitize identically
+  (e.g. `a-b`/`a_b`) no longer collide on the same generated shell function;
+  zsh can also now dispatch to a subcommand name that needs quoting. fish no
+  longer leaks a shallower, same-named subcommand's flags into a deeper one
+  (e.g. root `run` vs. nested `db run`).
 - **[minor]** Agent-help JSON (`--help-agents`, `AGENT_HELP=1 --help`) and
   the human `--help` output no longer show a live environment- or
   config-file value as a field's default. They show the field's declared
@@ -312,9 +408,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ColorHelpFormatter`'s colored help no longer misaligns columns on Python
   3.9–3.13 (ANSI escape bytes were being counted toward column width) and no
   longer nests its own ANSI codes around argparse's native color on 3.14+.
-- **[minor]** An agent-help document's `"type"` string is now identical on
-  every supported interpreter (always e.g. `"int | None"`, `"list[str]"`)
-  instead of drifting between Python versions.
+- **[minor]** An agent-help document's `"type"` string for a union
+  (`"int | None"`) or a `typing.List`/`typing.Dict`-style generic
+  (`"list[str]"`) is now identical on every supported interpreter instead of
+  drifting between Python versions. A `Literal` argument value is shown with
+  real Python repr quoting (e.g. `Literal['x, y', 'z']`) instead of losing
+  its quotes, which previously made a comma-containing value indistinguishable
+  from multiple separate literal members. **Known gap**: a PEP 585 bare
+  generic annotated directly as `list[str]`/`dict[str, int]`/`tuple[int,
+  ...]`/`set[str]`/`frozenset[str]` (as opposed to the equivalent spelled via
+  `typing.List`/`typing.Dict`/etc.) still renders without its type
+  arguments (`"list"`, `"dict"`, `"tuple"`) on Python 3.9/3.10, since such an
+  alias satisfies `isinstance(tp, type)` there and short-circuits before its
+  arguments are read; it renders correctly (`"list[str]"`) on 3.11+.
 - The synthesized "minimal invocation" example in agent-help now always
   includes `<command>` when the app has subcommands, and prefers a long
   (`--flag`) spelling over a short one when both are declared. A
@@ -388,8 +494,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the file. `duho.app()` now threads env/config layering into a class
   command's own nested `_subcommands_` tree, and into a module command's
   declared `Args` class fields. `duho.app()` now honors a subcommand's
-  deliberately redeclared default for a root field, and now accepts a
-  required global option given after the subcommand.
+  deliberately redeclared default for a root field, and — for a command
+  reached through `commands=`/`source=`/`entry_points=`/`CMDS_PATH`
+  discovery — now accepts a required global option given after the
+  subcommand. A statically declared `_subcommands_` tree is unaffected: a
+  required root option there must still come before the subcommand name.
+  Under `duho.app()`, a required root global that this relaxation makes
+  internally optional now still displays as required (no `[...]` brackets)
+  in `--help`/usage text, instead of the enforcement and the displayed usage
+  disagreeing with each other.
 - A set[T]/list[T] positional given zero tokens no longer crashes or
   duplicates its declared default. `duho.Append()` on a `set`/`tuple` field
   now raises a clear error at parser-build time instead of crashing at parse
@@ -400,6 +513,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   longer shares (and, on mutation, leaks through) the same mutable
   list/set/dict default object between those calls; a directly constructed
   instance with a mutable class-level default now gets its own copy.
+- `Args.__init__` now seeds EVERY declared field's effective default onto a
+  directly constructed instance when the caller didn't pass it (not only
+  fields with an explicit class-level default) — a `store_true`/`store_false`
+  bool or any other field whose default only used to materialize via
+  argparse now gets the same attribute surface as a parsed instance. This
+  changes `repr()`/`==` for a directly constructed instance built with fewer
+  keyword arguments than the class declares fields.
 - An `Optional[T]` positional with no explicit default is no longer
   required. A non-required option with no declared default now reports
   `None` as its effective default on a directly constructed instance. On
@@ -471,6 +591,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hook returning a coroutine is now closed immediately and raises `TypeError`
   naming the hook. Passing a non-command object in `app(commands=[...])` now
   raises `TypeError` naming the bad object.
+- A rootless `duho.app(commands=[...])`/`duho.app(source=...)` call (no
+  `root=` given) no longer shows duho's own `Args` base class docstring as
+  its `--help` description; it now shows no description unless one is
+  explicitly passed via `description=`.
 - A `--rcopts` entry carrying an unrecognized token no longer silently
   forces that step strict. Duplicate RunPath step names are now detected
   (warn/error, naming both files). `REQUIRED`/`BEFORE`/`AFTER` given as a
@@ -876,16 +1000,22 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
   >1.5x on warm-metric medians / >1.3x on startup deltas). `compare_cache.py`
   output is re-labelled cold-vs-warm (the cold path is what real invocations
   pay). All benchmark tooling is stdlib-only and stays excluded from the sdist.
-- **BREAKING (C11)** `duho.Env.list` returns `[]` for a missing or empty
+- **BREAKING** `duho.Env.list` returns `[]` for a missing or empty
   value instead of the previous `[ty("")]` single-empty-element contract.
 
 ### Fixed
 - `CMDS_PATH` command-search-path resolution now splits on the platform path
-  separator (`os.pathsep` — `;` on Windows, `:` on POSIX; overridable via a
-  `PATHSEP` env var) via the new `Env.paths()`. Previously it split on a
-  hard-coded `:`, so on Windows an absolute path's drive-letter colon (`C:\…`)
-  was mis-split into a bogus `C` entry (`ImportError: not a directory: C`).
-  `Env.list()`'s generic `:` default is unchanged.
+  separator (`os.pathsep` — `;` on Windows, `:` on POSIX; overridable via an
+  app-prefixed `<PREFIX>PATHSEP` env var, e.g. `MYAPP_PATHSEP` — never a bare/
+  global `PATHSEP`, which used to let any unrelated process's `PATHSEP`
+  bypass this for every duho app on the system) via the new `Env.paths()`.
+  Previously it split on a hard-coded `:`, so on Windows an absolute path's
+  drive-letter colon (`C:\…`) was mis-split into a bogus `C` entry
+  (`ImportError: not a directory: C`). `Env.paths()` also rejects a bare
+  drive-letter segment (`C:`) and any other segment that resolves to the
+  current working directory unless it is spelled exactly `.`, and drops an
+  empty/whitespace-only segment instead of treating it as the current
+  directory. `Env.list()`'s generic `:` default is unchanged.
 - Building a parser for a bare framework base class used directly as a root
   (`duho.app(root=None)` builds `Args._parser_()`) no longer persists
   `_parsername_` onto the shared `Args`/`Cmd`/`Cli` base. Previously that name

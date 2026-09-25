@@ -1403,6 +1403,13 @@ class Run(duho.Cmd):
 # myapp Run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]
 ```
 
+`--` never acts as argparse's own end-of-options marker in duho — it always
+starts the passthrough capture, even for a command that never reads
+`_passthrough_` and even when a variadic positional would otherwise happily
+accept a value starting with `-`. So a value that genuinely needs to start
+with `-` (the POSIX `rm -- -oddfile.txt` idiom) cannot be given after a `--`
+to a duho command; it is captured into `_passthrough_` instead, read or not.
+
 ## Target fan-out (`duho.fanout`, opt-in)
 
 duho dispatches **one** command per run by design. When you need to run that one

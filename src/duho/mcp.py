@@ -144,6 +144,8 @@ __all__ = [
     "describe_tools",
     "call_tool",
     "serve",
+    "serve_running_app",
+    "McpCmd",
     "main",
     "UnknownToolError",
     "InvalidArgumentsError",
@@ -742,6 +744,85 @@ def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
     return bool(getattr(subparsers_action, "required", False))
 
 
+class McpCmd(_Cmd):
+    """Serve the CLI currently being dispatched as an MCP server (stdio).
+
+    A ready-made building block (Plan 33 Phase 3, Design Q6): register a
+    subclass of this under any name to add a self-serving MCP subcommand to
+    a CLI, with zero server code of your own -- ``__call__`` just forwards
+    to :func:`serve_running_app`. ``duho.app``'s own opt-in ``_mcp_command_``
+    class attribute / ``mcp_command=`` kwarg do exactly this (a dynamically
+    named subclass), but any app may register ``McpCmd`` (or a subclass
+    adding, say, its own additional flags) under any name it likes, via
+    ``_subcommands_``/``commands=``/self-registration -- there is nothing
+    ``_mcp_command_`` does that isn't equally reachable by hand.
+
+    A node whose class IS (or subclasses) ``McpCmd`` is never listed as an
+    MCP tool, and never callable via ``call_tool`` either (see
+    :func:`_is_mcp_command_node`) -- a client asking a live MCP server to
+    recursively take over stdio again makes no sense.
+    """
+
+    transport: "_ty.Literal['stdio']" = "stdio"
+    "MCP transport to serve this CLI over"
+    ("--transport",)
+
+    def __call__(self) -> int:
+        return serve_running_app(self.transport)
+
+
+def _is_mcp_command_node(node: "_Node") -> bool:
+    """True when ``node``'s class IS (or subclasses) :class:`McpCmd` -- the
+    self-serving command an app may register under any name. Checked
+    alongside :func:`_is_namespace_node` everywhere a node's callability as
+    an MCP tool matters (:func:`describe_tools`/:func:`call_tool`)."""
+    return (
+        node.cls is not None
+        and isinstance(node.cls, type)
+        and issubclass(node.cls, McpCmd)
+    )
+
+
+def serve_running_app(transport: str = "stdio") -> int:
+    """Serve the CLI currently being dispatched as an MCP server, over
+    ``transport`` (currently only ``"stdio"``).
+
+    Reads the app context :func:`duho.args.main`/:func:`duho.runtime.app`
+    record in a ``ContextVar`` (``duho._compat._MCP_CONTEXT``) around their
+    own dispatch step -- the exact parser/root class/dispatch callable THAT
+    invocation already built -- so serving here needs no rediscovery: this
+    is the SAME tree a client would see calling any other tool on the same
+    running process, just entered from inside a dispatched command (e.g.
+    :class:`McpCmd`) instead of the ``<PREFIX>MCP``/``<NAME>_MCP`` env
+    trigger.
+
+    Raises ``RuntimeError`` when called outside such a dispatch (a bare
+    script that never went through ``duho.main``/``duho.app`` at all has no
+    running app context to serve). Raises ``ValueError`` for an unsupported
+    ``transport`` -- checked BEFORE consulting the context, so it is
+    reported the same way regardless of whether one exists.
+    """
+    if transport != "stdio":
+        raise ValueError(
+            "unsupported MCP transport %r (supported: stdio)" % (transport,)
+        )
+    ctx = _compat._MCP_CONTEXT.get()
+    if ctx is None:
+        raise RuntimeError(
+            "serve_running_app() was called outside a duho.main()/duho.app() "
+            "dispatch -- there is no currently-running app context to serve"
+        )
+    kind = ctx[0]
+    if kind == "class":
+        core = _core_for_class(ctx[1])
+    else:
+        _, parser, root_cls, dispatch = ctx
+        root_name = _command_name(root_cls)
+        nodes = _walk_tree(parser, root_cls, root_name)
+        core = _ServerCore(parser, nodes, dispatch)
+    return serve(core)
+
+
 def _drop_layer_satisfied(
     required: "list[str]", cls: type, parser: "_argparse.ArgumentParser"
 ) -> "list[str]":
@@ -980,12 +1061,16 @@ def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     merged into every one of its descendants' schemas. This applies equally
     to a class command AND a module command (an ``app()``-only concept --
     every ``ModuleCommand`` node is itself always a leaf, never a namespace).
+    A node whose class is (or subclasses) :class:`McpCmd` -- the self-serving
+    command an ``app()`` may register under any name (Design Q6) -- is
+    likewise skipped (see :func:`_is_mcp_command_node`): serving one MCP
+    session from inside a tool call another MCP session made makes no sense.
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     return [
         _tool_spec(node)
         for node in core.nodes.values()
-        if not _is_namespace_node(node.parser)
+        if not _is_namespace_node(node.parser) and not _is_mcp_command_node(node)
     ]
 
 
@@ -1707,7 +1792,7 @@ def call_tool(
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
     node = nodes.get(name) if isinstance(name, str) else None
-    if node is None or _is_namespace_node(node.parser):
+    if node is None or _is_namespace_node(node.parser) or _is_mcp_command_node(node):
         raise UnknownToolError("unknown tool: %r" % (name,))
 
     if arguments is None:
@@ -2118,12 +2203,20 @@ def _real_stdio_streams() -> "tuple":
 
 
 def serve(
-    root_cls: "type[_Cmd]",
+    root_cls: "_ty.Union[type, _ServerCore]",
     *,
     stdin: "_ty.Optional[_ty.TextIO]" = None,
     stdout: "_ty.Optional[_ty.TextIO]" = None,
 ) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
+
+    ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
+    tree path) or a :class:`_ServerCore` (an ``app()``-built tree, from
+    :func:`_core_for_app`, or the one :func:`serve_running_app` builds from
+    the currently-dispatching app's own context) -- forwarded opaquely to
+    :func:`_handle_request`, which in turn forwards it to
+    :func:`describe_tools`/:func:`call_tool` (both already accept either
+    shape -- see :func:`describe_tools`).
 
     Reads newline-delimited JSON-RPC 2.0 request lines from ``stdin`` (real
     stdio, isolated per :func:`_real_stdio_streams`, when neither ``stdin``

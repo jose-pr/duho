@@ -2,6 +2,7 @@ import argparse as _argparse
 import copy as _copy
 import dataclasses as _dataclasses
 import logging as _logging
+import os as _os
 import pathlib as _pathlib
 import re as _re
 import sys as _sys
@@ -2762,6 +2763,30 @@ class Cli(Cmd):
     #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
     _exit_codes_: "_ty.Optional[_ty.Mapping[_ty.Any, str]]" = None
 
+    #: When ``False``, disables the ``<PREFIX>MCP``/``<NAME>_MCP`` environment
+    #: trigger (see ``duho.main``/``duho.app``'s own docs) for this app
+    #: entirely -- the variable, if set, is left in ``os.environ`` untouched
+    #: and a normal CLI run proceeds. Default ``True`` (the trigger is
+    #: on by default). ``duho.app(..., mcp=False)`` does the same for one
+    #: ``app()`` call, and wins over this class attribute when given.
+    #: Independent of ``_mcp_command_`` below.
+    _mcp_: bool = True
+
+    #: Opt-in built-in subcommand that serves this CLI as an MCP server,
+    #: read by ``duho.app`` (``runtime.py``) -- NOT by ``duho.main``, which
+    #: has no subcommand-registration step of its own to hook. ``False``
+    #: (default): no subcommand. ``True``: registers ``duho.mcp.McpCmd``
+    #: under the name ``"mcp"``. A non-empty ``str``: registers it under
+    #: that exact name instead (validated at ``app()``-build time: non-empty,
+    #: no whitespace, not starting with ``"-"``; a name colliding with an
+    #: existing command/alias, or no other subcommand existing at all, is a
+    #: build-time ``ValueError``). ``duho.app(..., mcp_command=...)`` wins
+    #: over this class attribute when given (including passing ``False`` to
+    #: override a ``True``/``str`` class default). Quoted ``Union`` (not
+    #: PEP 604 ``|``) per the module's 3.9-quoting rule for declared class
+    #: attrs (see ``_version_`` above).
+    _mcp_command_: "_ty.Union[str, bool]" = False
+
     @classmethod
     def _register_subcmd_(cls, child: "_C") -> "_C":
         """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
@@ -3118,6 +3143,123 @@ def _maybe_await(result):
     return _asyncio.run(_await_result())
 
 
+#: Characters a normalized MCP env-var-name segment may contain; anything
+#: else (a ``-``, a ``.``, whitespace, ...) becomes ``_``. See
+#: :func:`_mcp_env_var_name`.
+_MCP_NAME_ALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+
+def _default_mcp_app_name(
+    cls: "_ty.Optional[type]", name: "_ty.Optional[str]" = None
+) -> str:
+    """The app name :func:`_mcp_env_var_name` derives ``<NAME>_MCP`` from,
+    when no ``Env`` is in play (see that function). Precedence: a declared
+    root ``_parsername_``, else the caller-supplied ``name`` (``duho.app``'s
+    own ``name=`` kwarg), else the program name from ``sys.argv[0]`` (its
+    stem, so a ``.py``/``.exe`` suffix never leaks in; under ``python -m
+    pkg`` ``argv[0]``'s stem is the unhelpful ``"__main__"``, so the
+    PACKAGE name -- its parent directory's name -- is used instead), else
+    ``cls``'s own class name, else the literal ``"APP"`` (no ``cls`` and no
+    usable ``argv[0]`` at all -- practically unreachable, but a name is
+    still needed).
+    """
+    parsername = getattr(cls, "_parsername_", None) if cls is not None else None
+    if parsername:
+        return str(parsername)
+    if name:
+        return str(name)
+    argv0 = _sys.argv[0] if _sys.argv else ""
+    if argv0:
+        path = _pathlib.Path(argv0)
+        stem = path.stem
+        if stem and stem != "__main__":
+            return stem
+        if stem == "__main__" and path.parent.name:
+            return path.parent.name
+    if cls is not None:
+        return cls.__name__
+    return "APP"
+
+
+def _mcp_env_var_name(
+    cls: "_ty.Optional[type]",
+    *,
+    env: object = None,
+    name: "_ty.Optional[str]" = None,
+) -> str:
+    """The environment variable name the MCP launch trigger reads/consumes
+    (Plan 33 Phase 3, Design Q4): ``<PREFIX>MCP`` -- the same key
+    ``env.get("MCP")`` would read -- when ``env`` (a :class:`duho.Env`) is
+    given; otherwise ``<NAME>_MCP`` derived from :func:`_default_mcp_app_name`,
+    upper-cased with every character outside ``[A-Z0-9]`` replaced by ``_``
+    (``my-app`` -> ``MY_APP_MCP``). Only the REAL process environment is ever
+    consulted for the resulting key (an ``Env`` companion-module default for
+    ``MCP`` is deliberately never read here) -- the trigger must be something
+    a caller can reliably set and have taken effect.
+    """
+    if env is not None:
+        return env.prefix + "MCP"
+    base = _default_mcp_app_name(cls, name)
+    normalized = "".join(ch if ch in _MCP_NAME_ALLOWED else "_" for ch in base.upper())
+    return normalized + "_MCP"
+
+
+def _maybe_serve_mcp_trigger(
+    cls: "_ty.Optional[type]",
+    *,
+    env: object = None,
+    name: "_ty.Optional[str]" = None,
+    core_factory: "_ty.Optional[_ty.Callable[[], object]]" = None,
+) -> "_ty.Optional[int]":
+    """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger
+    (Plan 33 Phase 3, Design Q5); called first thing by both :func:`main`
+    and :func:`duho.runtime.app`, before anything else runs.
+
+    Returns ``None`` when the caller should proceed with its own normal CLI
+    run: the trigger is disabled (``cls``'s own ``_mcp_`` class attribute,
+    default ``True`` -- checked via ``getattr`` so ANY class works, not just
+    a ``Cli``; the variable is then left ENTIRELY untouched, per Design Q7),
+    the variable is unset, or it is set but empty (an explicit "no
+    preference" spelling). Otherwise the variable is REMOVED from
+    ``os.environ`` immediately (so neither this process nor any child it
+    spawns ever sees it again) and either an MCP server ran to completion --
+    returning ITS exit code -- or the value named an unsupported transport,
+    in which case a usage message is printed to stderr and ``2`` is
+    returned. ``argv`` is never consulted in server mode: the whole point of
+    server mode is to serve the CLI's own tool tree, not run one command
+    from it.
+
+    ``core_factory`` -- a zero-arg callable returning either a ``Cmd``/``Cli``
+    class or a ``duho.mcp._ServerCore`` -- lets the caller supply an
+    ``app()``-built tree (:func:`duho.mcp._core_for_app`) instead of the
+    default :func:`duho.mcp._core_for_class(cls)`. ``duho.mcp`` is imported
+    lazily, ONLY inside the branch that actually serves (the value was
+    exactly ``"stdio"``) -- a normal run, including one where the variable
+    is merely unset, never imports it (Design Q8).
+    """
+    if not getattr(cls, "_mcp_", True):
+        return None
+    env_name = _mcp_env_var_name(cls, env=env, name=name)
+    raw = _os.environ.pop(env_name, None)
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    value = stripped.lower()
+    if not value:
+        return None
+    if value != "stdio":
+        print(
+            "unsupported MCP transport %r (supported: stdio)" % (stripped,),
+            file=_sys.stderr,
+        )
+        return 2
+
+    from . import mcp as _mcp
+
+    core = core_factory() if core_factory is not None else _mcp._core_for_class(cls)
+    return _mcp.serve(core)
+
+
 def main(
     cls: "type[Args]",
     argv: "_ty.Sequence[str] | None" = None,
@@ -3147,7 +3289,16 @@ def main(
     for ``sys.exit``) passes straight through unchanged. ``Any`` (rather than
     ``object``) keeps ``sys.exit(duho.main(...))`` clean under a strict-mypy
     consumer, since ``sys.exit`` does not accept ``object``.
+
+    **MCP launch trigger** (Plan 33 Phase 3): checked FIRST, before ``argv``
+    is even parsed -- see :func:`_maybe_serve_mcp_trigger`. When the trigger
+    fires this returns the MCP server's own exit code instead of running any
+    command; otherwise nothing about the rest of this function changes.
     """
+    served = _maybe_serve_mcp_trigger(cls)
+    if served is not None:
+        return served
+
     parser = cls._parser_(_inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)
     instance = parser.parse_args(argv)
@@ -3162,7 +3313,16 @@ def main(
             f"build one with duho.command(...)) to run it"
         )
 
-    result = _maybe_await(run())
+    # Recorded so `duho.mcp.serve_running_app` (called from within a
+    # dispatched command, e.g. a `duho.mcp.McpCmd` an app registered under
+    # its own name) can serve THIS SAME already-built class tree -- reusing
+    # `cls` costs nothing here; `duho.mcp._core_for_class(cls)` reuses its
+    # own tree cache when it's actually asked for.
+    token = _compat._MCP_CONTEXT.set(("class", cls))
+    try:
+        result = _maybe_await(run())
+    finally:
+        _compat._MCP_CONTEXT.reset(token)
     return 0 if result is None else result
 
 

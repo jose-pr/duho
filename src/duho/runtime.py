@@ -47,6 +47,7 @@ import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
 
+from . import _compat as _compat
 from . import logging as _duho_logging
 from . import parsers as _parsers
 from .args import (
@@ -57,6 +58,7 @@ from .args import (
     _escape_description as _escape_description,
     _escape_help as _escape_help,
     _maybe_await as _maybe_await,
+    _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
     _resolve_config_dict as _resolve_config_dict,
     _setup_instance_logging as _setup_instance_logging,
@@ -410,6 +412,75 @@ def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":
         for alias in getattr(command, "_parseraliases_", None) or ():
             if alias not in names:
                 names.append(alias)
+    return names
+
+
+def _resolve_mcp_command_name(
+    root: "type | None", mcp_command: "str | bool | None"
+) -> "str | None":
+    """Resolve ``app()``'s opt-in MCP subcommand name (Plan 33 Phase 3,
+    Design Q6). ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
+    means "use the class attribute instead" -- including to turn a
+    class-level ``True``/non-empty ``str`` back OFF by passing ``False``
+    explicitly); the class attribute is ``root``'s own ``_mcp_command_``
+    (declared on ``Cli``, default ``False``; ``root=None`` has none).
+
+    Returns ``None`` (no subcommand) for ``False``, the literal ``"mcp"``
+    for ``True``, or the given name for a non-empty ``str`` -- validated
+    here (non-empty, no whitespace, not starting with ``"-"``), raising
+    ``ValueError`` naming the bad value otherwise. Does NOT check for a
+    name collision or "does this root even have another subcommand" --
+    :func:`app` does both once the full resolved command set is known.
+    """
+    value = (
+        mcp_command
+        if mcp_command is not None
+        else getattr(root, "_mcp_command_", False)
+    )
+    if value is False or value is None:
+        return None
+    if value is True:
+        return "mcp"
+    name = str(value)
+    if not name or any(ch.isspace() for ch in name):
+        raise ValueError(
+            "mcp_command=%r is not a valid subcommand name (it must be "
+            "non-empty and contain no whitespace)" % (value,)
+        )
+    if name.startswith("-"):
+        raise ValueError(
+            "mcp_command=%r is not a valid subcommand name (it must not "
+            "start with '-')" % (value,)
+        )
+    return name
+
+
+def _existing_command_names(
+    root: "type | None", resolved_commands: "_ty.Sequence[_Command]"
+) -> "set[str]":
+    """Every name (primary + aliases) already claimed by ``root``'s own
+    static ``_subcommands_`` plus ``resolved_commands`` -- used to reject an
+    ``mcp_command`` name that collides with one of them, the same "every
+    name a command claims" accounting :func:`_full_names` gives
+    :func:`_register_commands`'s own collision handling, just checked
+    up front so a collision is a build-time ``ValueError`` rather than a
+    silent override.
+    """
+    names: "set[str]" = set()
+    for sub in getattr(root, "_subcommands_", None) or ():
+        cmd_name = _command_name(sub)
+        if cmd_name:
+            names.update(_full_names(sub, cmd_name, "class"))
+    for command in resolved_commands:
+        if _is_class_command(command):
+            cmd_name = _command_name(command)
+            kind = "class"
+        elif _is_module_command(command):
+            cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
+            kind = "module"
+        else:  # pragma: no cover - app() itself rejects this shape later
+            continue
+        names.update(_full_names(command, cmd_name, kind))
     return names
 
 
@@ -1434,6 +1505,8 @@ def app(
     config: "str | _Path | None" = None,
     setup_logging: bool = True,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
+    mcp: "bool | None" = None,
+    mcp_command: "str | bool | None" = None,
 ) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
@@ -1515,7 +1588,59 @@ def app(
     ``instance`` the default path would run) is reused rather than re-derived. When
     ``dispatch`` is ``None`` the behavior is byte-identical to calling
     :func:`run_command` directly, so existing callers are unaffected.
+
+    **MCP launch trigger** (Plan 33 Phase 3). Checked FIRST, before ``argv``
+    is parsed or anything else here runs: a ``<PREFIX>MCP``/``<NAME>_MCP``
+    environment variable (name derived from ``env``'s prefix, else from
+    ``root``/``name``/``argv[0]``/``root``'s class name -- see
+    ``duho.args._mcp_env_var_name``) set to ``"stdio"`` serves this app's
+    FULL resolved tree (class and module commands alike) as an MCP server
+    over stdio instead of running any command, returning the server's own
+    exit code. ``mcp=False`` (or ``root``'s own ``_mcp_ = False``) disables
+    this trigger entirely -- the variable, if set, is left untouched and a
+    normal run proceeds. See :func:`duho.args._maybe_serve_mcp_trigger` for
+    the full contract (env var removal, unsupported-transport handling,
+    lazy ``duho.mcp`` import).
+
+    **Opt-in MCP subcommand** (``mcp_command``, Design Q6). ``None`` (the
+    default) uses ``root``'s own ``_mcp_command_`` class attribute
+    (``False`` unless declared); an explicit ``True``/``False``/``str`` here
+    wins over it. See :func:`_resolve_mcp_command_name` for the exact
+    name/validation rules. When resolved to a name, ``duho.mcp.McpCmd`` is
+    registered under it like any other class command -- it goes through the
+    SAME collision/override accounting every other resolved command does
+    (:func:`_register_commands`), except a collision with an EXISTING name
+    is a build-time ``ValueError`` here (an explicit opt-in must not
+    silently lose to it), and it requires this app to already have at least
+    one other subcommand (a subparsers action that would ONLY ever offer
+    ``mcp`` is not a meaningful CLI). ``duho.mcp`` is imported only once a
+    name is actually resolved.
     """
+    root_cls_for_mcp = root if root is not None else _Args
+    mcp_enabled = mcp if mcp is not None else getattr(root_cls_for_mcp, "_mcp_", True)
+    if mcp_enabled:
+
+        def _mcp_core_for_this_app() -> object:
+            from . import mcp as _mcp_module
+
+            return _mcp_module._core_for_app(
+                root,
+                commands=commands,
+                source=source,
+                entry_points=entry_points,
+                argv=argv,
+                name=name,
+                description=description,
+                env=env,
+                config=config,
+            )
+
+        served = _maybe_serve_mcp_trigger(
+            root_cls_for_mcp, env=env, name=name, core_factory=_mcp_core_for_this_app
+        )
+        if served is not None:
+            return served
+
     run = dispatch if dispatch is not None else run_command
     # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
     # Collected rather than logged immediately: at this point in `app()` no
@@ -1529,6 +1654,38 @@ def app(
     resolved_commands = _resolve_commands(
         root, commands, source, env, entry_points, overridden=cmds_path_overridden
     )
+
+    mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
+    if mcp_command_name is not None:
+        has_other_subcommand = bool(resolved_commands) or bool(
+            getattr(root, "_subcommands_", None)
+        )
+        if not has_other_subcommand:
+            raise ValueError(
+                "mcp_command=%r requires this app to already have at least "
+                "one other subcommand" % (mcp_command_name,)
+            )
+        existing_names = _existing_command_names(root, resolved_commands)
+        if mcp_command_name in existing_names:
+            raise ValueError(
+                "mcp_command=%r collides with an existing command name or "
+                "alias" % (mcp_command_name,)
+            )
+        from . import mcp as _mcp_module
+
+        # A dynamic, per-name subclass -- never a shared one -- so two apps
+        # (or the same app registering under two different names across
+        # calls, e.g. in a test) never clash over a class-level
+        # `_parsername_`. Seeds `_duho_constants_` empty like
+        # `_module_args_cls`'s own synthesized class does: `type(...)` gives
+        # this class `__module__` = this module, which has no class named
+        # `_McpCmd` in its OWN source to AST-parse for.
+        mcp_cls = type(
+            "_McpCmd",
+            (_mcp_module.McpCmd,),
+            {"_parsername_": mcp_command_name, "_duho_constants_": {}},
+        )
+        resolved_commands = list(resolved_commands) + [mcp_cls]
 
     parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
         root, name, description, config, argv, resolved_commands
@@ -1549,17 +1706,74 @@ def app(
         parser, subparsers, root_cls, registry, raw_config
     )
 
-    return _run_app(
-        parser,
-        argv,
-        env,
-        setup_logging,
-        root_cls,
-        required_root_actions,
-        cmds_path_overridden,
-        notices,
-        run,
+    # Recorded so `duho.mcp.serve_running_app` (called from within a
+    # dispatched command -- the whole point of the `mcp_command` subcommand
+    # just above, but any command may call it) can serve THIS SAME
+    # already-built tree, with no rediscovery: `parser`/`root_cls` and the
+    # post-parse dispatch closure (env attach, logging, notices, then `run`)
+    # are exactly what this call already resolved. Set only around the
+    # actual dispatch step (`_run_app`), never left behind afterward.
+    mcp_dispatch = _make_post_parse_dispatch(
+        env, root_cls, notices, cmds_path_overridden, run
     )
+    token = _compat._MCP_CONTEXT.set(("app", parser, root_cls, mcp_dispatch))
+    try:
+        return _run_app(
+            parser,
+            argv,
+            env,
+            setup_logging,
+            root_cls,
+            required_root_actions,
+            cmds_path_overridden,
+            notices,
+            run,
+        )
+    finally:
+        _compat._MCP_CONTEXT.reset(token)
+
+
+def _make_post_parse_dispatch(
+    env: "_Env | None",
+    root_cls: type,
+    notices: "list[tuple[int, str]]",
+    cmds_path_overridden: "set[str]",
+    run: "_ty.Callable[[object, object], int]" = run_command,
+) -> "_ty.Callable[[object, object], int]":
+    """Build a ``dispatch(command, instance) -> int`` closure replicating
+    :func:`_run_app`'s POST-parse steps for one already-parsed instance:
+    attaching the resolved ``env`` as ``instance._env_``, logging setup
+    (unconditionally -- every caller of this closure, MCP serving, wants a
+    served command's logging configured regardless of what a NORMAL CLI run
+    of this same app would pass as its own ``setup_logging``), and flushing
+    the deferred override/collision ``notices`` (once total across every
+    call this ONE closure serves, not once per call). Shared by
+    :func:`_build_app_core` (``duho.mcp._core_for_app``'s building block)
+    and :func:`app` itself (which stashes an equivalent closure in
+    ``duho.mcp.serve_running_app``'s context, reusing THIS SAME already-
+    resolved ``env``/``notices``/``cmds_path_overridden`` rather than
+    rebuilding them).
+    """
+    logged = False
+
+    def _dispatch(command: object, instance: object) -> int:
+        nonlocal logged
+        try:
+            instance._env_ = env  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
+            pass
+        _setup_instance_logging(instance, True, root_cls)
+        if not logged:
+            logged = True
+            for overridden_name in sorted(cmds_path_overridden):
+                _LOGGER.info(
+                    "CMDS_PATH command %r overrides the built-in", overridden_name
+                )
+            for level, message in notices:
+                _LOGGER.log(level, message)
+        return run(_ty.cast(_Command, command), instance)
+
+    return _dispatch
 
 
 def _build_app_core(
@@ -1624,28 +1838,5 @@ def _build_app_core(
 
     _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)
 
-    # Notices/overrides are logged once, the first time `dispatch` actually
-    # runs a command -- not once per MCP tool call, and not at all if the
-    # server never dispatches anything (mirrors `app()`'s own "log once
-    # logging is configured" timing, just amortized across every call this
-    # one built parser serves instead of one call per process).
-    logged = False
-
-    def _dispatch(command: object, instance: object) -> int:
-        nonlocal logged
-        try:
-            instance._env_ = env  # type: ignore[attr-defined]
-        except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
-            pass
-        _setup_instance_logging(instance, True, root_cls)
-        if not logged:
-            logged = True
-            for overridden_name in sorted(cmds_path_overridden):
-                _LOGGER.info(
-                    "CMDS_PATH command %r overrides the built-in", overridden_name
-                )
-            for level, message in notices:
-                _LOGGER.log(level, message)
-        return run_command(_ty.cast(_Command, command), instance)
-
-    return parser, root_cls, _dispatch
+    dispatch = _make_post_parse_dispatch(env, root_cls, notices, cmds_path_overridden)
+    return parser, root_cls, dispatch

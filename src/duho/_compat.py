@@ -3,6 +3,7 @@
 Centralizes all version-specific logic and fallbacks.
 """
 
+import contextvars as _contextvars
 import logging as _logging
 import sys as _sys
 import types as _types
@@ -12,6 +13,21 @@ import typing as _ty
 UNION_ORIGINS: tuple = (
     _ty.Union,
     *([_types.UnionType] if hasattr(_types, "UnionType") else []),
+)
+
+#: The currently-dispatching app's MCP-serving context, set by
+#: ``duho.main``/``duho.app`` around their own dispatch step so
+#: ``duho.mcp.serve_running_app`` (called from within a dispatched command,
+#: e.g. ``McpCmd``) can serve the SAME already-built tree, with no
+#: rediscovery. A plain tuple -- ``("class", cls)`` for a static
+#: ``_subcommands_`` tree (``duho.main``), or ``("app", parser, root_cls,
+#: dispatch)`` for a full ``app()`` build -- kept opaque here on purpose:
+#: this module is a leaf (imports nothing internal), so BOTH writers
+#: (``args.main``, ``runtime.app``) and the one reader (``duho.mcp``, which
+#: neither writer may import at module top) can reach it with no circular
+#: import. ``default=None`` means "no app is currently dispatching".
+_MCP_CONTEXT: "_contextvars.ContextVar" = _contextvars.ContextVar(
+    "duho_mcp_context", default=None
 )
 
 #: The one true set of truthy/falsy text tokens: every

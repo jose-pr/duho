@@ -470,6 +470,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   duho's own source; any previously quoted cold/warm ratio predates this
   fix. `compare_cache.py`'s cold-vs-warm summary line direction is corrected
   (it previously read backwards).
+- A subcommand's `--help`/usage no longer lists its `_parseraliases_` inside
+  the `{...}` choices brace (e.g. `{create,c}` is now `{create}`); the row
+  underneath still shows `create (c)` and the alias still dispatches
+  normally. Side effect of the private `_duho_command_` dispatch dest (see
+  below): the brace is now built explicitly from each subcommand's primary
+  name only, to keep the private dest out of argparse's own error text — it
+  never included aliases.
+- The missing-subcommand usage error changed from `... required: command`
+  (0.5.4, the parser's old public `command` dest) to
+  `... required: {build,test,...}` (the explicit choices brace set to keep
+  the new PRIVATE `_duho_command_` dest itself from leaking into the error
+  text instead). `instance.command` no longer existing is an already-
+  documented [minor] break; this is that same change's effect on the error
+  message's wording, not a new one.
 
 ### Fixed
 

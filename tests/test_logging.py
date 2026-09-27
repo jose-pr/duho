@@ -680,3 +680,73 @@ def test_named_loglevel_reaches_a_child_logger_with_its_own_explicit_level():
         logging.getLogger("duho_test_subtree").setLevel(logging.NOTSET)
         logging.getLogger("_SubtreeLoggingApp").setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)
+
+
+# --------------------------------------------------------------------------
+# The subtree walk above must fire ONLY for a name the user explicitly
+# named with `--loglevel`, never for the -v/-q-derived (or bare
+# `--loglevel LEVEL`) entry for the app's own default logger -- that entry
+# is applied on EVERY ordinary dispatch, and 0.5.4 never touched descendants
+# at all. A `NOTSET` child already inherits for free; pinning it breaks
+# hierarchical control (`logging.getLogger("app").setLevel(...)` no longer
+# governing `app.child`). The walk must also never promote a `PlaceHolder`
+# registry entry into a real `Logger` as a side effect.
+# --------------------------------------------------------------------------
+
+
+class _DefaultVerbosityApp(LoggingArgs, Cmd):
+    def __call__(self):
+        return 0
+
+
+def test_default_verbosity_dispatch_does_not_pin_a_notset_descendant():
+    child = logging.getLogger("duho_test_defverbosity.child")
+    assert child.level == logging.NOTSET
+    try:
+        parent = logging.getLogger("duho_test_defverbosity")
+        parent.setLevel(logging.WARNING)
+        parser = _DefaultVerbosityApp._parser_()
+        ns = parser.parse_args([])  # default verbosity: no -v/-q/--loglevel
+        ns._set_loglevels_()
+        # Still NOTSET -- the default-logger entry never forced a level onto
+        # a pre-existing, unrelated descendant.
+        assert child.level == logging.NOTSET
+        assert child.getEffectiveLevel() == logging.WARNING
+        parent.setLevel(logging.ERROR)
+        assert child.getEffectiveLevel() == logging.ERROR
+    finally:
+        child.setLevel(logging.NOTSET)
+        logging.getLogger("duho_test_defverbosity").setLevel(logging.NOTSET)
+        logging.getLogger("_DefaultVerbosityApp").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)
+
+
+def test_named_loglevel_subtree_walk_never_promotes_a_placeholder():
+    # Only the leaf is ever passed to `getLogger` -- "duho_test_placeholder"
+    # and "duho_test_placeholder.mid" register as `PlaceHolder` ancestor
+    # entries in `logging.Logger.manager.loggerDict`, not real `Logger`s.
+    logging.getLogger("duho_test_placeholder.mid.leaf")
+    placeholder_name = "duho_test_placeholder.mid"
+    assert isinstance(
+        logging.Logger.manager.loggerDict[placeholder_name], logging.PlaceHolder
+    )
+    try:
+        parser = _SubtreeLoggingApp._parser_()
+        ns = parser.parse_args(["--loglevel", "duho_test_placeholder:DEBUG"])
+        ns._set_loglevels_()
+        # The explicitly-named logger itself is legitimately promoted to a
+        # real Logger (pre-existing behavior); its untouched descendant
+        # PlaceHolder must not be.
+        assert isinstance(
+            logging.Logger.manager.loggerDict["duho_test_placeholder"],
+            logging.Logger,
+        )
+        assert isinstance(
+            logging.Logger.manager.loggerDict[placeholder_name],
+            logging.PlaceHolder,
+        )
+    finally:
+        logging.getLogger("duho_test_placeholder.mid.leaf").setLevel(logging.NOTSET)
+        logging.getLogger("duho_test_placeholder").setLevel(logging.NOTSET)
+        logging.getLogger("_SubtreeLoggingApp").setLevel(logging.NOTSET)
+        logging.getLogger().setLevel(logging.WARNING)

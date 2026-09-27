@@ -644,6 +644,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   pytest's own capture handler, etc.) — restores 0.5.4's guard, which a later
   change made unconditional. Verbosity (`-v`/`-q`/`--loglevel`) still always
   applies regardless of whether the handler was installed.
+- `--loglevel app:LEVEL` (and any other explicitly-named `--loglevel` entry)
+  still forces its level onto every already-existing `app.*` descendant
+  logger, but the -v/-q-derived (or bare `--loglevel LEVEL`) entry for the
+  app's own default logger no longer does — that entry applies on EVERY
+  ordinary dispatch, and forcing it onto descendants pinned a library's own
+  child loggers (e.g. `logging.getLogger("app.child").setLevel(...)`) after a
+  single in-process dispatch, breaking hierarchical control. The descendant
+  walk also no longer touches a `NOTSET` child (already inherits for free)
+  or promotes a `PlaceHolder` registry entry into a real `Logger`.
 
 ### Removed
 

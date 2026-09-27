@@ -31,6 +31,12 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     ``Cmd`` leaf case).
     """
     loglevels = ns.loglevels.copy()
+    # Names the user EXPLICITLY passed via `--loglevel name:LEVEL` -- captured
+    # before `default_logger` is defaulted in below. Only these get the
+    # descendant-subtree walk; the -v/-q-derived (or bare `--loglevel LEVEL`)
+    # entry for `default_logger` must not force levels onto a library's own
+    # child loggers on every ordinary dispatch (see the walk below).
+    explicit_names = set(loglevels)
     # A bare `--loglevel LEVEL` (parsed as {"": LEVEL}) should raise the
     # app's OWN logger, not just root -- but only when nothing more specific
     # (-v/-q, or an explicit `name:LEVEL` entry for this logger) already
@@ -46,20 +52,45 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     loglevels.setdefault(default_logger, default)
     for name, level in loglevels.items():
         _logging.getLogger(name).setLevel(level)
-        if name:
+        if name and name in explicit_names:
             # Python's logging hierarchy only derives an unset child's
             # EFFECTIVE level from its parent -- a child that already has its
             # OWN explicit level (set by an earlier import, a library, or a
             # previous `--loglevel`) keeps it regardless of what happens to
             # `name` afterwards. `--loglevel app:LEVEL` is documented as
             # applying to the app.* SUBTREE, so also force the level onto
-            # every ALREADY-EXISTING descendant logger, not just ones that
-            # will inherit it for free. (No-op for the bare `""` root-logger
-            # key -- every logger already descends from actual root.)
+            # every ALREADY-EXISTING descendant logger -- but only for a name
+            # the user EXPLICITLY named here (`name in explicit_names`), never
+            # for the `default_logger` entry `setdefault` just injected from
+            # -v/-q or a bare `--loglevel LEVEL`: that entry runs on every
+            # ordinary dispatch, and forcing it onto every already-existing
+            # `app.*` child would pin a library's own hierarchical logging
+            # control (`logging.getLogger("app.child").setLevel(...)`) after
+            # a single in-process dispatch. (No-op for the bare `""`
+            # root-logger key -- every logger already descends from actual
+            # root, and `""` is never in `explicit_names` as a subtree name.)
             prefix = name + "."
-            for existing_name in list(_logging.Logger.manager.loggerDict):
-                if existing_name.startswith(prefix):
-                    _logging.getLogger(existing_name).setLevel(level)
+            logger_dict = _logging.Logger.manager.loggerDict
+            for existing_name in list(logger_dict):
+                if not existing_name.startswith(prefix):
+                    continue
+                # Look up the raw registry entry -- do NOT call
+                # `logging.getLogger(existing_name)` here, which would
+                # PROMOTE a `PlaceHolder` (an as-yet-undeclared ancestor
+                # segment) into a real `Logger` as a side effect of this
+                # walk. Skip anything that isn't already a real `Logger`.
+                existing = logger_dict.get(existing_name)
+                if not isinstance(existing, _logging.Logger):
+                    continue
+                # A child still at NOTSET already inherits its effective
+                # level from its parent for free -- pinning it here is
+                # exactly what breaks that hierarchical control the next
+                # time the library itself calls `.setLevel(...)` on an
+                # ancestor. Only touch a child that already has its OWN
+                # explicit level (matching the comment above).
+                if existing.level == _logging.NOTSET:
+                    continue
+                existing.setLevel(level)
     return loglevels
 
 

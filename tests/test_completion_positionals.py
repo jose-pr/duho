@@ -627,7 +627,7 @@ def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_choices_cannot_run_process_or_command_substitution(tmp_path):
-    """Security (G-S2): `compgen -W`'s word list gets a SECOND, dynamic
+    """Security: `compgen -W`'s word list gets a SECOND, dynamic
     (re-)evaluation at Tab-press, exactly as if the joined candidate string
     had been freshly typed -- process substitution (`<(...)`/`>(...)`) needs
     no leading `$` and used to run at Tab-time even though `$`/backtick/

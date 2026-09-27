@@ -747,7 +747,7 @@ def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
 class McpCmd(_Cmd):
     """Serve the CLI currently being dispatched as an MCP server (stdio).
 
-    A ready-made building block (Plan 33 Phase 3, Design Q6): register a
+    A ready-made building block: register a
     subclass of this under any name to add a self-serving MCP subcommand to
     a CLI, with zero server code of your own -- ``__call__`` just forwards
     to :func:`serve_running_app`. ``duho.app``'s own opt-in ``_mcp_command_``
@@ -1062,7 +1062,7 @@ def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     to a class command AND a module command (an ``app()``-only concept --
     every ``ModuleCommand`` node is itself always a leaf, never a namespace).
     A node whose class is (or subclasses) :class:`McpCmd` -- the self-serving
-    command an ``app()`` may register under any name (Design Q6) -- is
+    command an ``app()`` may register under any name -- is
     likewise skipped (see :func:`_is_mcp_command_node`): serving one MCP
     session from inside a tool call another MCP session made makes no sense.
     """

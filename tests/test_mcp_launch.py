@@ -1,4 +1,4 @@
-"""Tests for launching MCP from the CLI itself (Plan 33 Phase 3).
+"""Tests for launching MCP from the CLI itself.
 
 Two built-in triggers:
 

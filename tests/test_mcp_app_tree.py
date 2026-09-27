@@ -1,4 +1,4 @@
-"""Tests for MCP over an ``app()``-built command tree (Plan 33 Phase 2).
+"""Tests for MCP over an ``app()``-built command tree.
 
 Exercises ``duho.mcp``'s generalized tree walk/schema/dispatch against a
 command set resolved the same way ``duho.app(source=...)`` resolves one:

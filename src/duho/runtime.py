@@ -418,8 +418,8 @@ def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":
 def _resolve_mcp_command_name(
     root: "type | None", mcp_command: "str | bool | None"
 ) -> "str | None":
-    """Resolve ``app()``'s opt-in MCP subcommand name (Plan 33 Phase 3,
-    Design Q6). ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
+    """Resolve ``app()``'s opt-in MCP subcommand name.
+    ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
     means "use the class attribute instead" -- including to turn a
     class-level ``True``/non-empty ``str`` back OFF by passing ``False``
     explicitly); the class attribute is ``root``'s own ``_mcp_command_``
@@ -807,7 +807,7 @@ def _register_module_command(
                 None, f"command {command._parsername_!r}: {exc}"
             ) from exc
 
-    # Stashed for `duho.mcp`'s generalized MCP tool tree (Plan 33 Phase 2):
+    # Stashed for `duho.mcp`'s MCP tool tree:
     # `_duho_module_args_cls_` is the resolved declarative class (``None`` for
     # a module with no ``Args``/only a ``register`` hook), reused for a
     # richer JSON-Schema field mapping than the bare-action fallback;
@@ -1589,7 +1589,7 @@ def app(
     ``dispatch`` is ``None`` the behavior is byte-identical to calling
     :func:`run_command` directly, so existing callers are unaffected.
 
-    **MCP launch trigger** (Plan 33 Phase 3). Checked FIRST, before ``argv``
+    **MCP launch trigger.** Checked FIRST, before ``argv``
     is parsed or anything else here runs: a ``<PREFIX>MCP``/``<NAME>_MCP``
     environment variable (name derived from ``env``'s prefix, else from
     ``root``/``name``/``argv[0]``/``root``'s class name -- see
@@ -1602,7 +1602,7 @@ def app(
     the full contract (env var removal, unsupported-transport handling,
     lazy ``duho.mcp`` import).
 
-    **Opt-in MCP subcommand** (``mcp_command``, Design Q6). ``None`` (the
+    **Opt-in MCP subcommand** (``mcp_command``). ``None`` (the
     default) uses ``root``'s own ``_mcp_command_`` class attribute
     (``False`` unless declared); an explicit ``True``/``False``/``str`` here
     wins over it. See :func:`_resolve_mcp_command_name` for the exact

@@ -3187,8 +3187,8 @@ def _mcp_env_var_name(
     env: object = None,
     name: "_ty.Optional[str]" = None,
 ) -> str:
-    """The environment variable name the MCP launch trigger reads/consumes
-    (Plan 33 Phase 3, Design Q4): ``<PREFIX>MCP`` -- the same key
+    """The environment variable name the MCP launch trigger reads/consumes:
+    ``<PREFIX>MCP`` -- the same key
     ``env.get("MCP")`` would read -- when ``env`` (a :class:`duho.Env`) is
     given; otherwise ``<NAME>_MCP`` derived from :func:`_default_mcp_app_name`,
     upper-cased with every character outside ``[A-Z0-9]`` replaced by ``_``
@@ -3211,14 +3211,14 @@ def _maybe_serve_mcp_trigger(
     name: "_ty.Optional[str]" = None,
     core_factory: "_ty.Optional[_ty.Callable[[], object]]" = None,
 ) -> "_ty.Optional[int]":
-    """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger
-    (Plan 33 Phase 3, Design Q5); called first thing by both :func:`main`
-    and :func:`duho.runtime.app`, before anything else runs.
+    """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger;
+    called first thing by both :func:`main` and :func:`duho.runtime.app`,
+    before anything else runs.
 
     Returns ``None`` when the caller should proceed with its own normal CLI
     run: the trigger is disabled (``cls``'s own ``_mcp_`` class attribute,
     default ``True`` -- checked via ``getattr`` so ANY class works, not just
-    a ``Cli``; the variable is then left ENTIRELY untouched, per Design Q7),
+    a ``Cli``; the variable is then left ENTIRELY untouched),
     the variable is unset, or it is set but empty (an explicit "no
     preference" spelling). Otherwise the variable is REMOVED from
     ``os.environ`` immediately (so neither this process nor any child it
@@ -3235,7 +3235,7 @@ def _maybe_serve_mcp_trigger(
     default :func:`duho.mcp._core_for_class(cls)`. ``duho.mcp`` is imported
     lazily, ONLY inside the branch that actually serves (the value was
     exactly ``"stdio"``) -- a normal run, including one where the variable
-    is merely unset, never imports it (Design Q8).
+    is merely unset, never imports it.
     """
     if not getattr(cls, "_mcp_", True):
         return None
@@ -3290,7 +3290,7 @@ def main(
     ``object``) keeps ``sys.exit(duho.main(...))`` clean under a strict-mypy
     consumer, since ``sys.exit`` does not accept ``object``.
 
-    **MCP launch trigger** (Plan 33 Phase 3): checked FIRST, before ``argv``
+    **MCP launch trigger**: checked FIRST, before ``argv``
     is even parsed -- see :func:`_maybe_serve_mcp_trigger`. When the trigger
     fires this returns the MCP server's own exit code instead of running any
     command; otherwise nothing about the rest of this function changes.

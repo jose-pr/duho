@@ -87,23 +87,20 @@ class InjectRoot(Cli):
 
 def test_positional_value_that_looks_like_a_flag_is_refused():
     # The value is schema-valid (a list of strings) -- the danger is purely
-    # in how argv synthesis would encode it, so this is a runtime isError,
-    # not a schema-validation InvalidArgumentsError.
-    result = call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a", "--force"]})
-    assert result["isError"] is True
-    assert (
-        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"], "force": True})[
-            "content"
-        ][0]["text"]
-        != result["content"][0]["text"]
-    )
+    # in how argv synthesis would encode it, so this is discovered while
+    # building argv, not by `_validate_arguments` alone. It is still a
+    # malformed-REQUEST problem (a value that cannot be safely encoded at
+    # all), so `call_tool` raises `InvalidArgumentsError` rather than
+    # returning a tool result.
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a", "--force"]})
+    result = call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"], "force": True})
+    assert result.get("isError") is not True
 
 
 def test_positional_double_dash_does_not_leak_into_passthrough():
-    result = call_tool(
-        InjectRoot, "InjectRoot.Rm", {"files": ["a", "--"], "force": False}
-    )
-    assert result["isError"] is True
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a", "--"], "force": False})
 
 
 def test_option_value_starting_with_dash_is_not_reparsed_as_a_flag():
@@ -114,8 +111,8 @@ def test_option_value_starting_with_dash_is_not_reparsed_as_a_flag():
 
 
 def test_option_value_equal_to_double_dash_is_refused():
-    result = call_tool(InjectRoot, "InjectRoot.Note", {"text": "a", "title": "--"})
-    assert result["isError"] is True
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(InjectRoot, "InjectRoot.Note", {"text": "a", "title": "--"})
 
 
 def test_dict_field_key_and_value_survive_verbatim():
@@ -125,6 +122,32 @@ def test_dict_field_key_and_value_survive_verbatim():
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
     assert payload == {"env": "prod-1", "tier": "-x"}
+
+
+# --------------------------------------------------------------------------
+# An unbounded list/dict argument is refused before it is ever synthesized
+# into argv or dispatched -- an LLM-controlled collection has no other
+# bound, and a huge one can stall the single-threaded stdio server.
+# --------------------------------------------------------------------------
+
+
+def test_oversized_list_argument_is_refused_before_dispatch():
+    with pytest.raises(InvalidArgumentsError, match="maxItems"):
+        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"] * 1001})
+
+
+def test_oversized_dict_argument_is_refused_before_dispatch():
+    with pytest.raises(InvalidArgumentsError, match="maxProperties"):
+        call_tool(
+            InjectRoot,
+            "InjectRoot.LabelSet",
+            {"labels": {str(i): "v" for i in range(1001)}},
+        )
+
+
+def test_list_argument_at_exactly_the_cap_is_accepted():
+    result = call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"] * 1000})
+    assert result.get("isError") is not True
 
 
 # --------------------------------------------------------------------------
@@ -205,25 +228,20 @@ def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
     # Matches the reviewer's `opt_app.py`: an omitted optional positional
     # ("path") used to absorb the "HijackLeaf" separator token, shifting
     # "HijackDanger" (the client's OWN "name" value) into the root's
-    # subparsers slot and actually running HijackDanger instead.
-    result = call_tool(
-        HijackOptRoot, "HijackOptRoot.HijackLeaf", {"name": "HijackDanger"}
-    )
-    assert result.get("isError") is True
-    assert (
-        "HijackDanger" not in result["content"][0]["text"]
-        or "ran" not in result["content"][0]["text"]
-    )
+    # subparsers slot and actually running HijackDanger instead. Caught here
+    # by the ancestor-sibling-name value guard, which raises
+    # `InvalidArgumentsError` outright (before parsing) rather than letting
+    # it reach the dispatch-identity check.
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(HijackOptRoot, "HijackOptRoot.HijackLeaf", {"name": "HijackDanger"})
 
 
 def test_variadic_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
     # Matches the reviewer's `inj_app.py`: a variadic ("tags") positional
     # greedily ate the separator token the same way, dispatching
     # HijackDanger (with ITS OWN default field) instead of HijackLeaf.
-    result = call_tool(
-        HijackTagsRoot, "HijackTagsRoot.HijackLeaf", {"name": "HijackDanger"}
-    )
-    assert result.get("isError") is True
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(HijackTagsRoot, "HijackTagsRoot.HijackLeaf", {"name": "HijackDanger"})
 
 
 def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
@@ -232,12 +250,12 @@ def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
     # outright, before parsing, even though the same string ALSO happens to
     # be a nested subcommand name elsewhere in the tree (HijackMid's own
     # child), proving the guard is scoped to this one level's choices.
-    result = call_tool(
-        HijackCollisionRoot,
-        "HijackCollisionRoot.HijackLeaf",
-        {"path": "HijackDanger", "name": "x"},
-    )
-    assert result.get("isError") is True
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(
+            HijackCollisionRoot,
+            "HijackCollisionRoot.HijackLeaf",
+            {"path": "HijackDanger", "name": "x"},
+        )
 
 
 def test_normal_dispatch_through_an_optional_ancestor_positional_still_works():
@@ -250,6 +268,69 @@ def test_normal_dispatch_through_an_optional_ancestor_positional_still_works():
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
     assert payload == {"ran": "HijackLeaf", "name": "ok"}
+
+
+# --------------------------------------------------------------------------
+# The SAME class reachable from two different places in the tree defeats a
+# `type(instance) is node.cls` check alone -- it is true either way. Only a
+# dispatch-path marker recorded on the actual subparser reached (not just
+# the requested one) can tell a hijack apart from a legitimate dispatch,
+# including when NO value collides with any subcommand name at all (the
+# hijack comes purely from an omitted optional positional).
+# --------------------------------------------------------------------------
+
+
+class SharedLeaf(Cmd):
+    """Registered under both a nested group AND directly at the root."""
+
+    def __call__(self):
+        return {"ran": "SharedLeaf"}
+
+
+class SharedGroup(Cmd):
+    """A namespace node nesting the shared leaf."""
+
+    gflag: str = "group-default"
+    "g"
+    ("--gflag",)
+
+    _subcommands_ = [SharedLeaf]
+
+
+class SharedClassRoot(Cli):
+    """Root with an optional positional ahead of subcommands, one of which
+    nests the SAME leaf class the root ALSO exposes directly."""
+
+    path: str = "."
+    "an optional positional"
+    ("path",)
+
+    _subcommands_ = [SharedGroup, SharedLeaf]
+
+
+def test_shared_class_reached_via_the_wrong_nesting_is_refused():
+    # No value collides with any subcommand name here (`arguments` is
+    # empty) -- omitting "path" lets the literal "SharedGroup" token this
+    # module inserts get swallowed by the root's own optional positional,
+    # shifting the ROOT'S OWN direct "SharedLeaf" subcommand into the slot
+    # instead of descending into SharedGroup first. `type(instance) is
+    # node.cls` alone would pass (SharedLeaf either way); only the
+    # dispatch-path marker distinguishes "ran via SharedGroup" from "ran
+    # directly at the root".
+    result = call_tool(SharedClassRoot, "SharedClassRoot.SharedGroup.SharedLeaf", {})
+    assert result.get("isError") is True
+    assert "did not resolve to the requested command" in result["content"][0]["text"]
+
+
+def test_shared_class_reached_via_the_right_nesting_still_works():
+    # The fix must not break the legitimate path to the SAME shared class.
+    result = call_tool(
+        SharedClassRoot,
+        "SharedClassRoot.SharedGroup.SharedLeaf",
+        {"gflag": "x"},
+    )
+    assert result.get("isError") is not True
+    assert json.loads(result["content"][0]["text"]) == {"ran": "SharedLeaf"}
 
 
 # --------------------------------------------------------------------------
@@ -1077,6 +1158,70 @@ def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_
     assert b"IMPORT-TIME-NOISE" in proc.stderr
 
 
+def test_subprocess_thread_still_running_after_import_does_not_corrupt_the_protocol_stream(
+    tmp_path,
+):
+    # Distinct from `test_subprocess_import_time_output_does_not_corrupt_the_
+    # protocol_stream` above: that write happens DURING import and is caught
+    # by redirecting fd 1 for the duration of resolution. THIS write comes
+    # from a background thread STARTED at import time that keeps running
+    # AFTER import returns -- an earlier fix resolved `<app>` behind a
+    # temporary redirect that was restored right after import finished,
+    # before `main()` handed off to `serve()`, which only THEN took real
+    # stdio over for the protocol channel. A thread still running in that
+    # gap could write straight into the client-facing pipe ahead of the
+    # first protocol response.
+    # The daemon thread runs for well under the time the command itself
+    # takes to return, so it has always finished on its own by the time the
+    # process starts shutting down -- CPython's interpreter finalization
+    # racing an ACTIVELY WRITING daemon thread is its own (unrelated, and on
+    # Windows sometimes fatal) hazard that would otherwise make this test
+    # flaky for a reason that has nothing to do with the regression it is
+    # checking for.
+    app_file = tmp_path / "racy_import_app.py"
+    app_file.write_text(
+        "import threading, time\n"
+        "from duho import Cli, Cmd\n"
+        "\n"
+        "def _spam():\n"
+        "    for _ in range(200):\n"
+        "        print('RACE-PRINT')\n"
+        "        time.sleep(0.001)\n"
+        "\n"
+        "threading.Thread(target=_spam, daemon=True).start()\n"
+        "\n"
+        "class Hi(Cmd):\n"
+        '    """Says hi."""\n'
+        "    def __call__(self):\n"
+        "        time.sleep(0.5)\n"
+        '        print("hi")\n'
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """Racy-at-import app."""\n'
+        "    _subcommands_ = [Hi]\n",
+        encoding="utf-8",
+    )
+    proc = _run_subprocess_app(
+        app_file,
+        "racy_import_app:App",
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "App.Hi", "arguments": {}},
+            },
+        ],
+    )
+    assert proc.returncode == 0, proc.stderr
+    lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+    # Every stdout line must be valid JSON -- the racing thread's output must
+    # have landed on stderr, never spliced into the protocol stream.
+    responses = [json.loads(ln) for ln in lines]
+    assert responses[0]["id"] == 1
+
+
 def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
     tmp_path,
 ):
@@ -1129,17 +1274,27 @@ def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
 def test_argument_error_text_has_no_ansi_escapes_under_force_color(monkeypatch):
     monkeypatch.setenv("FORCE_COLOR", "1")
 
-    class NeedsArg(Cmd):
-        """Requires a field."""
+    class ConflictingFlags(Cmd):
+        """Two flags that cannot both be set."""
 
-        required_field: str
-        "no default"
-        ("--required-field",)
+        gzip: "Arg[bool, NS(conflicts='compression')]" = False
+        "one compression choice"
+        ("--gzip",)
+
+        zstd: "Arg[bool, NS(conflicts='compression')]" = False
+        "the other compression choice"
+        ("--zstd",)
 
         def __call__(self):  # pragma: no cover
             return 0
 
-    result = call_tool(NeedsArg, "NeedsArg", {})
+    # Both flags are individually schema-valid (each just a boolean), so this
+    # is refused by argparse's own mutually-exclusive-group enforcement at
+    # PARSE time, not by `_validate_arguments` -- still exercising the
+    # ANSI-color-muting path this test is actually about.
+    result = call_tool(
+        ConflictingFlags, "ConflictingFlags", {"gzip": True, "zstd": True}
+    )
     assert result["isError"] is True
     assert "\x1b" not in result["content"][0]["text"]
 

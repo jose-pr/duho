@@ -205,6 +205,29 @@ def test_dict_field_is_object_with_additional_properties():
     assert labels["default"] == {}
 
 
+# --------------------------------------------------------------------------
+# Every array/object schema publishes a size cap -- an LLM-controlled
+# collection has no other bound, and an unbounded one can stall the
+# single-threaded stdio server (see `_validate_arguments`'s enforcement).
+# --------------------------------------------------------------------------
+
+
+def test_list_field_publishes_max_items():
+    assert _props()["tags"]["maxItems"] == 1000
+
+
+def test_set_field_publishes_max_items():
+    assert _props()["ports"]["maxItems"] == 1000
+
+
+def test_tuple_field_publishes_max_items():
+    assert _props()["coords"]["maxItems"] == 1000
+
+
+def test_dict_field_publishes_max_properties():
+    assert _props()["labels"]["maxProperties"] == 1000
+
+
 def test_list_field_is_repeatable_and_required_when_no_default():
     # `tags` has no explicit default -> duho still gives list fields an
     # implicit [] default (never required).
@@ -309,6 +332,14 @@ def test_counting_flag_publishes_a_maximum():
     props = _props(CountingFlag)
     assert props["verbose"]["maximum"] == 10
     assert props["quiet"]["maximum"] == 10
+
+
+def test_counting_flag_publishes_a_minimum_of_zero():
+    # The CLI itself only ever accumulates upward -- a negative count has no
+    # meaning, so it is bounded below the same way it is bounded above.
+    props = _props(CountingFlag)
+    assert props["verbose"]["minimum"] == 0
+    assert props["quiet"]["minimum"] == 0
 
 
 def test_non_counting_int_field_has_no_maximum():

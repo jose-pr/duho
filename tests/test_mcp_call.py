@@ -15,7 +15,7 @@ import typing as ty
 import pytest
 
 from duho import Arg, Cli, Cmd, NS
-from duho.mcp import UnknownToolError, call_tool
+from duho.mcp import InvalidArgumentsError, UnknownToolError, call_tool
 
 
 class Color(enum.Enum):
@@ -98,7 +98,8 @@ class Boom(Cmd):
 
 
 class BadArgs(Cmd):
-    """Has a required field, called with none supplied -> argparse usage error."""
+    """Has a required field, called with none supplied -> a missing required
+    property is caught by schema validation, before argparse ever runs."""
 
     required_field: str
     "no default"
@@ -160,6 +161,14 @@ def test_enum_field_synthesizes_member_name():
     result = _call("Greet", {"name": "ada", "color": "GREEN"})
     text = result["content"][0]["text"]
     assert "GREEN" in text
+
+
+def test_enum_field_value_outside_the_published_enum_raises():
+    # A value that is schema-VALID by JSON type (a string) but not one of
+    # the published member names is a malformed request, caught before
+    # dispatch rather than left to argparse's own "invalid choice" error.
+    with pytest.raises(InvalidArgumentsError, match="PURPLE"):
+        _call("Greet", {"name": "ada", "color": "PURPLE"})
 
 
 def test_int_field_synthesized_and_repeats_output():
@@ -248,13 +257,15 @@ def test_raised_exception_is_error_not_a_crash():
 
 
 # --------------------------------------------------------------------------
-# Argument-parsing failure (SystemExit from argparse)
+# A missing required property is a malformed REQUEST, not a broken command --
+# call_tool raises so `serve()` can map it to a JSON-RPC -32602 error
+# response instead of a tool result (same classification as an unknown tool).
 # --------------------------------------------------------------------------
 
 
-def test_missing_required_argument_is_error():
-    result = _call("BadArgs", {})
-    assert result["isError"] is True
+def test_missing_required_argument_raises_invalid_arguments_error():
+    with pytest.raises(InvalidArgumentsError, match="required_field"):
+        _call("BadArgs", {})
 
 
 # --------------------------------------------------------------------------
@@ -409,3 +420,80 @@ def test_logging_handler_is_rebound_to_each_calls_own_capture():
 
     for handler in tagged:
         assert not isinstance(handler.stream, io.StringIO)
+
+
+# --------------------------------------------------------------------------
+# A negative counting-flag value is rejected before dispatch, not left to
+# synthesize a nonsensical argv
+# --------------------------------------------------------------------------
+
+
+def test_negative_count_raises_invalid_arguments_error():
+    from duho import LoggingArgs
+
+    class Loud(LoggingArgs, Cmd):
+        """Exposes -v/-q counting flags."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class LoudToolbox(Cli):
+        """Root."""
+
+        _subcommands_ = [Loud]
+
+    with pytest.raises(InvalidArgumentsError, match="verbose"):
+        call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": -1})
+
+
+# --------------------------------------------------------------------------
+# Passthrough over MCP: a dedicated "--" array property, appended as a
+# literal `--` token at the very end of the synthesized argv, restores what
+# a positional value embedding a literal "--" used to do before that became
+# unsafe to allow (see the module docstring's "Documented v1 limitations").
+# --------------------------------------------------------------------------
+
+
+class Passer(Cmd):
+    """Forwards trailing args."""
+
+    def __call__(self):
+        return {"passthrough": self._passthrough_}
+
+
+class PasserToolbox(Cli):
+    """Root."""
+
+    _subcommands_ = [Passer]
+
+
+def test_passthrough_key_reaches_the_command_as_passthrough():
+    result = call_tool(
+        PasserToolbox, "PasserToolbox.Passer", {"--": ["-k", "test_foo", "-x"]}
+    )
+    assert result.get("isError") is not True
+    import json
+
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["passthrough"] == ["-k", "test_foo", "-x"]
+
+
+def test_omitted_passthrough_key_is_an_empty_list():
+    result = call_tool(PasserToolbox, "PasserToolbox.Passer", {})
+    import json
+
+    assert json.loads(result["content"][0]["text"])["passthrough"] == []
+
+
+def test_passthrough_key_is_published_on_every_tool_and_never_required():
+    from duho.mcp import describe_tools
+
+    for tool in describe_tools(PasserToolbox):
+        schema = tool["inputSchema"]
+        assert schema["properties"]["--"]["type"] == "array"
+        assert "--" not in schema["required"]
+
+
+def test_passthrough_items_must_be_strings():
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(PasserToolbox, "PasserToolbox.Passer", {"--": [1, 2]})

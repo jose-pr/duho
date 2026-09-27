@@ -716,6 +716,22 @@ def _zsh_seg(raw: str) -> str:
     return f"{safe}_{digest}"
 
 
+def _zsh_root_func_name(root_prog: str) -> str:
+    """A collision-resistant zsh ROOT function-name base for ``root_prog``,
+    mirroring `_bash_func_name`/`_fish_func_name`'s hashing.
+
+    Every nested funcid is built as ``_<this>__<seg>...`` (see
+    `_zsh_funcid`), so leaving this base unhashed meant two progs that
+    sanitise to the same identifier (`my-app`/`my.app`/`my_app` -> `my_app`)
+    still collided on EVERY function the emitter defines for them, not just
+    the root one -- `_zsh_seg`'s per-segment hash only protects a nested
+    node from colliding with a SIBLING under the same (already-shared) root.
+    """
+    safe = _func_name(root_prog)
+    digest = _hashlib.sha1(root_prog.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"{safe}_{digest}"
+
+
 def _zsh_funcid(func: str, path: "tuple[str, ...]") -> str:
     """The zsh function name for the node at ``path``: ``_<func>`` for the
     root, ``_<func>__<seg1>__<seg2>...`` for a nested node."""
@@ -753,11 +769,14 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     choice and positional message is escaped for zsh's SECOND (dynamic)
     evaluation via `_zsh_word` before being wrapped in `_sq` for the first:
     a value containing `$(...)`, `;`, or a colon can no longer run code or
-    break the spec at Tab-time.
+    break the spec at Tab-time. The root function name itself is hashed
+    (`_zsh_root_func_name`), matching `_bash_func_name`/`_fish_func_name`, so
+    two progs that sanitise to the same identifier (`my-app`/`my.app`) never
+    collide -- every nested function name is built on top of this root name.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
-    func = _func_name(root_prog)
+    func = _zsh_root_func_name(root_prog)
 
     lines: "list[str]" = []
     lines.append(f"#compdef {root_prog}")

@@ -514,7 +514,7 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
                 value = builder.convert_layered(
                     placeholder.raw, source=placeholder.kind
                 )
-            except (TypeError, ValueError) as exc:
+            except Exception as exc:
                 # Neither the raw value nor a generic conversion exception's
                 # own text is echoed back: either can itself carry whatever
                 # secret the env var or config value held (e.g. a leaked
@@ -523,6 +523,15 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
                 # expected shape only. A choices violation is the one
                 # exception: its message never carries the value either
                 # (see `_layered_error_detail`), so it is shown as-is.
+                #
+                # Deliberately `Exception`, not just `(TypeError, ValueError)`:
+                # a field's own `type=` factory is arbitrary caller code and
+                # can raise ANYTHING -- `argparse.ArgumentTypeError` (argparse's
+                # own documented idiom for a `type=` callable) is not a
+                # `ValueError` subclass, and a mapping-lookup factory
+                # (`TABLE.__getitem__`) raises `KeyError`; either one used to
+                # propagate this raw exception (and the secret value inside
+                # its message) straight to CLI stderr or an MCP result.
                 what = (
                     f"environment variable {builder.env!r} for field {name!r}"
                     if placeholder.kind == "env"
@@ -696,7 +705,7 @@ def _apply_default_layers_one(
     for name, raw in _raw_config_values(cls, config_table).items():
         try:
             merged[name] = builders_by_name[name].convert_layered(raw, source="config")
-        except (TypeError, ValueError) as exc:
+        except Exception as exc:
             # Neither the raw value nor a generic conversion exception's own
             # text is echoed: either can carry whatever secret the config
             # value held. A choices violation is the one exception (see
@@ -709,6 +718,12 @@ def _apply_default_layers_one(
             # `_apply_default_layers_one`'s own docstring) but not by every
             # caller (`duho.parse`/`duho.main`'s deferred path never lets
             # this reach an uncaught exception at all).
+            #
+            # Deliberately `Exception`, not just `(TypeError, ValueError)`:
+            # see the matching comment in `_finalize_layers` above -- a
+            # field's own `type=` factory can raise anything, and an
+            # uncaught one here was an uncaught traceback (the raw value
+            # included) straight to CLI stderr.
             raise ValueError(
                 f"config value for field {name!r} on {cls.__name__}: "
                 f"{_layered_error_detail(builders_by_name[name], exc)}"
@@ -719,9 +734,10 @@ def _apply_default_layers_one(
         builder = builders_by_name[name]
         try:
             merged[name] = builder.convert_layered(raw, source="env")
-        except (TypeError, ValueError) as exc:
-            # Same redaction as above -- the env var itself could be secret
-            # -- and the same `from None` reason.
+        except Exception as exc:
+            # Same redaction (and the same reason for `Exception`) as above
+            # -- the env var itself could be secret -- and the same
+            # `from None` reason.
             raise ValueError(
                 f"environment variable {builder.env!r} for field {name!r}: "
                 f"{_layered_error_detail(builder, exc)}"

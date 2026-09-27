@@ -70,6 +70,26 @@ def main(args):
 '''
 
 
+_MODULE_CMD_WITH_KEYERROR_FACTORY = '''\
+"""Deploy something using a mapped region."""
+from duho import Arg, Args, NS
+
+REGIONS = {"us": "us-east-1"}
+
+
+class Args(Args):
+    region: Arg[
+        str, NS(env="DUHO_TEST_MODULE_CMD_KEYERROR_REGION", type=REGIONS.__getitem__)
+    ] = "us"
+    "Region"
+    ("--region",)
+
+
+def main(args):
+    return 0
+'''
+
+
 class Root(duho.LoggingArgs, duho.Cmd):
     """A root command supplying global options."""
 
@@ -171,3 +191,31 @@ def test_module_command_placeholder_still_shows_the_class_default(
     assert "live-value" not in out
     assert "(default: cls)" in out
     assert "(default: None)" not in out
+
+
+# --------------------------------------------------------------------------
+# A module command's own type= factory can raise ANYTHING, not just
+# TypeError/ValueError -- and it is attacker-controlled input (an env var)
+# reaching it, so neither the raw value nor the factory's own exception text
+# must ever surface, whether as a raw traceback or inside a redacted message.
+# --------------------------------------------------------------------------
+
+
+def test_module_command_keyerror_factory_env_value_never_leaks_and_never_tracebacks(
+    tmp_path, monkeypatch, capsys
+):
+    # Mirrors the reviewer's `am.py`/`regmod.py`: a mapping-lookup `type=`
+    # factory (`REGIONS.__getitem__`) raises `KeyError`, not `ValueError` --
+    # before the fix this propagated as an UNCAUGHT KeyError with the raw
+    # env value both in its own message and printed in the traceback,
+    # crashing every invocation of the module command (including `-h`).
+    monkeypatch.setenv("DUHO_TEST_MODULE_CMD_KEYERROR_REGION", "hunter2-PASSWORD")
+    _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_KEYERROR_FACTORY)
+    with pytest.raises(SystemExit) as excinfo:
+        app(Root, source=tmp_path, argv=["-h"], setup_logging=False)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "hunter2-PASSWORD" not in err
+    assert "Traceback" not in err
+    assert "KeyError" not in err
+    assert "usage:" in err

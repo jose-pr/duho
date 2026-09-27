@@ -667,6 +667,76 @@ def test_config_bound_field_is_satisfied_without_an_explicit_argument(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# A field's own type= factory can raise ANYTHING -- an env-bound secret must
+# never surface in the MCP result text, whichever exception the factory
+# chooses to raise.
+# --------------------------------------------------------------------------
+
+_LEAK_REGIONS = {"us": "us-east-1"}
+
+
+class KeyErrorFactoryTool(Cmd):
+    """A field whose ``type=`` is a mapping lookup -- raises ``KeyError``."""
+
+    region: "Arg[str, NS(env='DUHO_MCP_TEST_KEYERROR_REGION', type=_LEAK_REGIONS.__getitem__)]" = ("us")
+    "Region"
+    ("--region",)
+
+    def __call__(self):
+        return {"region": self.region}
+
+
+def _leak_parse_token(value: str) -> str:
+    import argparse
+
+    if not value.startswith("tok_"):
+        raise argparse.ArgumentTypeError("%r is not a valid token" % value)
+    return value
+
+
+class ArgumentTypeErrorFactoryTool(Cmd):
+    """A ``type=`` factory raising ``argparse.ArgumentTypeError`` -- NOT a
+    ``ValueError`` subclass."""
+
+    token: (
+        "Arg[str, NS(env='DUHO_MCP_TEST_ARGTYPEERROR_TOKEN', type=_leak_parse_token)]"
+    ) = "tok_default"
+    "API token"
+    ("--token",)
+
+    def __call__(self):
+        return {"token": self.token}
+
+
+def test_mcp_result_never_leaks_a_secret_from_a_keyerror_factory(monkeypatch):
+    # Mirrors the reviewer's `ke_app.py`/`ke_run.py`: before the fix, the
+    # deferred KeyError propagated uncaught out of `root_parser.parse_args`,
+    # was caught only by `call_tool`'s own generic `except Exception`, and
+    # THAT handler formatted the raw exception (secret included) straight
+    # into the `isError` text.
+    monkeypatch.setenv("DUHO_MCP_TEST_KEYERROR_REGION", "hunter2-PASSWORD")
+    result = call_tool(KeyErrorFactoryTool, "KeyErrorFactoryTool", {})
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "hunter2-PASSWORD" not in text
+    assert "Traceback" not in text
+    assert "environment variable 'DUHO_MCP_TEST_KEYERROR_REGION'" in text
+
+
+def test_mcp_result_never_leaks_a_secret_from_an_argumenttypeerror_factory(
+    monkeypatch,
+):
+    # Mirrors the reviewer's `ate_app.py`/`ate_run.py`.
+    monkeypatch.setenv("DUHO_MCP_TEST_ARGTYPEERROR_TOKEN", "S3CRET-ENV-VALUE")
+    result = call_tool(ArgumentTypeErrorFactoryTool, "ArgumentTypeErrorFactoryTool", {})
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "S3CRET-ENV-VALUE" not in text
+    assert "Traceback" not in text
+    assert "environment variable 'DUHO_MCP_TEST_ARGTYPEERROR_TOKEN'" in text
+
+
+# --------------------------------------------------------------------------
 # A command's own sys.exit()/SystemExit never kills the server
 # --------------------------------------------------------------------------
 

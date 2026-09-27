@@ -76,6 +76,67 @@ def test_bad_config_value_message(tmp_path, capsys):
 
 
 # --------------------------------------------------------------------------
+# A field's own type= factory can raise ANYTHING -- not just TypeError/
+# ValueError -- and neither the raw value nor the factory's own exception
+# text must ever reach the message, since either can carry a secret env
+# value.
+# --------------------------------------------------------------------------
+
+_REGIONS = {"us": "us-east-1", "eu": "eu-west-1"}
+
+
+class _KeyErrorFactoryArgs(Args):
+    """A mapping-lookup ``type=`` factory -- raises ``KeyError``, which is
+    neither ``TypeError`` nor ``ValueError``."""
+
+    region: Arg[str, NS(env="DUHO_T5_REGION", type=_REGIONS.__getitem__)] = "us"
+    "Region"
+    ("--region",)
+
+
+def test_bad_env_value_from_keyerror_factory_is_redacted(monkeypatch, capsys):
+    monkeypatch.setenv("DUHO_T5_REGION", "hunter2-PASSWORD")
+    with pytest.raises(SystemExit) as excinfo:
+        duho.parse(_KeyErrorFactoryArgs, [])
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
+    assert re.search(r"environment variable 'DUHO_T5_REGION' for field 'region'", msg)
+    assert "hunter2-PASSWORD" not in msg
+    assert "Traceback" not in msg
+    assert "usage:" in msg
+
+
+def _parse_token(value: str) -> str:
+    # argparse's own documented idiom for a `type=` callable.
+    import argparse
+
+    if not value.startswith("tok_"):
+        raise argparse.ArgumentTypeError("%r is not a valid token" % value)
+    return value
+
+
+class _ArgumentTypeErrorFactoryArgs(Args):
+    """A ``type=`` factory raising ``argparse.ArgumentTypeError`` -- NOT a
+    ``ValueError`` subclass, unlike most of argparse's own conversions."""
+
+    token: Arg[str, NS(env="DUHO_T5_TOKEN", type=_parse_token)] = "tok_default"
+    "API token"
+    ("--token",)
+
+
+def test_bad_env_value_from_argumenttypeerror_factory_is_redacted(monkeypatch, capsys):
+    monkeypatch.setenv("DUHO_T5_TOKEN", "S3CRET-ENV-VALUE")
+    with pytest.raises(SystemExit) as excinfo:
+        duho.parse(_ArgumentTypeErrorFactoryArgs, [])
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
+    assert re.search(r"environment variable 'DUHO_T5_TOKEN' for field 'token'", msg)
+    assert "S3CRET-ENV-VALUE" not in msg
+    assert "Traceback" not in msg
+    assert "usage:" in msg
+
+
+# --------------------------------------------------------------------------
 # Union multi-factory exhaustion -> "could not convert ... using any of"
 # --------------------------------------------------------------------------
 

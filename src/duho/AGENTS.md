@@ -320,9 +320,11 @@ empty when absent).
 
 ## Environment variables
 
-- **`AGENT_HELP`** — truthy switches `--help`/agent-help output into machine-readable
-  JSON (see "Agent help" below). Falsy tokens: `""`, `0`, `false`, `no`, `off`, `n`, `f`
-  (case-insensitive); anything else counts as on.
+- **`AGENT_HELP`** / **`AGENTS_HELP`** — either truthy switches `--help`/agent-help
+  output into machine-readable JSON (see "Agent help" below). Falsy tokens: `""`, `0`,
+  `false`, `no`, `off`, `n`, `f` (case-insensitive); anything else counts as on. An
+  explicit `_agent_help_env_` on the CLI root replaces both defaults with exactly one
+  variable name (no aliasing).
 - **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
   duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
   command source, a non-strict RunPath step failure, `app`'s advisory `register`
@@ -401,10 +403,14 @@ empty when absent).
 - **`render(spec) -> str`** — serialize a `describe()` dict to its final JSON text
   (`ensure_ascii=True`, indented).
 - **`agent_help_requested(env_name=None, environ=None) -> bool`** — whether the trigger
-  env var (default `AGENT_HELP`) currently requests agent-help mode.
+  env var currently requests agent-help mode. `env_name=None` checks every name in
+  `DEFAULT_ENVS` (either truthy triggers); an explicit `env_name` checks only that one
+  variable.
 - **`SCHEMA`** — the document format tag stamped into every agent-help JSON document
   (currently `"duho/agent-help@1"`), so a consumer can detect the shape and pin to it.
-- **`DEFAULT_ENV`** — the string `"AGENT_HELP"` (the default trigger env var name).
+- **`DEFAULT_ENV`** — the string `"AGENT_HELP"` (the primary default trigger env var name).
+- **`DEFAULT_ENVS`** — `("AGENT_HELP", "AGENTS_HELP")`, the full set of default trigger
+  env var names checked when no `_agent_help_env_` override is set.
 - **No-secrets contract**: neither the agent-help JSON nor the human `--help` output
   (via `DefaultsFormatter`) ever shows a LIVE env/config value as a field's default —
   both show the field's DECLARED class default plus, only when the effective value

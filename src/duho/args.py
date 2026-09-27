@@ -2739,12 +2739,16 @@ class Cli(Cmd):
     #: When ``True``, add the opt-in ``--help-agents`` flag (a detailed,
     #: machine-readable description of the whole CLI for AI agents). Read by
     #: ``_install_agent_help`` (``args.py``); defaults off. Independent of the
-    #: always-on ``AGENT_HELP`` env-var trigger, which needs no opt-in.
+    #: always-on ``AGENT_HELP``/``AGENTS_HELP`` env-var trigger, which needs
+    #: no opt-in.
     _agent_help_: bool = False
 
     #: Environment variable whose truthy value flips ``--help`` into agent mode.
-    #: ``None`` (default) uses :data:`duho.agenthelp.DEFAULT_ENV` (``AGENT_HELP``).
-    #: Read by ``_AgentHelpAction`` (``args.py``) via ``agent_help_requested``.
+    #: ``None`` (default) checks every name in
+    #: :data:`duho.agenthelp.DEFAULT_ENVS` (``AGENT_HELP`` and ``AGENTS_HELP``;
+    #: either truthy triggers). Set explicitly to check exactly that one
+    #: variable instead -- replaces both defaults, no aliasing. Read by
+    #: ``_AgentHelpAction`` (``args.py``) via ``agent_help_requested``.
     _agent_help_env_: "_ty.Optional[str]" = None
 
     #: Optional examples surfaced in the agent-help document. A sequence of

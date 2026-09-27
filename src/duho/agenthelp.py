@@ -9,12 +9,13 @@ mutually-exclusive conflict groups, examples, and exit codes.
 
 **Two triggers, both wired up by ``args.py``:**
 
-* **The ``AGENT_HELP`` environment variable (always on, zero-config).** When it
-  is set to a truthy value, the ordinary ``-h``/``--help`` action emits this
-  agent description instead of the human help. Nothing changes for a normal
-  ``--help`` unless that env var is deliberately set, so default human behavior
-  is byte-identical. The variable name is overridable per-app via the
-  ``_agent_help_env_`` class attribute.
+* **The ``AGENT_HELP``/``AGENTS_HELP`` environment variables (always on,
+  zero-config; either truthy triggers).** When one is set to a truthy value,
+  the ordinary ``-h``/``--help`` action emits this agent description instead
+  of the human help. Nothing changes for a normal ``--help`` unless one of
+  these env vars is deliberately set, so default human behavior is
+  byte-identical. Both defaults are replaced (no aliasing) by an explicit
+  ``_agent_help_env_`` class attribute naming a single variable.
 * **An opt-in ``--help-agents`` flag.** Set ``_agent_help_ = True`` on the CLI
   root to add a discoverable flag that always emits the agent description,
   regardless of the environment.
@@ -55,6 +56,7 @@ if _ty.TYPE_CHECKING:
 __all__ = [
     "SCHEMA",
     "DEFAULT_ENV",
+    "DEFAULT_ENVS",
     "agent_help_requested",
     "describe",
     "describe_parser",
@@ -69,6 +71,11 @@ SCHEMA = "duho/agent-help@1"
 #: Default environment variable that switches ``--help`` into agent mode.
 DEFAULT_ENV = "AGENT_HELP"
 
+#: Both env var names checked when no ``_agent_help_env_`` override is set
+#: (either truthy triggers agent help). An explicit ``_agent_help_env_``
+#: replaces both -- no aliasing once a caller names their own variable.
+DEFAULT_ENVS = (DEFAULT_ENV, "AGENTS_HELP")
+
 _NOT_DEFINED = _introspect.NOT_DEFINED
 
 _DEFAULT_EXIT_CODES = {
@@ -79,21 +86,29 @@ _DEFAULT_EXIT_CODES = {
 }
 
 
-def agent_help_requested(
-    env_name: "str | None" = None, environ: "_ty.Mapping[str, str] | None" = None
-) -> bool:
-    """True when the trigger env var (default ``AGENT_HELP``) is set truthy.
-
-    ``env_name`` defaults to :data:`DEFAULT_ENV`; ``environ`` defaults to
-    ``os.environ`` (injectable for tests). An unset variable is False; a set
-    variable is True unless its stripped/lowercased value is one of
-    :data:`duho._compat.BOOL_FALSE`.
-    """
-    environ = _os.environ if environ is None else environ
-    raw = environ.get(env_name or DEFAULT_ENV)
+def _truthy(raw: "str | None") -> bool:
     if raw is None:
         return False
     return raw.strip().lower() not in _compat.BOOL_FALSE
+
+
+def agent_help_requested(
+    env_name: "str | None" = None, environ: "_ty.Mapping[str, str] | None" = None
+) -> bool:
+    """True when a trigger env var is set truthy.
+
+    ``env_name`` explicit (e.g. an app's ``_agent_help_env_`` override) checks
+    only that one variable -- no aliasing once a caller names their own.
+    ``env_name`` left ``None`` checks every name in :data:`DEFAULT_ENVS`
+    (``AGENT_HELP`` and ``AGENTS_HELP``); either truthy triggers agent help.
+    ``environ`` defaults to ``os.environ`` (injectable for tests). An unset
+    variable is False; a set variable is True unless its stripped/lowercased
+    value is one of :data:`duho._compat.BOOL_FALSE`.
+    """
+    environ = _os.environ if environ is None else environ
+    if env_name is not None:
+        return _truthy(environ.get(env_name))
+    return any(_truthy(environ.get(name)) for name in DEFAULT_ENVS)
 
 
 def _render_type(tp) -> str:

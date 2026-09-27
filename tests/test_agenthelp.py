@@ -2,8 +2,9 @@
 
 Two triggers, one emitter:
 
-* the always-on ``AGENT_HELP`` env var flips ``-h``/``--help`` into a detailed,
-  machine-readable JSON description (human help is byte-identical when unset);
+* the always-on ``AGENT_HELP``/``AGENTS_HELP`` env vars (either truthy) flip
+  ``-h``/``--help`` into a detailed, machine-readable JSON description (human
+  help is byte-identical when both are unset);
 * the opt-in ``--help-agents`` flag emits the same document unconditionally.
 
 The document is built by walking the *built* parser tree and enriching each
@@ -26,6 +27,7 @@ import pytest
 import duho
 from duho import Arg, Cli, Cmd, LoggingArgs, NS
 from duho.agenthelp import (
+    DEFAULT_ENVS,
     SCHEMA,
     agent_help_requested,
     describe,
@@ -439,6 +441,75 @@ def test_agent_help_requested_falsey(value):
 
 def test_agent_help_requested_unset():
     assert agent_help_requested(environ={}) is False
+
+
+def test_default_envs_tuple():
+    assert DEFAULT_ENVS == ("AGENT_HELP", "AGENTS_HELP")
+
+
+def test_agent_help_requested_agents_help_alias_truthy():
+    assert agent_help_requested(environ={"AGENTS_HELP": "1"}) is True
+
+
+def test_agent_help_requested_agents_help_alias_falsey():
+    assert agent_help_requested(environ={"AGENTS_HELP": "0"}) is False
+
+
+def test_agent_help_requested_both_set_truthy():
+    assert agent_help_requested(environ={"AGENT_HELP": "1", "AGENTS_HELP": "1"}) is True
+
+
+def test_agent_help_requested_either_truthy_triggers():
+    # AGENT_HELP off, AGENTS_HELP on -> still triggers (either truthy).
+    assert agent_help_requested(environ={"AGENT_HELP": "0", "AGENTS_HELP": "1"}) is True
+    # AGENT_HELP on, AGENTS_HELP off -> still triggers.
+    assert agent_help_requested(environ={"AGENT_HELP": "1", "AGENTS_HELP": "0"}) is True
+
+
+def test_agent_help_requested_neither_set():
+    assert (
+        agent_help_requested(environ={"AGENT_HELP": "0", "AGENTS_HELP": "0"}) is False
+    )
+
+
+def test_agent_help_requested_explicit_env_name_ignores_defaults():
+    # An explicit env_name checks ONLY that variable -- no aliasing to either
+    # default, even when one of them is set truthy in the same environ.
+    assert (
+        agent_help_requested(
+            "MY_AGENT_HELP", environ={"AGENT_HELP": "1", "AGENTS_HELP": "1"}
+        )
+        is False
+    )
+    assert (
+        agent_help_requested(
+            "MY_AGENT_HELP", environ={"MY_AGENT_HELP": "1", "AGENT_HELP": "0"}
+        )
+        is True
+    )
+
+
+def test_custom_env_var_agents_help_alias_does_not_trigger(monkeypatch, capsys):
+    """An explicit ``_agent_help_env_`` replaces BOTH defaults -- ``AGENTS_HELP``
+    set truthy must not trigger agent help for an app with its own override."""
+
+    class CustomAliasApp(Cli):
+        """Custom env app, alias check."""
+
+        _agent_help_env_ = "MY_AGENT_HELP"
+        _subcommands_ = [Deploy]
+
+    monkeypatch.delenv("AGENT_HELP", raising=False)
+    monkeypatch.delenv("MY_AGENT_HELP", raising=False)
+    monkeypatch.setenv("AGENTS_HELP", "1")
+    parser = CustomAliasApp._parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--help"])
+    # Human help rendered (not the JSON agent document) -- AGENTS_HELP alone
+    # does not trigger an app that declared its own _agent_help_env_.
+    out = capsys.readouterr().out
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
 
 
 def test_custom_env_var_name(monkeypatch, capsys):

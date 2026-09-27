@@ -1677,7 +1677,11 @@ def test_lifecycle_module_setup_is_visible_to_step_imports(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_duplicate_step_name_warns_resilient(tmp_path, caplog):
+def test_duplicate_step_name_errors_even_when_not_strict(tmp_path):
+    """Two ENABLED steps with the same name always raise -- not only under
+    `--rcopts strict` -- since silently dropping one from the ordering graph
+    would leave a REQUIRED/BEFORE/AFTER dependent resolved against whichever
+    file happened to be kept."""
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
@@ -1689,15 +1693,8 @@ def test_duplicate_step_name_warns_resilient(tmp_path, caplog):
     _write_step(steps, "50-x.py", _record_step("x", results))
     _write_step(steps, "90-setup.py", _record_step("setup90", results))
 
-    with caplog.at_level("WARNING", logger="duho"):
-        ran, _ = _run(steps)
-    names = [s for s in ran]
-    # Only the FIRST "setup" file is kept in the ordering graph; the second
-    # is skipped with a warning naming both files, so REQUIRED is honored.
-    assert "setup10" in names
-    assert "x" in names
-    assert "setup90" not in names
-    assert any("duplicate step name" in rec.message for rec in caplog.records)
+    with pytest.raises(ValueError, match="duplicate step name"):
+        _run(steps)
 
 
 def test_duplicate_step_name_errors_strict(tmp_path):

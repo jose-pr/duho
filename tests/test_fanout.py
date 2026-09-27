@@ -241,9 +241,14 @@ def test_filter_does_not_raise_immediately_on_malformed_record():
     )
     token = current_target.set("t")
     try:
-        assert fanout.TargetPrefixFilter().filter(record) is True
+        result = fanout.TargetPrefixFilter().filter(record)
     finally:
         current_target.reset(token)
+    # True pre-3.12 (the record is tagged in place); a LogRecord (a shallow,
+    # tagged copy) on 3.12+ -- see TargetPrefixFilter's own docstring.
+    assert result is True or isinstance(result, logging.LogRecord)
+    if isinstance(result, logging.LogRecord):
+        record = result
 
     # The deferred renderer still surfaces the real error once something
     # actually calls it (a handler's formatter would be protected by its own
@@ -353,9 +358,11 @@ def test_tagged_record_attribute_follows_duho_naming_convention():
     record = logging.LogRecord("x", logging.INFO, __file__, 1, "hi", (), None)
     token = current_target.set("t")
     try:
-        fanout.TargetPrefixFilter().filter(record)
+        result = fanout.TargetPrefixFilter().filter(record)
     finally:
         current_target.reset(token)
+    if isinstance(result, logging.LogRecord):
+        record = result
     assert getattr(record, "_duho_target_tagged_", False) is True
 
 
@@ -372,10 +379,12 @@ def _tagged_record(msg="hello %s", args=("a",), target="a"):
     record = logging.LogRecord("x", logging.INFO, __file__, 1, msg, args, None)
     token = current_target.set(target)
     try:
-        fanout.TargetPrefixFilter().filter(record)
+        result = fanout.TargetPrefixFilter().filter(record)
     finally:
         current_target.reset(token)
-    return record
+    # Pre-3.12 the record is tagged and returned in place; 3.12+ returns a
+    # tagged copy instead (see TargetPrefixFilter's own docstring).
+    return result if isinstance(result, logging.LogRecord) else record
 
 
 def test_tagged_record_survives_pickle_dumps_directly():
@@ -512,6 +521,68 @@ def test_each_target_line_carries_its_prefix(capture_handler):
     run_targets(func, ["alpha", "beta"])
     assert "[alpha] working on alpha" in capture_handler.messages
     assert "[beta] working on beta" in capture_handler.messages
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 12),
+    reason="handler-local filter isolation needs the 3.12+ filter-returns-record API",
+)
+def test_unfiltered_handler_never_sees_the_prefix_on_3_12_plus():
+    """A handler on the same logger that never had TargetPrefixFilter added
+    must see the record exactly as emitted -- not a target it never asked
+    about. Before this fix the filter tagged the record IN PLACE, and
+    `logging` shares one record object across every handler of a logger, so
+    an unfiltered sibling handler saw the `[target]` prefix too."""
+    log = logging.getLogger("duho.fanout_isolation")
+    log.propagate = False
+    log.setLevel(logging.INFO)
+    tagged = _CapturingHandler()
+    tagged.addFilter(fanout.TargetPrefixFilter())
+    plain = _CapturingHandler()
+    log.addHandler(tagged)
+    log.addHandler(plain)
+    try:
+        token = current_target.set("host1")
+        try:
+            log.info("x=%s", 5)
+        finally:
+            current_target.reset(token)
+    finally:
+        log.removeHandler(tagged)
+        log.removeHandler(plain)
+    assert tagged.messages == ["[host1] x=5"]
+    assert plain.messages == ["x=5"]
+
+
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="documents the pre-3.12 limitation the filter-returns-record API fixes",
+)
+def test_unfiltered_handler_sees_the_prefix_before_3_12():
+    """Documented limitation: before 3.12 the stdlib's Filterer only ever
+    treats a filter's return value as true/false, so there is no way to hand
+    different handlers different copies of the record -- the tag is set on
+    the one shared record in place, and a sibling handler with no filter of
+    its own still sees it."""
+    log = logging.getLogger("duho.fanout_isolation_legacy")
+    log.propagate = False
+    log.setLevel(logging.INFO)
+    tagged = _CapturingHandler()
+    tagged.addFilter(fanout.TargetPrefixFilter())
+    plain = _CapturingHandler()
+    log.addHandler(tagged)
+    log.addHandler(plain)
+    try:
+        token = current_target.set("host1")
+        try:
+            log.info("x=%s", 5)
+        finally:
+            current_target.reset(token)
+    finally:
+        log.removeHandler(tagged)
+        log.removeHandler(plain)
+    assert tagged.messages == ["[host1] x=5"]
+    assert plain.messages == ["[host1] x=5"]
 
 
 def test_filter_removed_after_run_no_leak(capture_handler):

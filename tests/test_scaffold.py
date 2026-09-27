@@ -300,6 +300,22 @@ def test_non_ascii_python_is_rejected(tmp_path):
         generate_launchers("myapp", tmp_path, python="pythön")
 
 
+def test_libdir_with_backslash_is_rejected(tmp_path):
+    """A trailing (or any) backslash used to be accepted and baked verbatim
+    into the POSIX launcher's `libdir="$root/{libdir}"` line, where it either
+    escapes the closing quote or is misread as a path separator -- either way
+    the emitted `sh` script does not parse."""
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir="lib\\")
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, libdir="li\\b")
+
+
+def test_python_with_backslash_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        generate_launchers("myapp", tmp_path, python="py\\")
+
+
 # --------------------------------------------------------------------------
 # POSIX launcher: CDPATH safety
 # --------------------------------------------------------------------------
@@ -335,6 +351,20 @@ def test_cli_reports_overwrite_refusal_without_a_traceback(tmp_path, capsys):
     assert "already exists" in err
     assert "--force" in err
     assert "Traceback" not in err
+
+
+def test_cli_reports_overwrite_refusal_exactly_once(tmp_path, capsys):
+    """The refusal used to be printed twice: the exception message (which
+    already says to pass --force) followed by a second, separate
+    "pass --force" line."""
+    scaffold.main(["demo", "--root", str(tmp_path)])
+    capsys.readouterr()
+
+    scaffold.main(["demo", "--root", str(tmp_path)])
+
+    lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert lines[0].count("--force") == 1
 
 
 # --------------------------------------------------------------------------

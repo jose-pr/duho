@@ -441,9 +441,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `duho.Arg` is now `typing.Annotated` via a real
   `from typing import Annotated as Arg` (the same object at runtime; fixes
   `Arg[...]` failing under mypy). No runtime behavior change.
-- `duho.main`'s documented return type is now `object`, not `int` (it always
-  returned whatever the command returned; the annotation was simply wrong
-  before).
+- `duho.main`/`duho.app`'s documented return type is now `Any`, not `int`
+  (both always returned whatever the selected command returned; the
+  annotation was simply wrong before). Not `object` either: an intermediate
+  `object` annotation broke `sys.exit(duho.main(App))` under a strict-mypy
+  consumer, since `sys.exit` does not accept `object` — `Any` is honest
+  about the pass-through while keeping `sys.exit(...)` clean.
 - `import duho` no longer imports `duho.completion`/`shlex` or
   (transitively, via `duho.discovery`) `importlib.util`/`pkgutil` eagerly;
   all three now load on first actual use, same as `json`/

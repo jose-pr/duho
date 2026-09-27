@@ -33,7 +33,37 @@ def test_arg_is_the_real_typing_annotated():
     assert duho.Arg is typing.Annotated
 
 
+def _return_annotation(func):
+    """Resolve just a function's ``return`` annotation.
+
+    Not ``typing.get_type_hints(func)``: that resolves EVERY parameter's
+    forward-ref string too, and ``duho.app`` has params annotated with
+    names (``_Env``, ``_Path``, ``_Command``) that only exist under
+    ``typing.TYPE_CHECKING`` -- resolving the full signature raises
+    ``NameError`` at runtime for reasons unrelated to the return type.
+    """
+    raw = func.__annotations__["return"]
+    if isinstance(raw, str):
+        return eval(raw, vars(sys.modules[func.__module__]))
+    return raw
+
+
+def test_main_and_app_return_any_for_sys_exit_compat():
+    """``duho.main``/``duho.app`` must be typed ``-> Any``, not ``-> object``
+    or ``-> int``.
+
+    A command's return value passes straight through unchanged when it is
+    not ``None`` (see their docstrings), so ``int`` is inaccurate. ``object``
+    was tried and broke a strict-mypy consumer doing the documented
+    ``sys.exit(duho.main(App))`` -- ``sys.exit`` doesn't accept ``object``.
+    ``Any`` is honest about the pass-through AND keeps ``sys.exit(...)`` clean.
+    """
+    assert _return_annotation(duho.main) is typing.Any
+    assert _return_annotation(duho.app) is typing.Any
+
+
 CONSUMER_SOURCE = textwrap.dedent("""
+    import sys
     from pathlib import Path
 
     import duho
@@ -79,10 +109,14 @@ CONSUMER_SOURCE = textwrap.dedent("""
     reveal_type(builder.command)  # Command, not object
 
     exit_code = duho.app(root=App, commands=[Deploy, Build])
-    reveal_type(exit_code)  # int -- app(commands=[a Cmd subclass, ...])
+    reveal_type(exit_code)  # Any -- a command's return passes through unchanged
 
     tools = dmcp.describe_tools(App)
     reveal_type(tools)  # list[dict[...]]
+
+    # duho.main is typed `-> Any`, not `-> object`, so this must type-check
+    # clean under strict mypy: `sys.exit` does not accept `object`.
+    sys.exit(duho.main(App, []))
     """)
 
 

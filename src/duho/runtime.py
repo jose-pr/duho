@@ -1411,7 +1411,7 @@ def app(
     config: "str | _Path | None" = None,
     setup_logging: bool = True,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
-) -> int:
+) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
     ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
@@ -1471,10 +1471,12 @@ def app(
     dispatched instance as the sandwich-named ``_env_`` handle, so a command can
     read app-wide settings via ``self._env_``.
 
-    The selected command is dispatched via :func:`run_command`; its int return is
+    The selected command is dispatched via :func:`run_command`; its return is
     this function's return (success -> ``0``, a ``main`` returning ``2`` ->
-    ``2``). Discovery is resilient: a single unimportable command drops out with a
-    warning and the rest still run.
+    ``2``, and any OTHER non-``None`` value a command returns passes straight
+    through unchanged -- hence the ``Any`` return type, not ``int``). Discovery
+    is resilient: a single unimportable command drops out with a warning and
+    the rest still run.
 
     **The ``dispatch`` seam.** ``app`` owns discovery, parser build, command
     registration, config/env thread-down, parsing, and logging setup. The final

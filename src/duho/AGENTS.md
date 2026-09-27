@@ -169,11 +169,12 @@ just its annotation.
 - **`parse_globals(cls, argv=None, *, config=None, **parser_kwargs)`** — parse only the
   root globals, ignoring subcommands (drops the subparsers action before a
   help-suppressed parse). Accepts `config=` mirroring `parse`/`main`.
-- **`main(cls, argv=None, *, setup_logging=True, config=None) -> object`** — build →
-  parse → optional logging setup → run the selected command. Return type is `object`,
+- **`main(cls, argv=None, *, setup_logging=True, config=None) -> Any`** — build →
+  parse → optional logging setup → run the selected command. Return type is `Any`,
   not `int`: a `None` command result maps to exit code `0`, but any other value the
   command returns passes straight through unchanged (an `IntEnum` member works
-  directly as a distinct exit code). Dispatching a bare data `Args` (no `__call__`)
+  directly as a distinct exit code). `Any` (not `object`) keeps `sys.exit(duho.main(...))`
+  type-clean under a strict-mypy consumer. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
   in `LoggingArgs`, logging is still set up under the root's own command name — a
@@ -181,7 +182,9 @@ just its annotation.
   plain-`Cmd` leaf.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
-  dispatch=None) -> int`** — multi-command runner. Base command-set precedence:
+  dispatch=None) -> Any`** — multi-command runner (return type is `Any`, not `int`,
+  for the same reason as `main`: a command's non-`None`, non-`int` return value
+  passes straight through). Base command-set precedence:
   `commands` > `discover_commands(source)` > `discover_entry_points(entry_points)` >
   `root._subcommands_` (only when NONE of `commands`/`source`/`entry_points` is given).
   **Additive, not exclusive**: `root`'s own declared `_subcommands_` (and any

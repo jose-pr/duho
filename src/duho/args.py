@@ -3110,7 +3110,7 @@ def main(
     *,
     setup_logging: bool = True,
     config: "str | _pathlib.Path | None" = None,
-) -> object:
+) -> "_ty.Any":
     """Build a parser for cls, parse argv, and dispatch the selected Cmd.
 
     Module-level (not a classmethod) so the Args subclass namespace stays
@@ -3128,9 +3128,11 @@ def main(
     no ``__call__`` -- raises a clear ``NotImplementedError`` ("Args holds data;
     make it a Cmd to run it") rather than silently doing nothing.
 
-    Typed ``-> object``, not ``-> int``: a ``None`` result maps to ``0``, but
+    Typed ``-> Any``, not ``-> int``: a ``None`` result maps to ``0``, but
     any OTHER value the command returns (an ``int``, or anything else destined
-    for ``sys.exit``) passes straight through unchanged.
+    for ``sys.exit``) passes straight through unchanged. ``Any`` (rather than
+    ``object``) keeps ``sys.exit(duho.main(...))`` clean under a strict-mypy
+    consumer, since ``sys.exit`` does not accept ``object``.
     """
     parser = cls._parser_(_inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)

@@ -31,9 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   command itself (a raised exception, a non-zero exit, `sys.exit`) is
   still reported as an `isError: true` tool result, not an exception.
 - **`duho.completion.spec(parser, prog=None) -> CompletionSpec`** — public
-  completion-spec builder. Shell completion now supports **PowerShell** as a
-  fourth shell alongside bash/zsh/fish. An `Enum`-typed field now offers its
-  member names as completion candidates. An option or subcommand hidden via
+  completion-spec builder (bash/zsh/fish/PowerShell already shared its
+  private predecessor). An `Enum`-typed field now offers its member names as
+  completion candidates. An option or subcommand hidden via
   `help=argparse.SUPPRESS` is no longer offered by any of the four completion
   scripts.
 - `duho.print_completion`, `duho.parser`, and `duho.parse` accept an explicit
@@ -76,16 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   gates run on every release. GitHub Pages deploys are now owned entirely by
   the docs workflow (including on a published release); the release workflow
   only gates on a strict docs build.
-- **[minor]** `DUHO_TRACEBACK=n`/`=f` are now read as "off" (they used to
+- `DUHO_TRACEBACK=n`/`=f` are now read as "off" (they used to
   enable tracebacks) — the traceback-toggle env var now shares its
   truthy/falsy token table with every other boolean in the framework.
 - `Env.bool` now strips whitespace before matching and shares its truthy
   table with the rest of duho, instead of a separately hand-kept copy.
-- **[minor]** `bool` is no longer accepted as a CLI text factory wherever it
+- `bool` is no longer accepted as a CLI text factory wherever it
   appears as a `Literal` member, a `Union` member, or a `list`/`set`/`tuple`/
   `dict` element/value type — such a value now parses through the same
   strict token table as a plain `bool` field and the env/config layer.
-- **[minor]** A `list[T]`/`set[T]`/`tuple[T, ...]`/`dict[str, V]` element or
+- A `list[T]`/`set[T]`/`tuple[T, ...]`/`dict[str, V]` element or
   value type now goes through the full type ladder instead of being
   converted raw: an `Enum` element matches by NAME, a `date`/`datetime`/
   `time` element parses ISO text, and a `Literal` element enforces its
@@ -112,39 +112,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   a `typing.NewType`, or `Annotated`/`Arg[...]` nested inside a `Union`),
   instead of silently misconverting values or crashing with an unrelated
   error.
-- **[minor]** `datetime`/`time` fields now accept a trailing `Z` (RFC 3339's
+- `datetime`/`time` fields now accept a trailing `Z` (RFC 3339's
   UTC marker) on Python 3.9/3.10 too, matching `duho.mcp`'s `format:
   date-time` hint, which already advertised it on every version. A `date`
   field never accepts a trailing `Z` on any version (a date has no time/UTC
   component). A basic, no-dash format (`20240101`) works for `date`/`datetime`
   fields on Python 3.11+ (native `fromisoformat` accepts it there); it
   remains unsupported on 3.9/3.10.
-- **[minor]** An `Enum` field's CLI value now matches against
+- An `Enum` field's CLI value now matches against
   `enum_cls.__members__`, so a declared alias name is accepted, and a `Flag`
   composite member's name is accepted on Python 3.11+ too (previously
   rejected there).
 - A `Literal` of specific `Enum` members (e.g. `Literal[Color.RED,
   Color.BLUE]`) now resolves an input by member NAME, matching the
   `{RED,BLUE}` metavar it already advertised (a name previously raised).
-- **[minor]** A `list`/`dict[str, V]` option's first CLI occurrence now
-  REPLACES a class/env/config/instance default instead of appending/merging
-  onto it, matching how `set`/`tuple` fields already behaved (restores the
-  documented CLI > instance > env > config > class-default ladder). Repeated
-  flags still accumulate as before.
+- A `list`/`dict[str, V]` option's first CLI occurrence now REPLACES a
+  class/env/config/instance default instead of appending/merging onto it,
+  matching how `set`/`tuple` fields already behaved and restoring the
+  documented CLI > instance > env > config > class-default ladder. Repeated
+  flags still accumulate as before. A `duho.Append()`-marked field is
+  unaffected — it always accumulates onto its default, by design.
 - `duho.Extend()` no longer discards a field's declared default when the
   flag is absent, and now composes with the field's own declared element
   type and collection kind instead of forcing a list-only action:
   `Arg[list[int], Extend(",")]` now yields ints, and `Extend()` on a
   `set`/`tuple` field now produces that collection.
-- **[minor]** The documented `NS(nargs="*")` escape hatch on a `list[T]`
+- The documented `NS(nargs="*")` escape hatch on a `list[T]`
   option now actually restores space-separated multi-value input
   (`--x a b` -> `['a', 'b']`). A `list[T]` field made positional via
   `NS(flags=(...))` now correctly accepts multiple values too.
-- **[minor]** A `bool` field that can receive `True` from an env var or a
+- A `bool` field that can receive `True` from an env var or a
   config file now also gets a `--no-*` flag, so it can be turned back off
   from the command line — previously only a `True` class-level default got
   one.
-- **[minor]** A `bool` field defaulting to `True` whose flag already starts
+- A `bool` field defaulting to `True` whose flag already starts
   with `--no-` (or carries an explicit `metavar=`) no longer crashes parser
   construction on Python 3.14+; on every version such a field is now a plain
   `--no-<name>` flag instead of a confusing `--no-<name>`/`--no-no-<name>`
@@ -252,16 +253,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - RunPath step ordering is now a proper stable topological sort; a step
   reordered by `REQUIRED`/`BEFORE`/`AFTER` can no longer jump past unrelated
   later steps.
-- **[minor]** `RunPathCmd.__call__` no longer always returns `0` regardless
-  of step outcomes: a step returning a non-zero `int` is now a failure, and
-  the command's own exit code ranks every step's code by magnitude (the same
-  aggregator `duho.fanout` uses), so a negative step code (e.g. a
-  signal-killed subprocess) is no longer silently hidden behind an earlier or
-  later `0`. A resilient run whose steps all failed non-fatally now returns
-  non-zero instead of always `0`. A step returning a non-zero code under the
-  default strict mode no longer escapes as a generic `ValueError` traceback
-  that lost the actual code; the failure is logged, `__main__.py`'s
-  `finally_` hook still runs, and the step's own code is returned. Breaking
+- `RunPathCmd.__call__` used to always return `0` regardless of step outcomes
+  (0.5.4 ignores every step's return value entirely); a step returning a
+  non-zero `int` is now a failure, and the command's own exit code ranks
+  every step's code by magnitude (the same aggregator `duho.fanout` uses), so
+  a negative step code (e.g. a signal-killed subprocess) is no longer
+  silently hidden behind an earlier or later `0`. A resilient run whose steps
+  all failed non-fatally now returns non-zero instead of always `0`. A step
+  returning a non-zero code under the default strict mode logs the failure,
+  still runs `__main__.py`'s `finally_` hook, and returns that step's own
+  code. Breaking
   an unresolved dependency cycle now forces through the lowest-ranked step
   that is actually part of the cycle, not merely the lowest-ranked stuck step
   overall. A disabled duplicate step file no longer claims a step name ahead
@@ -315,25 +316,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A dict field with a custom `type=` override (e.g. `LoggingArgs.loglevels`,
   `--loglevel app=DEBUG` style) now works when called over MCP instead of
   always failing with an invalid-value error.
-- Logging emitted during an MCP call no longer binds to the first call's
-  capture buffer for the life of the server; each call now captures its own
-  command's log output.
+- Logging emitted by a command dispatched over MCP is now captured and
+  reported; each call's own log output is isolated to that call.
 - A `nargs="+"` positional with a declared default is now correctly
   published as a required property in the tool's schema (it was previously
   advertised as optional).
 - A dispatched command's non-zero `int` return now includes any captured
   stderr text in the `isError` result, not just an "exit code: N" line.
 - A JSON-RPC *batch* request (a JSON array of request objects) is now
-  dispatched element by element instead of being rejected outright; an
+  dispatched element by element instead of crashing the server; an
   empty batch array gets its own `-32600` error.
-- **[minor]** Fan-out's default `aggregate` now ranks a negative exit code
+- Fan-out's default `aggregate` now ranks a negative exit code
   (e.g. a signal-killed subprocess) as a failure instead of a plain `max`
-  hiding it behind a succeeding target. `duho.fanout`'s per-target `[<target>]`
-  log prefix no longer mutates the shared `LogRecord`. **[minor]** the
-  record attribute the prefix filter sets was renamed to
-  `_duho_target_tagged_` (private; no known external reader). A fan-out
-  target's tagged log record is now picklable again, so a `SocketHandler`,
-  `QueueHandler`, or other pickling log handler no longer silently drops it.
+  hiding it behind a succeeding target. On Python 3.12+, `duho.fanout`'s
+  per-target `[<target>]` log prefix no longer mutates the shared
+  `LogRecord` in place, so a handler on the same logger that carries no
+  filter no longer sees the prefix too; the record attribute the prefix
+  filter sets is also renamed to `_duho_target_tagged_` (private; no known
+  external reader). On Python 3.9–3.11 the stdlib gives a `Filter` no way to
+  substitute a per-handler record, so an unfiltered sibling handler still
+  sees the prefix there, same as before.
 - `pysafe` no longer duplicates a trailing replacement symbol, applies
   symbol substitution per dotted part, and now always produces a valid
   identifier. Output changes for inputs containing a leading/trailing
@@ -448,10 +450,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `src/duho/args.py` (`Args`/`Cmd`/`Cli`/`ArgumentBuilder` and public
   functions), `src/duho/_fieldspec.py` (the type-to-argparse-spec ladder),
   and `src/duho/_layers.py` (the env/config/instance layering pipeline).
-  Every existing import path is unchanged; both new modules' cross-module
-  names are re-exported from `args.py`. `duho.mcp`'s JSON-Schema ISO-format
-  type map is now derived from a single shared source instead of a second,
-  independently hand-kept list.
+  Every existing PUBLIC import path is unchanged; the names the two new
+  modules need from each other are re-exported from `args.py` (a private
+  helper that lived on `args.py` before the split is not guaranteed to still
+  be reachable there — it may have moved to `_fieldspec.py`/`_layers.py`).
+  `duho.mcp`'s JSON-Schema ISO-format type map is now derived from a single
+  shared source instead of a second, independently hand-kept list.
 - `bench_startup.py`'s gated end-to-end timing metrics now measure from a
   real temporary `.py` file instead of `python -c`, so they actually
   exercise duho's source-reading path; the old `-c`-based number survives as
@@ -480,7 +484,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   group, and is dropped in favor of a sibling given on the CLI instead of
   coexisting with it. An invalid env/config value belonging to an unselected
   subcommand no longer crashes the whole invocation.
-- **[minor]** A bad env or config value is now reported the same way a bad
+- A bad env or config value is now reported the same way a bad
   CLI value is — usage text and exit code 2 — instead of a raised
   `ValueError`; catch `SystemExit` instead. An env var set to the empty
   string is now treated as unset for every field except a bare `str` field.
@@ -556,7 +560,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   action had no explicit `dest=`.
 - On Python 3.14, `Env.bool`'s own parameter/return annotations no longer
   resolve to the `Env.bool` method itself. Directory-based discovery now
-  supports the documented `_helpers.py` sibling-import convention. Repeated
+  supports a `_helpers.py` sibling-import convention. Repeated
   discovery of an unchanged command file reuses the already-imported module
   instead of re-executing it. A module command's hooks now get the `"duho"`
   fallback logger even when the root has no `LoggingArgs`-based logger.
@@ -586,10 +590,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hook returning a coroutine is now closed immediately and raises `TypeError`
   naming the hook. Passing a non-command object in `app(commands=[...])` now
   raises `TypeError` naming the bad object.
-- A rootless `duho.app(commands=[...])`/`duho.app(source=...)` call (no
-  `root=` given) no longer shows duho's own `Args` base class docstring as
-  its `--help` description; it now shows no description unless one is
-  explicitly passed via `description=`.
 - A `--rcopts` entry carrying an unrecognized token no longer silently
   forces that step strict. Duplicate RunPath step names are now detected
   (warn/error, naming both files). `REQUIRED`/`BEFORE`/`AFTER` given as a

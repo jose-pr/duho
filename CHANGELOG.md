@@ -213,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   app-prefixed `<PREFIX>PATHSEP` instead. The override must be a single
   character other than `/`, `\` or `.`, and while it is in effect every
   segment must be absolute or explicitly relative (`.`, `./dir`); a segment
-  such as the `C` left by splitting `C:	ools` on `:` is rejected instead of
+  such as the `C` left by splitting `C:\tools` on `:` is rejected instead of
   being resolved against the current directory.
 - `Env.__init__` no longer autoloads a companion module for an empty prefix,
   or for a prefix whose normalized form has a character outside

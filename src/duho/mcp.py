@@ -1506,7 +1506,25 @@ def _write_message(stream: object, message: "dict | list") -> None:
     # not-yet-reconfigured real stdout), so every non-ASCII character is
     # escaped to a plain-ASCII `\uXXXX` sequence -- still valid JSON, and
     # correct for any text stream whatsoever.
-    stream.write(json.dumps(message, ensure_ascii=True) + "\n")
+    #
+    # `json.dumps` itself can fail on a pathological response -- a `result`
+    # holding an unserializable object, or a deeply nested structure echoed
+    # back from the request (e.g. its own `id`) that overflows the C
+    # recursion limit `RecursionError` guards. Either way this must still
+    # produce SOME reply line rather than raise out of `serve`'s loop (which
+    # would end the server for every other in-flight/future request), so a
+    # failure here falls back to a minimal, always-serializable error
+    # response instead of the original message.
+    try:
+        text = json.dumps(message, ensure_ascii=True)
+    except Exception:
+        text = json.dumps(
+            _error_response(
+                None, -32603, "internal error: failed to serialise response"
+            ),
+            ensure_ascii=True,
+        )
+    stream.write(text + "\n")
     flush = getattr(stream, "flush", None)
     if callable(flush):
         flush()
@@ -1514,6 +1532,54 @@ def _write_message(stream: object, message: "dict | list") -> None:
 
 def _error_response(req_id: object, code: int, message: str) -> "dict":
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+#: Cap on JSON bracket nesting a single request LINE may contain, checked by
+#: :func:`_line_nesting_exceeds` before the line is ever handed to
+#: `json.loads`. `json`'s C decoder (and `json.dumps` re-encoding a value
+#: parsed that deep) recurses once per nesting level, so an attacker-supplied
+#: line of ``"[" * N + "]" * N`` raises an uncaught `RecursionError` well
+#: below any depth a legitimate MCP request needs -- N in the low thousands
+#: on CPython's default recursion limit, fewer on a build with a smaller
+#: C stack. 64 is far beyond any real tool-call payload's own nesting while
+#: leaving a wide margin under that limit.
+_MAX_JSON_NESTING = 64
+
+
+def _line_nesting_exceeds(line: str, limit: int) -> bool:
+    """Return whether `line`'s ``{``/``[`` nesting depth, OUTSIDE any JSON
+    string literal, exceeds `limit` -- a cheap, non-recursive scan run
+    BEFORE `json.loads` ever sees the line, so a pathologically deep
+    array/object is rejected before any recursive parsing of it begins
+    (rather than caught only after `json.loads` itself has already
+    recursed to the point of raising `RecursionError`, see `serve`).
+
+    A close bracket for an opening this scan never saw (an otherwise
+    malformed line) is ignored here -- `json.loads` still rejects the line
+    on its own merits; this scan's only job is bounding nesting DEPTH.
+    """
+    depth = 0
+    in_string = False
+    escape = False
+    for ch in line:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{" or ch == "[":
+            depth += 1
+            if depth > limit:
+                return True
+        elif ch == "}" or ch == "]":
+            if depth > 0:
+                depth -= 1
+    return False
 
 
 def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
@@ -1692,7 +1758,11 @@ def serve(
     ``-32700`` parse-error response and the loop continues -- a client
     reconnecting or retrying is not required. A line that decodes but fails
     to parse as JSON gets the same ``-32700`` (``id: null`` in both cases --
-    the malformed line's own id, if any, is unrecoverable). A JSON ARRAY
+    the malformed line's own id, if any, is unrecoverable), as does a line
+    whose ``{``/``[`` nesting exceeds :data:`_MAX_JSON_NESTING` -- rejected
+    BEFORE ``json.loads`` ever parses it, since parsing (or later
+    re-encoding) a pathologically deep structure would otherwise raise an
+    uncaught ``RecursionError`` and end the loop. A JSON ARRAY
     (a JSON-RPC 2.0 *batch*) is dispatched element by element; every non-
     notification element's response is collected into ONE reply array
     (never sent at all if the batch was all notifications, per spec), and an
@@ -1749,9 +1819,22 @@ def serve(
         line = line.strip()
         if not line:
             continue
+        if _line_nesting_exceeds(line, _MAX_JSON_NESTING):
+            _write_message(
+                stream_out,
+                _error_response(None, -32700, "parse error: JSON nesting too deep"),
+            )
+            continue
         try:
             request = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
+            # `ValueError` is `json.loads`'s own documented failure
+            # (`JSONDecodeError` is a `ValueError` subclass); `RecursionError`
+            # is not one, and without the nesting check above a deeply
+            # nested line would otherwise raise it uncaught here, ending the
+            # whole `serve` loop -- kept as a second layer of defense in case
+            # some other line shape ever reaches the C decoder's own
+            # recursion limit despite that check.
             _write_message(stream_out, _error_response(None, -32700, "parse error"))
             continue
 

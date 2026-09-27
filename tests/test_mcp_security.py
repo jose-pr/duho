@@ -1335,6 +1335,46 @@ def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
     assert responses[1]["result"]["content"][0]["text"].strip() == "pong"
 
 
+def test_subprocess_deeply_nested_json_line_never_kills_the_server(tmp_path):
+    # A line whose JSON nesting is pathologically deep used to raise an
+    # uncaught RecursionError out of json.loads (not a ValueError, so the
+    # old `except ValueError` around it never caught it), ending the whole
+    # `serve` loop -- every request after it, including this same client's
+    # own next ping, went unanswered. Depth chosen well past the rejection
+    # threshold but still small/fast to encode and send.
+    app_file = tmp_path / "ping_app.py"
+    app_file.write_text(
+        "from duho import Cli, Cmd\n"
+        "\n"
+        "class Ping(Cmd):\n"
+        '    """Replies with an empty result."""\n'
+        "    def __call__(self):\n"
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """App."""\n'
+        "    _subcommands_ = [Ping]\n",
+        encoding="utf-8",
+    )
+    depth = 1000
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode("utf-8"),
+        b"[" * depth + b"]" * depth,
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}).encode("utf-8"),
+    ]
+    proc = _run_subprocess_app(
+        app_file, "ping_app:App", None, input_bytes=b"\n".join(lines) + b"\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    out_lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+    responses = [json.loads(ln) for ln in out_lines]
+    # Both pings answered -- the nested-array line in between gets its own
+    # parse-error response, and the server is still alive right after it.
+    assert [r["id"] for r in responses] == [1, None, 2]
+    assert responses[1]["error"]["code"] == -32700
+    assert responses[2]["result"] == {}
+
+
 # --------------------------------------------------------------------------
 # ANSI escapes from argparse's native color (3.14+) must never reach MCP text
 # --------------------------------------------------------------------------

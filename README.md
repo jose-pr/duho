@@ -1594,10 +1594,58 @@ keep working exactly as before.
 **v1 limitations** (documented, not silently wrong): a custom `action=`/`type=`
 field with no registered override is passed through as a plain string; an
 `NS(conflicts=...)` exclusive group is noted in the tool's description text only (no
-`oneOf`/`not` JSON Schema encoding yet); a *module* command (no duho class behind its
-subparser) can be listed but not called; it's strictly one request → one result, no
+`oneOf`/`not` JSON Schema encoding yet); it's strictly one request → one result, no
 streaming/long-running commands. See [`examples/mcp_app.py`](https://github.com/jose-pr/duho/blob/main/examples/mcp_app.py) for
 a runnable app plus a note on wiring it into an MCP client.
+
+### Serving a full `duho.app()` tree
+
+`describe_tools`/`call_tool`/`serve` also accept a `duho.app()`-built tree — class
+AND module commands, from discovered files, `CMDS_PATH`, entry points, or an
+explicit `commands=` list — not just a class's static `_subcommands_`. A module
+command with its own declared `Args` (or none at all) is listed **and callable**,
+exactly like a class command, through the same one dispatch path and the same
+security checks.
+
+### Launching a server from the CLI itself
+
+No MCP-specific code is required to make an existing CLI servable: every
+`duho.main(cls)`/`duho.app(...)` call checks a launch-trigger environment variable
+*first*, before parsing `argv`:
+
+```console
+$ MYAPP_MCP=stdio myapp
+```
+
+The variable name is `<PREFIX>MCP` when the app supplies an `Env` (`app(env=Env
+("myapp"))` → `MYAPP_MCP`), else `<NAME>_MCP` derived from a declared
+`_parsername_`, `app(name=...)`, the program name, or the class name (upper-cased,
+every character outside `[A-Z0-9]` replaced by `_`). Set to `stdio`, it serves the
+app's full tool tree over stdio instead of running any command; set to anything
+else, the process exits `2` naming the unsupported transport. The variable is
+always removed from `os.environ` the moment it's seen — present or not — so a
+served command's own child processes never inherit it. This is **on by default**;
+disable it with a root class attribute `_mcp_ = False` (on a `Cli`) or
+`app(..., mcp=False)`.
+
+Prefer a real subcommand instead of an env var? `duho.mcp.McpCmd` is a ready `Cmd`
+(`--transport {stdio}`) that serves the CLI it was dispatched from — register it
+under any name, or let `duho.app` do it for you:
+
+```python
+class MyApp(Cli):
+    _mcp_command_ = True  # adds "myapp mcp" (a str instead names it explicitly)
+    _subcommands_ = [Deploy, Rollback]
+```
+
+```console
+$ myapp mcp
+```
+
+`app(..., mcp_command=...)` overrides the class attribute per call. Either form
+requires the app to already have at least one OTHER subcommand, and a chosen name
+that collides with an existing command/alias is a build-time error — both checked
+before anything is registered, never silently swallowed.
 
 ## Examples
 

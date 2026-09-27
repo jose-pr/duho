@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Launch MCP from the CLI itself, with zero app code.** Every
+  `duho.main(cls)`/`duho.app(...)` call now checks a `<PREFIX>MCP` (an
+  `Env(prefix)` app's own prefix) or `<NAME>_MCP` (derived from a declared
+  `_parsername_`, `app(name=...)`, the program name, or the class name)
+  environment variable before parsing `argv`: set to `stdio`, it serves the
+  app's full tool tree over stdio instead of running any command; set to
+  anything else, the process exits `2` naming the unsupported transport. The
+  variable is always removed from `os.environ` the moment it is seen
+  (present or not), so a served command's own child processes never inherit
+  it. On by default; a root class attribute `_mcp_ = False` (declared on
+  `Cli`) or `app(..., mcp=False)` disables it. Neither trigger — nor a normal
+  CLI run in general — imports `duho.mcp` unless it actually fires.
+- **`duho.mcp.McpCmd`** — a ready `Cmd` (`--transport {stdio}`) whose
+  `__call__` calls **`duho.mcp.serve_running_app(transport="stdio")`**,
+  which serves the CLI currently being dispatched (reading the running
+  app's own already-built tree from a context `duho.main`/`duho.app` record
+  around their own dispatch step — no rediscovery). Register an `McpCmd`
+  subclass under any name for a self-serving MCP subcommand, or let
+  `duho.app`'s new opt-in **`_mcp_command_`** class attribute (declared on
+  `Cli`, `Union[str, bool]`, default `False`) / **`mcp_command=`** keyword
+  do it for you: `True` registers it as `"mcp"`, a non-empty `str` registers
+  it under that exact name. Requires the app to already have at least one
+  other subcommand, and a name colliding with an existing command/alias is a
+  build-time `ValueError` — both checked before anything is registered. A
+  node whose class is (or subclasses) `McpCmd` is never itself listed as (or
+  callable as) an MCP tool.
+- **`duho.mcp.describe_tools`/`call_tool`/`serve` now also accept a full
+  `duho.app()`-built tree**, not just a class's static `_subcommands_`: a
+  module command — with its own declared `Args`, or none at all — is listed
+  **and callable** exactly like a class command, through the same one
+  dispatch path and the same security checks (dispatch-path verification,
+  safe argv synthesis, schema validation) the static-tree path already had.
+- **`AGENTS_HELP`** is now accepted alongside `AGENT_HELP` as the env var
+  that flips `--help`/agent-help into machine-readable output — either
+  truthy triggers it. `duho.agenthelp.DEFAULT_ENVS` is the new
+  `("AGENT_HELP", "AGENTS_HELP")` tuple; an explicit `_agent_help_env_`
+  still names exactly one variable, replacing both defaults (no aliasing).
 - **`duho.finish_parse(namespace)`** — builds the real command instance from a
   `Namespace` produced by attaching a duho subparser to a plain, hand-built
   argparse root (the documented "manual subparsers" recipe).

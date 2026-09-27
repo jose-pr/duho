@@ -22,6 +22,7 @@ import argparse as _argparse
 import os as _os
 import sys as _sys
 
+from ._compat import BOOL_TRUE as _BOOL_TRUE
 from .logging import _asicode
 
 __all__ = [
@@ -100,14 +101,19 @@ class DefaultsFormatter(_argparse.HelpFormatter):
 def _color_enabled(stream=None) -> bool:
     """Whether to emit ANSI for help output.
 
-    ``NO_COLOR`` (set to anything) forces color OFF; ``FORCE_COLOR`` (truthy)
-    forces it ON regardless of TTY (the convention the test-suite relies on);
-    otherwise color follows ``stream.isatty()`` (default ``sys.stdout``). Mirrors
-    the discipline duho's logging color machinery uses.
+    ``NO_COLOR`` (set to anything) forces color OFF; ``FORCE_COLOR`` forces it
+    ON regardless of TTY when its value is one of the shared truthy tokens
+    (``_compat.BOOL_TRUE`` -- "1", "true", "yes", "on", "y", "t",
+    case-insensitive) -- the convention the test-suite relies on. An
+    unrecognized value (``FORCE_COLOR=0``/``false``/``no``, or plain
+    garbage) is treated as UNSET, never as an explicit "off": otherwise
+    color follows ``stream.isatty()`` (default ``sys.stdout``). Mirrors the
+    discipline duho's logging color machinery uses.
     """
     if _os.environ.get("NO_COLOR") is not None:
         return False
-    if _os.environ.get("FORCE_COLOR"):
+    force = _os.environ.get("FORCE_COLOR")
+    if force is not None and force.strip().lower() in _BOOL_TRUE:
         return True
     stream = stream if stream is not None else _sys.stdout
     try:

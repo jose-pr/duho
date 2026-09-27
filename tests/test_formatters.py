@@ -169,6 +169,32 @@ def test_no_color_beats_force_color(monkeypatch):
     assert "\033[" not in help_text
 
 
+class _NonTTYStream:
+    def isatty(self):
+        return False
+
+
+@pytest.mark.parametrize("value", ["0", "false", "FALSE", "no", "off", "anything"])
+def test_force_color_unrecognized_value_does_not_force_color(monkeypatch, value):
+    """FORCE_COLOR=0/false/no/garbage must not force color ON: an
+    unrecognized-as-truthy value is treated as UNSET, falling through to the
+    normal TTY check, never as an explicit "off" (which would be
+    indistinguishable from NO_COLOR)."""
+    from duho.formatters import _color_enabled
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", value)
+    assert _color_enabled(_NonTTYStream()) is False
+
+
+def test_force_color_truthy_value_forces_color_on_a_non_tty(monkeypatch):
+    from duho.formatters import _color_enabled
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "yes")
+    assert _color_enabled(_NonTTYStream()) is True
+
+
 # --------------------------------------------------------------------------
 # Colored help never misaligns (pre-3.14) or double-colors (3.14+)
 # --------------------------------------------------------------------------

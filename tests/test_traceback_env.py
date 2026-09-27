@@ -27,15 +27,19 @@ def test_disabled_when_unset(monkeypatch):
     assert traceback_enabled() is False
 
 
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", "anything"])
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", "y", "t"])
 def test_enabled_for_truthy_values(monkeypatch, value):
     monkeypatch.setenv(TRACEBACK_ENV, value)
     assert traceback_enabled() is True
 
 
-@pytest.mark.parametrize("value", ["", "0", "false", "FALSE", "no", "off", "  off  "])
-def test_disabled_for_falsey_values(monkeypatch, value):
-    """An explicitly-off value must not enable tracebacks (incl. an EMPTY value)."""
+@pytest.mark.parametrize(
+    "value", ["", "0", "false", "FALSE", "no", "off", "  off  ", "anything"]
+)
+def test_disabled_for_falsey_or_unrecognized_values(monkeypatch, value):
+    """An explicitly-off value, an EMPTY one, or an unrecognized one must not
+    enable tracebacks -- an unrecognized ``DUHO_TRACEBACK`` value defaults to
+    OFF (the safe reading), never ON."""
     monkeypatch.setenv(TRACEBACK_ENV, value)
     assert traceback_enabled() is False
 

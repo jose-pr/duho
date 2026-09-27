@@ -450,6 +450,18 @@ def test_parse_loglevels_raises_on_an_unresolved_entry():
         parse_loglevels("mod=DEBUG")
 
 
+def test_parse_loglevels_matches_a_lowercase_registered_level_name_exactly():
+    """A level registered under a lowercase (or mixed-case) name via stdlib's
+    own ``logging.addLevelName`` must resolve by its EXACT registered
+    spelling, not only by upper-casing the input -- upper-casing alone never
+    finds a name that was never registered in upper case to begin with."""
+    logging.addLevelName(25, "notice")
+    try:
+        assert parse_loglevels("notice") == {"": 25}
+    finally:
+        logging.addLevelName(25, "Level 25")
+
+
 def test_verbose_and_quiet_accept_their_long_flag_spellings():
     """The header/docstring promised --verbose/--quiet; adding the
     long spellings (rather than correcting the docs) is the chosen fix."""
@@ -518,6 +530,28 @@ def test_add_logging_level_refuses_to_clobber_an_unrelated_stdlib_name():
     # The guard must raise BEFORE mutating anything: stdlib's own
     # `logging.log` is untouched.
     assert logging.log.__module__ == "logging"
+
+
+def test_add_logging_level_refuses_to_clobber_an_unrelated_upper_case_attribute():
+    """A name colliding with an unrelated UPPER-CASE stdlib attribute (never
+    installed by ``add_logging_level`` itself) must raise, not silently
+    no-op -- previously any ``hasattr(logging, NAME)`` hit short-circuited
+    to a bare ``return``, so e.g. ``add_logging_level("BASIC_FORMAT", 44)``
+    silently registered nothing at all."""
+    original = logging.BASIC_FORMAT
+    with pytest.raises(ValueError):
+        add_logging_level("BASIC_FORMAT", 44)
+    assert logging.BASIC_FORMAT == original
+    assert logging.getLevelName(44) != "BASIC_FORMAT"
+
+
+def test_add_logging_level_repeat_call_for_its_own_name_is_a_noop():
+    """Calling ``add_logging_level`` again for a name it ALREADY installed
+    (without ``force``) must stay a harmless no-op, unlike a genuinely
+    unrelated collision."""
+    add_logging_level("REPEATABLE", 24)
+    add_logging_level("REPEATABLE", 24)  # must not raise
+    assert logging.REPEATABLE == 24
 
 
 def test_add_logging_level_force_replaces_an_earlier_duho_level():

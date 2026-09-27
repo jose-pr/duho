@@ -6,7 +6,7 @@ import re as _re
 import sys as _sys
 import typing as _ty
 
-from ._compat import BOOL_FALSE as _BOOL_FALSE
+from ._compat import BOOL_TRUE as _BOOL_TRUE
 from ._compat import get_level_names_mapping
 
 if _ty.TYPE_CHECKING:
@@ -63,6 +63,16 @@ def _asicode(*codes):
 
 _COLOR_NAME_RE = _re.compile(r"^[A-Za-z_]+(\+[A-Za-z_]+)?$")
 
+#: Upper-cased names :func:`add_logging_level` has itself installed on
+#: ``logging`` -- a repeat call for one of these is a harmless idempotent
+#: no-op (unless ``force=True``), while a name colliding with something
+#: ELSE (a plain stdlib attribute like ``logging.BASIC_FORMAT``, never
+#: registered through here) still raises. An int constant (what
+#: ``setattr(logging, NAME, level)`` installs) carries no marker of its own
+#: the way the lower-cased method attributes do (``_duho_level_``), so
+#: ownership is tracked here instead.
+_installed_level_names: "set[str]" = set()
+
 
 def _getcolor(color: str):
     """Resolve a color spec to an ANSI escape sequence.
@@ -109,13 +119,25 @@ def add_logging_level(
     ``logging``/``Logger`` attribute that duho itself did not install --
     guarding both the given ``NAME`` (as before) and its lower-cased method
     name: a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
-    silently replace ``logging.log``/``Logger.exception``.
+    silently replace ``logging.log``/``Logger.exception``. A repeat call for
+    a name duho already installed itself (tracked in
+    :data:`_installed_level_names`) is a harmless no-op either way; a name
+    that collides with something duho did NOT install -- an unrelated stdlib
+    constant like ``logging.BASIC_FORMAT``, not just a level/method name --
+    raises instead of silently no-oping, the same guard the lower-cased
+    check below already gave method names.
     """
     name = name.upper()
     lname = name.lower()
     if not force:
-        if hasattr(_logging, name):
+        if name in _installed_level_names:
             return
+        if hasattr(_logging, name):
+            raise ValueError(
+                f"add_logging_level: {name!r} already exists as a logging "
+                "attribute that duho did not install; pass force=True to "
+                "replace it deliberately"
+            )
         for existing in (
             getattr(_logging, lname, None),
             getattr(_logging.getLoggerClass(), lname, None),
@@ -160,6 +182,7 @@ def add_logging_level(
         DefaultFormatter.COLORS[level] = _getcolor(color)
 
     setattr(_logging, lname, log_root)
+    _installed_level_names.add(name)
     initverbose()
 
 
@@ -240,13 +263,15 @@ def parse_loglevels(
 ) -> "dict[str, int]":
     """Parse a ``[NAME:]LEVEL[,NAME:LEVEL...]`` log level specification.
 
-    ``LEVEL`` is matched case-insensitively against the registered level
-    names (``DEBUG``, ``debug`` and ``Debug`` are all accepted) or may be a
-    plain integer. Surrounding whitespace around a name or level is
-    stripped. An entry that resolves to neither raises
-    ``argparse.ArgumentTypeError`` naming the bad token -- argparse
-    reports this as a normal "invalid value" usage error instead of the
-    entry silently disappearing from the returned mapping.
+    ``LEVEL`` is matched against the registered level names -- first by its
+    EXACT text (so a custom level registered under a lowercase/mixed-case
+    name, e.g. ``logging.addLevelName(25, "notice")``, matches directly),
+    then by its upper-cased form (so the standard ``DEBUG``, ``debug`` and
+    ``Debug`` spellings are all still accepted) -- or may be a plain integer.
+    Surrounding whitespace around a name or level is stripped. An entry that
+    resolves to neither raises ``argparse.ArgumentTypeError`` naming the bad
+    token -- argparse reports this as a normal "invalid value" usage error
+    instead of the entry silently disappearing from the returned mapping.
     """
     levels: dict[str, int] = {}
     levelmapping = get_level_names_mapping()
@@ -260,7 +285,9 @@ def parse_loglevels(
             level_text = level[0].strip()
         name = name.strip()
 
-        resolved = levelmapping.get(level_text.upper())
+        resolved = levelmapping.get(level_text)
+        if resolved is None:
+            resolved = levelmapping.get(level_text.upper())
         if resolved is None:
             if level_text.lstrip("-").isdigit():
                 resolved = int(level_text)
@@ -326,12 +353,15 @@ def init_stderr_logging(
 #: ``str()`` instead logs the full traceback (``exc_info=True``).
 TRACEBACK_ENV = "DUHO_TRACEBACK"
 
-#: Values of :data:`TRACEBACK_ENV` that mean "off" (case-insensitive, after
-#: stripping); an empty/unset variable is off. Anything else enables
-#: tracebacks. The shared ``_compat.BOOL_FALSE`` table, so
-#: an unset/empty variable and every other declared bool field agree on what
-#: "off" means.
-_FALSEY = _BOOL_FALSE
+#: Values of :data:`TRACEBACK_ENV` that mean "on" (case-insensitive, after
+#: stripping) -- the shared ``_compat.BOOL_TRUE`` table, so this and every
+#: other declared bool field agree on what "on" means. An empty/unset
+#: variable, an explicit "off" spelling, AND an unrecognized value are all
+#: off: unlike a declared bool field (which rejects an unrecognized
+#: string), an env var this framework itself only ever reads as a same-
+#: process safety switch defaults unknown input to the SAFER "off" reading
+#: rather than raising.
+_TRUTHY = _BOOL_TRUE
 
 
 def traceback_enabled() -> bool:
@@ -346,7 +376,7 @@ def traceback_enabled() -> bool:
     a stack. A developer debugging *where* a step/command/target actually failed
     exports ``DUHO_TRACEBACK=1`` and gets the traceback for free at every site.
     """
-    return _os.environ.get(TRACEBACK_ENV, "").strip().lower() not in _FALSEY
+    return _os.environ.get(TRACEBACK_ENV, "").strip().lower() in _TRUTHY
 
 
 def log_exception(

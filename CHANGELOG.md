@@ -206,7 +206,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   directory; it is dropped instead. An explicit `"."` segment is still
   honored.
 - A stale/missing/non-directory `CMDS_PATH` entry is now logged at WARNING
-  and skipped instead of crashing every invocation.
+  and skipped instead of crashing every invocation; the other entries are
+  still used.
+- **(security)** **[minor]** The `CMDS_PATH` separator can no longer be
+  overridden by an unprefixed, process-wide `PATHSEP` env var; use the
+  app-prefixed `<PREFIX>PATHSEP` instead. The override must be a single
+  character other than `/`, `\` or `.`, and while it is in effect every
+  segment must be absolute or explicitly relative (`.`, `./dir`); a segment
+  such as the `C` left by splitting `C:	ools` on `:` is rejected instead of
+  being resolved against the current directory.
 - `Env.__init__` no longer autoloads a companion module for an empty prefix,
   or for a prefix whose normalized form has a character outside
   `[A-Za-z0-9_]`. Its companion-module autoload now only swallows the
@@ -481,10 +489,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A bad env or config value is now reported the same way a bad
   CLI value is — usage text and exit code 2 — instead of a raised
   `ValueError`; catch `SystemExit` instead. An env var set to the empty
-  string is now treated as unset for every field except a bare `str` field.
-- A config file whose top level is not a table/object (or a custom
-  `_config_loader_` returning `None`) now raises a clear `ValueError` naming
-  the file. `duho.app()` now threads env/config layering into a class
+  string is now treated as unset, except for a field whose values are plain
+  strings (`str`, `Optional[str]`, or a `Literal`/`Choice` of strings), which
+  keeps `""`.
+- **(security)** An env/config value that fails conversion is never echoed:
+  the error names the variable (or config key), the field and the expected
+  type only. This also holds when the field's own `type=` raises
+  `argparse.ArgumentTypeError`, `KeyError` or any other exception; 0.5.4
+  printed such a value in a traceback.
+- A config file whose top level is not a table/object now raises a clear
+  `ValueError` naming the file (a custom `_config_loader_` returning `None`
+  means "no config"). `duho.app()` now threads env/config layering into a class
   command's own nested `_subcommands_` tree, and into a module command's
   declared `Args` class fields. `duho.app()` now honors a subcommand's
   deliberately redeclared default for a root field, and — for a command

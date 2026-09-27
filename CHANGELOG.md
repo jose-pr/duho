@@ -58,10 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CI now runs on Python 3.14 in addition to 3.9–3.13, with a `black --check`
   formatting gate and a job that installs the built wheel and verifies
   `py.typed`/`README.md`/`AGENTS.md` reached it.
-- `benchmarks/results/` is now tracked and committed (previously gitignored);
-  `benchmarks/README.md` documents the result schema and reproduce commands.
-  Every benchmark script (`run.py`, `bench_startup.py`, `bench_discovery.py`)
-  now supports `--save`/`--json` and emits the same JSON envelope shape.
+- `benchmarks/results/` is no longer gitignored, so saved results can be
+  committed; `benchmarks/README.md` documents the result schema and reproduce
+  commands. `bench_discovery.py` now also supports `--save`/`--json`.
 
 ### Changed
 
@@ -301,8 +300,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `print`) can no longer corrupt the MCP stdio protocol stream; stdio is
   isolated before the target app is even resolved.
 - **(security)** An invalid-UTF-8 request line no longer kills the MCP
-  stdio server process; it is now answered with a JSON-RPC parse error
-  (`-32700`) and the server keeps running.
+  stdio server process on a UTF-8 stdio (the default on Linux and macOS); it
+  is now answered with a JSON-RPC parse error (`-32700`) and the server keeps
+  running.
 - `store_false` and `argparse.BooleanOptionalAction` bool fields (including
   one whose `True` comes from an env/config layer) now round-trip correctly
   over MCP — previously such a field could be inverted (a client asking for
@@ -330,11 +330,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   external reader). On Python 3.9–3.11 the stdlib gives a `Filter` no way to
   substitute a per-handler record, so an unfiltered sibling handler still
   sees the prefix there, same as before.
-- `pysafe` no longer duplicates a trailing replacement symbol, applies
-  symbol substitution per dotted part, and now always produces a valid
-  identifier. Output changes for inputs containing a leading/trailing
-  `+`/`!`/`*`, a leading digit, or other punctuation — e.g. `pysafe("a+")`
-  was `"aplus_plus"`, is now `"a_plus"`.
+- `pysafe` now always produces a valid identifier. Output is unchanged for
+  every input that already produced one; inputs that produced an invalid
+  identifier now differ — e.g. a leading digit is prefixed (`"1abc"` →
+  `"_1abc"`) and a result that is a keyword gets a trailing underscore
+  (`"!"` → `"not_"`).
 - `snakecase` no longer emits a doubled underscore after a separator
   (`snakecase("My-App")` was `"my__app"`, is now `"my_app"`).
 - `expand`/range validation now raises `ValueError` for a reversed,

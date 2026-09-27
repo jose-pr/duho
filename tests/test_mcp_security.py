@@ -1077,6 +1077,70 @@ def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_
     assert b"IMPORT-TIME-NOISE" in proc.stderr
 
 
+def test_subprocess_thread_still_running_after_import_does_not_corrupt_the_protocol_stream(
+    tmp_path,
+):
+    # Distinct from `test_subprocess_import_time_output_does_not_corrupt_the_
+    # protocol_stream` above: that write happens DURING import and is caught
+    # by redirecting fd 1 for the duration of resolution. THIS write comes
+    # from a background thread STARTED at import time that keeps running
+    # AFTER import returns -- an earlier fix resolved `<app>` behind a
+    # temporary redirect that was restored right after import finished,
+    # before `main()` handed off to `serve()`, which only THEN took real
+    # stdio over for the protocol channel. A thread still running in that
+    # gap could write straight into the client-facing pipe ahead of the
+    # first protocol response.
+    # The daemon thread runs for well under the time the command itself
+    # takes to return, so it has always finished on its own by the time the
+    # process starts shutting down -- CPython's interpreter finalization
+    # racing an ACTIVELY WRITING daemon thread is its own (unrelated, and on
+    # Windows sometimes fatal) hazard that would otherwise make this test
+    # flaky for a reason that has nothing to do with the regression it is
+    # checking for.
+    app_file = tmp_path / "racy_import_app.py"
+    app_file.write_text(
+        "import threading, time\n"
+        "from duho import Cli, Cmd\n"
+        "\n"
+        "def _spam():\n"
+        "    for _ in range(200):\n"
+        "        print('RACE-PRINT')\n"
+        "        time.sleep(0.001)\n"
+        "\n"
+        "threading.Thread(target=_spam, daemon=True).start()\n"
+        "\n"
+        "class Hi(Cmd):\n"
+        '    """Says hi."""\n'
+        "    def __call__(self):\n"
+        "        time.sleep(0.5)\n"
+        '        print("hi")\n'
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """Racy-at-import app."""\n'
+        "    _subcommands_ = [Hi]\n",
+        encoding="utf-8",
+    )
+    proc = _run_subprocess_app(
+        app_file,
+        "racy_import_app:App",
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "App.Hi", "arguments": {}},
+            },
+        ],
+    )
+    assert proc.returncode == 0, proc.stderr
+    lines = [ln for ln in proc.stdout.decode("utf-8").splitlines() if ln.strip()]
+    # Every stdout line must be valid JSON -- the racing thread's output must
+    # have landed on stderr, never spliced into the protocol stream.
+    responses = [json.loads(ln) for ln in lines]
+    assert responses[0]["id"] == 1
+
+
 def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
     tmp_path,
 ):

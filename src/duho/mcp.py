@@ -1445,9 +1445,13 @@ def _real_stdio_streams() -> "tuple":
       ``os.read(0, ...)``, gets an immediate EOF on the (now devnull) fd 0
       instead of consuming the client's NEXT request.
 
-    Only used when :func:`serve` is called with neither ``stdin`` nor
-    ``stdout`` injected (the real ``python -m duho.mcp <app>`` path); a test
-    driving ``serve`` over ``io.StringIO`` is unaffected.
+    Called directly by :func:`main` -- **before** it resolves ``<app>`` --
+    so the takeover is already in effect for the whole rest of the process's
+    life by the time anything imports the caller's code (see :func:`main`'s
+    docstring for why the ordering matters). Also reachable as
+    :func:`serve`'s own fallback when a caller invokes it directly with
+    neither ``stdin`` nor ``stdout`` injected; a test driving ``serve`` over
+    ``io.StringIO`` is unaffected either way.
     """
     _sys.stdout.flush()
     proto_in_fd = _os.dup(0)
@@ -1567,46 +1571,33 @@ def serve(
     return 0
 
 
-def _quiet_import(spec: str) -> "type[_Cmd]":
-    """Resolve ``<app>`` (see :func:`_resolve_app`) with the real fd 1
-    temporarily aliased to fd 2.
-
-    :func:`_resolve_app` IMPORTS the ``<app>`` module, which can write to fd
-    1 directly at import time -- a module-level ``print``, ``os.write(1,
-    ...)``, a C extension, a subprocess spawned during import -- before
-    :func:`serve` ever gets a chance to isolate the real stdio fds for the
-    protocol channel (:func:`_real_stdio_streams`, only reached once
-    resolution has already succeeded). Redirecting fd 1 to fd 2 for the
-    DURATION of this one call -- restored immediately after, success or
-    failure, in a ``finally`` -- means any such write lands on stderr
-    instead of corrupting the newline-delimited JSON stream a client is
-    about to start reading from fd 1, without leaving stdio touched at all
-    once this returns: a resolution FAILURE reports the error and exits
-    (:func:`serve` never runs), so nothing here needs to persist.
-    """
-    _sys.stdout.flush()
-    saved_fd1 = _os.dup(1)
-    _os.dup2(2, 1)
-    try:
-        return _resolve_app(spec)
-    finally:
-        _sys.stdout.flush()
-        _os.dup2(saved_fd1, 1)
-        _os.close(saved_fd1)
-
-
 def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     """``python -m duho.mcp <app>`` entry point: resolve ``<app>`` and run :func:`serve`.
 
     ``<app>`` is a dotted qualname to a ``Cmd``/``Cli`` subclass (see
-    :func:`_resolve_app`, reached here through :func:`_quiet_import` so an
-    import-time write to stdout cannot reach the protocol channel). No
-    arguments prints a usage line to stderr and returns ``2``; ``-h``/
-    ``--help`` prints the same usage line and returns ``0`` (previously
-    treated as an ``<app>`` spec and reported as unresolvable). Prints a
-    one-line error to stderr and returns a non-zero exit code if ``<app>``
-    does not resolve; otherwise runs the stdio loop against real
-    stdin/stdout and returns its exit code.
+    :func:`_resolve_app`). No arguments prints a usage line to stderr and
+    returns ``2``; ``-h``/``--help`` prints the same usage line and returns
+    ``0`` (previously treated as an ``<app>`` spec and reported as
+    unresolvable) -- neither of these touches stdio at all. Otherwise, takes
+    over the real stdio fds for the protocol channel via
+    :func:`_real_stdio_streams` **before** resolving ``<app>`` (importing
+    it), and never restores them in between: resolution can write to the
+    ORIGINAL fd 1 directly -- a module-level ``print``, ``os.write(1, ...)``,
+    a C extension, a background thread started at import time that keeps
+    writing after import returns -- and every one of those writes now lands
+    on the real fd 2 (stderr) for the rest of the process's life, because
+    ``_real_stdio_streams`` already repointed fd 1 there before resolution
+    ever ran. An earlier version resolved ``<app>`` through a SEPARATE,
+    temporary fd-1-to-fd-2 redirect that RESTORED fd 1 to the original pipe
+    immediately after import finished, then only isolated stdio once
+    :func:`serve` started -- a window between those two steps during which a
+    thread STILL RUNNING from import (daemon or otherwise) could write
+    straight into the client-facing pipe ahead of the first protocol
+    response. Prints a one-line error to stderr and returns a non-zero exit
+    code if ``<app>`` does not resolve (stdio has already been taken over by
+    then, but the process exits right after, so nothing depends on restoring
+    it); otherwise runs the stdio loop against the already-captured protocol
+    streams and returns its exit code.
     """
     args = list(argv) if argv is not None else _sys.argv[1:]
     if not args:
@@ -1615,14 +1606,15 @@ def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     if args[0] in ("-h", "--help"):
         print("usage: python -m duho.mcp <app>", file=_sys.stderr)
         return 0
+    stream_in, stream_out = _real_stdio_streams()
     try:
-        root_cls = _quiet_import(args[0])
+        root_cls = _resolve_app(args[0])
     except Exception as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
         print(
             "duho.mcp: could not resolve app %r: %s" % (args[0], exc), file=_sys.stderr
         )
         return 1
-    return serve(root_cls)
+    return serve(root_cls, stdin=stream_in, stdout=stream_out)
 
 
 if __name__ == "__main__":

@@ -1972,6 +1972,186 @@ def test_app_threads_config_to_module_declared_args_class(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# A root global's help text spelling %(default)s literally must never crash
+# ANY subcommand's -h under app() -- parent-arg inheritance (parents=
+# [base_parser]) copies that global's Action onto every subcommand, and its
+# default is then suppressed there (see _finalize_command_tree) so the
+# child's absence of the flag defers to the root/env/config value. argparse's
+# own raw %(default)s expansion reads action.default DIRECTLY and deletes
+# the 'default' format key whenever it is SUPPRESS -- this used to raise
+# KeyError('default') rendering -h, for EVERY subcommand kind, even with no
+# env/config involved.
+# --------------------------------------------------------------------------
+
+
+class _RootWithPercentDefaultGlobal(duho.Cli):
+    """Root whose own global's help spells %(default)s literally."""
+
+    rtok: "duho.Arg[str, duho.NS(env='DUHO_TEST_ROOT_PERCENT_DEFAULT')]" = "rootdef"
+    "root %(default)s"
+    ("--rtok",)
+
+
+_MODULE_CMD_PLAIN_NO_OWN_ARGS = '''\
+"""plain module with no Args of its own."""
+
+
+def main(args=None):
+    return 0
+'''
+
+_MODULE_CMD_WITH_REGISTER_HOOK_FIELD = '''\
+"""module with a register hook adding its own field."""
+
+
+def register(parser, args):
+    parser.add_argument("--rh", default="rhdef", help="rh %(default)s")
+
+
+def main(args=None):
+    return 0
+'''
+
+
+class _ClassCmdWithPercentDefault(duho.Cmd):
+    """A dynamically-registered class command with its own %(default)s."""
+
+    ktok: str = "kdef"
+    "klass %(default)s"
+    ("--ktok",)
+
+    def __call__(self):  # pragma: no cover - not dispatched, only -h is exercised
+        return None
+
+
+def test_module_command_without_declared_args_help_survives_percent_default(
+    tmp_path, capsys
+):
+    """A module command that declares NO ``Args`` of its own used to never
+    get ``install_help_redaction`` at all (only a module WITH declared
+    fields did) -- its ``-h`` stayed the plain, unprotected stdlib
+    ``_HelpAction``."""
+    _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["plain", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_module_command_with_register_hook_help_survives_percent_default(
+    tmp_path, capsys
+):
+    """Same fix for a module command whose fields come from a ``register``
+    hook rather than a declared ``Args`` class -- also never got
+    ``install_help_redaction`` before."""
+    _write(tmp_path, "regh.py", _MODULE_CMD_WITH_REGISTER_HOOK_FIELD)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["regh", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_dynamically_registered_class_command_help_survives_percent_default(capsys):
+    """A ``commands=``-registered class command's ``-h`` already goes
+    through ``_AgentHelpAction`` (always installed), but that alone did not
+    stash a class default for the ROOT's own inherited-and-suppressed
+    global -- only for fields belonging to the class command's own
+    ``_getargs_()``."""
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            commands=[_ClassCmdWithPercentDefault],
+            argv=["_ClassCmdWithPercentDefault", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_help_never_shows_a_live_env_value_for_a_suppressed_root_global(
+    tmp_path, capsys, monkeypatch
+):
+    """The stashed value is the CLASS default (see the tests above), never
+    the LIVE env-layered one -- the same no-secrets-in-help contract every
+    other ``NS(env=...)`` field already gets."""
+    _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
+    monkeypatch.setenv("DUHO_TEST_ROOT_PERCENT_DEFAULT", "topsecretvalue")
+    with pytest.raises(SystemExit):
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["plain", "-h"],
+            setup_logging=False,
+        )
+    out = capsys.readouterr().out
+    assert "topsecretvalue" not in out
+    assert "root rootdef" in out
+
+
+# --------------------------------------------------------------------------
+# A bad env/config value for a MODULE command's declared field must never
+# surface as an uncaught traceback (which could echo the raw value via its
+# chained cause) -- reported instead through that subcommand's own
+# parser.error() (usage text + exit 2), the same contract the deferred,
+# class-command layering path already has via _finalize_layers.
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_WITH_INT_ENV_FIELD = '''\
+"""module with an int env field."""
+from duho import Arg, Args, NS
+
+
+class Args(Args):
+    port: Arg[int, NS(env="DUHO_TEST_BAD_MOD_PORT")] = 1
+    "port"
+    ("--port",)
+
+
+def main(args=None):
+    return 0
+'''
+
+
+def test_bad_env_value_for_module_command_field_reports_via_parser_error(
+    tmp_path, monkeypatch, capsys
+):
+    _write(tmp_path, "intmod.py", _MODULE_CMD_WITH_INT_ENV_FIELD)
+    monkeypatch.setenv("DUHO_TEST_BAD_MOD_PORT", "not-an-int-secret")
+    with pytest.raises(SystemExit) as excinfo:
+        app(Root, source=tmp_path, argv=["intmod"], setup_logging=False)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "not-an-int-secret" not in err
+    assert "DUHO_TEST_BAD_MOD_PORT" in err
+
+
+def test_bad_env_value_for_module_command_field_does_not_break_other_commands(
+    tmp_path, monkeypatch, capsys
+):
+    """A bad value belonging to ONE module command must not itself become an
+    uncaught exception that takes the whole process down with exit 1 --
+    every registered command still gets a normal, exit-2 usage error instead
+    of a raw traceback."""
+    _write(tmp_path, "intmod.py", _MODULE_CMD_WITH_INT_ENV_FIELD)
+    monkeypatch.setenv("DUHO_TEST_BAD_MOD_PORT", "not-an-int-secret")
+    with pytest.raises(SystemExit) as excinfo:
+        app(Root, source=tmp_path, argv=["-h"], setup_logging=False)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "not-an-int-secret" not in err
+
+
+# --------------------------------------------------------------------------
 # app() must keep a subcommand's DELIBERATELY redeclared default,
 # both for a builtin (`_subcommands_`) and a `source=`-discovered one (whose
 # subparser shares the root's Action objects via `parents=[base_parser]`).

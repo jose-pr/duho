@@ -227,6 +227,18 @@ def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
     built-ins and ``--help`` included. Discovery's own resilience still
     applies per entry (an ``ImportError`` from a single bad command file is
     logged and skipped; a ``SyntaxError`` still propagates).
+
+    **One bad entry (a bare drive, or one resolving to the CWD -- see
+    :meth:`duho.env.Env.paths`) must not drop every OTHER entry.** Requests
+    ``strict=False`` so :meth:`Env.paths` skips a rejected segment instead of
+    raising for the whole call (a security/robustness fix -- raising here used
+    to be swallowed by the bare ``except Exception`` below, silently dropping
+    the ENTIRE ``CMDS_PATH``, valid entries included, with no log at all).
+    Each rejected segment is collected via ``on_reject`` and logged at
+    WARNING once resolution succeeds. A duck-typed ``env`` (not a real
+    :class:`duho.env.Env`) may not accept those keywords at all -- caught
+    separately and retried with the plain two-arg call, so such a caller
+    keeps its previous best-effort behavior unchanged.
     """
     if env is None:
         return []
@@ -236,10 +248,26 @@ def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
         raw = None
     if not raw:
         return []
+    rejected: "list[tuple[str, str]]" = []
     try:
-        segments = env.paths("CMDS_PATH", ty=str)
+        segments = env.paths(
+            "CMDS_PATH",
+            ty=str,
+            strict=False,
+            on_reject=lambda segment, reason: rejected.append((segment, reason)),
+        )
+    except TypeError:
+        # A duck-typed `env` that doesn't support `strict`/`on_reject`.
+        try:
+            segments = env.paths("CMDS_PATH", ty=str)
+        except Exception:  # pragma: no cover - env is best-effort here
+            segments = []
     except Exception:  # pragma: no cover - env is best-effort here
         segments = []
+    for bad_segment, reason in rejected:
+        _LOGGER.warning(
+            "CMDS_PATH entry %r rejected (%s); skipping", bad_segment, reason
+        )
     discovered: "list[_Command]" = []
     for segment in segments:
         segment = segment.strip() if isinstance(segment, str) else str(segment)
@@ -844,9 +872,23 @@ def _apply_app_config_layers(
     lazily so a plain ``duho.app()`` call with no module command declaring
     fields never pays for it.
 
+    **A bad env/config value never raises a raw traceback.**
+    ``_apply_default_layers_one`` raises ``ValueError`` `from None` (the
+    original conversion exception -- which may itself echo the raw,
+    possibly-secret value, e.g. ``int()``'s own error message -- is never
+    chained, so it can never surface via an uncaught exception's printed
+    cause). Left uncaught here, that ``ValueError`` would still propagate out
+    of ``app()`` itself and crash EVERY invocation (including `-h`) with exit
+    1 the moment any registered module command declares a bad env/config
+    value -- reported instead through this subcommand's own ``parser.error()``
+    (usage text + exit 2), the same contract the deferred, class-command path
+    already gets from `_finalize_layers`.
+
     ``raw_config`` is the already-loaded TOML table (``app`` loads it once so
     the root layering can also run before the advisory prepass).
     """
+    from . import agenthelp as _agenthelp
+
     choices = subparsers.choices or {}
     for name, (kind, command) in registry.items():
         sub_parser = choices.get(name)
@@ -859,19 +901,26 @@ def _apply_app_config_layers(
             continue
         args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
         if args_cls is not None:
-            _apply_default_layers_one(sub_parser, args_cls, sub_table)
-            from . import agenthelp as _agenthelp
+            try:
+                _apply_default_layers_one(sub_parser, args_cls, sub_table)
+            except ValueError as exc:
+                sub_parser.error(str(exc))
+                continue  # pragma: no cover - parser.error always raises SystemExit
 
             _agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
-            # A module command's subparser is a plain `add_parser()` instance
-            # with its own ordinary argparse `-h`/`--help` action -- it never
-            # goes through `args.py`'s `_install_agent_help`/
-            # `_AgentHelpAction` (this command deliberately has no
-            # `_duho_cls_` of its own; see this function's own docstring), so
-            # without this its help text would still render a literal
-            # `%(default)s` straight from the live env/config value the line
-            # above just staged onto `action.default`.
-            _agenthelp.install_help_redaction(sub_parser)
+        # Every module command's `-h` -- whether or not it declares its own
+        # `Args` -- gets this protection, not only one whose own field was
+        # just laid on above: a module command's subparser is a plain
+        # `add_parser()` instance with its own ordinary argparse `-h`/
+        # `--help` action -- it never goes through `args.py`'s
+        # `_install_agent_help`/`_AgentHelpAction` (this command
+        # deliberately has no `_duho_cls_` of its own; see this function's
+        # own docstring) -- so without this its help text would render a
+        # literal `%(default)s` straight from a live env/config value staged
+        # above, OR raise `KeyError` for a root-inherited option whose class
+        # default `_finalize_command_tree` already stashed onto it (see
+        # there), exactly like an unprotected class command's `-h` would.
+        _agenthelp.install_help_redaction(sub_parser)
 
 
 def _prepare_app_parser(
@@ -1197,6 +1246,35 @@ def _finalize_command_tree(
                 action.default = _argparse.SUPPRESS
                 action._duho_display_required_ = True  # type: ignore[attr-defined]
         _formatters.install_required_usage_formatter(sub_parser)
+        # A root-inherited option's default may now be `_argparse.SUPPRESS`
+        # (set just above for a formerly-required global, or by
+        # `_suppress_inherited_defaults` for an optional one) so the child's
+        # absence of the flag defers to whatever the root/parent actually
+        # parsed. But argparse's OWN raw `%(default)s` expansion
+        # (`HelpFormatter._expand_help`) reads `action.default` DIRECTLY and
+        # deletes the `default` key from its format params whenever it is
+        # SUPPRESS -- so a root global's help text that spells the
+        # placeholder literally (e.g. `"root %(default)s"`) raised
+        # `KeyError('default')` rendering ANY subcommand's `-h` under
+        # `app()`, even with no env/config involved (this is real argparse
+        # `parents=` inheritance, unlike the static `_subcommands_` tree,
+        # which never copies a parent's Actions at all -- see this
+        # function's own docstring). Stash the ROOT's own class default
+        # directly on the action so `duho.agenthelp`'s
+        # `redact_action_defaults` -- already installed on every class
+        # command's `-h` via `_AgentHelpAction`, and on every module
+        # command's via `install_help_redaction` in
+        # `_apply_app_config_layers` -- substitutes a real value back onto
+        # `action.default` for the duration of the render. This dest is
+        # never in the CHILD class's own `_getargs_()` (it belongs to the
+        # root), so `stash_default_provenance`'s own builder-keyed stash
+        # never reaches it and never overwrites what's set here.
+        for action in sub_parser._actions:
+            if action.dest in root_dests and action.default is _argparse.SUPPRESS:
+                action._duho_class_default_ = root_defaults.get(  # type: ignore[attr-defined]
+                    action.dest
+                )
+                action._duho_default_source_ = None  # type: ignore[attr-defined]
         # A `commands=`/`source=` class command's subparser
         # shares the root's Action OBJECTS via `parents=[base_parser]` --
         # `_suppress_inherited_defaults` correctly leaves a differing child

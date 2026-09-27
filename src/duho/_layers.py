@@ -700,11 +700,19 @@ def _apply_default_layers_one(
             # Neither the raw value nor a generic conversion exception's own
             # text is echoed: either can carry whatever secret the config
             # value held. A choices violation is the one exception (see
-            # `_layered_error_detail`).
+            # `_layered_error_detail`). `from None`, not `from exc` --
+            # `exc` itself (its own message AND its own traceback frames)
+            # can carry the raw value (e.g. `int()`'s own error text);
+            # chaining it keeps that reachable via `__cause__` for whatever
+            # prints this exception uncaught -- caught here (`app()`'s
+            # module commands have no deferred seam to raise through, see
+            # `_apply_default_layers_one`'s own docstring) but not by every
+            # caller (`duho.parse`/`duho.main`'s deferred path never lets
+            # this reach an uncaught exception at all).
             raise ValueError(
                 f"config value for field {name!r} on {cls.__name__}: "
                 f"{_layered_error_detail(builders_by_name[name], exc)}"
-            ) from exc
+            ) from None
         sources[name] = "config"
 
     for name, raw in _raw_env_values(cls).items():
@@ -712,11 +720,12 @@ def _apply_default_layers_one(
         try:
             merged[name] = builder.convert_layered(raw, source="env")
         except (TypeError, ValueError) as exc:
-            # Same redaction as above -- the env var itself could be secret.
+            # Same redaction as above -- the env var itself could be secret
+            # -- and the same `from None` reason.
             raise ValueError(
                 f"environment variable {builder.env!r} for field {name!r}: "
                 f"{_layered_error_detail(builder, exc)}"
-            ) from exc
+            ) from None
         sources[name] = "env"
 
     if merged:

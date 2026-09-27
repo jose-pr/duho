@@ -142,40 +142,32 @@ def test_pathsep_backslash_bare_drive_segment_never_imports_cwd(evil_cwd, monkey
     assert not _marker(tmp_path).exists()
 
 
-def test_pathsep_backslash_rejected_directly(evil_cwd, monkeypatch):
+def test_pathsep_backslash_rejected_as_invalid_separator(evil_cwd, monkeypatch, caplog):
+    """``PATHSEP`` is now validated BEFORE it is ever used to split anything:
+    ``\\`` is one of the three values (with ``/`` and ``.``) rejected
+    outright, closing the backslash-splits-a-Windows-path-on-its-own-
+    drive-letter attack at its root, rather than downstream once it has
+    already produced a bare ``"C:"`` segment (see
+    ``test_pathsep_backslash_bare_drive_segment_never_imports_cwd`` above,
+    and ``test_bare_drive_segment_via_default_separator_rejected`` below for
+    the segment-shaped rejection that survives this fix). The rejected
+    ``\\`` itself is never trusted as the separator either way -- what the
+    REAL fallback (``os.pathsep``) then does with this literal value is
+    platform-dependent (on POSIX, ``os.pathsep`` is ``":"``, which this
+    Windows-shaped literal also happens to contain, so it may legitimately
+    re-split and hit the segment-shaped rejection tested separately below);
+    either outcome is safe, so only the WARNING and the end-to-end
+    never-imports-the-CWD invariant are asserted here."""
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("MYAPP_PATHSEP", "\\")
-    # A native Windows `str(cmds)` already starts with a drive letter, so the
-    # ORIGINAL reproduction just split it as-is. On POSIX there is no drive
-    # letter to split on at all (`str(cmds)` has no backslash in it, so
-    # PATHSEP="\\" would not mis-split it into anything). The bare-drive
-    # check itself (`_BARE_DRIVE_RE`) is a plain string match with no
-    # platform dependency, so prepending a synthetic "C:" segment ourselves
-    # reproduces the identical mis-split on every OS instead of relying on
-    # a real drive letter that only exists on one of them.
     monkeypatch.setenv("MYAPP_CMDS_PATH", "C:\\" + str(cmds))
     env = Env("myapp", autoload=False)
-    with pytest.raises(ValueError, match="bare drive segment"):
-        env.paths("CMDS_PATH")
-    assert not _marker(tmp_path).exists()
-
-
-def test_pathsep_forward_slash_adversarial_split_never_imports_cwd(
-    evil_cwd, monkeypatch
-):
-    tmp_path, cwd, cmds = evil_cwd
-    monkeypatch.setenv("MYAPP_PATHSEP", "/")
-    # Same idea as the backslash case above, with "/" as the separator: a
-    # forward-slash-style absolute Windows path splits on its OWN drive
-    # letter, but POSIX has no drive letter (and "/" is already its native
-    # separator, so a real POSIX path splits into plain directory-name
-    # fragments, none of which independently reproduces the attack).
-    # Prepending a synthetic "C:" segment reproduces the same mis-split
-    # (and the same rejection) on every OS.
-    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:/" + str(cmds).replace("\\", "/"))
-    env = Env("myapp", autoload=False)
-    with pytest.raises(ValueError):
-        env.paths("CMDS_PATH")
+    with caplog.at_level("WARNING", logger="duho.env"):
+        try:
+            env.paths("CMDS_PATH")
+        except ValueError:
+            pass
+    assert any("PATHSEP" in rec.message for rec in caplog.records)
     try:
         app(Root, env=Env("myapp", autoload=False), argv=["evil"], setup_logging=False)
     except SystemExit:
@@ -183,15 +175,75 @@ def test_pathsep_forward_slash_adversarial_split_never_imports_cwd(
     assert not _marker(tmp_path).exists()
 
 
-def test_pathsep_multichar_segment_resolving_to_cwd_never_imports_cwd(
-    evil_cwd, monkeypatch
+def test_pathsep_forward_slash_rejected_as_invalid_separator(
+    evil_cwd, monkeypatch, caplog
 ):
+    """Same fix, for ``/`` -- the other slash direction gets identical
+    treatment, so the identical adversarial mis-split never gets the
+    chance to happen regardless of which slash a caller picks."""
+    tmp_path, cwd, cmds = evil_cwd
+    monkeypatch.setenv("MYAPP_PATHSEP", "/")
+    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:/" + str(cmds).replace("\\", "/"))
+    env = Env("myapp", autoload=False)
+    with caplog.at_level("WARNING", logger="duho.env"):
+        try:
+            env.paths("CMDS_PATH")
+        except ValueError:
+            pass
+    assert any("PATHSEP" in rec.message for rec in caplog.records)
+    try:
+        app(Root, env=Env("myapp", autoload=False), argv=["evil"], setup_logging=False)
+    except SystemExit:
+        pass
+    assert not _marker(tmp_path).exists()
+
+
+def test_pathsep_multichar_rejected_as_invalid_separator(evil_cwd, monkeypatch, caplog):
+    """A multi-character separator (``"::"``) is invalid for the same
+    reason as ``/``/``\\``/``.``: it lets a value "separate on nothing at
+    all" in a caller-chosen, attacker-shaped way. Rejected before ever
+    splitting on the LITERAL ``"::"``; see
+    ``test_cwd_segment_via_default_separator_rejected`` below for the
+    segment-shaped rejection that survives this fix, using a
+    single-character (therefore valid) separator."""
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("MYAPP_PATHSEP", "::")
-    # The CWD itself (a legitimate-looking absolute path) lands as one of
-    # the split segments -- must be rejected the same as a bare drive is,
-    # since resolving to the CWD is exactly what both attacks achieve.
     monkeypatch.setenv("MYAPP_CMDS_PATH", str(cwd) + "::" + str(cmds))
+    env = Env("myapp", autoload=False)
+    with caplog.at_level("WARNING", logger="duho.env"):
+        try:
+            env.paths("CMDS_PATH")
+        except ValueError:
+            pass
+    assert any("PATHSEP" in rec.message for rec in caplog.records)
+    try:
+        app(Root, env=Env("myapp", autoload=False), argv=["evil"], setup_logging=False)
+    except SystemExit:
+        pass
+    assert not _marker(tmp_path).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drive-letter segments are Windows-only")
+def test_bare_drive_segment_via_default_separator_rejected(evil_cwd, monkeypatch):
+    """The bare-drive-segment rejection itself is still very much alive --
+    reachable now via a literal ``"C:"`` entry under the ordinary, VALID
+    default separator (the shape a caller reaches for directly, e.g. a
+    ``CMDS_PATH`` typo, rather than via a malformed ``PATHSEP``)."""
+    tmp_path, cwd, cmds = evil_cwd
+    monkeypatch.delenv("MYAPP_PATHSEP", raising=False)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:" + os.pathsep + str(cmds))
+    env = Env("myapp", autoload=False)
+    with pytest.raises(ValueError, match="bare drive segment"):
+        env.paths("CMDS_PATH")
+    assert not _marker(tmp_path).exists()
+
+
+def test_cwd_segment_via_default_separator_rejected(evil_cwd, monkeypatch):
+    """Likewise for a segment that resolves to the CWD itself, under the
+    ordinary, valid default separator."""
+    tmp_path, cwd, cmds = evil_cwd
+    monkeypatch.delenv("MYAPP_PATHSEP", raising=False)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", str(cwd) + os.pathsep + str(cmds))
     env = Env("myapp", autoload=False)
     with pytest.raises(ValueError, match="current working directory"):
         env.paths("CMDS_PATH")
@@ -199,6 +251,22 @@ def test_pathsep_multichar_segment_resolving_to_cwd_never_imports_cwd(
         app(Root, env=Env("myapp", autoload=False), argv=["evil"], setup_logging=False)
     except SystemExit:
         pass
+    assert not _marker(tmp_path).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drive-letter segments are Windows-only")
+def test_one_bad_cmds_path_entry_does_not_drop_the_good_one(evil_cwd, monkeypatch):
+    """Through ``app()`` (which resolves ``CMDS_PATH`` with ``strict=False``,
+    see ``duho.runtime._cmds_path_commands``): a bare-drive entry mixed with
+    a real, valid one must not drop the valid one -- the whole point of the
+    fix is that ONE bad entry is skipped and logged, not that the whole
+    ``CMDS_PATH`` layer goes best-effort-unusable."""
+    tmp_path, cwd, cmds = evil_cwd
+    monkeypatch.delenv("MYAPP_PATHSEP", raising=False)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", "C:" + os.pathsep + str(cmds))
+    env = Env("myapp", autoload=False)
+    rc = app(Root, env=env, argv=["good"], setup_logging=False)
+    assert rc == "good"
     assert not _marker(tmp_path).exists()
 
 

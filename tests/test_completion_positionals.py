@@ -104,6 +104,95 @@ def _tool_parser():
     return parser
 
 
+# --- Fixture: a node with its OWN positional (choices overlapping a real --
+# --- subcommand name) AND a subcommand table -- argparse always consumes --
+# --- a node's own positional(s) before ever treating a word as its --------
+# --- subparsers dispatch value, so a word equal to a subcommand name must -
+# --- still be read as the pending positional's value until that ----------
+# --- positional is satisfied. -----------------------------------------------
+
+
+class GoSub(Args):
+    """Enter the go state (named the same as one of `target`'s choices)."""
+
+    fast: bool = False
+    "fast flag, only on the go subcommand"
+    ("--fast",)
+
+
+class PosNode(Args):
+    """A node with its own positional AND a subcommand table."""
+
+    target: ty.Literal["t1", "t2", "go"] = "t1"
+    "target (one choice, 'go', collides with a real subcommand name)"
+    ("target",)
+    _subcommands_ = [GoSub]
+
+
+class PosRoot(Args):
+    """root"""
+
+    _subcommands_ = [PosNode]
+
+
+PosNode._parsername_ = "pos"
+GoSub._parsername_ = "go"
+
+
+# --- Fixture: sibling subcommands differing ONLY in case ("run"/"Run"), --
+# --- each with its own nested sub-subcommand carrying a distinguishing ---
+# --- flag, so a PowerShell dictionary that folds the two paths together --
+# --- (case-insensitive `@{}`) is caught even though the TOP-level -------
+# --- candidate lists (built from separate, unquoted `elseif` branches) ---
+# --- happen to stay correct on their own. ---------------------------------
+
+
+class LSub(Args):
+    """lsub"""
+
+    lower_flag: bool = False
+    "flag that only exists on run's own child"
+    ("--lower-flag",)
+
+
+class USub(Args):
+    """usub"""
+
+    upper_flag: bool = False
+    "flag that only exists on Run's own child"
+    ("--upper-flag",)
+
+
+class RunLower(Args):
+    """run (lowercase)"""
+
+    lpos: ty.Literal["L1"] = "L1"
+    "lpos"
+    ("lpos",)
+    _subcommands_ = [LSub]
+
+
+class RunUpper(Args):
+    """Run (uppercase)"""
+
+    upos: ty.Literal["U1"] = "U1"
+    "upos"
+    ("upos",)
+    _subcommands_ = [USub]
+
+
+class CaseRoot(Args):
+    """root"""
+
+    _subcommands_ = [RunLower, RunUpper]
+
+
+RunLower._parsername_ = "run"
+RunUpper._parsername_ = "Run"
+LSub._parsername_ = "lsub"
+USub._parsername_ = "usub"
+
+
 def _bash_func(parser) -> str:
     """The bash function name duho would register for `parser`'s prog."""
     return completion._bash_func_name(parser.prog)
@@ -393,6 +482,46 @@ def test_bash_value_flag_scoped_per_command_path():
     assert "Deploy" in reply
 
 
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_positional_value_matching_a_subcommand_name_is_not_mistaken_for_it():
+    """argparse always consumes a node's OWN positional(s) before ever
+    treating a word as its subparsers dispatch value, so a word equal to a
+    real subcommand's name must still count as the pending positional's
+    value until that positional is satisfied. The walker used to match
+    `is_sub` on the WORD alone, ignoring how many of the node's own
+    positionals were already consumed -- so `pos go<TAB>` (the FIRST `go`,
+    which is `target`'s value) wrongly descended straight into the `go`
+    subcommand, one word early.
+
+    `postool pos go<TAB>`: `pos` has one own positional (`target`, whose
+    choices include `go`) THEN a subcommand table containing `go`. The
+    first `go` must be read as `target`'s value, leaving `pos` still
+    awaiting its subcommand-dispatch word -- so the only candidate here is
+    the subcommand name `go` itself. Under the bug, the walker had already
+    (wrongly) descended into the `go` node on that first word, which has
+    no positionals or subcommands of its own, so nothing was offered.
+    """
+    parser = PosRoot._parser_()
+    parser.prog = "postool"
+    script = completion.bash(parser)
+    func = completion._bash_func_name(parser.prog)
+    reply = _complete_bash(script, func, ["postool", "pos", "go", ""], 3)
+    assert reply == ["go"]
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_positional_then_real_dispatch_word_reaches_the_subcommand():
+    """Once the pending positional actually IS consumed, the NEXT word
+    correctly dispatches into the subcommand of the same name and that
+    subcommand's own flags are offered."""
+    parser = PosRoot._parser_()
+    parser.prog = "postool"
+    script = completion.bash(parser)
+    func = completion._bash_func_name(parser.prog)
+    reply = _complete_bash(script, func, ["postool", "pos", "go", "go", "--"], 4)
+    assert "--fast" in reply
+
+
 # --- Injection round-trip ---------------------------------------------------
 
 
@@ -474,19 +603,15 @@ def test_hostile_choice_bash_does_not_execute(tmp_path):
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "A choice value containing whitespace/quotes cannot round-trip as ONE "
-        "candidate through bash's `compgen -W`: the word list is IFS-split, so "
-        "`it's $(uh oh)` comes back as the separate tokens `its`, `\\$(uh`, `oh)`. "
-        "The emitter is hardened against EXECUTION (verified separately, and in "
-        "zsh/fish -- neither of which has this limitation, see docs), but static "
-        "`compgen -W` word-splitting is inherent -- the intact single-candidate "
-        "round-trip is NOT delivered for metacharacter values in bash."
-    ),
-)
 def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
+    """A choice value containing whitespace/quotes now round-trips as ONE
+    candidate through bash's `compgen -W`: escaping every character outside
+    a conservative safe set (not just backslash/``$``/backtick/quotes)
+    backslash-protects the internal space too, so IFS no longer splits
+    `it's $(uh oh)` into the separate tokens `its`, `\\$(uh`, `oh)` it used
+    to. This used to be an accepted, documented limitation (bash's static
+    word-splitting is otherwise inherent to `compgen -W`); the wider escape
+    set removes it."""
     parser = _hostile_parser("it's $(uh oh)")
     script = completion.bash(parser)
     reply = _complete_bash(
@@ -494,8 +619,46 @@ def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
         completion._bash_func_name(parser.prog),
         ["hostileapp", "--mode", ""],
         2,
+        cwd=tmp_path,
     )
     assert "it's $(uh oh)" in reply
+    assert list(os.listdir(tmp_path)) == []
+
+
+@pytest.mark.skipif(_BASH is None, reason="bash not available")
+def test_bash_choices_cannot_run_process_or_command_substitution(tmp_path):
+    """Security (G-S2): `compgen -W`'s word list gets a SECOND, dynamic
+    (re-)evaluation at Tab-press, exactly as if the joined candidate string
+    had been freshly typed -- process substitution (`<(...)`/`>(...)`) needs
+    no leading `$` and used to run at Tab-time even though `$`/backtick/
+    quotes were already escaped, because those characters were never in the
+    old escape set. Drive a real completion carrying every classic
+    injection vector (process substitution, command substitution,
+    backticks, brace expansion, globbing) and confirm none of them execute
+    or expand -- each still comes back as its own literal candidate."""
+    hostile_values = [
+        "safe",
+        "x<(touch MARK_PSUB_IN)",
+        "y>(touch MARK_PSUB_OUT)",
+        "z$(touch MARK_CMDSUB)",
+        "w`touch MARK_BACKTICK`",
+        "brace{a,b}",
+        "glob*",
+    ]
+    parser = _hostile_parser(hostile_values[0])
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = tuple(hostile_values)
+    script = completion.bash(parser)
+    reply = _complete_bash(
+        script,
+        completion._bash_func_name(parser.prog),
+        ["hostileapp", "--mode", ""],
+        2,
+        cwd=tmp_path,
+    )
+    assert list(os.listdir(tmp_path)) == []
+    assert set(reply) == set(hostile_values)
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")

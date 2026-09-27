@@ -348,12 +348,15 @@ def test_zsh_multiflag_optspec_form():
 
 
 def test_bash_choices_neutralize_command_substitution():
+    """`compgen -W`'s word list gets a SECOND, dynamic re-evaluation just
+    like zsh's `_arguments` -- every character outside the same conservative
+    safe set `_zsh_word`/`_fish_word` use is backslash-escaped, not just
+    `$`/backtick/quotes, so the parens and the embedded space are covered
+    too (bare parens/space previously rode through unescaped)."""
     script = _danger_script("bash")
-    # The '$' in a hostile choice is backslash-escaped so compgen -W (which
-    # expands its word list) cannot run the substitution.
-    assert "\\$(touch pwned)" in script
-    # And the raw, unescaped command substitution must NOT appear in a word list.
-    assert '-W "$(touch pwned)' not in script
+    assert "\\$\\(touch\\ pwned\\)" in script
+    # The raw, unescaped command substitution must NOT appear in a word list.
+    assert "$(touch pwned)" not in script
 
 
 def test_zsh_choice_escaped_for_the_dynamic_eval_too():

@@ -9,6 +9,7 @@ import pytest
 
 import duho
 from duho import Arg, Args, Meta
+from duho.args import _META_UNSET
 
 
 class MetaArgs(Args):
@@ -56,8 +57,41 @@ def test_meta_dest_is_not_a_field():
     so a ``dest=`` override that LOOKS honored but is silently dropped
     (``NS(dest=...)``'s behavior) is a loud ``TypeError`` here instead.
     """
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Meta has no 'dest' field"):
         Meta(dest="renamed")
+
+
+def test_meta_kwargs_keeps_its_positional_index_with_default_declared_after_it():
+    """`default` was added AFTER `kwargs` already existed; it must sit AFTER
+    `kwargs` in the field order too, not before it -- otherwise every
+    existing positional `Meta(..., kwargs={...})` call site would have
+    silently shifted onto a different field the moment `default` was
+    declared earlier in the list."""
+    m = Meta(
+        None,  # help
+        None,  # env
+        None,  # conflicts
+        None,  # conflicts_required
+        None,  # group
+        None,  # action
+        None,  # nargs
+        None,  # const
+        None,  # choices
+        None,  # metavar
+        None,  # required
+        None,  # type
+        None,  # version
+        None,  # flags
+        {"foo": "bar"},  # kwargs -- must land here, not on `default`
+    )
+    assert m.kwargs == {"foo": "bar"}
+    assert m.default is _META_UNSET
+
+
+def test_meta_default_is_the_last_positional_field():
+    m = Meta(*([None] * 14), {"a": 1}, "the-default")
+    assert m.kwargs == {"a": 1}
+    assert m.default == "the-default"
 
 
 class MetaFlags(Args):

@@ -15,10 +15,13 @@ from . import _introspect as _introspect
 from . import logging as _duho_logging
 from ._fieldspec import Factory as Factory
 from ._fieldspec import UpdateAction as UpdateAction
+from ._fieldspec import _AppendAction as _AppendAction
 from ._fieldspec import _bool_from_text as _bool_from_text
 from ._fieldspec import _choice_checked as _choice_checked
 from ._fieldspec import _factory_for as _factory_for
 from ._fieldspec import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
+from ._fieldspec import _LayeredChoiceError as _LayeredChoiceError
+from ._fieldspec import _NegatedBoolAction as _NegatedBoolAction
 from ._layers import _apply_default_layers_one as _apply_default_layers_one
 from ._layers import _apply_layers as _apply_layers
 from ._layers import _finalize_layers as _finalize_layers
@@ -127,7 +130,7 @@ class _MetaUnset:
 _META_UNSET = _MetaUnset()
 
 
-@_dataclasses.dataclass
+@_dataclasses.dataclass(init=False)
 class Meta:
     """Typed, typo-safe alternative to ``NS(...)`` for field metadata (F5).
 
@@ -152,9 +155,10 @@ class Meta:
     ``NS(kwargs=...)`` provides.
 
     There is deliberately no ``dest`` field: an argument's ``dest`` is always
-    its declared field name (the parsed instance attribute), so a ``dest=``
-    override -- accepted, and silently ignored, by ``NS(dest=...)`` -- is a
-    ``TypeError`` here instead of a value that looks honored but never is.
+    its declared field name (the parsed instance attribute), so ``Meta`` raises
+    a dedicated ``TypeError`` for ``dest=`` instead of a value that looks
+    honored but never is (as ``NS(dest=...)`` -- accepted, and silently
+    ignored -- does).
 
     ``flags`` is the typed, lint-clean way to give an explicit flag tuple
     (equivalent to the bare ``("-n", "--times")`` statement in the class body,
@@ -167,9 +171,13 @@ class Meta:
     # construction (`Meta("help text")`) binds by position. The prefix
     # through `version` matches the pre-existing (pre-`Meta`-rewrite) order
     # exactly; `flags` takes over `dest`'s old slot (the removed `dest`
-    # field, a documented [minor] break); every field added SINCE then
-    # (`default`) goes LAST, immediately before the `kwargs` escape hatch,
-    # which stays last of all (see its own docstring: applied last).
+    # field, a documented [minor] break) immediately before `kwargs`, which
+    # ALSO stays in dest's old neighboring slot -- right after `flags`, not
+    # last. Every field added SINCE `kwargs` existed (`default`) goes AFTER
+    # it: appending there, never inserting before an already-existing field,
+    # is what keeps every earlier field's positional index (`Meta("help
+    # text")`, `Meta(..., kwargs={...})`) from silently shifting each time a
+    # new one is added.
     help: "_ty.Any" = _META_UNSET
     env: "_ty.Any" = _META_UNSET
     conflicts: "_ty.Any" = _META_UNSET
@@ -184,8 +192,53 @@ class Meta:
     type: "_ty.Any" = _META_UNSET
     version: "_ty.Any" = _META_UNSET
     flags: "_ty.Any" = _META_UNSET
-    default: "_ty.Any" = _META_UNSET
     kwargs: "_ty.Any" = _META_UNSET
+    default: "_ty.Any" = _META_UNSET
+
+    def __init__(
+        self,
+        help: "_ty.Any" = _META_UNSET,
+        env: "_ty.Any" = _META_UNSET,
+        conflicts: "_ty.Any" = _META_UNSET,
+        conflicts_required: "_ty.Any" = _META_UNSET,
+        group: "_ty.Any" = _META_UNSET,
+        action: "_ty.Any" = _META_UNSET,
+        nargs: "_ty.Any" = _META_UNSET,
+        const: "_ty.Any" = _META_UNSET,
+        choices: "_ty.Any" = _META_UNSET,
+        metavar: "_ty.Any" = _META_UNSET,
+        required: "_ty.Any" = _META_UNSET,
+        type: "_ty.Any" = _META_UNSET,
+        version: "_ty.Any" = _META_UNSET,
+        flags: "_ty.Any" = _META_UNSET,
+        kwargs: "_ty.Any" = _META_UNSET,
+        default: "_ty.Any" = _META_UNSET,
+        *,
+        dest: "_ty.Any" = _META_UNSET,
+    ) -> None:
+        if dest is not _META_UNSET:
+            # A dedicated message, not the generic "unexpected keyword
+            # argument" a bare **kwargs catch-all would give -- `dest` is the
+            # ONE NS(...) key `Meta` deliberately never accepts (see the
+            # class docstring), so it earns an explanation of what to use
+            # instead rather than looking like an ordinary typo.
+            raise TypeError("Meta has no 'dest' field; use NS(dest=...)")
+        self.help = help
+        self.env = env
+        self.conflicts = conflicts
+        self.conflicts_required = conflicts_required
+        self.group = group
+        self.action = action
+        self.nargs = nargs
+        self.const = const
+        self.choices = choices
+        self.metavar = metavar
+        self.required = required
+        self.type = type
+        self.version = version
+        self.flags = flags
+        self.kwargs = kwargs
+        self.default = default
 
     def _duho_options_(self) -> "dict[str, object]":
         """The explicitly-set metadata as a plain dict (unset fields omitted).
@@ -1124,10 +1177,7 @@ class ArgumentBuilder(_argparse.Namespace):
             candidates = (value,)
         for v in candidates:
             if v not in self.choices:
-                raise ValueError(
-                    f"invalid choice: {v!r} (choose from "
-                    f"{', '.join(map(repr, self.choices))})"
-                )
+                raise _LayeredChoiceError(self.choices)
 
     def convert_layered(self, raw, *, source: str):
         """Convert a raw env/config *layer* value to this field's Python value.
@@ -1438,6 +1488,18 @@ class ArgumentBuilder(_argparse.Namespace):
         if isinstance(default_value, (list, set, dict)):
             kwargs["default"] = _copy.copy(default_value)
 
+        if kwargs.get("action") == "append":
+            # argparse's stdlib "append" action starts from whatever is
+            # already on the namespace, so the first CLI occurrence would
+            # merge onto a class/env/config/instance default instead of
+            # replacing it. `_AppendAction` gives `duho.Append()` the same
+            # "first occurrence replaces" rule every other collection action
+            # already has. Swapped in here (not earlier): every check above
+            # this point (`action == "append"`'s own const/collection
+            # guards) keys off the plain string, matching what a raw
+            # `NS(action="append")`/`Append()` declares.
+            kwargs["action"] = _AppendAction
+
         return kwargs
 
     def add_to_parser(self, parser: _argparse.ArgumentParser, *, layered: bool = False):
@@ -1452,7 +1514,32 @@ class ArgumentBuilder(_argparse.Namespace):
         if callable(help):  # type: ignore
             help = help()
         kwargs = self._kwargs(layered=layered)
-        action = parser.add_argument(*self.flags, help=help, **kwargs)
+        flags = self.flags
+        if kwargs.get("action") == "store_true" and layered and self.is_bare_bool_flag:
+            # `_kwargs` falls through to plain `store_true` for a
+            # FALSE-default bool whose own flag already reads as a negation
+            # (`no_verify` -> `--no-verify`): `BooleanOptionalAction` rejects
+            # any `--no-`-prefixed option string outright (it cannot tell
+            # "already negative" from "would double-negate"), so that branch
+            # is deliberately never reached for this shape. store_true alone
+            # then has no way to turn a LAYERED (env/config) True back off
+            # from the CLI, since it can only ever SET True.
+            # `_NegatedBoolAction` gives it one: the stripped, positive-sense
+            # counterpart (`--verify`) is added as an EXTRA option string on
+            # this SAME action/dest (never a second action -- the layering
+            # pipeline keys everything off ONE action per dest) that sets
+            # False, while every originally-declared flag keeps setting True
+            # exactly as `store_true` did.
+            positive_flags = tuple(
+                "--" + f[len("--no-") :]
+                for f in self.flags
+                if f.startswith("--no-") and len(f) > len("--no-")
+            )
+            if positive_flags:
+                kwargs["action"] = _NegatedBoolAction
+                kwargs["negative"] = self.flags
+                flags = self.flags + positive_flags
+        action = parser.add_argument(*flags, help=help, **kwargs)
         if isinstance(action, _argparse.BooleanOptionalAction):
             # 3.9/3.10's BooleanOptionalAction.__init__ unconditionally
             # appends " (default: %(default)s)" to any non-None help
@@ -1772,28 +1859,27 @@ def _reorder_argv_for_variadic_positional(
 
         action = known.get(token)
         self_contained = False
-        if action is None and "=" in token:
-            action = known.get(token.split("=", 1)[0])
+        key, eq, _ = token.partition("=")
+        if action is None and eq:
+            action = known.get(key)
             # `--flag=value` is a single self-contained token; no separate
             # value token to hoist alongside it.
             self_contained = action is not None
-        if (
-            action is None
-            and token.startswith("--")
-            and allow_abbrev
-            and "=" not in token
-        ):
+        if action is None and key.startswith("--") and allow_abbrev:
             # An unambiguous long-option PREFIX under argparse's own
-            # `allow_abbrev` rule (e.g. `--filt` for `--filter`) -- recognized
-            # only when exactly one ACTION (aliases of the same one still
-            # count as one) has an option string starting with this token.
+            # `allow_abbrev` rule (e.g. `--filt` for `--filter`, or
+            # `--filt=value` for `--filter=value`) -- recognized only when
+            # exactly one ACTION (aliases of the same one still count as
+            # one) has an option string starting with this token's flag
+            # half (the part before `=`, when present).
             candidates = {
                 id(a): a
                 for opt, a in known.items()
-                if opt.startswith("--") and opt.startswith(token)
+                if opt.startswith("--") and opt.startswith(key)
             }
             if len(candidates) == 1:
                 (action,) = candidates.values()
+                self_contained = bool(eq)
         if action is None and len(token) > 2 and token[0] == "-" and token[1] != "-":
             # An attached short-option value (`-fVALUE`, `-j3`): recognized
             # only when the two-character prefix maps to a registered short

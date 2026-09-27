@@ -134,6 +134,27 @@ def test_dict_missing_equals_message_reaches_the_user(capsys):
     assert "_KVFactory object at" not in err
 
 
+class _DictIntValueArgs(Args):
+    """A dict[str, int] field -- the VALUE half can fail to convert."""
+
+    counts: "ty.Dict[str, int]" = None
+    "Int-valued counters"
+    ("--counts",)
+
+
+def test_dict_bad_value_message_names_the_field_and_type_not_a_factory_repr(capsys):
+    # The KEY=VALUE split succeeds ("k=x"), but converting the VALUE half
+    # ("x") to int fails -- previously this bubbled up as argparse's own
+    # generic wrapping, showing the internal `_KVFactory` object's repr
+    # (`invalid <duho._fieldspec._KVFactory object at 0x...> value`) instead
+    # of naming the field and the expected value type.
+    with pytest.raises(SystemExit):
+        duho.parse(_DictIntValueArgs, ["--counts", "k=x"])
+    err = capsys.readouterr().err
+    assert "not a valid int" in err
+    assert "_KVFactory object at" not in err
+
+
 class _MixedLiteralArgs(Args):
     """A mixed-type Literal field."""
 

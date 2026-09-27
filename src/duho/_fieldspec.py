@@ -54,6 +54,27 @@ class _ConversionError(_argparse.ArgumentTypeError, ValueError):
     """
 
 
+class _LayeredChoiceError(ValueError):
+    """A layered (env/config) value fails its field's ``choices`` membership
+    check.
+
+    Deliberately does NOT embed the offending value in its message the way
+    a CLI ``_ConversionError`` does -- an env var or config value can be
+    secret, and this error's text reaches the layering pipeline's own
+    redaction (``_layers.py``), which otherwise always collapses a
+    conversion failure to a generic "expected <type>" (to avoid echoing a
+    raw secret back). Carrying ``choices`` separately lets that redaction
+    show the SAME "invalid choice" wording the CLI gives -- just never the
+    value.
+    """
+
+    def __init__(self, choices) -> None:
+        self.choices = choices
+        super().__init__(
+            f"invalid choice (choose from {', '.join(map(repr, choices))})"
+        )
+
+
 def _bool_from_text(text, /):
     """Strict CLI-text-to-bool factory.
 
@@ -132,6 +153,11 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
     # Completion reads the canonical names from here; argparse's own
     # ``choices`` stays unset because it would compare converted members.
     _factory._duho_choices_ = canonical
+    # Named after the enum, not left as the generic "_factory" a conversion
+    # error's "invalid <type> value"/"expected <type>" text would otherwise
+    # show (argparse, and duho's own layered-value redaction, both read a
+    # factory's `__name__` for that -- see `_field_type_desc`).
+    _factory.__name__ = enum_cls.__name__
     return _factory
 
 
@@ -210,6 +236,66 @@ def _collection_action(collection: type) -> "type[_argparse.Action]":
     return _BoundCollectionAction
 
 
+class _AppendAction(_argparse.Action):
+    """``duho.Append()``'s action: one scalar value per flag occurrence,
+    accumulated into a *list*.
+
+    argparse's own stdlib ``"append"`` action starts from whatever is
+    ALREADY on the namespace -- a class/env/config/instance default -- so
+    the FIRST CLI occurrence merges onto it instead of replacing it, unlike
+    every other collection action duho builds (see :class:`_CollectionAction`,
+    which exists for exactly this reason). This mirrors that same fix: the
+    running list lives on a private per-parse sidecar
+    (``_duho_items_<dest>``), never read back off ``namespace.<dest>``
+    itself, so the first occurrence always starts a FRESH list -- a layered
+    default is replaced, not appended to -- and later occurrences accumulate
+    onto that same list.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        sidecar = "_duho_items_" + self.dest
+        items = getattr(namespace, sidecar, None)
+        if items is None:
+            items = []
+            setattr(namespace, sidecar, items)
+        items.append(values)
+        setattr(namespace, self.dest, list(items))
+
+
+class _NegatedBoolAction(_argparse.Action):
+    """A bool flag whose OWN declared spelling already reads as a negation
+    (``no_verify`` -> ``--no-verify``), given a way back to ``False`` from
+    the CLI when a layer (env/config) can supply ``True``.
+
+    ``argparse.BooleanOptionalAction`` cannot do this: it refuses ANY
+    ``--no-``-prefixed option string outright (3.9-3.14+ alike), so it is
+    never reachable for this shape (see ``ArgumentBuilder.add_to_parser``,
+    the only caller). This does the same job by hand, as ONE action
+    carrying BOTH the field's own originally-declared flags (``negative`` --
+    presence sets ``True``, this field's own honest "on" spelling) and an
+    EXTRA, stripped positive-sense counterpart argparse also registers
+    under the SAME dest (presence sets ``False``) -- never a SECOND action:
+    duho's env/config layering pipeline keys everything off exactly one
+    action per dest (``_layers.py``'s several ``{action.dest: action for
+    action in parser._actions}`` maps would otherwise silently pick
+    whichever action happens to be LAST for that dest).
+
+    Never reads back whatever is already on ``namespace.<dest>`` -- it
+    always overwrites outright from ``option_string`` alone -- so it is
+    safe against a not-yet-converted ``_LayeredDefault`` placeholder the
+    same way a plain ``store_true``/``store_false`` is (see
+    ``_layers._REPLACE_SEMANTICS_ACTION_TYPES``, where it is listed).
+    """
+
+    def __init__(self, option_strings, dest, negative, **kwargs):
+        self._duho_negative_ = frozenset(negative)
+        kwargs["nargs"] = 0  # a flag, like store_true/store_false -- no value
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, option_string in self._duho_negative_)
+
+
 def _split_kv(text: str, name: str) -> "tuple[str, str]":
     """Split a ``KEY=VALUE`` token on its first ``=``.
 
@@ -242,7 +328,21 @@ class _KVFactory:
 
     def __call__(self, text: str) -> dict:
         key, value = _split_kv(text, self.name)
-        return {key: self.value_factory(value)}
+        try:
+            converted = self.value_factory(value)
+        except (TypeError, ValueError):
+            # Never let argparse fall back to its own generic message here:
+            # `self.value_factory` is an internal callable (a bound method, a
+            # closure) with no useful `__name__` of its own, so that fallback
+            # showed its raw object repr (`invalid <_KVFactory object at
+            # 0x...> value`) instead of naming the field and the value type
+            # the way every other conversion error does.
+            type_name = getattr(self.value_factory, "__name__", None) or "value"
+            raise _ConversionError(
+                f"argument {self.name!r}: value {value!r} for key {key!r} "
+                f"is not a valid {type_name}"
+            ) from None
+        return {key: converted}
 
 
 def _isoformat_factory(cls: type) -> "Factory":
@@ -252,23 +352,25 @@ def _isoformat_factory(cls: type) -> "Factory":
     output: no trailing ``Z`` (RFC 3339's UTC marker, and the form most tools
     emit) and no basic ``YYYYMMDD`` format. duho.mcp advertises
     ``format: date-time`` (RFC 3339) on every version regardless, so a
-    schema-valid MCP call could fail on the 3.9 floor. On <3.11 this rewrites
-    a trailing ``Z``/``z`` to ``+00:00`` before delegating; 3.11+ uses
-    ``fromisoformat`` directly, which already accepts ``Z`` natively. Basic
-    (no-dash) formats stay unsupported on every version -- out of scope here.
+    schema-valid MCP call could fail on the 3.9 floor. This rewrites a
+    trailing ``Z``/``z`` before delegating to ``fromisoformat`` -- on EVERY
+    version, not only <3.11: 3.11+'s own ``fromisoformat`` accepts an
+    uppercase ``Z`` natively but rejects a lowercase ``z``, and RFC 3339
+    treats the two as equivalent, so leaving the floor's shim as the only
+    place that normalized case made ``--field ...z`` behave differently
+    depending on which Python duho happened to run on. Basic (no-dash)
+    formats stay unsupported on every version -- out of scope here.
     """
-    if _sys.version_info >= (3, 11):
-        return cls.fromisoformat
+    accepts_z_natively = _sys.version_info >= (3, 11)
 
-    def _factory(text: str, /, _cls=cls):
+    def _factory(text: str, /, _cls=cls, _accepts_z=accepts_z_natively):
         # A non-str `text` (a native TOML/JSON date/datetime object passed
         # through the env/config layer) has no `.endswith` -- let
         # `fromisoformat` itself reject it (a TypeError, caught by
-        # `_convert_non_str`'s fallback the same way 3.11+'s bare
-        # `cls.fromisoformat` already does there) instead of crashing here
-        # with an unrelated AttributeError.
+        # `_convert_non_str`'s fallback the same way this used to on 3.11+
+        # too) instead of crashing here with an unrelated AttributeError.
         if isinstance(text, str) and text.endswith(("Z", "z")):
-            text = text[:-1] + "+00:00"
+            text = text[:-1] + ("Z" if _accepts_z else "+00:00")
         return _cls.fromisoformat(text)
 
     _factory.__name__ = cls.__name__
@@ -431,6 +533,12 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
         raise _ConversionError(
             f"could not convert {text!r} using any of {', '.join(_names)}"
         )
+
+    # Named after the union's own members, not left as the generic
+    # "factory" a layered conversion-failure message's "expected <type>"
+    # text would otherwise show (see `_field_type_desc`) -- an unreadable
+    # internal name, not the "int or float" a user actually declared.
+    factory.__name__ = " or ".join(_member_names)
 
     if bool in members:
         # A multi-member Union that ALSO accepts bool (e.g.

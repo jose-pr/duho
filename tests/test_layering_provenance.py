@@ -369,11 +369,16 @@ def test_layered_append_field_starts_from_the_converted_value(monkeypatch):
     assert result.tags == ["fromenv"]
 
 
-def test_layered_append_field_cli_appends_on_top_of_it(monkeypatch):
+def test_layered_append_field_cli_replaces_it_on_the_first_occurrence(monkeypatch):
+    # "CLI wins" applies to Append() exactly like every other collection
+    # option (Extend(), a plain list/set/tuple field): the first CLI
+    # occurrence REPLACES a layered (env/config) value, it does not merge
+    # onto it -- previously it accumulated onto the env value the same way
+    # stdlib's own "append" action accumulates onto a class default.
     monkeypatch.setenv("DUHO_TEST_APPEND_TAGS", "fromenv")
     result = duho.parse(LayeredAppend, ["--tags", "a", "--tags", "b"])
     monkeypatch.delenv("DUHO_TEST_APPEND_TAGS", raising=False)
-    assert result.tags == ["fromenv", "a", "b"]
+    assert result.tags == ["a", "b"]
 
 
 class LayeredPositionalList(Args):

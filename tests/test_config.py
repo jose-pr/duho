@@ -5,6 +5,7 @@ A value from any layer un-requires the corresponding field for free (via
 parser.set_defaults()), which is exercised explicitly below.
 """
 
+import enum
 import pathlib
 import sys
 import typing as _ty
@@ -310,8 +311,9 @@ class _ChoiceLayered(Args):
 
 def test_env_value_rejects_invalid_choice(monkeypatch, capsys):
     # A bad layered value is rejected the same as a bad CLI one -- usage text
-    # + exit 2 -- but the raw value is never echoed back (it could be a
-    # secret): the message names the field/variable and expected type only.
+    # + exit 2, with the SAME "invalid choice" wording the CLI itself gives
+    # -- but the raw value is never echoed back (it could be a secret): the
+    # message names the field/variable and the valid choices only.
     monkeypatch.setenv("DUHO_TEST_MODE", "banana")
     with pytest.raises(SystemExit) as exc:
         duho.parse(_ChoiceLayered, [])
@@ -319,7 +321,7 @@ def test_env_value_rejects_invalid_choice(monkeypatch, capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "environment variable 'DUHO_TEST_MODE' for field 'mode'" in err
-    assert "expected str" in err
+    assert "invalid choice (choose from 'fast', 'slow')" in err
     assert "banana" not in err
     assert "usage:" in err
 
@@ -333,7 +335,7 @@ def test_config_value_rejects_invalid_choice(tmp_path, capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "config value for field 'mode' on _ChoiceLayered" in err
-    assert "expected str" in err
+    assert "invalid choice (choose from 'fast', 'slow')" in err
     assert "banana" not in err
     assert "usage:" in err
 
@@ -343,6 +345,57 @@ def test_valid_env_choice_still_works(monkeypatch):
     result = duho.parse(_ChoiceLayered, [])
     monkeypatch.delenv("DUHO_TEST_MODE", raising=False)
     assert result.mode == "slow"
+
+
+class _MsgLevel(enum.Enum):
+    LOW = 1
+    HIGH = 2
+
+
+class _EnumLayered(Args):
+    """A bare Enum field backed by config."""
+
+    level: "_MsgLevel" = _MsgLevel.LOW
+    ("--level",)
+
+
+@pytest.mark.requires_toml
+def test_config_value_rejects_bad_enum_names_the_enum_not_a_bare_factory(
+    tmp_path, capsys
+):
+    # Previously this showed the internal factory function's own generic
+    # name ("expected _factory") instead of the enum's.
+    cfg = tmp_path / "duho.toml"
+    cfg.write_text("level = true\n")
+    with pytest.raises(SystemExit) as exc:
+        duho.parse(_EnumLayered, [], config=cfg)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "expected _MsgLevel" in err
+    assert "_factory" not in err
+
+
+class _UnionLayered(Args):
+    """A multi-member Union field backed by config."""
+
+    amount: "_ty.Union[int, float]" = 0
+    ("--amount",)
+
+
+@pytest.mark.requires_toml
+def test_config_value_rejects_bad_union_names_its_members_not_a_bare_factory(
+    tmp_path, capsys
+):
+    # Previously this showed the internal composed-factory function's own
+    # generic name ("expected factory") instead of naming its members.
+    cfg = tmp_path / "duho.toml"
+    cfg.write_text("amount = true\n")
+    with pytest.raises(SystemExit) as exc:
+        duho.parse(_UnionLayered, [], config=cfg)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "expected int or float" in err
+    assert "expected factory" not in err
 
 
 class _ConfigFileMayBeMissing(Args):

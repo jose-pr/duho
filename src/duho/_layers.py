@@ -32,7 +32,10 @@ import pathlib as _pathlib
 import typing as _ty
 
 from . import parsers as _parsers
+from ._fieldspec import _AppendAction as _AppendAction
 from ._fieldspec import _CollectionAction as _CollectionAction
+from ._fieldspec import _LayeredChoiceError as _LayeredChoiceError
+from ._fieldspec import _NegatedBoolAction as _NegatedBoolAction
 from ._fieldspec import UpdateAction as UpdateAction
 
 _LOGGER = _logging.getLogger(__name__)
@@ -222,18 +225,24 @@ class _LayeredDefault:
 
 #: argparse action types whose CLI occurrence REPLACES whatever is already on
 #: the namespace outright (a plain store, a bool flag, duho's own collection/
-#: dict actions) -- so a not-yet-converted `_LayeredDefault` placeholder
+#: dict/append actions) -- so a not-yet-converted `_LayeredDefault` placeholder
 #: default is safe: the CLI either leaves it completely untouched (identity
-#: check in `_finalize_layers`) or overwrites it wholesale. An explicit
-#: whitelist, not "everything except count/append/extend/append_const":
-#: an action type this ladder doesn't recognize at all (a user's own custom
-#: `Action` subclass) is conservatively treated as ACCUMULATING too, same as
-#: count/append -- see `_is_replace_semantics_action`.
+#: check in `_finalize_layers`) or overwrites it wholesale. `_AppendAction`
+#: (`duho.Append()`) belongs here for the same reason `_CollectionAction`
+#: does: BOTH track their running elements on a private per-parse sidecar,
+#: never by reading `namespace.<dest>` itself, so the first CLI occurrence
+#: always starts fresh regardless of what layered default was staged there.
+#: An explicit whitelist, not "everything except stdlib count/append/
+#: extend/append_const": an action type this ladder doesn't recognize at all
+#: (a user's own custom `Action` subclass) is conservatively treated as
+#: ACCUMULATING too, same as those -- see `_is_replace_semantics_action`.
 _REPLACE_SEMANTICS_ACTION_TYPES = (
     _argparse._StoreAction,
     _argparse._StoreConstAction,  # covers store_true/store_false (subclasses)
     _argparse.BooleanOptionalAction,
     _CollectionAction,
+    _AppendAction,
+    _NegatedBoolAction,
     UpdateAction,
 )
 
@@ -241,13 +250,16 @@ _REPLACE_SEMANTICS_ACTION_TYPES = (
 def _is_replace_semantics_action(action) -> bool:
     """True when `action`'s CLI occurrence replaces its dest outright.
 
-    False for argparse's own count/append/extend/append_const -- each reads
-    whatever is ALREADY on the namespace and accumulates onto it (increments
-    a count, appends to a list), which crashes on a not-yet-converted
-    `_LayeredDefault` placeholder (e.g. `-v` with a config `verbose = 1`
-    raising ``TypeError: unsupported operand type(s) for +: '_LayeredDefault'
-    and 'int'``) -- and for any action type not in the whitelist above,
-    conservatively, for the same reason.
+    False for argparse's own stdlib count/append/extend/append_const -- each
+    reads whatever is ALREADY on the namespace and accumulates onto it
+    (increments a count, appends to a list), which crashes on a
+    not-yet-converted `_LayeredDefault` placeholder (e.g. `-v` with a config
+    `verbose = 1` raising ``TypeError: unsupported operand type(s) for +:
+    '_LayeredDefault' and 'int'``) -- and for any action type not in the
+    whitelist above, conservatively, for the same reason. duho's own
+    `_AppendAction` (`duho.Append()`) is NOT stdlib "append" and IS in the
+    whitelist: unlike it, `_AppendAction` never reads the placeholder back at
+    all (see `_REPLACE_SEMANTICS_ACTION_TYPES`).
     """
     return isinstance(action, _REPLACE_SEMANTICS_ACTION_TYPES)
 
@@ -266,6 +278,22 @@ def _field_type_desc(builder) -> str:
         elem = getattr(builder.type, "__name__", None) or "value"
         return f"a {builder.collection.__name__} of {elem}"
     return getattr(builder.type, "__name__", None) or "value"
+
+
+def _layered_error_detail(builder, exc: Exception) -> str:
+    """The redacted detail half of a layered conversion-failure message.
+
+    A :class:`_LayeredChoiceError` (raised by ``ArgumentBuilder.
+    _check_layered_choices``) already carries a safe, value-free "invalid
+    choice" message -- the SAME wording the CLI itself gives for a bad
+    Literal/``Choice(...)`` value -- so it is used AS-IS. Any other
+    conversion failure falls back to the generic "expected <type>" text:
+    its own message/args could themselves carry whatever secret the env
+    var or config value held, so it is never echoed.
+    """
+    if isinstance(exc, _LayeredChoiceError):
+        return str(exc)
+    return f"expected {_field_type_desc(builder)}"
 
 
 def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
@@ -376,13 +404,13 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
         builder = builders_by_name.get(name)
         try:
             eager[name] = builder.convert_layered(raw, source=kind)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
             what = (
                 f"environment variable {builder.env!r} for field {name!r}"
                 if kind == "env"
                 else f"config value for field {name!r} on {cls.__name__}"
             )
-            parser.error(f"{what}: expected {_field_type_desc(builder)}")
+            parser.error(f"{what}: {_layered_error_detail(builder, exc)}")
             return  # pragma: no cover - parser.error always raises SystemExit
 
     touched = {**placeholders, **eager}
@@ -486,19 +514,21 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
                 value = builder.convert_layered(
                     placeholder.raw, source=placeholder.kind
                 )
-            except (TypeError, ValueError):
-                # Neither the raw value nor the exception text is echoed
-                # back: either can itself carry whatever secret the
-                # env var or config value held (e.g. a leaked token), and
-                # this message reaches CLI stderr / an MCP ``isError``
-                # result -- name the field/variable and the expected shape
-                # only.
+            except (TypeError, ValueError) as exc:
+                # Neither the raw value nor a generic conversion exception's
+                # own text is echoed back: either can itself carry whatever
+                # secret the env var or config value held (e.g. a leaked
+                # token), and this message reaches CLI stderr / an MCP
+                # ``isError`` result -- name the field/variable and the
+                # expected shape only. A choices violation is the one
+                # exception: its message never carries the value either
+                # (see `_layered_error_detail`), so it is shown as-is.
                 what = (
                     f"environment variable {builder.env!r} for field {name!r}"
                     if placeholder.kind == "env"
                     else f"config value for field {name!r} on {cls.__name__}"
                 )
-                parser.error(f"{what}: expected {_field_type_desc(builder)}")
+                parser.error(f"{what}: {_layered_error_detail(builder, exc)}")
                 return  # pragma: no cover - parser.error always raises SystemExit
         setattr(parsed, name, value)
         merged[name] = value
@@ -667,11 +697,13 @@ def _apply_default_layers_one(
         try:
             merged[name] = builders_by_name[name].convert_layered(raw, source="config")
         except (TypeError, ValueError) as exc:
-            # Neither the raw value nor the exception text is echoed:
-            # either can carry whatever secret the config value held.
+            # Neither the raw value nor a generic conversion exception's own
+            # text is echoed: either can carry whatever secret the config
+            # value held. A choices violation is the one exception (see
+            # `_layered_error_detail`).
             raise ValueError(
                 f"config value for field {name!r} on {cls.__name__}: "
-                f"expected {_field_type_desc(builders_by_name[name])}"
+                f"{_layered_error_detail(builders_by_name[name], exc)}"
             ) from exc
         sources[name] = "config"
 
@@ -683,7 +715,7 @@ def _apply_default_layers_one(
             # Same redaction as above -- the env var itself could be secret.
             raise ValueError(
                 f"environment variable {builder.env!r} for field {name!r}: "
-                f"expected {_field_type_desc(builder)}"
+                f"{_layered_error_detail(builder, exc)}"
             ) from exc
         sources[name] = "env"
 

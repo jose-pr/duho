@@ -881,6 +881,34 @@ def test_append_helper():
     assert args.tags == ["a", "b"]
 
 
+class AppendWithDefaultArgs(Args):
+    """A non-empty default -- the first CLI occurrence must REPLACE it,
+    the same "CLI wins" rule every other collection option follows, not
+    merge onto it the way stdlib's own "append" action would."""
+
+    tags: Arg[list, Append()] = ["default"]
+    "Tags"
+    ("--tags",)
+
+
+def test_append_first_occurrence_replaces_a_nonempty_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args(["--tags", "a"])
+    assert args.tags == ["a"]  # not ["default", "a"]
+
+
+def test_append_repeated_occurrences_still_accumulate_after_replacing_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args(["--tags", "a", "--tags", "b"])
+    assert args.tags == ["a", "b"]
+
+
+def test_append_absent_keeps_the_declared_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.tags == ["default"]
+
+
 class ExtendArgs(Args):
     """opts: Arg[list, Extend(',')] splits each occurrence on `,` and flattens."""
 

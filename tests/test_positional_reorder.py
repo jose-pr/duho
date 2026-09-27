@@ -290,3 +290,16 @@ def test_unambiguous_long_prefix_between_positionals():
     assert result.ns == "user"
     assert result.targets == ["nas1"]
     assert result.filters == ["username=root"]
+
+
+def test_unambiguous_long_prefix_with_attached_value_between_positionals():
+    """`--filt=value` (an unambiguous prefix of `--filter`, WITH the value
+    attached via `=`) between two positionals -- previously missed: the
+    reorder pass's exact-key `--flag=value` split never matches an
+    abbreviated key, and the abbreviation branch itself explicitly excluded
+    any token containing `=`, so this fell through as unrecognized and the
+    whole reorder bailed."""
+    result = duho.parse(ShortFlagArgs, ["user", "--filt=username=root", "nas1"])
+    assert result.ns == "user"
+    assert result.targets == ["nas1"]
+    assert result.filters == ["username=root"]

@@ -197,6 +197,24 @@ def test_config_native_toml_date_does_not_crash(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# A trailing RFC 3339 UTC designator ("Z") must be accepted the SAME way
+# regardless of case, on every supported Python version -- 3.11+'s own
+# `fromisoformat` natively accepts an uppercase "Z" but rejects a lowercase
+# "z"; the <3.11 shim (which rewrites the suffix itself) previously only
+# normalized case on THAT floor, so "--at ...z" behaved differently
+# depending on which Python duho happened to run on.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("suffix", ["Z", "z"])
+def test_cli_datetime_accepts_either_case_of_the_utc_designator(suffix):
+    result = duho.parse(_DateConfigArgs, ["--at", f"2024-01-02T03:04:05{suffix}"])
+    assert result.at == datetime.datetime(
+        2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc
+    )
+
+
+# --------------------------------------------------------------------------
 # A Union[int, str] config float must not silently truncate through the
 # UNION's own int candidate the way a direct int field is already protected
 # against (test_config_int_field_rejects_fractional_float above) -- and a

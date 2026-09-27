@@ -127,6 +127,9 @@ def test_no_prefixed_layered_false_default_bool_builds_and_parses():
     option_strings = {s for action in parser._actions for s in action.option_strings}
     assert "--no-verify" in option_strings
     assert "--no-no-verify" not in option_strings
+    # The stripped, positive-sense counterpart -- the CLI's one way to turn
+    # a layered True back off (see the two tests below).
+    assert "--verify" in option_strings
 
     # The flag's own plain meaning wins: presence means "yes, skip it" (a
     # store_true, not a store_false that would invert a False default).
@@ -141,6 +144,27 @@ def test_no_prefixed_layered_false_default_bool_env_still_applies(monkeypatch):
     result = duho.parse(NoPrefixLayeredFalseDefaultArgs, [])
     monkeypatch.delenv("DUHO_TEST_LAYERED_NO_VERIFY", raising=False)
     assert result.no_verify is True
+
+
+def test_no_prefixed_layered_false_default_bool_cli_can_clear_a_layered_true(
+    monkeypatch,
+):
+    """A layered (env/config) True previously had NO way back to False from
+    the CLI: `store_true` alone (the only action `--no-verify` could use
+    without crashing) can only ever SET True, never re-assert False. The
+    stripped, positive-sense counterpart (`--verify`) gives it exactly one."""
+    monkeypatch.setenv("DUHO_TEST_LAYERED_NO_VERIFY", "1")
+    import duho
+
+    result = duho.parse(NoPrefixLayeredFalseDefaultArgs, ["--verify"])
+    monkeypatch.delenv("DUHO_TEST_LAYERED_NO_VERIFY", raising=False)
+    assert result.no_verify is False
+
+
+def test_no_prefixed_layered_false_default_bool_verify_flag_absent_keeps_default():
+    parser = NoPrefixLayeredFalseDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.no_verify is False
 
 
 class PlainBoolNoConfigAttr(Args):

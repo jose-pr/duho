@@ -153,6 +153,11 @@ def test_agent_help_flag_redacts_root_env_secret(monkeypatch, capsys):
     # `--help-agents` alone never selects (or parses into) a subcommand, so
     # only the ROOT's own env/config-bound fields are ever actually layered
     # for this invocation -- exercised here on `root_token`.
+    #
+    # The LIVE env value must never appear; the CLASS-declared default
+    # (never a secret -- a fixed, code-level constant) always does, so a
+    # consumer still learns the field's declared shape/default. Previously
+    # this over-redacted to a bare `null`, losing that safe information too.
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_ROOT_SECRET", "root-s3cr3t-api-key")
     with pytest.raises(SystemExit):
         duho.main(SecretApp, ["--help-agents"])
@@ -161,7 +166,7 @@ def test_agent_help_flag_redacts_root_env_secret(monkeypatch, capsys):
     assert "root-s3cr3t-api-key" not in out
     doc = json.loads(out)
     root_token = next(o for o in doc["options"] if o["dest"] == "root_token")
-    assert root_token["default"] is None
+    assert root_token["default"] == ""  # the class default, not the live env value
     assert root_token["default_source"] == "env DUHO_TEST_AGENTHELP_ROOT_SECRET"
 
 
@@ -198,9 +203,12 @@ def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secr
     doc = json.loads(out)
     token = next(o for o in doc["options"] if o["dest"] == "token")
     password = next(o for o in doc["options"] if o["dest"] == "password")
-    assert token["default"] is None
+    # The class default (never itself a secret) is still shown -- only the
+    # LIVE env/config value is redacted; `default_source` is what tells a
+    # reader the value in effect right now may differ from it.
+    assert token["default"] == ""
     assert token["default_source"] == "env DUHO_TEST_AGENTHELP_SECRET"
-    assert password["default"] is None
+    assert password["default"] == ""
     assert password["default_source"] == "config"
 
 

@@ -291,12 +291,18 @@ def _default_and_source(dest, builder, action, sources):
     or config-file value -- a secret, in the flagship documented
     ``NS(env=...)`` example -- before ``--help``/``--help-agents`` renders.
     Report the CLASS-declared default instead (``builder._effective_default_()``,
-    the same source ``duho.mcp`` already uses), and -- when the field's value
-    actually came from env or config -- a value-free provenance note in place
-    of ANY value, per the documented no-secrets-in-agent-help contract. An
-    ``instance=`` override is a caller-constructed Python value, not
-    env/filesystem-sourced, so it keeps showing its class default with no
-    note, same as an untouched field.
+    the same source ``duho.mcp`` already uses) -- ALWAYS, regardless of
+    source: the class default is a fixed, code-level constant, never a live
+    secret, so it is never itself redacted -- and -- when the field's value
+    actually came from env or config -- ALSO a value-free provenance note
+    alongside it, per the documented no-secrets-in-agent-help contract (that
+    note is what says the value shown may not be the one actually in
+    effect). Redacting the class default TOO (returning ``None`` instead of
+    it) was the actual defect here: it lost the one piece of information
+    that was always safe to show, showing JSON ``null``/human ``None``
+    instead of a real, useful value. An ``instance=`` override is a
+    caller-constructed Python value, not env/filesystem-sourced, so it keeps
+    showing its class default with no note, same as an untouched field.
 
     A builder-less action (no duho class behind this parser at all, e.g. a
     ``duho.app`` module command) falls back to whatever
@@ -311,13 +317,14 @@ def _default_and_source(dest, builder, action, sources):
         if stashed_source is not None:
             return getattr(action, "_duho_class_default_", None), stashed_source
         return _jsonable(action.default), None
+    class_default = _jsonable(builder._effective_default_())
     source = (sources or {}).get(dest)
     if source == "env":
         env_var = getattr(builder, "env", None)
-        return None, f"env {env_var}" if env_var else "env"
+        return class_default, f"env {env_var}" if env_var else "env"
     if source == "config":
-        return None, "config"
-    return _jsonable(builder._effective_default_()), None
+        return class_default, "config"
+    return class_default, None
 
 
 def _describe_option(action, clsargs, builders, prog: str, sources=None):

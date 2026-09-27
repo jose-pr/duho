@@ -51,6 +51,24 @@ def main(args):
     return 0
 '''
 
+# Same shape, but with a NON-EMPTY class default -- distinguishes "shows
+# the class default" from "shows nothing" the way an empty-string default
+# cannot.
+_MODULE_CMD_WITH_NONEMPTY_DEFAULT = '''\
+"""Deploy something using a secret, with a non-empty class default."""
+from duho import Arg, Args, NS
+
+
+class Args(Args):
+    token: Arg[str, NS(env="DUHO_TEST_MODULE_CMD_NONEMPTY_SECRET")] = "cls"
+    "Auth token (default: %(default)s)"
+    ("--token",)
+
+
+def main(args):
+    return 0
+'''
+
 
 class Root(duho.LoggingArgs, duho.Cmd):
     """A root command supplying global options."""
@@ -98,7 +116,10 @@ def test_module_command_agent_help_never_shows_env_secret(
     doc = json.loads(out)
     dep = next(s for s in doc["subcommands"] if s["name"] == "deploy")
     token = next(o for o in dep["options"] if o["dest"] == "token")
-    assert token["default"] is None
+    # The class default (never itself a secret) is still shown; only the
+    # LIVE env value is redacted. Previously this over-redacted to a bare
+    # `null` even for a module command's own field.
+    assert token["default"] == ""
     assert token["default_source"] == "env DUHO_TEST_MODULE_CMD_SECRET"
 
 
@@ -132,3 +153,21 @@ def test_module_command_help_with_placeholder_never_shows_live_env_value(
         app(Root, source=tmp_path, argv=["deploy", "--help"], setup_logging=False)
     out = capsys.readouterr().out
     assert "placeholder-module-s3cr3t" not in out
+
+
+def test_module_command_placeholder_still_shows_the_class_default(
+    tmp_path, monkeypatch, capsys
+):
+    # The other half of the same guarantee: redacting the LIVE env value
+    # must not also blank out the class default -- a literal `%(default)s`
+    # in a module command's help text previously rendered the Python
+    # literal `None` once an env var was set, instead of the declared
+    # class default ("cls").
+    monkeypatch.setenv("DUHO_TEST_MODULE_CMD_NONEMPTY_SECRET", "live-value")
+    _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_NONEMPTY_DEFAULT)
+    with pytest.raises(SystemExit):
+        app(Root, source=tmp_path, argv=["deploy", "--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert "live-value" not in out
+    assert "(default: cls)" in out
+    assert "(default: None)" not in out

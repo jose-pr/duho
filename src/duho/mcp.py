@@ -71,15 +71,22 @@ deliberately NOT caught, so it still stops the server.
 **Malformed requests are a different kind of failure than a broken command**:
 :func:`call_tool` raises :class:`UnknownToolError` for a tool name that does
 not resolve (or names a namespace node -- see above), and
-:class:`InvalidArgumentsError` when ``arguments`` is not a JSON object or
-fails the tool's own ``inputSchema`` (an unknown property, or a value whose
-JSON type does not match). Both are :class:`ValueError` subclasses carrying a
-JSON-RPC ``.code`` (``-32602``, "invalid params"); :func:`serve` maps them to
-a JSON-RPC *error response*, never a tool result -- the request itself, not
-the target command, was invalid. A problem in the dispatched command itself
-(a raised exception, a non-zero exit, ``sys.exit``, or an argparse usage
-error from a value that WAS schema-valid but the command still rejects) is
-still a normal tool result with ``isError: true``.
+:class:`InvalidArgumentsError` when ``arguments`` is not a JSON object, fails
+the tool's own ``inputSchema`` (an unknown property, a missing required one,
+a value whose JSON type/``enum`` does not match, a numeric value outside its
+``minimum``/``maximum``, or a collection over its ``maxItems``/
+``maxProperties``), or -- discovered while synthesizing argv, since it
+depends on the built parser tree rather than the schema alone -- supplies a
+value that cannot be safely encoded at all (an unsafe positional, an unsafe
+option value, or a negative counting-flag value; see :func:`call_tool`'s own
+"Dispatch-identity guard" section). All of these are
+:class:`ValueError` subclasses carrying a JSON-RPC ``.code`` (``-32602``,
+"invalid params"); :func:`serve` maps them to a JSON-RPC *error response*,
+never a tool result -- the request itself, not the target command, was
+invalid. A problem in the dispatched command itself (a raised exception, a
+non-zero exit, ``sys.exit``, or an argparse usage error from a value that WAS
+schema-valid but the command still rejects) is still a normal tool result
+with ``isError: true``.
 
 **Documented v1 limitations**: a custom ``action=``/``type=`` field with no
 registered override is passed through as a plain string, verbatim;
@@ -88,10 +95,12 @@ the tool's description text (no ``oneOf``/``not`` JSON Schema encoding yet); a
 field that defaults to ``True`` and declares only short flags (no long flag)
 cannot be turned back to ``False`` over MCP (there is no ``--no-<x>`` form to
 emit) and raises rather than silently doing the wrong thing; a value equal to
-the literal string ``"--"`` is refused (argparse's own ``--`` end-of-options
-marker, and duho's own ``_passthrough_`` split, make it unsafe to smuggle
-through); streaming/long-running commands are out of scope -- this is
-strictly one request -> one result.
+the literal string ``"--"`` given AS a declared field's value is refused
+(argparse's own ``--`` end-of-options marker, and duho's own
+``_passthrough_`` split, make it unsafe to smuggle through a normal field --
+use the dedicated ``"--"`` array property instead, see :func:`_input_schema_for_node`);
+streaming/long-running commands are out of scope -- this is strictly one
+request -> one result.
 
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
@@ -186,6 +195,19 @@ _JSON_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"
 #: request).
 _MAX_COUNT_VALUE = 10
 
+#: Upper bound published (as JSON Schema ``maxItems``/``maxProperties``) and
+#: enforced (see :func:`_validate_arguments`) for a ``list``/``set``/``tuple``
+#: field's array schema, a ``dict`` field's object schema, and the synthetic
+#: ``"--"`` passthrough array (see :func:`_input_schema_for_node`). An
+#: LLM-controlled collection has no reason to exceed this -- a bound the
+#: server enforces BEFORE synthesizing argv or dispatching keeps a huge
+#: client-supplied collection from stalling the single-threaded stdio server
+#: (measured: tens of seconds for a six-figure ``dict``/``list`` argument,
+#: whatever the underlying cost -- capping the input size makes the cost
+#: moot regardless of where it lives).
+_MAX_ARRAY_ITEMS = 1000
+_MAX_OBJECT_PROPERTIES = 1000
+
 
 class UnknownToolError(ValueError):
     """Raised by :func:`call_tool` for a tool name that does not resolve to a
@@ -227,15 +249,20 @@ def _schema_for_type(tp: object) -> "dict":
     * an ``Enum`` subclass -> ``{"type": "string", "enum": [member names]}``
       (member NAME, not value -- reuses :func:`duho.agenthelp._enum_members`,
       duho's standing convention).
-    * ``list[T]`` -> ``array`` with ``items`` = ``T``'s own schema.
-    * ``set[T]`` -> ``array`` + ``uniqueItems: true``.
+    * ``list[T]`` -> ``array`` with ``items`` = ``T``'s own schema, capped at
+      ``maxItems`` (:data:`_MAX_ARRAY_ITEMS`) -- enforced by
+      :func:`_validate_arguments` before dispatch, so an oversized
+      LLM-supplied collection is refused as a malformed request rather than
+      synthesized into argv.
+    * ``set[T]`` -> ``array`` + ``uniqueItems: true`` + the same ``maxItems``.
     * ``tuple[T, ...]`` / bare ``tuple`` -> ``array`` (only the variadic
       homogeneous shape reaches here -- a fixed-length ``tuple[A, B]``
       annotation already raised at ``cls._getargs_()``-build time, before any
       of this module's functions run, so it never needs defensive handling
-      here).
+      here) + the same ``maxItems``.
     * ``dict[str, V]`` / bare ``dict`` -> ``object`` with
-      ``additionalProperties`` = ``V``'s own schema.
+      ``additionalProperties`` = ``V``'s own schema, capped at
+      ``maxProperties`` (:data:`_MAX_OBJECT_PROPERTIES`), enforced the same way.
     * ``Optional[T]`` / a ``Union`` -> ``None`` is stripped; a single
       remaining member recurses into that member's own schema (no ``anyOf``
       wrapping for the common ``Optional[T]`` case); more than one remaining
@@ -272,19 +299,36 @@ def _schema_for_type(tp: object) -> "dict":
 
     if origin is list or tp is list:
         elem = args[0] if args else str
-        return {"type": "array", "items": _schema_for_type(elem)}
+        return {
+            "type": "array",
+            "items": _schema_for_type(elem),
+            "maxItems": _MAX_ARRAY_ITEMS,
+        }
 
     if origin is set or tp is set:
         elem = args[0] if args else str
-        return {"type": "array", "items": _schema_for_type(elem), "uniqueItems": True}
+        return {
+            "type": "array",
+            "items": _schema_for_type(elem),
+            "uniqueItems": True,
+            "maxItems": _MAX_ARRAY_ITEMS,
+        }
 
     if origin is tuple or tp is tuple:
         elem = args[0] if args else str
-        return {"type": "array", "items": _schema_for_type(elem)}
+        return {
+            "type": "array",
+            "items": _schema_for_type(elem),
+            "maxItems": _MAX_ARRAY_ITEMS,
+        }
 
     if origin is dict or tp is dict:
         val = args[1] if len(args) > 1 else str
-        return {"type": "object", "additionalProperties": _schema_for_type(val)}
+        return {
+            "type": "object",
+            "additionalProperties": _schema_for_type(val),
+            "maxProperties": _MAX_OBJECT_PROPERTIES,
+        }
 
     if origin in _compat.UNION_ORIGINS:
         members = [a for a in args if a is not _NONETYPE]
@@ -400,9 +444,11 @@ def json_schema_for_field(
     schema = _schema_for_type(tp) if tp is not None else {"type": "string"}
 
     if builder._kwargs().get("action") == "count":
-        # An LLM-controlled count has no reason to exceed this; see
+        # An LLM-controlled count has no reason to exceed this, or to be
+        # negative (the CLI itself only ever accumulates upward); see
         # `_MAX_COUNT_VALUE` and `_validate_arguments`'s matching enforcement.
         schema["maximum"] = _MAX_COUNT_VALUE
+        schema["minimum"] = 0
 
     required = _is_required(builder)
     if not required:
@@ -513,6 +559,16 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
     def _walk(parser, cls, dotted_parts, own_name, ancestors):
         node = _Node(".".join(dotted_parts), own_name, parser, cls, ancestors)
         nodes[node.dotted_name] = node
+        # A dispatch-identity marker (see `call_tool`'s guard against a
+        # positional swallowing the literal subcommand-name token this
+        # module inserts between chain levels): tag EVERY subparser with the
+        # chain of own-names that reaches it. argparse re-runs each level's
+        # defaults-installation as parsing descends (root's default is
+        # installed first, but a DEEPER subparser's own `set_defaults` still
+        # overwrites it once that subparser actually runs), so after a
+        # successful parse this dest holds the tuple for the subparser
+        # ACTUALLY reached -- not necessarily the one `call_tool` intended.
+        parser.set_defaults(_duho_mcp_path_=dotted_parts)
         for canonical, _aliases, subparser in _parsers.unique_subcommands(parser, seen):
             sub_cls = getattr(subparser, "_duho_cls_", None)
             _walk(
@@ -575,7 +631,16 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     dispatch that goes through the whole path at once), in root-to-leaf
     order so a field redeclared at a deeper level shadows the shallower one
     (schema shape AND required-ness), with any field satisfiable purely from
-    the server's own environment/config dropped from ``required``.
+    the server's own environment/config dropped from ``required``, plus one
+    synthetic ``"--"`` property (an array of strings, never required) for
+    the trailing passthrough argv every duho command receives as
+    ``_passthrough_`` -- see :func:`call_tool`, which appends it as a
+    literal ``--`` token followed by its items at the very end of the
+    synthesized argv, exactly where a human-typed CLI invocation would put
+    it. Universal (every tool is reachable through the tree's single ROOT
+    parser, whose own top-level parse always owns the ``--`` split), so
+    every published tool advertises it, not just ones whose own ``__call__``
+    happens to read ``self._passthrough_``.
     """
     properties: "dict" = {}
     required: "list[str]" = []
@@ -598,6 +663,16 @@ def _input_schema_for_node(node: "_Node") -> "dict":
         for name in level_required:
             if name not in required:
                 required.append(name)
+    properties["--"] = {
+        "type": "array",
+        "items": {"type": "string"},
+        "maxItems": _MAX_ARRAY_ITEMS,
+        "default": [],
+        "description": (
+            "Arguments captured after a literal '--' separator, forwarded "
+            "verbatim as the command's own _passthrough_ list."
+        ),
+    }
     return {
         "type": "object",
         "properties": properties,
@@ -698,33 +773,43 @@ def _reject_unsafe_positional(
     """Refuse a positional token argparse would parse as an option or as the
     ``--`` passthrough separator, rather than silently mis-parsing it or
     letting it leak into ``_passthrough_``. Also refuses a token equal to a
-    name in ``forbidden`` -- ``call_tool`` passes this level's OWN
-    subcommand names (see :func:`_sibling_names`), so a client cannot set an
+    name in ``forbidden`` -- ``call_tool`` passes the union of THIS level's
+    own subcommand names (see :func:`_sibling_names`) and every ANCESTOR
+    level's own subcommand names/aliases, so a client cannot set an
     ancestor's own optional/variadic positional field to a value that would
-    read as a DIFFERENT sibling's selector once appended ahead of it (a
-    security-relevant guard: MCP tool arguments are LLM-controlled)."""
+    read as a sibling selector -- AT THAT LEVEL OR ANY SHALLOWER ONE -- once
+    appended ahead of it (a security-relevant guard: MCP tool arguments are
+    LLM-controlled). Raises :class:`InvalidArgumentsError` rather than a bare
+    ``ValueError``: a value that cannot be safely encoded as argv at all is a
+    malformed REQUEST, not a command that ran and failed, so ``call_tool``
+    lets it propagate as a JSON-RPC error instead of mapping it to a tool
+    result's ``isError: true`` (see the module docstring's "Malformed
+    requests" note)."""
     if token == "--" or (
         token.startswith("-")
         and token != "-"
         and not _looks_like_negative_number(token, parser)
     ):
-        raise ValueError(
+        raise InvalidArgumentsError(
             "value %r cannot be passed as a positional argument: it would "
             "be parsed as an option (or the '--' passthrough separator)" % (token,)
         )
     if token in forbidden:
-        raise ValueError(
+        raise InvalidArgumentsError(
             "value %r cannot be passed as a positional argument at this "
-            "level: it collides with one of this level's own subcommand "
-            "names" % (token,)
+            "level: it collides with a subcommand name at this level or an "
+            "ancestor level" % (token,)
         )
 
 
 def _reject_unsafe_value(token: str, flag: str) -> None:
     """Refuse a value equal to the literal string ``"--"``: some argparse
-    versions strip a bare ``--`` from an attached ``--flag=--`` value."""
+    versions strip a bare ``--`` from an attached ``--flag=--`` value. Same
+    request-level classification as :func:`_reject_unsafe_positional` (see
+    its docstring) -- raises :class:`InvalidArgumentsError`, not a bare
+    ``ValueError``."""
     if token == "--":
-        raise ValueError(
+        raise InvalidArgumentsError(
             "value '--' cannot be passed to %s (argparse may strip a bare "
             "'--' from an attached option value)" % (flag,)
         )
@@ -734,13 +819,15 @@ def _emit_option(argv: "list[str]", flag: str, is_long: bool, token: str) -> Non
     """Append one option occurrence for ``token``: a long flag is
     always attached with ``=`` so argparse never reinterprets the value; a
     short-flag-only field refuses a value that looks like another option
-    (there is no safe attached form for a short flag)."""
+    (there is no safe attached form for a short flag) -- also an
+    :class:`InvalidArgumentsError`, the same request-level classification as
+    :func:`_reject_unsafe_positional`."""
     _reject_unsafe_value(token, flag)
     if is_long:
         argv.append("%s=%s" % (flag, token))
         return
     if token.startswith("-") and token != "-":
-        raise ValueError(
+        raise InvalidArgumentsError(
             "value %r cannot be passed to %s: it has no long form to attach "
             "the value to safely" % (token, flag)
         )
@@ -751,9 +838,12 @@ def _sibling_names(parser: "_argparse.ArgumentParser") -> "frozenset":
     """Every subcommand name (canonical + alias) registered DIRECTLY on
     ``parser`` -- empty when it has no subparsers action at all. Used to
     refuse a positional value that collides with one of THIS level's own
-    choices (see :func:`_reject_unsafe_positional`); scoped to this one
-    parser, never the whole tree, so a same-named command living elsewhere
-    (a different node entirely) never triggers it by coincidence."""
+    choices, or (unioned with every ancestor's own call to this same
+    function) an ANCESTOR's own choices -- see :func:`_reject_unsafe_positional`
+    and ``call_tool``'s accumulation of ``ancestor_forbidden`` as it walks
+    the chain. Scoped to one parser at a time, never the whole tree, so a
+    same-named command living elsewhere (a different, unrelated node
+    entirely) never triggers it by coincidence."""
     action = _parsers.find_subparsers(parser)
     if action is None:
         return frozenset()
@@ -809,6 +899,7 @@ def _synthesize_argv(
     parser: "_argparse.ArgumentParser",
     *,
     skip: "_ty.Optional[frozenset]" = None,
+    ancestor_forbidden: "frozenset" = frozenset(),
 ) -> "list[str]":
     """Turn a JSON ``arguments`` object into argv for ``cls``'s OWN fields.
 
@@ -859,12 +950,16 @@ def _synthesize_argv(
     (never ``[flag, value]``), so a value starting with ``-`` can never be
     reinterpreted as a different flag; a positional value that would be
     parsed as an option (or the ``--`` passthrough separator), or that
-    collides with one of THIS level's own subcommand names (security-
-    relevant: MCP tool arguments are LLM-controlled -- see
-    :func:`_reject_unsafe_positional`), is refused outright.
+    collides with one of THIS level's own subcommand names OR one named in
+    ``ancestor_forbidden`` (security-relevant: MCP tool arguments are
+    LLM-controlled -- ``call_tool`` passes every ANCESTOR level's own
+    subcommand names/aliases here, since such a value could otherwise be
+    swallowed by an ancestor's own optional/variadic positional and
+    reinterpreted as ITS subcommand selector once the literal name tokens
+    shift -- see :func:`_reject_unsafe_positional`), is refused outright.
     """
     argv: "list[str]" = []
-    forbidden = _sibling_names(parser)
+    forbidden = _sibling_names(parser) | ancestor_forbidden
     for builder in cls._getargs_():
         name = builder.name
         if skip is not None and name in skip:
@@ -909,7 +1004,12 @@ def _synthesize_argv(
         if action == "count":
             count = value if isinstance(value, int) else int(value)
             if count < 0:
-                raise ValueError(
+                # A malformed-request problem, not a broken command -- see
+                # `_reject_unsafe_positional`'s docstring for the same
+                # classification. `_validate_arguments` also enforces the
+                # published `minimum: 0` before dispatch ever reaches here;
+                # this is the defense-in-depth fallback.
+                raise InvalidArgumentsError(
                     "field %r (a counting flag) cannot be negative" % (name,)
                 )
             if is_long or not count:
@@ -984,20 +1084,49 @@ def _matches_schema_type(value: object, expected: object) -> bool:
 
 
 def _validate_arguments(schema: "dict", arguments: "dict") -> None:
-    """Reject ``arguments`` against ``schema``: an unknown property (the
-    schema always declares ``additionalProperties: false``), a value whose
-    JSON type does not match its property's declared ``type`` -- e.g. the
-    string ``"false"`` for a boolean field, which used to be truthy and
-    silently turn the flag ON -- or a numeric value over its property's
-    ``maximum`` (currently only a counting flag publishes one; see
-    ``_MAX_COUNT_VALUE``). Raises :class:`InvalidArgumentsError` naming every
-    problem found, rather than stopping at the first one.
+    """Reject ``arguments`` against ``schema`` before any argv is
+    synthesized or anything is dispatched. Checked, each against every
+    supplied argument (not stopping at the first problem found):
+
+    * an unknown property (the schema always declares
+      ``additionalProperties: false``);
+    * a value whose JSON type does not match its property's declared
+      ``type`` -- e.g. the string ``"false"`` for a boolean field, which
+      used to be truthy and silently turn the flag ON;
+    * a MISSING property named in ``schema["required"]`` (JSON ``null`` for
+      a required property counts as missing -- see the module docstring's
+      "null means not supplied" convention);
+    * a value outside its property's ``enum`` (``Literal``/``Enum`` fields);
+    * a numeric value over its property's ``maximum``, or under its
+      ``minimum`` (currently only a counting flag publishes either; see
+      ``_MAX_COUNT_VALUE``, and ``json_schema_for_field``'s ``minimum: 0``);
+    * an array over its property's ``maxItems``, or an object over its
+      ``maxProperties`` (``_MAX_ARRAY_ITEMS``/``_MAX_OBJECT_PROPERTIES`` --
+      published for every ``list``/``set``/``tuple``/``dict`` field and the
+      synthetic ``"--"`` passthrough array, so an oversized LLM-supplied
+      collection is refused here rather than synthesized into argv and
+      dispatched);
+    * a non-string item in an array property whose own ``items`` schema
+      declares ``"type": "string"`` (currently only ``"--"``, since its
+      items are fed straight into argv).
+
+    A value that IS schema-valid but still cannot be safely turned into argv
+    (an unsafe positional, an unsafe option value, a negative count) is a
+    DIFFERENT, later check -- raised directly by :func:`_synthesize_argv`/
+    :func:`_reject_unsafe_positional`/:func:`_reject_unsafe_value` as this
+    same :class:`InvalidArgumentsError`, since it depends on the built
+    parser tree (subcommand names, aliases), not just the JSON schema this
+    function checks against.
     """
     properties = schema.get("properties", {})
+    required = schema.get("required", ())
     errors = []
     for key in arguments:
         if key not in properties:
             errors.append("unknown argument %r" % (key,))
+    for key in required:
+        if key not in arguments or arguments[key] is None:
+            errors.append("missing required argument %r" % (key,))
     for key, value in arguments.items():
         prop = properties.get(key)
         if prop is None or value is None:
@@ -1009,6 +1138,10 @@ def _validate_arguments(schema: "dict", arguments: "dict") -> None:
                 % (key, expected, type(value).__name__)
             )
             continue
+        enum = prop.get("enum")
+        if enum is not None and value not in enum:
+            errors.append("argument %r: %r is not one of %r" % (key, value, enum))
+            continue
         maximum = prop.get("maximum")
         if (
             maximum is not None
@@ -1017,6 +1150,42 @@ def _validate_arguments(schema: "dict", arguments: "dict") -> None:
             and value > maximum
         ):
             errors.append("argument %r: %r exceeds maximum %r" % (key, value, maximum))
+        minimum = prop.get("minimum")
+        if (
+            minimum is not None
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value < minimum
+        ):
+            errors.append("argument %r: %r is below minimum %r" % (key, value, minimum))
+        max_items = prop.get("maxItems")
+        if (
+            max_items is not None
+            and isinstance(value, (list, tuple))
+            and len(value) > max_items
+        ):
+            errors.append(
+                "argument %r: has %d items, exceeds maxItems %r"
+                % (key, len(value), max_items)
+            )
+        max_properties = prop.get("maxProperties")
+        if (
+            max_properties is not None
+            and isinstance(value, dict)
+            and len(value) > max_properties
+        ):
+            errors.append(
+                "argument %r: has %d properties, exceeds maxProperties %r"
+                % (key, len(value), max_properties)
+            )
+        items_schema = prop.get("items")
+        if (
+            items_schema
+            and items_schema.get("type") == "string"
+            and isinstance(value, (list, tuple))
+            and any(not isinstance(item, str) for item in value)
+        ):
+            errors.append("argument %r: every item must be a string" % (key,))
     if errors:
         raise InvalidArgumentsError("; ".join(errors))
 
@@ -1109,22 +1278,30 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     raising :class:`UnknownToolError` for a name that is not in the tree, or
     that names a namespace node (see :func:`_is_namespace_node`) -- neither
     can ever be dispatched. Raises :class:`InvalidArgumentsError` when
-    ``arguments`` is not a JSON object (``None`` is treated as ``{}``) or
-    fails the tool's own merged ``inputSchema`` (:func:`_validate_arguments`).
-    Both are request-level problems, mapped by :func:`serve` to a JSON-RPC
-    error response rather than a tool result.
+    ``arguments`` is not a JSON object (``None`` is treated as ``{}``), fails
+    the tool's own merged ``inputSchema`` (:func:`_validate_arguments`), or
+    (discovered while synthesizing argv, since it depends on the built
+    parser tree rather than the JSON schema alone) supplies a value that
+    cannot be safely encoded at all -- an unsafe positional, an unsafe
+    option value, or a negative counting-flag value (see
+    :func:`_synthesize_argv`/:func:`_reject_unsafe_positional`/
+    :func:`_reject_unsafe_value`). All of these are request-level problems,
+    mapped by :func:`serve` to a JSON-RPC error response rather than a tool
+    result.
 
     Otherwise: synthesizes one argv per level of the tool's ancestry chain
     (root first) via :func:`_synthesize_argv`, with the next level's own
-    subcommand name token in between, and parses the WHOLE THING through the
-    tree's single shared ROOT parser -- exactly as ``duho.main``/``duho.parse``
-    would for the equivalent CLI invocation, so env/config layering, root
-    globals, ``_passthrough_``, and (via :func:`duho.args._setup_instance_logging`)
-    ``LoggingArgs`` verbosity setup all reach the dispatched command. Captures
-    stdout AND stderr during dispatch, and replaces ``sys.stdin`` with an
-    empty stream for its duration (a command honoring '-' = stdin
-    must not be able to read the MCP client's next request off the real
-    stdin).
+    subcommand name token in between, then -- when the JSON arguments carry
+    a ``"--"`` array -- one literal ``--`` token followed by its items at
+    the very end (see :func:`_input_schema_for_node`'s synthetic property),
+    and parses the WHOLE THING through the tree's single shared ROOT parser
+    -- exactly as ``duho.main``/``duho.parse`` would for the equivalent CLI
+    invocation, so env/config layering, root globals, ``_passthrough_``, and
+    (via :func:`duho.args._setup_instance_logging`) ``LoggingArgs``
+    verbosity setup all reach the dispatched command. Captures stdout AND
+    stderr during dispatch, and replaces ``sys.stdin`` with an empty stream
+    for its duration (a command honoring '-' = stdin must not be able to
+    read the MCP client's next request off the real stdin).
 
     **Dispatch-identity guard** (security-relevant: MCP tool arguments are
     LLM-controlled): an ancestor's own optional/variadic positional field can
@@ -1133,13 +1310,21 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     that ancestor's own subparsers action and dispatching a DIFFERENT
     sibling than the one named by ``name`` (argparse itself has always
     allowed this; it is normally harmless on a real, human-typed CLI, but
-    not when the argv comes from an LLM). After a successful parse, the
-    result is used ONLY when ``type(instance) is node.cls`` -- anything else
-    (including a namespace class picked up mid-chain) is treated as a
-    dispatch failure, mapped to ``isError: true``, and the command is NEVER
-    run. :func:`_synthesize_argv` additionally refuses outright (before
-    parsing) a value explicitly supplied FOR an ancestor's own positional
-    that collides with one of that level's own subcommand names.
+    not when the argv comes from an LLM). The SAME class can also be reached
+    from more than one place in the tree (shared between two parents, or
+    both nested and top-level), so a class-identity check alone cannot tell
+    a hijack from a legitimate dispatch. After a successful parse, the
+    result is used ONLY when BOTH ``type(instance) is node.cls`` AND the
+    ``_duho_mcp_path_`` tag :func:`_tree_for` attaches to every subparser
+    (via ``set_defaults``, overwritten by the DEEPEST subparser actually
+    reached as parsing descends) equals the tool's own chain of names
+    exactly -- anything else (including a namespace class picked up
+    mid-chain, or the right class reached through the WRONG chain) is
+    treated as a dispatch failure, mapped to ``isError: true``, and the
+    command is NEVER run. :func:`_synthesize_argv` additionally refuses
+    outright (before parsing, as an :class:`InvalidArgumentsError`) a value
+    explicitly supplied FOR a field at any level that collides with a
+    subcommand name/alias registered at THAT level or any ANCESTOR level.
 
     **Return convention**: ``run_command`` returns ``0`` for a
     ``None``/``0`` command return, an int for a non-zero return, or the raw
@@ -1170,6 +1355,7 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     _validate_arguments(schema, arguments)
 
     chain = node.ancestors + (node,)
+    expected_path = tuple(step.own_name for step in chain)
     # A field name declared at several levels of the chain binds ONLY at the
     # deepest one (matches the merged schema, `_input_schema_for_node`) -- an
     # ancestor's own same-named field must never ALSO pick up the value
@@ -1182,15 +1368,29 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
             field_owner[builder.name] = i
     try:
         argv: "list[str]" = []
+        ancestor_forbidden: "frozenset" = frozenset()
         for i, step in enumerate(chain):
             shadowed = frozenset(
                 fname for fname, owner in field_owner.items() if owner != i
             )
             argv.extend(
-                _synthesize_argv(step.cls, arguments, step.parser, skip=shadowed)
+                _synthesize_argv(
+                    step.cls,
+                    arguments,
+                    step.parser,
+                    skip=shadowed,
+                    ancestor_forbidden=ancestor_forbidden,
+                )
             )
+            ancestor_forbidden = ancestor_forbidden | _sibling_names(step.parser)
             if i + 1 < len(chain):
                 argv.append(chain[i + 1].own_name)
+        passthrough = arguments.get("--") or None
+        if passthrough:
+            argv.append("--")
+            argv.extend(passthrough)
+    except InvalidArgumentsError:
+        raise
     except ValueError as exc:
         return _text_result(str(exc), is_error=True)
 
@@ -1214,11 +1414,17 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
                             "argument error (exit code %r)" % (exc.code,)
                         )
                         return _text_result(message, is_error=True)
-                    if type(instance) is not node.cls:
+                    actual_path = getattr(instance, "_duho_mcp_path_", None)
+                    if type(instance) is not node.cls or actual_path != expected_path:
+                        actual_desc = (
+                            ".".join(actual_path)
+                            if isinstance(actual_path, tuple)
+                            else type(instance).__name__
+                        )
                         return _text_result(
                             "tool %r did not resolve to the requested command "
                             "(dispatched %r instead); refusing to run it"
-                            % (name, type(instance).__name__),
+                            % (name, actual_desc),
                             is_error=True,
                         )
                     _setup_instance_logging(instance, True, root_cls)

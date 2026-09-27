@@ -119,6 +119,7 @@ def test_leaf_tool_with_no_fields_of_its_own_inherits_ancestor_fields():
         "verbose",
         "quiet",
         "loglevels",
+        "--",
     }
     assert rollback["inputSchema"]["required"] == []
 

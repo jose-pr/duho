@@ -665,6 +665,15 @@ def _register_module_command(
     # ever collide with.
     parser.set_defaults(_duho_module_command_=command)
 
+    # Snapshot the dest names already present (inherited root/global options
+    # via `parents=[base_parser]`, plus the auto-added `-h`/`--help`) BEFORE
+    # this command's own fields go on -- the difference is this subparser's
+    # OWN dests, stashed below for `duho.mcp` to build a schema/argv mapping
+    # from (a declared field that collides with an inherited global is
+    # silently SKIPPED by `_add_fields(strict=False)` just below, so it must
+    # not be treated as this command's own field either).
+    dests_before = {a.dest for a in parser._actions}
+
     args_cls = _module_args_cls(command, root_cls)
     if args_cls is not None:
         _add_module_declared_fields(parser, args_cls)
@@ -726,6 +735,20 @@ def _register_module_command(
             raise _argparse.ArgumentError(
                 None, f"command {command._parsername_!r}: {exc}"
             ) from exc
+
+    # Stashed for `duho.mcp`'s generalized MCP tool tree (Plan 33 Phase 2):
+    # `_duho_module_args_cls_` is the resolved declarative class (``None`` for
+    # a module with no ``Args``/only a ``register`` hook), reused for a
+    # richer JSON-Schema field mapping than the bare-action fallback;
+    # `_duho_module_own_dests_` is every dest THIS registration actually added
+    # (declared fields plus anything a ``register`` hook added directly),
+    # excluding inherited globals and `-h`/`--help` -- the set MCP maps
+    # tool-call arguments onto. Neither attribute is read anywhere else in
+    # this module; a module command's own dispatch contract is unaffected.
+    parser._duho_module_args_cls_ = args_cls  # type: ignore[attr-defined]
+    parser._duho_module_own_dests_ = {  # type: ignore[attr-defined]
+        a.dest for a in parser._actions
+    } - dests_before
 
     # A module command's subparser is a plain `add_parser()` instance --
     # never touched by `Args._initparser_`'s patching -- so it never got the
@@ -1537,3 +1560,92 @@ def app(
         notices,
         run,
     )
+
+
+def _build_app_core(
+    root: "type | None" = None,
+    *,
+    commands: "_ty.Sequence[_Command] | None" = None,
+    source: "str | _Path | None" = None,
+    entry_points: "str | None" = None,
+    argv: "_ty.Sequence[str] | None" = None,
+    name: "str | None" = None,
+    description: "str | None" = None,
+    env: "_Env | None" = None,
+    config: "str | _Path | None" = None,
+) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
+    """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
+    dispatching -- the building block :mod:`duho.mcp` needs to serve an
+    ``app()``-based CLI's full tree (class AND module commands) over MCP.
+
+    Runs the exact same discovery/parser-build/registration/config-thread-down
+    steps :func:`app` itself calls (:func:`_resolve_commands`,
+    :func:`_prepare_app_parser`, :func:`_register_commands`,
+    :func:`_finalize_command_tree`) -- built ONCE, not per MCP tool call, same
+    as a real ``app()`` invocation builds its parser once per process.
+    ``argv`` here only feeds the advisory ``register``-hook prepass
+    (:func:`_prepare_app_parser`); it is never parsed for real by this
+    function -- an MCP tool call parses its own synthesized argv against the
+    returned parser instead.
+
+    Returns ``(parser, root_cls, dispatch)``. ``dispatch(command, instance)``
+    replicates :func:`_run_app`'s POST-parse steps for one already-parsed
+    instance: attaching the resolved ``env`` as ``instance._env_``, logging
+    setup (identical to a real ``app()`` run), flushing the deferred
+    override/collision notices (once, not once per call), and
+    :func:`run_command`. The caller (``duho.mcp``) is responsible for parsing
+    argv against ``parser`` and resolving which command to dispatch -- the
+    same responsibility split :func:`_run_app` has, just with the parse step
+    performed by the caller instead of internally, so a caller can verify
+    IDENTITY (which command actually got selected) before ever calling
+    ``dispatch`` -- a security-relevant check for MCP, whose arguments are
+    LLM-controlled and must never be allowed to silently redirect dispatch to
+    an unintended command (see ``duho.mcp``'s own dispatch-identity guard).
+    """
+    cmds_path_overridden: "set[str]" = set()
+    resolved_commands = _resolve_commands(
+        root, commands, source, env, entry_points, overridden=cmds_path_overridden
+    )
+
+    parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
+        root, name, description, config, argv, resolved_commands
+    )
+
+    subparsers, registry, notices = _register_commands(
+        root,
+        resolved_commands,
+        parser,
+        base_parser,
+        root_cls,
+        prepass_args,
+        cmds_path_overridden,
+        inherited_config_hint=config is not None,
+    )
+
+    _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)
+
+    # Notices/overrides are logged once, the first time `dispatch` actually
+    # runs a command -- not once per MCP tool call, and not at all if the
+    # server never dispatches anything (mirrors `app()`'s own "log once
+    # logging is configured" timing, just amortized across every call this
+    # one built parser serves instead of one call per process).
+    logged = False
+
+    def _dispatch(command: object, instance: object) -> int:
+        nonlocal logged
+        try:
+            instance._env_ = env  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
+            pass
+        _setup_instance_logging(instance, True, root_cls)
+        if not logged:
+            logged = True
+            for overridden_name in sorted(cmds_path_overridden):
+                _LOGGER.info(
+                    "CMDS_PATH command %r overrides the built-in", overridden_name
+                )
+            for level, message in notices:
+                _LOGGER.log(level, message)
+        return run_command(_ty.cast(_Command, command), instance)
+
+    return parser, root_cls, _dispatch

@@ -230,11 +230,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **(security)** `discover_commands`/`duho.app(source=...)` on a bare
   package name now prefers an importable package over a same-named directory
   relative to the current working directory.
-- **(security)** `discover_commands("")`/`discover_commands(Path(""))`/
-  `duho.app(source="")` now raise `ValueError` instead of silently scanning
-  and importing every file in the current working directory;
-  `discover_commands(".")` (or `discover_commands(Path("."))`) is unchanged
-  and still means the current directory explicitly.
+- **(security)** `discover_commands("")` and `duho.app(source="")` now raise
+  `ValueError` instead of silently scanning and importing every file in the
+  current working directory. `"."` still means the current directory
+  explicitly; so does `Path("")`, because Python normalises it to `Path(".")`.
 - A class whose name starts with `_` is no longer discovered/listed as a
   runnable subcommand. A package's own module command is now named after the
   package, not `--init--`. An entry point's advertised name is now used only
@@ -291,18 +290,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   passthrough args, and `LoggingArgs` verbosity setup all reach an
   MCP-dispatched command exactly as they would under `duho.main`/
   `duho.parse`. `serverInfo.version` now reports duho's own version.
-- **(security)** `call_tool` now rejects a request whose parsed command
-  doesn't actually match the tool name it was dispatched under (an ancestor
-  with an optional/variadic positional could otherwise let a client's own
-  argument value select a completely different subcommand than the one
-  named) — such a request is now `isError: true` naming the tool.
-- **(security)** A field name shared between a parent tool and one of its
-  descendants no longer lets a value meant for the child leak into the
-  parent's own flag of the same name over MCP; each level's argv now only
-  ever sets that level's own field.
-- **(security)** A counting flag (`Count()`/`-v`-style) published over MCP
-  now caps at 10 occurrences; a request asking for more is `isError: true`
-  instead of building an oversized argv that could stall the server.
+  Arguments are validated before anything runs: a value that would make the
+  parse select a different subcommand than the tool names, a counting flag
+  above 10, an array or object over 1000 items, a missing required property
+  or a value outside the schema's `enum` is rejected with a JSON-RPC `-32602`
+  error (`InvalidArgumentsError` from `call_tool`), and a request whose parse
+  still resolves to another command is refused as an `isError` result. A field
+  name declared at several levels is set only at the deepest one.
 - **(security)** An app's own import-time output (e.g. a stray top-level
   `print`) can no longer corrupt the MCP stdio protocol stream; stdio is
   isolated before the target app is even resolved.

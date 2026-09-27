@@ -45,12 +45,20 @@ def insert_action(
     ``list.insert(-1, x)`` semantics -- which puts ``x`` BEFORE the last
     action, not at the end, almost certainly not what a caller reordering a
     flag wants. Also re-adds the action to an argument group's
-    ``_group_actions`` (the parser's own ``_optionals``/``_positionals``,
-    chosen by whether the action has option strings -- the same split
-    ``add_argument`` itself uses): without this, ``format_help`` (which
-    renders from the GROUP lists, never ``parser._actions`` directly) never
-    shows the reinserted flag -- the defect ``pop_action`` fixes, now
-    fixed in the opposite direction too.
+    ``_group_actions`` -- without this, ``format_help`` (which renders from
+    the GROUP lists, never ``parser._actions`` directly) never shows the
+    reinserted flag -- the defect ``pop_action`` fixes, now fixed in the
+    opposite direction too.
+
+    The target group is the action's OWN pre-removal one (``action.
+    container``, which ``pop_action`` removes the action FROM but never
+    clears) when it still has one -- so an action that belonged to a titled
+    ``add_argument_group(...)`` goes back to that SAME group, not the
+    parser's default "options"/"positional arguments" section. Only an
+    action with no ``container`` of its own yet (never added through a
+    group at all) falls back to the parser's own ``_optionals``/
+    ``_positionals`` (chosen by whether the action has option strings -- the
+    same split ``add_argument`` itself uses).
     """
     if index is None:
         parser._actions.append(action)
@@ -58,7 +66,9 @@ def insert_action(
         parser._actions.insert(index, action)
     for k in action.option_strings:
         parser._option_string_actions[k] = action
-    group = parser._optionals if action.option_strings else parser._positionals
+    group = getattr(action, "container", None)
+    if group is None:
+        group = parser._optionals if action.option_strings else parser._positionals
     action.container = group
     if action not in group._group_actions:
         group._group_actions.append(action)

@@ -84,6 +84,30 @@ def test_insert_action_default_appends_and_restores_help_visibility():
     assert ns.a == "1"
 
 
+def test_pop_then_insert_action_keeps_a_titled_group_membership():
+    """An action originally added through a TITLED
+    ``add_argument_group(...)`` must go back to that SAME group on
+    reinsertion, not the parser's default "options" section -- previously
+    ``insert_action`` always re-added to ``_optionals``/``_positionals``
+    unconditionally, so a reordered action visibly moved sections in
+    ``--help``."""
+    parser = argparse.ArgumentParser()
+    custom = parser.add_argument_group("Custom")
+    action = custom.add_argument("--x")
+
+    pop_action(parser, "x")
+    insert_action(parser, action)
+
+    assert action in custom._group_actions
+    assert action not in parser._optionals._group_actions
+    assert action.container is custom
+    help_text = parser.format_help()
+    assert "Custom:" in help_text
+    # "--x X" (the rendered invocation) appears under "Custom:", not just in
+    # the usage line at the top.
+    assert "--x X" in help_text[help_text.index("Custom:") :]
+
+
 def test_pop_action_removes_from_mutually_exclusive_group():
     """Popping a member of a REQUIRED mutex group left it in
     ``_mutually_exclusive_groups``, so the group's own error kept naming a

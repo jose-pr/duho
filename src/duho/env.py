@@ -15,6 +15,7 @@ raises ``TypeError``.
 
 import collections.abc as _abc
 import importlib as _importlib
+import logging as _logging
 import os as _os
 import re as _re
 import typing as _ty
@@ -23,6 +24,8 @@ from pathlib import Path as _Path
 from . import _compat as _compat
 
 _T = _ty.TypeVar("_T")
+
+_LOGGER = _logging.getLogger(__name__)
 
 #: Alias for the builtin, used in annotations that live in the SAME class body
 #: as a method named ``bool`` (see :meth:`Env.bool`). Under PEP 649 lazy
@@ -243,22 +246,82 @@ class Env(_abc.MutableMapping):
             return []
         return [ty(part) for part in raw.split(sep)]
 
-    def paths(self, key: str, ty: "_ty.Callable[[str], _T]" = str) -> "_List[_T]":
+    def _resolve_pathsep(self) -> str:
+        """Resolve the separator :meth:`paths` splits on: ``<PREFIX>PATHSEP``
+        if set and valid, else ``os.pathsep``.
+
+        **Never a bare/global lookup.** An EMPTY prefix (``Env("")``) has no
+        scoped key to read at all -- ``self.get("PATHSEP")`` would otherwise
+        read the bare, unscoped ``PATHSEP`` straight off ``os.environ`` (its
+        own ``envkey`` is ``f"{self.prefix}{key}"``, which is just ``"PATHSEP"``
+        when ``self.prefix`` is ``""``), letting ANY process-wide ``PATHSEP``
+        (set for a wholly unrelated program) bypass every safety rule
+        :meth:`paths` applies, for every unprefixed ``Env`` on the system --
+        a security-relevant fix. So an empty prefix always uses
+        ``os.pathsep``, full stop.
+
+        **Validated, not trusted verbatim.** A set value must be EXACTLY one
+        character and not ``/``, ``\\``, or ``.`` -- a multi-character
+        separator splits nothing (the whole value survives as one "segment"),
+        and ``/``/``\\``/``.`` each let an absolute path's own directory
+        separator (or the path itself) smuggle the current working directory
+        past :meth:`paths`'s other safety rules (e.g. a Windows path's
+        drive-letter colon split on its own backslash). An invalid value is
+        WARNED at :data:`logging.WARNING` (naming the bad value, never
+        silently ignored) and ``os.pathsep`` is used instead, exactly like an
+        unset one.
+        """
+        if not self.prefix:
+            return _os.pathsep
+        raw = self.get("PATHSEP", None)
+        if not raw:
+            return _os.pathsep
+        if len(raw) != 1 or raw in ("/", "\\", "."):
+            _LOGGER.warning(
+                "%sPATHSEP=%r is not a valid path-list separator (it must "
+                "be exactly one character, and not '/', '\\', or '.'); "
+                "using the platform default %r instead",
+                self.prefix,
+                raw,
+                _os.pathsep,
+            )
+            return _os.pathsep
+        return raw
+
+    def paths(
+        self,
+        key: str,
+        ty: "_ty.Callable[[str], _T]" = str,
+        *,
+        strict: _bool = True,
+        on_reject: "_ty.Callable[[str, str], None] | None" = None,
+    ) -> "_List[_T]":
         """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
 
         Unlike :meth:`list` (whose ``sep`` defaults to ``":"`` for generic lists
         like ``HOSTS``), this splits on the **platform path-list separator** --
         ``os.pathsep`` (``";"`` on Windows, ``":"`` on POSIX) -- so an absolute
         Windows path's drive-letter colon (``C:\\...``) is never mis-split into a
-        bogus ``C`` entry. This app's OWN ``<PREFIX>PATHSEP`` key (``self.get
-        ("PATHSEP", None)``) overrides the separator when set, so a caller can
-        still force a separator regardless of platform -- SCOPED to this app's
-        prefix, never a bare/global ``PATHSEP`` read straight off
-        ``os.environ``: that used to let ANY process-wide ``PATHSEP`` (set for
-        a wholly unrelated program) bypass every safety rule below for every
-        duho app on the system, splitting e.g. ``C:\\...\\cmds`` on its own
-        drive-letter colon into a bare ``C:`` segment (a security-relevant
-        fix). Missing/empty yields ``[]``, exactly like :meth:`list`.
+        bogus ``C`` entry. This app's OWN ``<PREFIX>PATHSEP`` key (see
+        :meth:`_resolve_pathsep`) overrides the separator when set, so a
+        caller can still force a separator regardless of platform -- SCOPED
+        to this app's prefix, never a bare/global ``PATHSEP`` read straight
+        off ``os.environ``: that used to let ANY process-wide ``PATHSEP``
+        (set for a wholly unrelated program) bypass every safety rule below
+        for every duho app on the system, splitting e.g. ``C:\\...\\cmds`` on
+        its own drive-letter colon into a bare ``C:`` segment (a
+        security-relevant fix). For an EMPTY prefix (``Env("")``) there is no
+        scoped key to read at all -- ``PATHSEP`` is always ``os.pathsep`` --
+        since ``self.get("PATHSEP")`` would otherwise read that same bare,
+        unscoped key. ``<PREFIX>PATHSEP`` is also validated: it must be
+        exactly one character and not ``/``, ``\\``, or ``.`` (a multi-char
+        value, or one of those three, can itself smuggle the CWD in the same
+        way an unvalidated separator did -- e.g. splitting an absolute path
+        on its own directory separator, or "separating" on nothing at all) --
+        an invalid value is a security-relevant misconfiguration, not a
+        silent fallback: it is WARNED at :data:`logging.WARNING` and
+        ``os.pathsep`` is used instead. Missing/empty yields ``[]``, exactly
+        like :meth:`list`.
 
         An empty or whitespace-only SEGMENT -- from a leading, trailing, or
         doubled separator (the common ``X="$X:/extra"`` append idiom run while
@@ -270,9 +333,9 @@ class Env(_abc.MutableMapping):
         A caller who genuinely wants the current directory writes it
         explicitly as a ``"."`` segment, which IS still honoured.
 
-        Two more segment shapes are rejected outright (``ValueError``), both
-        ways an attacker-controlled separator can still smuggle the CWD in
-        even past the empty-segment rule above:
+        Two more segment shapes are rejected, both ways an attacker-controlled
+        separator can still smuggle the CWD in even past the empty-segment
+        rule above:
 
         * a **bare drive letter** (``"C:"``, matching ``^[A-Za-z]:$``) --
           Windows resolves this to "the current directory on drive C", an
@@ -283,12 +346,30 @@ class Env(_abc.MutableMapping):
           directory** -- unless it is spelled exactly ``"."`` (the one
           explicitly honoured way to mean the CWD).
 
+        ``strict`` (default ``True``) decides how a rejected segment is
+        reported: **strict** raises ``ValueError`` immediately, naming the
+        bad segment (the original, whole-value contract -- a direct caller
+        that wants "tell me right away, and I'll decide" keeps getting
+        exactly that). Passing ``strict=False`` instead **skips** the bad
+        segment and keeps going, returning every OTHER valid entry -- for a
+        caller like :func:`duho.runtime.app`'s ``CMDS_PATH`` resolution, one
+        misconfigured entry among several must not silently drop the whole
+        list (a security/robustness fix: raising here used to propagate
+        past a bare ``except Exception`` at the call site, discarding every
+        valid entry along with the bad one, unlogged). ``on_reject``, when
+        given, is called as ``on_reject(segment, reason)`` for each skipped
+        entry -- ``reason`` a short human phrase (``"bare drive segment"`` /
+        ``"resolves to the current working directory"``) -- so the caller can
+        report it however it likes (e.g. a ``WARNING`` naming which env var
+        it came from); this method itself never logs. Ignored when
+        ``strict`` is ``True`` (the raised ``ValueError`` already names it).
+
         Note this method does NOT delegate to :meth:`list` -- ``list``'s
         generic contract (arbitrary ``sep``/``ty``, e.g. ``env.list("PORTS",
         ty=int)``) is left unchanged, since dropping/rejecting segments here is
         a separate, unrelated decision for non-path lists.
         """
-        sep = self.get("PATHSEP", None) or _os.pathsep
+        sep = self._resolve_pathsep()
         raw = self.get(key, "")
         if not raw:
             return []
@@ -302,11 +383,16 @@ class Env(_abc.MutableMapping):
                 result.append(ty(part))
                 continue
             if _BARE_DRIVE_RE.match(part):
-                raise ValueError(
-                    f"{key!r} entry {part!r} is a bare drive segment -- "
-                    f"Windows resolves it to the current directory on that "
-                    f"drive; use an actual path, or '.' for the CWD"
+                reason = (
+                    "is a bare drive segment -- Windows resolves it to the "
+                    "current directory on that drive; use an actual path, "
+                    "or '.' for the CWD"
                 )
+                if not strict:
+                    if on_reject is not None:
+                        on_reject(part, "bare drive segment")
+                    continue
+                raise ValueError(f"{key!r} entry {part!r} {reason}")
             try:
                 resolved = _Path(part).expanduser().resolve()
             except OSError:  # pragma: no cover - an unresolvable path
@@ -315,6 +401,10 @@ class Env(_abc.MutableMapping):
                 if cwd is None:
                     cwd = _Path.cwd().resolve()
                 if resolved == cwd:
+                    if not strict:
+                        if on_reject is not None:
+                            on_reject(part, "resolves to the current working directory")
+                        continue
                     raise ValueError(
                         f"{key!r} entry {part!r} resolves to the current "
                         f"working directory; spell it '.' if that is intended"

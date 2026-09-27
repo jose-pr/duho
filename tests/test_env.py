@@ -216,15 +216,21 @@ class TestPaths:
         _os.name != "nt", reason="a bare drive segment only arises on Windows"
     )
     def test_bare_drive_segment_rejected(self, monkeypatch):
-        """A misconfigured separator that splits an absolute Windows path on
-        its own drive-letter colon (``PATHSEP=\\`` on ``C:\\...\\cmds``)
-        produces a bare ``"C:"`` segment -- Windows resolves that to "the
+        """A ``CMDS_PATH`` entry that is a literal bare drive letter
+        (``"C:"``, no trailing separator) -- Windows resolves that to "the
         current directory on drive C", an ambient lookup that must be
         rejected outright rather than silently importing whatever that
-        happens to be (a security-relevant fix)."""
+        happens to be (a security-relevant fix). (A ``PATHSEP`` value that
+        would itself split an absolute Windows path into this same shape --
+        e.g. ``\\`` splitting ``C:\\...\\cmds`` on its own drive-letter colon
+        -- can no longer reach this at all: ``\\`` is itself an invalid
+        separator, see ``TestPaths`` PATHSEP-validation tests above.)"""
         monkeypatch.delenv("PATHSEP", raising=False)
-        monkeypatch.setenv("MA_PATHSEP", "\\")
-        monkeypatch.setenv("MA_CMDS_PATH", "C:\\Users\\someone\\cmds")
+        monkeypatch.delenv("MA_PATHSEP", raising=False)
+        monkeypatch.setenv(
+            "MA_CMDS_PATH",
+            _os.pathsep.join(["C:", "C:\\Users\\someone\\cmds"]),
+        )
         with pytest.raises(ValueError, match="bare drive segment"):
             Env("ma").paths("CMDS_PATH")
 
@@ -247,6 +253,86 @@ class TestPaths:
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.setenv("MA_CMDS_PATH", ".")
         assert Env("ma").paths("CMDS_PATH") == ["."]
+
+    def test_empty_prefix_never_reads_bare_pathsep(self, monkeypatch):
+        """``Env("")`` has no scoped ``<PREFIX>PATHSEP`` key to read at all --
+        a bare, unprefixed ``PATHSEP`` (set for some wholly unrelated program)
+        must not override the separator for it either, exactly like the
+        prefixed case in ``test_bare_unprefixed_pathsep_does_not_override``
+        above. Before the fix, ``Env("")``'s own ``self.get("PATHSEP")``
+        resolved to the SAME bare, unscoped key (``envkey = f"{prefix}
+        {key}"`` with an empty ``prefix`` is just ``"PATHSEP"``), so any
+        process-wide ``PATHSEP`` DID leak in here -- a security-relevant fix.
+        """
+        monkeypatch.setenv("PATHSEP", "|")
+        monkeypatch.setenv("CMDS_PATH", "x|y|z")
+        # Falls back to the real os.pathsep, so "x|y|z" stays ONE entry --
+        # the bare PATHSEP is never consulted for an empty-prefix Env.
+        assert Env("").paths("CMDS_PATH") == ["x|y|z"]
+
+    @pytest.mark.parametrize("bad_sep", ["/", "\\", ".", "::", "xy"])
+    def test_invalid_pathsep_warns_and_falls_back(self, monkeypatch, caplog, bad_sep):
+        """``<PREFIX>PATHSEP`` must be exactly one character and not '/',
+        '\\', or '.' -- any of those (or a multi-character value) can itself
+        smuggle the CWD in the same way an unvalidated separator did. An
+        invalid value is WARNED and ``os.pathsep`` is used instead, rather
+        than being trusted verbatim."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", bad_sep)
+        monkeypatch.setenv("MA_CMDS_PATH", _os.pathsep.join(["/real/a", "/real/b"]))
+        with caplog.at_level("WARNING", logger="duho.env"):
+            result = Env("ma").paths("CMDS_PATH")
+        assert result == ["/real/a", "/real/b"]
+        assert any("PATHSEP" in rec.message for rec in caplog.records)
+
+    def test_valid_single_char_pathsep_no_warning(self, monkeypatch, caplog):
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "|")
+        monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
+        with caplog.at_level("WARNING", logger="duho.env"):
+            result = Env("ma").paths("CMDS_PATH")
+        assert result == ["x", "y", "z"]
+        assert not caplog.records
+
+    @pytest.mark.skipif(
+        _os.name != "nt", reason="a bare drive segment only arises on Windows"
+    )
+    def test_bare_drive_segment_skipped_when_not_strict(self, monkeypatch):
+        """``strict=False`` skips a rejected segment (rather than raising)
+        and keeps the others -- the ``on_reject`` callback is told which
+        segment and why, so a caller (e.g. ``duho.runtime``'s ``CMDS_PATH``
+        resolution) can log it without losing every OTHER valid entry."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.delenv("MA_PATHSEP", raising=False)
+        monkeypatch.setenv(
+            "MA_CMDS_PATH",
+            _os.pathsep.join(["C:", "/real/good"]),
+        )
+        rejected = []
+        result = Env("ma").paths(
+            "CMDS_PATH",
+            strict=False,
+            on_reject=lambda seg, reason: rejected.append((seg, reason)),
+        )
+        assert result == ["/real/good"]
+        assert rejected == [("C:", "bare drive segment")]
+
+    def test_cwd_segment_skipped_when_not_strict(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv(
+            "MA_CMDS_PATH", _os.pathsep.join([str(tmp_path), "/real/other"])
+        )
+        rejected = []
+        result = Env("ma").paths(
+            "CMDS_PATH",
+            strict=False,
+            on_reject=lambda seg, reason: rejected.append((seg, reason)),
+        )
+        assert result == ["/real/other"]
+        assert rejected == [
+            (str(tmp_path), "resolves to the current working directory")
+        ]
 
 
 class TestIterAndLen:

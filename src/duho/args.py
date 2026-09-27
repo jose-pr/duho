@@ -3020,10 +3020,16 @@ def _setup_instance_logging(
     plain ``Cmd`` leaves shape from the README, which previously left
     ``-v``/``-q``/``--loglevel`` silently doing nothing.
 
-    ``init_stderr_logging`` is idempotent, so it is called
-    unconditionally here rather than only when the root logger has no
-    handlers yet -- a caller managing its own logging entirely should pass
-    ``setup_logging=False`` instead.
+    ``init_stderr_logging()`` is only called when the root logger has no
+    handlers OTHER than duho's own previously-installed one (the
+    ``_STDERR_HANDLER_TAG``-marked handler `init_stderr_logging` itself
+    tracks) -- matching 0.5.4's guard, which never added a stderr handler to
+    an app/harness that already owns logging (``basicConfig``, pytest's
+    capture handler, etc.). A root with only duho's own handler (a second
+    dispatch in the same process, or a repeat call) still calls it, since
+    `init_stderr_logging` is itself idempotent against its own handler; the
+    guard here is what keeps duho from ever adding a SECOND handler
+    alongside a foreign one.
     """
     if not setup_logging:
         return
@@ -3036,7 +3042,11 @@ def _setup_instance_logging(
             setter = lambda: _presets._apply_loglevels(instance, logger_name)
     if setter is None:
         return
-    _duho_logging.init_stderr_logging()
+    root_handlers = _logging.getLogger().handlers
+    if not any(
+        not getattr(h, _duho_logging._STDERR_HANDLER_TAG, False) for h in root_handlers
+    ):
+        _duho_logging.init_stderr_logging()
     setter()
 
 

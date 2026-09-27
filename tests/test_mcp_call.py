@@ -401,12 +401,21 @@ def test_logging_handler_is_rebound_to_each_calls_own_capture():
 
         _subcommands_ = [Loud]
 
+    # duho only installs its own stderr handler when the root logger has no
+    # OTHER handler of its own (restored 0.5.4 guard) -- pytest's own logging
+    # plugin always leaves capture handlers on the root logger, which would
+    # otherwise make duho skip installing its handler here and this test
+    # would be exercising nothing. Clear them for this real-standalone-server
+    # simulation (`_isolate_logging_globals` in conftest.py restores root's
+    # actual handlers afterwards).
+    root_logger = logging.getLogger()
+    root_logger.handlers[:] = []
+
     call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
     call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
 
     from duho.logging import _STDERR_HANDLER_TAG
 
-    root_logger = logging.getLogger()
     tagged = [
         h
         for h in root_logger.handlers

@@ -639,6 +639,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `duho.scaffold`'s generated CLI now prints a one-line error (naming
   `--force`) and exits 1 on a re-run without `--force`, instead of an
   unhandled traceback.
+- `duho.main`/`duho.app` no longer add a duho stderr handler to the root
+  logger when the root already has a handler of its own (`basicConfig`,
+  pytest's own capture handler, etc.) — restores 0.5.4's guard, which a later
+  change made unconditional. Verbosity (`-v`/`-q`/`--loglevel`) still always
+  applies regardless of whether the handler was installed.
 
 ### Removed
 

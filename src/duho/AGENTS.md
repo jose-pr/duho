@@ -179,7 +179,10 @@ just its annotation.
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
   in `LoggingArgs`, logging is still set up under the root's own command name — a
   `-v`/`-q`/`--loglevel` on a `LoggingArgs`+`Cli` root is never a silent no-op on a
-  plain-`Cmd` leaf.
+  plain-`Cmd` leaf. The stderr handler itself is only added when the root logger
+  has no handler other than duho's own previously-installed one — an app/harness
+  that already owns logging (`basicConfig`, pytest's capture handler) never gets
+  a second, unrequested handler; `setter()` (verbosity) still always runs.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
   dispatch=None) -> Any`** — multi-command runner (return type is `Any`, not `int`,

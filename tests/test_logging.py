@@ -593,6 +593,29 @@ def test_main_setup_logging_does_not_stack_handlers_across_repeated_calls(
     assert len(root.handlers) == count == 1
 
 
+def test_main_does_not_add_a_stderr_handler_when_the_root_already_owns_logging(
+    _clean_root_logger,
+):
+    """0.5.4's guard, restored: an app/harness that already configured
+    logging itself (`basicConfig`, pytest's own capture handler) must not
+    get a SECOND, duho-installed stderr handler stacked on top of its own --
+    only its handler stays. Verbosity (`setter()`) must still run regardless
+    of whether the handler was installed."""
+    root = _clean_root_logger
+    foreign = logging.Handler()
+    root.handlers[:] = [foreign]
+    logging.getLogger("_C040App").setLevel(logging.WARNING)
+
+    rc = duho.main(_C040App, ["-v"])
+
+    assert rc == 0
+    assert root.handlers == [foreign]
+    assert not any(getattr(h, "_duho_stderr_handler_", False) for h in root.handlers)
+    assert logging.getLogger("_C040App").getEffectiveLevel() == _expected_verbose_level(
+        verbose=1
+    )
+
+
 # --------------------------------------------------------------------------
 # _set_loglevels_ must call the (possibly overridden) bound
 # `_verbose_loglevel_`, not hard-code LoggingArgs's own implementation.

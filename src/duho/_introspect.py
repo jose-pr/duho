@@ -104,20 +104,47 @@ def _pick_live_classdef(
     sharing one qualname (an if/else or try/except fallback both defining the
     same name).
 
-    Matches by ``node.lineno`` against ``inspect.getsourcelines(cls)[1]`` (the
-    real class's own start line); falls back to the LAST candidate (the prior
-    behavior) when that can't be determined.
+    ``cls.__firstlineno__`` (3.13+, PEP 626) names the class's own real
+    source line directly and settles this exactly -- it is set by the
+    interpreter at class-creation time from the ACTUAL executing branch,
+    unlike ``inspect.getsourcelines``, which (before 3.13) finds only the
+    FIRST textual ``class X`` regardless of which branch ever ran.
+
+    Before 3.13, candidates are matched instead by the shape ``cls`` itself
+    ended up with: its own (non-inherited) annotated field names
+    (``vars(cls)["__annotations__"]``) and its own docstring -- the two
+    things a genuinely different fallback implementation usually differs on.
+    When more than one candidate still matches (the branches are
+    structurally identical, e.g. two branches declaring the exact same
+    field), the LAST one in source-walk order wins (the prior behavior).
     """
     if len(candidates) == 1:
         return candidates[0]
-    try:
-        start_line = _inspect.getsourcelines(cls)[1]
-    except (OSError, TypeError):
-        start_line = None
-    if start_line is not None:
+
+    firstlineno = getattr(cls, "__firstlineno__", None)
+    if firstlineno is not None:
         for node in candidates:
-            if node.lineno == start_line:
+            if node.lineno == firstlineno:
                 return node
+
+    own_annotations = set(vars(cls).get("__annotations__", {}))
+    own_doc = cls.__doc__
+
+    def _annotated_names(node: "_ast.ClassDef") -> "set[str]":
+        return {
+            stmt.target.id
+            for stmt in node.body
+            if isinstance(stmt, _ast.AnnAssign) and isinstance(stmt.target, _ast.Name)
+        }
+
+    matches = [
+        node
+        for node in candidates
+        if _annotated_names(node) == own_annotations
+        and _ast.get_docstring(node) == own_doc
+    ]
+    if matches:
+        return matches[-1]
     return candidates[-1]
 
 

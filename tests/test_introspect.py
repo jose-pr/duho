@@ -344,6 +344,69 @@ def test_duplicate_qualname_try_except_picks_the_live_branch(tmp_path):
         sys.modules.pop("dupmod2", None)
 
 
+# On 3.13+ `cls.__firstlineno__` settles a duplicate qualname exactly and the
+# two tests above already exercise that. Before 3.13, `getclsdef` instead
+# matches candidates by field-name/docstring shape -- but when BOTH branches
+# declare the exact SAME shape (no annotation or docstring difference to go
+# on), it cannot discriminate either and falls back to "last in source-walk
+# order wins". This must resolve consistently on every supported version,
+# including the 3.9 floor where the fallback path is actually exercised.
+_IDENTICAL_SHAPE_DUP_SOURCE = '''\
+"""Two classes, each declared twice under the same qualname, with IDENTICAL
+annotated fields and no class docstring on either branch -- nothing for
+shape-matching to discriminate on."""
+import sys
+
+import duho
+from duho import Args
+
+if sys.version_info >= (99,):
+
+    class D(Args):
+        a: str = "x"
+        "wrong help"
+        ("--wrong",)
+
+else:
+
+    class D(Args):
+        a: str = "x"
+        "right help"
+        ("--right",)
+
+try:
+    import no_such_module_xyz_zzz  # noqa: F401 - always fails
+
+    class F(Args):
+        a: str = "x"
+        ("--wrong",)
+
+except ImportError:
+
+    class F(Args):
+        a: str = "x"
+        ("--right",)
+'''
+
+
+def test_duplicate_qualname_identical_shape_falls_back_consistently(tmp_path):
+    mod_path = tmp_path / "dupmod3.py"
+    mod_path.write_text(_IDENTICAL_SHAPE_DUP_SOURCE, encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location("dupmod3", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["dupmod3"] = module
+    try:
+        spec.loader.exec_module(module)
+
+        for cls, expected_flag in ((module.D, "--right"), (module.F, "--right")):
+            parser = cls._parser_()
+            option_strings = {s for a in parser._actions for s in a.option_strings}
+            assert expected_flag in option_strings
+    finally:
+        sys.modules.pop("dupmod3", None)
+
+
 # --- A private field's unresolvable annotation must never crash a ----------
 # --- public field's own resolution -------------------------------------------
 

@@ -781,6 +781,47 @@ def test_imported_hook_is_not_bound_falls_back_to_noop(tmp_path):
     assert cmd.register(object(), object()) is None
 
 
+def test_partial_entrypoint_is_accepted(tmp_path):
+    """A module-level ``main = functools.partial(_impl)`` (or any other
+    non-function/class/method callable assigned directly in the module) is
+    accepted as this module's OWN entrypoint. ``functools.partial(...)
+    .__module__`` is always the literal string ``"functools"`` (the wrapper
+    TYPE's own home module), never wherever the particular instance was
+    actually constructed -- comparing that against the command module's own
+    name (the same check that correctly rejects a genuinely IMPORTED
+    function/class, see the tests above) would reject a real, module-level
+    partial just as readily as a cross-module import, with no way to tell
+    the two apart."""
+    path = _write(
+        tmp_path,
+        "partialcmd.py",
+        '"""Partial entrypoint."""\n'
+        "import functools\n\n\n"
+        "def _impl(x=0):\n    return x\n\n\n"
+        "main = functools.partial(_impl, x=7)\n",
+    )
+    cmd = CmdBuilder("partialcmd", path).command
+    assert cmd.main() == 7
+
+
+def test_callable_instance_entrypoint_is_accepted(tmp_path):
+    """A callable INSTANCE (``class Runner: def __call__(self): ...; main =
+    Runner()``) is accepted the same way -- an instance's own ``__module__``
+    (when it has one at all) likewise reflects its CLASS's home, not where
+    the instance itself was built."""
+    path = _write(
+        tmp_path,
+        "instancecmd.py",
+        '"""Callable-instance entrypoint."""\n\n\n'
+        "class _Runner:\n"
+        "    def __call__(self, args=None):\n"
+        '        return "ran"\n\n\n'
+        "main = _Runner()\n",
+    )
+    cmd = CmdBuilder("instancecmd", path).command
+    assert cmd.main() == "ran"
+
+
 def test_all_escape_hatch_allows_a_deliberate_reexported_entrypoint(tmp_path):
     """A module may deliberately re-export its real entrypoint from a shared
     helper -- listing it in ``__all__`` is the documented opt-in that still
@@ -1199,6 +1240,35 @@ def test_entry_point_name_used_when_module_declares_none(tmp_path, monkeypatch):
     )
     names = _names(_discovery.discover_entry_points("t.commands"))
     assert names == ["bye"]
+
+
+def test_entry_point_underscore_prefixed_class_is_skipped_with_warning(
+    monkeypatch, caplog
+):
+    """A `_`-prefixed class is a private base meant only for other command
+    classes to subclass -- never itself listed/run -- the exact convention
+    `_iter_class_commands` already enforces for filesystem/package
+    discovery (see `test_reexported_class_is_deduped` above, and the leading
+    `_` skip there). An entry point is just another way to reach the SAME
+    class object and must not bypass that rule: before the fix, a plugin
+    advertising a private base class via an entry point was still
+    discovered and registered as a real subcommand."""
+
+    class _PrivateBase(Cmd):
+        """private base, not a command."""
+
+        def __call__(self):
+            return None
+
+    monkeypatch.setattr(
+        _discovery._compat,
+        "iter_entry_points",
+        lambda group: [_FakeEntryPoint("private-ep", _PrivateBase)],
+    )
+    with caplog.at_level("WARNING", logger="duho.discovery"):
+        commands = _discovery.discover_entry_points("t.commands")
+    assert commands == []
+    assert any("private-ep" in rec.message for rec in caplog.records)
 
 
 def test_cli_name_alias_no_longer_honored(tmp_path):

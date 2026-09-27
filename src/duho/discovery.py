@@ -40,6 +40,7 @@ from types import ModuleType as _ModuleType
 
 from . import _compat as _compat
 from .args import Args as _Args, Cmd as _Cmd, _command_name as _command_name
+from .env import _BARE_DRIVE_RE as _BARE_DRIVE_RE
 from .logging import log_exception as _log_exception
 from .qualname import PythonName as _PythonName
 
@@ -129,11 +130,31 @@ def _own_callable(module: object, name: str) -> "_ty.Callable[..., object] | Non
     (``register``/``init``/``success``/``finally_``) against an *imported*
     callable of the same name -- ``from subprocess import run`` must not become
     a module command's entrypoint, and ``from colorama import init`` must not
-    become its ``init`` hook. For a real ``types.ModuleType``, ``fn`` counts
-    only when ``fn.__module__ == module.__name__`` (mirrors the class-command
-    module-boundary filter in :func:`_iter_class_commands`) or when ``name`` is
-    listed in the module's own ``__all__`` (the escape hatch for a deliberate
-    re-export, e.g. ``from ._impl import main; __all__ = ["main"]``).
+    become its ``init`` hook. For a real ``types.ModuleType``, a **plain
+    function, a bound/unbound method, a builtin/C function or method** (e.g.
+    ``atexit.register`` -- ``inspect.isfunction``/``ismethod``/``isbuiltin``),
+    or a **class** ``fn`` counts only when ``fn.__module__ ==
+    module.__name__`` (mirrors the class-command module-boundary filter in
+    :func:`_iter_class_commands`) or when ``name`` is listed in the module's
+    own ``__all__`` (the escape hatch for a deliberate re-export, e.g.
+    ``from ._impl import main; __all__ = ["main"]``).
+
+    **Any other callable -- a ``functools.partial``, or a plain callable
+    instance (``class Runner: __call__ = ...; main = Runner()``) -- is
+    accepted unconditionally**, without that ``__module__`` check: such an
+    object's ``__module__`` reflects where its TYPE was defined, never where
+    the particular instance was actually constructed (``functools.partial(
+    ...).__module__`` is always the literal string ``"functools"``, no matter
+    which module built the partial) -- comparing it against ``module.__name__``
+    would reject a genuinely module-level ``main = functools.partial(_impl)``
+    just as readily as a real cross-module import, with no way to tell the
+    two apart. Deliberately NOT ``inspect.isroutine`` here: a
+    ``functools.partial`` instance implements ``__get__`` (so it also passes
+    as a method-descriptor to attribute lookup), which makes
+    ``inspect.isroutine`` -- and therefore the ``__module__`` boundary check
+    -- wrongly true for it too, right back to rejecting it; the four explicit
+    predicates above cover every shape whose ``__module__`` genuinely tracks
+    its own definition site, and nothing else.
 
     A non-``ModuleType`` source (anything else exposing the same attributes,
     per :class:`ModuleCommand`'s "plain wrapper" contract) keeps the prior
@@ -144,6 +165,13 @@ def _own_callable(module: object, name: str) -> "_ty.Callable[..., object] | Non
     if not callable(fn):
         return None
     if isinstance(module, _ModuleType):
+        if not (
+            _inspect.isfunction(fn)
+            or _inspect.isbuiltin(fn)
+            or _inspect.ismethod(fn)
+            or _inspect.isclass(fn)
+        ):
+            return fn
         if getattr(fn, "__module__", None) == getattr(module, "__name__", None):
             return fn
         exported = getattr(module, "__all__", None)
@@ -808,6 +836,30 @@ def _is_empty_source(source: object) -> bool:
     return False
 
 
+def _is_bare_drive_source(source: object) -> bool:
+    """True if ``source`` is a bare Windows drive segment (``"C:"``, matching
+    ``^[A-Za-z]:$`` -- no trailing separator/backslash).
+
+    Windows resolves this to "the current directory on drive C", an implicit,
+    ambient lookup -- ``Path("C:").is_dir()`` is true, and iterating it globs
+    whatever the process happens to be running FROM, not a directory the
+    caller actually named. ``discover_commands("C:")`` /
+    ``app(source="C:")`` would otherwise silently glob-import that ambient
+    CWD's ``.py`` files (a security-relevant fix; mirrors
+    :data:`duho.env._BARE_DRIVE_RE`'s identical rejection of a bare-drive
+    ``CMDS_PATH`` *segment* -- this guards a whole ``source=`` argument
+    instead of one segment after splitting).
+    """
+    if isinstance(source, str):
+        return bool(_BARE_DRIVE_RE.match(source))
+    if isinstance(source, (_Path, _os.PathLike)):
+        try:
+            return bool(_BARE_DRIVE_RE.match(_os.fspath(source)))
+        except TypeError:  # pragma: no cover - a broken __fspath__
+            return False
+    return False
+
+
 def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
     """Discover commands from a package name or a directory, resiliently.
 
@@ -850,6 +902,13 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
     already normalises to ``Path(".")`` before reaching here) to deliberately
     scan the current directory.
 
+    **A bare drive letter is also rejected outright** (``ValueError``): a
+    ``"C:"``-shaped source (see :func:`_is_bare_drive_source`) is Windows'
+    own spelling for "the current directory on that drive" -- another,
+    platform-specific way to smuggle the CWD in past the empty-source check
+    above (a security-relevant fix, likewise covering ``app(source="C:")``).
+    Spell an actual path (``"C:\\cmds"``, or ``"."`` for the CWD) instead.
+
     The result is sorted by resolved subcommand name for deterministic
     ``--help`` output (filesystem iteration order is OS-dependent).
     """
@@ -859,6 +918,12 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
             "silently discover the current working directory as a side "
             "effect of a blank/uninitialised value; pass '.' explicitly if "
             "that is intended"
+        )
+    if _is_bare_drive_source(source):
+        raise ValueError(
+            "discover_commands(): %r is a bare drive segment -- Windows "
+            "resolves it to the current directory on that drive; use an "
+            "actual path, or '.' for the current directory" % (source,)
         )
     if _looks_like_path(source):
         commands = _discover_from_path(_Path(source))
@@ -1004,7 +1069,16 @@ def _coerce_entry_point_command(obj: object, name: "str | None") -> "Command | N
     accept, run through the same coercion:
 
     * a :class:`~duho.Cmd` **subclass** or an already-:class:`Command` object --
-      used as-is (a class command names itself via ``_parsername_``/class name);
+      used as-is (a class command names itself via ``_parsername_``/class name).
+      A **class** whose own ``__name__`` starts with ``_`` is refused, though
+      (yields ``None``, same as "not a command" below) -- the identical
+      "private, not a command" convention every other class-command source
+      already enforces (:func:`_iter_class_commands`'s own ``_`` skip); an
+      entry point is simply a different way to REACH the same class object,
+      and had bypassed that convention entirely (an entry point advertising a
+      private base class -- meant only for other command classes to
+      subclass, never to be listed/run itself -- was still discovered and
+      registered as a real subcommand);
     * a **module** (a plugin whose top-level ``main``/``run``/``call`` is the
       entrypoint) -- wrapped in a :class:`ModuleCommand`. The module's OWN
       ``_parsername_`` wins when set (matching every other command source);
@@ -1017,7 +1091,11 @@ def _coerce_entry_point_command(obj: object, name: "str | None") -> "Command | N
     entrypoint surfaces as ``ModuleCommand``'s ``NotImplementedError``, caught by
     the caller.
     """
-    if is_class_command(obj) or is_module_command(obj):
+    if is_class_command(obj):
+        if _ty.cast(type, obj).__name__.startswith("_"):
+            return None
+        return _ty.cast(Command, obj)
+    if is_module_command(obj):
         return _ty.cast(Command, obj)
     if isinstance(obj, _ModuleType):
         resolved = (

@@ -163,9 +163,10 @@ jobs:
           path: benchmarks/results/*.json
 
   docs:
-    # The release workflow gates its Pages deploy on `mkdocs build --strict`.
-    # Run the same check here so a docs break is caught before a tag is cut,
-    # not halfway through an irreversible release.
+    # The release workflow reuses this job to gate a release on `mkdocs build
+    # --strict`; it never deploys (docs.yml owns every Pages deploy). Run the
+    # same check here so a docs break is caught before a tag is cut, not
+    # halfway through an irreversible release.
     name: Build documentation
     runs-on: ubuntu-latest
     steps:

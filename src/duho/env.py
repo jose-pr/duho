@@ -333,7 +333,7 @@ class Env(_abc.MutableMapping):
         A caller who genuinely wants the current directory writes it
         explicitly as a ``"."`` segment, which IS still honoured.
 
-        Two more segment shapes are rejected, both ways an attacker-controlled
+        Three more segment shapes are rejected, all ways an attacker-controlled
         separator can still smuggle the CWD in even past the empty-segment
         rule above:
 
@@ -342,6 +342,20 @@ class Env(_abc.MutableMapping):
           ambient lookup that is never a legitimate entry on its own (the
           shape a backslash/colon ``PATHSEP`` produces by splitting an
           absolute Windows path on its own drive-letter colon).
+        * while ``<PREFIX>PATHSEP`` OVERRIDES the platform default (see
+          above), any segment that is neither **absolute** nor **explicitly
+          relative** (spelled ``"."``, or starting with ``"./"``/``".\\"``)
+          -- an ordinary relative-looking segment (``"C"``, ``"my-tools"``)
+          is exactly the shape splitting an absolute path on a character
+          that also occurs INSIDE it produces (e.g. ``PATHSEP=":"`` splits
+          ``"C:\\...\\cmds"`` into ``"C"`` and ``"\\...\\cmds"`` -- ``"C"`` is
+          neither a bare drive letter, matched above, nor does it resolve to
+          the CWD, checked below: it resolves to a plain SUBDIRECTORY of the
+          CWD, e.g. ``"./C"``, which is exactly the ambient lookup this rule
+          closes). With the default ``os.pathsep`` this never applies, since
+          a real relative entry a caller deliberately wrote (``"cmds"``,
+          without ``./``) is not the product of any mis-split and stays
+          valid.
         * any OTHER segment that **resolves to the current working
           directory** -- unless it is spelled exactly ``"."`` (the one
           explicitly honoured way to mean the CWD).
@@ -359,6 +373,7 @@ class Env(_abc.MutableMapping):
         valid entry along with the bad one, unlogged). ``on_reject``, when
         given, is called as ``on_reject(segment, reason)`` for each skipped
         entry -- ``reason`` a short human phrase (``"bare drive segment"`` /
+        ``"ambiguous relative segment under a custom separator"`` /
         ``"resolves to the current working directory"``) -- so the caller can
         report it however it likes (e.g. a ``WARNING`` naming which env var
         it came from); this method itself never logs. Ignored when
@@ -370,6 +385,13 @@ class Env(_abc.MutableMapping):
         a separate, unrelated decision for non-path lists.
         """
         sep = self._resolve_pathsep()
+        # Only when this app's OWN <PREFIX>PATHSEP actually overrides the
+        # platform default does an implicit relative segment become
+        # suspect -- see the new rejection rule below. An unset/invalid
+        # PATHSEP (sep falls back to os.pathsep) never triggers it: an
+        # ordinary relative CMDS_PATH entry a caller wrote by hand is not
+        # the product of any mis-split under the platform's own separator.
+        overridden = sep != _os.pathsep
         raw = self.get(key, "")
         if not raw:
             return []
@@ -391,6 +413,26 @@ class Env(_abc.MutableMapping):
                 if not strict:
                     if on_reject is not None:
                         on_reject(part, "bare drive segment")
+                    continue
+                raise ValueError(f"{key!r} entry {part!r} {reason}")
+            if overridden and not (
+                part.startswith("./")
+                or part.startswith(".\\")
+                or _Path(part).is_absolute()
+            ):
+                reason = (
+                    "is a relative entry not spelled explicitly relative "
+                    "('.', './...' or '.\\\\...') while <PREFIX>PATHSEP "
+                    "overrides the platform separator; this is the shape "
+                    "splitting an absolute path on one of its own "
+                    "characters produces, and it would otherwise resolve "
+                    "against the current working directory"
+                )
+                if not strict:
+                    if on_reject is not None:
+                        on_reject(
+                            part, "ambiguous relative segment under a custom separator"
+                        )
                     continue
                 raise ValueError(f"{key!r} entry {part!r} {reason}")
             try:

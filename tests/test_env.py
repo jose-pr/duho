@@ -145,10 +145,16 @@ class TestPaths:
         # (see test_bare_unprefixed_pathsep_does_not_override below: a
         # security fix, since an unprefixed PATHSEP is set for every duho
         # app on the machine, not just this one).
+        #
+        # Segments are spelled explicitly relative ("./x", not "x"): once
+        # PATHSEP overrides the platform default, a plain relative segment
+        # is rejected (see test_ambiguous_relative_segment_rejected_under_
+        # override below) -- it is exactly the shape splitting an absolute
+        # path on one of its own characters produces.
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.setenv("MA_PATHSEP", "|")
-        monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
-        assert Env("ma").paths("CMDS_PATH") == ["x", "y", "z"]
+        monkeypatch.setenv("MA_CMDS_PATH", "./x|./y|./z")
+        assert Env("ma").paths("CMDS_PATH") == ["./x", "./y", "./z"]
 
     def test_bare_unprefixed_pathsep_does_not_override(self, monkeypatch):
         # A security fix: a bare, unprefixed PATHSEP (set for some wholly
@@ -288,10 +294,12 @@ class TestPaths:
     def test_valid_single_char_pathsep_no_warning(self, monkeypatch, caplog):
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.setenv("MA_PATHSEP", "|")
-        monkeypatch.setenv("MA_CMDS_PATH", "x|y|z")
+        # Explicitly relative, as required once PATHSEP overrides the
+        # platform default -- see test_pathsep_override above.
+        monkeypatch.setenv("MA_CMDS_PATH", "./x|./y|./z")
         with caplog.at_level("WARNING", logger="duho.env"):
             result = Env("ma").paths("CMDS_PATH")
-        assert result == ["x", "y", "z"]
+        assert result == ["./x", "./y", "./z"]
         assert not caplog.records
 
     @pytest.mark.skipif(
@@ -333,6 +341,67 @@ class TestPaths:
         assert rejected == [
             (str(tmp_path), "resolves to the current working directory")
         ]
+
+    def test_ambiguous_relative_segment_rejected_under_override(self, monkeypatch):
+        """Once ``<PREFIX>PATHSEP`` overrides the platform default, a plain
+        relative segment (not ``"."``, and not spelled ``"./..."``/``".\\..."``)
+        is rejected outright: it is exactly the shape a custom separator
+        that collides with a character INSIDE a real absolute path produces
+        by splitting it (e.g. ``":"`` splitting ``"C:\\...\\cmds"`` into
+        ``"C"`` plus a remainder), and it would otherwise resolve against
+        the CWD."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "|")
+        monkeypatch.setenv("MA_CMDS_PATH", "relative_dir")
+        with pytest.raises(ValueError, match="not spelled explicitly relative"):
+            Env("ma").paths("CMDS_PATH")
+
+    def test_ambiguous_relative_segment_skipped_when_not_strict(self, monkeypatch):
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "|")
+        monkeypatch.setenv("MA_CMDS_PATH", "relative_dir|./explicit|/abs/path")
+        rejected = []
+        result = Env("ma").paths(
+            "CMDS_PATH",
+            strict=False,
+            on_reject=lambda seg, reason: rejected.append((seg, reason)),
+        )
+        # Windows: "/abs/path" is drive-relative, not absolute either (see
+        # test_explicit_or_absolute_segments_allowed_under_override for the
+        # positive absolute case) -- only the explicitly-relative survivor
+        # is asserted here, on both platforms.
+        assert "./explicit" in result
+        assert (
+            "relative_dir",
+            "ambiguous relative segment under a custom separator",
+        ) in (rejected)
+
+    @pytest.mark.skipif(
+        _os.name != "nt", reason="drive+root absolute paths are Windows-specific here"
+    )
+    def test_explicit_or_absolute_segments_allowed_under_override(
+        self, monkeypatch, tmp_path
+    ):
+        """The override still accepts every segment shaped either way: an
+        explicit relative ``"./x"``, and a genuinely absolute path -- the fix
+        only rejects the ambiguous, IMPLICITLY relative shape."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.setenv("MA_PATHSEP", "|")
+        abs_dir = str(tmp_path)
+        monkeypatch.setenv("MA_CMDS_PATH", f"./explicit|{abs_dir}")
+        assert Env("ma").paths("CMDS_PATH") == ["./explicit", abs_dir]
+
+    def test_relative_segment_not_rejected_under_default_pathsep(self, monkeypatch):
+        """The fix must not overreach: with the ORDINARY, default separator
+        (no ``<PREFIX>PATHSEP`` override in effect), a plain relative
+        segment a caller wrote by hand is not the product of any mis-split
+        and stays valid, exactly as before."""
+        monkeypatch.delenv("PATHSEP", raising=False)
+        monkeypatch.delenv("MA_PATHSEP", raising=False)
+        monkeypatch.setenv(
+            "MA_CMDS_PATH", _os.pathsep.join(["relative_dir", "/real/other"])
+        )
+        assert Env("ma").paths("CMDS_PATH") == ["relative_dir", "/real/other"]
 
 
 class TestIterAndLen:

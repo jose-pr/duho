@@ -42,6 +42,24 @@ def main(args=None):
     return "good"
 '''
 
+# Same canary as `_EVIL`, but writing its marker relative to `os.getcwd()`
+# rather than `__file__`'s own location -- used below where the canary is
+# planted a directory level DEEPER than the CWD itself (e.g. `cwd/C/evil.py`,
+# the shape a mis-split ``PATHSEP`` produces), so `__file__.parent.parent`
+# would not land back on the CWD the way it does for the shallower `_EVIL`
+# scenarios above.
+_EVIL_CWD_RELATIVE = '''\
+"""A canary command: importing this file at all is the compromise."""
+import os
+import pathlib
+
+pathlib.Path(os.getcwd(), "MARKER").write_text("pwned")
+
+
+def main(args=None):
+    return "evil"
+'''
+
 
 class Root(duho.LoggingArgs, duho.Cmd):
     """A root command supplying global options (verbosity)."""
@@ -326,3 +344,80 @@ def test_discover_commands_dot_string_still_works(evil_cwd):
     tmp_path, cwd, cmds = evil_cwd
     names = [c._parsername_ for c in discover_commands(".")]
     assert "evil" in names
+
+
+# --------------------------------------------------------------------------
+# A custom PATHSEP that collides with a character INSIDE the real absolute
+# path splits it into pieces that are individually neither a bare drive
+# segment nor the CWD itself -- yet still resolve relative to the CWD. Each
+# scenario plants its canary in the exact SUBDIRECTORY that mis-split
+# produces (Windows: the bare drive LETTER left after the drive's own colon
+# is split away; POSIX: whatever the separator character splits off the
+# real directory name), rather than directly in the CWD.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    os.name != "nt", reason="a drive-letter colon split is Windows-only"
+)
+def test_pathsep_colon_splits_drive_letter_never_imports_cwd(tmp_path, monkeypatch):
+    """``XA_PATHSEP=":"`` splits an absolute ``CMDS_PATH`` entry such as
+    ``C:\\...\\cmds`` on its own drive-letter colon into ``"C"`` (relative --
+    NOT ``"C:"``, so the bare-drive-segment rejection above does not match
+    it) and ``"\\...\\cmds"`` (drive-relative, not absolute either). The
+    first piece used to resolve against the CWD as ``<cwd>\\C`` and get
+    scanned for commands; a canary planted at exactly that path must never
+    be imported."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    drive_letter_dir = cwd / (str(cwd.drive)[0] if cwd.drive else "C")
+    drive_letter_dir.mkdir()
+    (drive_letter_dir / "evil.py").write_text(_EVIL_CWD_RELATIVE)
+    cmds = tmp_path / "cmds"
+    cmds.mkdir()
+    (cmds / "good.py").write_text(_GOOD)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("XA_PATHSEP", ":")
+    monkeypatch.setenv("XA_CMDS_PATH", str(cmds))
+    env = Env("xa", autoload=False)
+    # Splitting a Windows absolute path on ":" produces TWO bogus pieces --
+    # the bare drive letter, AND the drive-relative remainder (a leading
+    # backslash with no drive is not absolute either) -- so both are
+    # rejected and "good" is not reachable through this misconfigured
+    # PATHSEP at all. That is the correct, safe outcome: ":" is simply not
+    # usable as a PATHSEP override for a Windows path; nothing here should
+    # silently "work" by accident the way the vulnerability did. The one
+    # invariant this test actually guards is that neither piece is ever
+    # scanned/imported from the CWD.
+    with pytest.raises(SystemExit):
+        app(Root, env=env, argv=["good"], setup_logging=False)
+    assert not (cwd / "MARKER").exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="hyphen-in-path splitting is exercised on POSIX"
+)
+def test_pathsep_hyphen_splits_real_directory_never_imports_cwd(tmp_path, monkeypatch):
+    """POSIX equivalent: a custom separator that happens to occur INSIDE the
+    real path (``"-"`` in ``/opt/my-tools``) splits it into ``/opt/my``
+    (absolute, allowed on its own) and ``tools`` (relative, not explicitly
+    so) -- the second piece used to resolve against the CWD as
+    ``<cwd>/tools`` and get scanned; a canary planted there must never be
+    imported."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    split_off_dir = cwd / "tools"
+    split_off_dir.mkdir()
+    (split_off_dir / "evil.py").write_text(_EVIL_CWD_RELATIVE)
+    cmds = tmp_path / "my-tools"
+    cmds.mkdir()
+    (cmds / "good.py").write_text(_GOOD)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("XA_PATHSEP", "-")
+    monkeypatch.setenv("XA_CMDS_PATH", str(cmds))
+    env = Env("xa", autoload=False)
+    try:
+        app(Root, env=env, argv=["good"], setup_logging=False)
+    except SystemExit:
+        pass
+    assert not (cwd / "MARKER").exists()

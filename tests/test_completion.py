@@ -315,6 +315,38 @@ def test_zsh_sibling_function_names_do_not_collide():
     assert len(funcids) == 3
 
 
+def test_zsh_root_function_name_is_collision_resistant():
+    """Two DIFFERENT progs that only differ in punctuation (`my-app`/
+    `my.app`) both sanitise to the identifier `my_app` -- `_zsh_seg`'s
+    per-segment hash already protects a NESTED node from colliding with a
+    sibling under the same root, but the ROOT function name itself was built
+    from the plain, unhashed `_func_name`, so two differently-punctuated
+    root progs still defined the exact same top-level (and, since every
+    nested funcid is built on top of it, every nested) function name."""
+
+    class Deploy(Args):
+        """deploy"""
+
+        force: bool = False
+        "force flag"
+        ("--force",)
+
+    class RootApp(Args):
+        """root"""
+
+        _subcommands_ = [Deploy]
+
+    parser_a = RootApp._parser_()
+    parser_a.prog = "my-app"
+    parser_b = RootApp._parser_()
+    parser_b.prog = "my.app"
+    script_a = completion.zsh(parser_a)
+    script_b = completion.zsh(parser_b)
+    funcids_a = set(re.findall(r"^(_[A-Za-z0-9_]+) \(\) \{", script_a, re.MULTILINE))
+    funcids_b = set(re.findall(r"^(_[A-Za-z0-9_]+) \(\) \{", script_b, re.MULTILINE))
+    assert not (funcids_a & funcids_b)
+
+
 # --- Hostile choice values are escaped, not executed -----------------------
 
 
@@ -348,12 +380,15 @@ def test_zsh_multiflag_optspec_form():
 
 
 def test_bash_choices_neutralize_command_substitution():
+    """`compgen -W`'s word list gets a SECOND, dynamic re-evaluation just
+    like zsh's `_arguments` -- every character outside the same conservative
+    safe set `_zsh_word`/`_fish_word` use is backslash-escaped, not just
+    `$`/backtick/quotes, so the parens and the embedded space are covered
+    too (bare parens/space previously rode through unescaped)."""
     script = _danger_script("bash")
-    # The '$' in a hostile choice is backslash-escaped so compgen -W (which
-    # expands its word list) cannot run the substitution.
-    assert "\\$(touch pwned)" in script
-    # And the raw, unescaped command substitution must NOT appear in a word list.
-    assert '-W "$(touch pwned)' not in script
+    assert "\\$\\(touch\\ pwned\\)" in script
+    # The raw, unescaped command substitution must NOT appear in a word list.
+    assert "$(touch pwned)" not in script
 
 
 def test_zsh_choice_escaped_for_the_dynamic_eval_too():

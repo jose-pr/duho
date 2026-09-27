@@ -56,24 +56,25 @@ def _bash_wordlist(values: "list") -> str:
     ``compgen -W`` gives its word-list argument a SECOND evaluation at
     Tab-press: after the shell parses/sources the generated script, ``compgen``
     itself re-splits and re-expands that argument's runtime VALUE as if it
-    were freshly typed input (command substitution, parameter expansion, word
-    splitting, quote removal -- all of it). Backslash-escaping
-    ``\\``/``$``/`` ` `` in each value neutralises the expansion triggers a
-    hostile choice like ``$(rm -rf ~)`` would otherwise run; escaping ``'``
-    and ``\"`` too stops an embedded quote from opening a SECOND, unmatched
-    quoted region at that re-evaluation, which would otherwise swallow every
-    later value (space and all) into one candidate. Escaping the value list
-    is not enough on its own: the joined values still ride inside one
+    were freshly typed input -- command substitution, BOTH forms of process
+    substitution (``<(...)``/``>(...)``, which need no leading ``$`` and so
+    survive a narrower escape list untouched), word splitting, brace
+    expansion, globbing, and quote removal, all of it. Backslash-escape every
+    character outside the same conservative safe set `_zsh_word`/`_fish_word`
+    use (so ``< > ( ) * ? [ ~ { } ! & |`` and whitespace are all covered, not
+    just backslash/``$``/backtick/quotes), which also means an embedded space
+    or quote can no longer open a second, unmatched region at that re-evaluation and swallow
+    every later value into one mangled candidate. Escaping the value list is
+    not enough on its own: the joined values still ride inside one
     single-quoted argument for THIS (the static) parse, so once each value is
     safe for the second pass, single-quote the whole list (embedded single
     quotes as ``'\\''``) to survive the first.
     """
     escaped: "list[str]" = []
     for value in values:
-        s = str(value)
-        for ch in ("\\", "$", "`", "'", '"'):
-            s = s.replace(ch, "\\" + ch)
-        escaped.append(s)
+        escaped.append(
+            "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
+        )
     joined = " ".join(escaped)
     return "'" + joined.replace("'", "'\\''") + "'"
 
@@ -436,14 +437,17 @@ def _bash_func_name(root_prog: str) -> str:
 def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     """Emit a self-contained bash completion script for `parser`.
 
-    Descends the command line only on words that are real subcommand names
-    of the CURRENT node (a per-path subcommand table, resolved as the walk
-    goes); every other bare word counts as one of that node's
-    own positionals, tracked by position so only the pending positional's
-    own candidates (its `choices` via `compgen -W`, or `compgen -f` for a
-    Path positional) are offered, not every positional's at once. A
-    value-taking flag's value is skipped the same way, including the split
-    `--opt = value` form bash produces for `--opt=value`; the
+    Descends the command line only on a word that is BOTH a real subcommand
+    name of the CURRENT node AND typed once that node's own positionals are
+    already satisfied -- argparse itself consumes a node's own positionals
+    before ever treating a word as its subparsers dispatch value, so a
+    positional whose `choices` happen to include a real subcommand name is
+    never mistaken for one; every other bare word counts as one of that
+    node's own positionals, tracked by position so only the pending
+    positional's own candidates (its `choices` via `compgen -W`, or
+    `compgen -f` for a Path positional) are offered, not every positional's
+    at once. A value-taking flag's value is skipped the same way, including
+    the split `--opt = value` form bash produces for `--opt=value`; the
     value-flag set is resolved per command path, not merged globally.
     Every value-taking flag -- choice, Path, or free -- gets its own
     `$prev` arm. `COMPREPLY` is always filled via `mapfile` from a
@@ -451,7 +455,11 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     are never word-split or glob-expanded a second time. Registered
     with `-o bashdefault -o default -o filenames` so bash's native filename
     completion applies whenever nothing above matches, and Path
-    positionals/options get properly escaped/slashed directory names.
+    positionals/options get properly escaped/slashed directory names. Every
+    candidate word list (`compgen -W`) is itself escaped character-by-character
+    against a conservative safe set (see `_bash_wordlist`) so `compgen`'s own
+    SECOND, dynamic re-evaluation of that argument cannot run command or
+    process substitution, expand a glob, or split on an embedded space.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
@@ -481,15 +489,21 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     lines.append("")
     lines.append("    # Walk COMP_WORDS to find which (sub)command we are in: descend")
     lines.append("    # only on a word that is a REAL subcommand name of the current")
-    lines.append("    # node, skip the value that follows a value-taking flag of the")
-    lines.append("    # current node (including the split `--opt = value` form), and")
-    lines.append("    # count every other bare word as one of the current node's own")
-    lines.append("    # positionals.")
+    lines.append("    # node AND only once that node's own positionals are already")
+    lines.append("    # satisfied (argparse consumes a node's own positionals before")
+    lines.append("    # ever treating a word as its subparsers dispatch value, so a")
+    lines.append("    # positional whose choices happen to include a real subcommand")
+    lines.append(
+        "    # name must not be mistaken for one); skip the value that follows"
+    )
+    lines.append("    # a value-taking flag of the current node (including the split")
+    lines.append("    # `--opt = value` form), and count every other bare word as one")
+    lines.append("    # of the current node's own positionals.")
     lines.append('    local cmd_path=""')
     lines.append("    local npos=0")
     lines.append("    local i=1")
     lines.append("    local skip=0")
-    lines.append("    local w is_vflag is_sub")
+    lines.append("    local w is_vflag is_sub own_pos")
     lines.append("    while [ $i -lt $COMP_CWORD ]; do")
     lines.append('        w="${COMP_WORDS[i]}"')
     lines.append("        if [ $skip -gt 0 ]; then")
@@ -520,17 +534,28 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     lines.append("                    ;;")
     lines.append("                *)")
     lines.append("                    is_sub=0")
+    lines.append("                    own_pos=0")
     lines.append('                    case "$cmd_path" in')
     for s in specs:
         if not s.subcommands:
             continue
-        pattern = "|".join(_bashq(n) for n in s.subcommands)
-        lines.append(f"                        {_bashq(_cmd_key(s))})")
-        lines.append('                            case "$w" in')
-        lines.append(f"                                {pattern}) is_sub=1 ;;")
-        lines.append("                            esac")
-        lines.append("                            ;;")
+        lines.append(
+            f"                        {_bashq(_cmd_key(s))}) own_pos={len(s.positionals)} ;;"
+        )
     lines.append("                    esac")
+    lines.append("                    if [ $npos -ge $own_pos ]; then")
+    lines.append('                        case "$cmd_path" in')
+    for s in specs:
+        if not s.subcommands:
+            continue
+        pattern = "|".join(_bashq(n) for n in s.subcommands)
+        lines.append(f"                            {_bashq(_cmd_key(s))})")
+        lines.append('                                case "$w" in')
+        lines.append(f"                                    {pattern}) is_sub=1 ;;")
+        lines.append("                                esac")
+        lines.append("                                ;;")
+    lines.append("                        esac")
+    lines.append("                    fi")
     lines.append("                    if [ $is_sub -eq 1 ]; then")
     lines.append('                        cmd_path="${cmd_path:+$cmd_path }$w"')
     lines.append("                        npos=0")
@@ -691,6 +716,22 @@ def _zsh_seg(raw: str) -> str:
     return f"{safe}_{digest}"
 
 
+def _zsh_root_func_name(root_prog: str) -> str:
+    """A collision-resistant zsh ROOT function-name base for ``root_prog``,
+    mirroring `_bash_func_name`/`_fish_func_name`'s hashing.
+
+    Every nested funcid is built as ``_<this>__<seg>...`` (see
+    `_zsh_funcid`), so leaving this base unhashed meant two progs that
+    sanitise to the same identifier (`my-app`/`my.app`/`my_app` -> `my_app`)
+    still collided on EVERY function the emitter defines for them, not just
+    the root one -- `_zsh_seg`'s per-segment hash only protects a nested
+    node from colliding with a SIBLING under the same (already-shared) root.
+    """
+    safe = _func_name(root_prog)
+    digest = _hashlib.sha1(root_prog.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"{safe}_{digest}"
+
+
 def _zsh_funcid(func: str, path: "tuple[str, ...]") -> str:
     """The zsh function name for the node at ``path``: ``_<func>`` for the
     root, ``_<func>__<seg1>__<seg2>...`` for a nested node."""
@@ -728,11 +769,14 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     choice and positional message is escaped for zsh's SECOND (dynamic)
     evaluation via `_zsh_word` before being wrapped in `_sq` for the first:
     a value containing `$(...)`, `;`, or a colon can no longer run code or
-    break the spec at Tab-time.
+    break the spec at Tab-time. The root function name itself is hashed
+    (`_zsh_root_func_name`), matching `_bash_func_name`/`_fish_func_name`, so
+    two progs that sanitise to the same identifier (`my-app`/`my.app`) never
+    collide -- every nested function name is built on top of this root name.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
-    func = _func_name(root_prog)
+    func = _zsh_root_func_name(root_prog)
 
     lines: "list[str]" = []
     lines.append(f"#compdef {root_prog}")
@@ -1025,17 +1069,30 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     tracks how many of the current node's own positionals
     have been consumed so only the pending one's choices are offered.
 
+    Descends into a subcommand only once the current node's own positionals
+    are already consumed (`$nposByPath`, mirroring bash's `own_pos` gate) --
+    argparse itself consumes a node's own positionals before ever treating a
+    word as its subparsers dispatch value, so a positional whose choices
+    happen to include a real subcommand name is never mistaken for one.
+
     Every value-taking flag gets an explicit branch -- choices, an empty
     result for a Path flag (native file completion takes over), and an
     empty result for a free-value flag -- and command-path/flag
     comparisons are case-SENSITIVE (``-ceq``/``-ccontains``/``-cmatch``),
     matching argparse instead of PowerShell's default case-insensitivity.
-    The inserted completion TEXT is single-quoted (embedded quotes
-    doubled) whenever it contains whitespace or a PowerShell metacharacter,
-    so a candidate like ``dry run`` or ``$(rm)`` is inserted as one literal
-    argument instead of being split or evaluated when the line is run
-    -- this is a *different* protection from `_psq`, which only
-    keeps the script BODY safe when it is first parsed.
+    The three per-path LOOKUP TABLES (`$subsByPath`/`$vflagsByPath`/
+    `$nposByPath`) are ordinal (case-sensitive) `Dictionary` instances, not
+    PowerShell's own `@{}` hashtable literal, which compares keys
+    case-INsensitively by default -- with a plain `@{}`, sibling subcommands
+    differing only in case (``run``/``Run``) shared one slot and clobbered
+    each other's positional/subcommand tables. The inserted completion TEXT
+    is ALWAYS single-quoted (both the ASCII quote and PowerShell's Unicode
+    "smart" single-quote range doubled), unconditionally rather than only
+    when it contains whitespace or a metacharacter, so a candidate like
+    ``dry run`` or ``$(rm)`` is inserted as one literal argument instead of
+    being split or evaluated when the line is run -- this is a *different*
+    protection from `_psq`, which only keeps the script BODY safe when it is
+    first parsed.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
@@ -1050,17 +1107,29 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
     lines.append("")
     lines.append("    $elements = @($commandAst.CommandElements)")
-    lines.append("    $subsByPath = @{}")
+    # A plain `@{}` hashtable literal compares its string keys
+    # case-INsensitively, so sibling subcommand paths differing only in case
+    # (`run` vs `Run`) would fold to the SAME entry and clobber each other's
+    # table -- an ordinal Dictionary keeps every distinct-case path separate.
+    dict_ctor = (
+        "[System.Collections.Generic.Dictionary[string,object]]::new("
+        "[StringComparer]::Ordinal)"
+    )
+    lines.append(f"    $subsByPath = {dict_ctor}")
     for s in specs:
         if s.subcommands:
             names = ", ".join(_psq(n) for n in s.subcommands)
             lines.append(f"    $subsByPath[{_psq(_cmd_key(s))}] = @({names})")
-    lines.append("    $vflagsByPath = @{}")
+    lines.append(f"    $vflagsByPath = {dict_ctor}")
     for s in specs:
         vflags = _value_flag_names(s)
         if vflags:
             values = ", ".join(_psq(f) for f in vflags)
             lines.append(f"    $vflagsByPath[{_psq(_cmd_key(s))}] = @({values})")
+    lines.append(f"    $nposByPath = {dict_ctor}")
+    for s in specs:
+        if s.subcommands:
+            lines.append(f"    $nposByPath[{_psq(_cmd_key(s))}] = {len(s.positionals)}")
     lines.append("")
     lines.append("    # Reconstruct the (sub)command path from the elements strictly")
     lines.append("    # before the cursor, descending only on real subcommand names")
@@ -1106,7 +1175,11 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append(
         "        if ($subsByPath.ContainsKey($cmdPath)) { $subs = $subsByPath[$cmdPath] }"
     )
-    lines.append("        if ($subs -ccontains $text) {")
+    lines.append("        $ownPos = 0")
+    lines.append(
+        "        if ($nposByPath.ContainsKey($cmdPath)) { $ownPos = $nposByPath[$cmdPath] }"
+    )
+    lines.append("        if ($npos -ge $ownPos -and $subs -ccontains $text) {")
     lines.append(
         '            $cmdPath = if ($cmdPath) { "$cmdPath $text" } else { $text }'
     )

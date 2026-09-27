@@ -1069,17 +1069,30 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     tracks how many of the current node's own positionals
     have been consumed so only the pending one's choices are offered.
 
+    Descends into a subcommand only once the current node's own positionals
+    are already consumed (`$nposByPath`, mirroring bash's `own_pos` gate) --
+    argparse itself consumes a node's own positionals before ever treating a
+    word as its subparsers dispatch value, so a positional whose choices
+    happen to include a real subcommand name is never mistaken for one.
+
     Every value-taking flag gets an explicit branch -- choices, an empty
     result for a Path flag (native file completion takes over), and an
     empty result for a free-value flag -- and command-path/flag
     comparisons are case-SENSITIVE (``-ceq``/``-ccontains``/``-cmatch``),
     matching argparse instead of PowerShell's default case-insensitivity.
-    The inserted completion TEXT is single-quoted (embedded quotes
-    doubled) whenever it contains whitespace or a PowerShell metacharacter,
-    so a candidate like ``dry run`` or ``$(rm)`` is inserted as one literal
-    argument instead of being split or evaluated when the line is run
-    -- this is a *different* protection from `_psq`, which only
-    keeps the script BODY safe when it is first parsed.
+    The three per-path LOOKUP TABLES (`$subsByPath`/`$vflagsByPath`/
+    `$nposByPath`) are ordinal (case-sensitive) `Dictionary` instances, not
+    PowerShell's own `@{}` hashtable literal, which compares keys
+    case-INsensitively by default -- with a plain `@{}`, sibling subcommands
+    differing only in case (``run``/``Run``) shared one slot and clobbered
+    each other's positional/subcommand tables. The inserted completion TEXT
+    is ALWAYS single-quoted (both the ASCII quote and PowerShell's Unicode
+    "smart" single-quote range doubled), unconditionally rather than only
+    when it contains whitespace or a metacharacter, so a candidate like
+    ``dry run`` or ``$(rm)`` is inserted as one literal argument instead of
+    being split or evaluated when the line is run -- this is a *different*
+    protection from `_psq`, which only keeps the script BODY safe when it is
+    first parsed.
     """
     root = _walk(parser, prog=prog)
     root_prog = _validate_prog(root.prog)
@@ -1094,17 +1107,29 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
     lines.append("")
     lines.append("    $elements = @($commandAst.CommandElements)")
-    lines.append("    $subsByPath = @{}")
+    # A plain `@{}` hashtable literal compares its string keys
+    # case-INsensitively, so sibling subcommand paths differing only in case
+    # (`run` vs `Run`) would fold to the SAME entry and clobber each other's
+    # table -- an ordinal Dictionary keeps every distinct-case path separate.
+    dict_ctor = (
+        "[System.Collections.Generic.Dictionary[string,object]]::new("
+        "[StringComparer]::Ordinal)"
+    )
+    lines.append(f"    $subsByPath = {dict_ctor}")
     for s in specs:
         if s.subcommands:
             names = ", ".join(_psq(n) for n in s.subcommands)
             lines.append(f"    $subsByPath[{_psq(_cmd_key(s))}] = @({names})")
-    lines.append("    $vflagsByPath = @{}")
+    lines.append(f"    $vflagsByPath = {dict_ctor}")
     for s in specs:
         vflags = _value_flag_names(s)
         if vflags:
             values = ", ".join(_psq(f) for f in vflags)
             lines.append(f"    $vflagsByPath[{_psq(_cmd_key(s))}] = @({values})")
+    lines.append(f"    $nposByPath = {dict_ctor}")
+    for s in specs:
+        if s.subcommands:
+            lines.append(f"    $nposByPath[{_psq(_cmd_key(s))}] = {len(s.positionals)}")
     lines.append("")
     lines.append("    # Reconstruct the (sub)command path from the elements strictly")
     lines.append("    # before the cursor, descending only on real subcommand names")
@@ -1150,7 +1175,11 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     lines.append(
         "        if ($subsByPath.ContainsKey($cmdPath)) { $subs = $subsByPath[$cmdPath] }"
     )
-    lines.append("        if ($subs -ccontains $text) {")
+    lines.append("        $ownPos = 0")
+    lines.append(
+        "        if ($nposByPath.ContainsKey($cmdPath)) { $ownPos = $nposByPath[$cmdPath] }"
+    )
+    lines.append("        if ($npos -ge $ownPos -and $subs -ccontains $text) {")
     lines.append(
         '            $cmdPath = if ($cmdPath) { "$cmdPath $text" } else { $text }'
     )

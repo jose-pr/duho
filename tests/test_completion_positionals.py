@@ -1141,6 +1141,45 @@ def test_powershell_free_value_flag_offers_nothing(tmp_path):
 
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_positional_matching_a_subcommand_name_is_not_mistaken_for_it(
+    tmp_path,
+):
+    """argparse always consumes a node's OWN positional(s) before ever
+    treating a word as its subparsers dispatch value, so on the PowerShell
+    side too a word equal to a real subcommand's name must still count as
+    the pending positional's value until that positional is satisfied --
+    the walk used to descend into `go` on the FIRST `go` (`target`'s own
+    value), regardless of whether `target` had been consumed yet."""
+    parser = PosRoot._parser_()
+    parser.prog = "postool"
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "postool pos go ", tmp_path)
+    assert reply == ["'go'"]
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
+def test_powershell_case_sensitive_sibling_subcommands_do_not_collide(tmp_path):
+    """PowerShell's `@{}` hashtable literal compares its string keys
+    case-INsensitively by default, so two sibling subcommand paths
+    differing only in case (`run`/`Run`) shared one dictionary slot in
+    `$subsByPath`/`$vflagsByPath` and the later assignment clobbered the
+    earlier one's own child-subcommand/value-flag table. Distinguishing
+    flags on each side's own nested child (`--lower-flag` under `run lsub`,
+    `--upper-flag` under `Run usub`) catch this even though the immediate
+    top-level candidate lists (built from separate, unquoted `elseif`
+    branches) happen to stay correct on their own."""
+    parser = CaseRoot._parser_()
+    parser.prog = "casetool"
+    script = completion.powershell(parser)
+    reply = _pwsh_complete(script, "casetool run L1 lsub -", tmp_path)
+    assert "'--lower-flag'" in reply
+    assert "'--upper-flag'" not in reply
+    reply = _pwsh_complete(script, "casetool Run U1 usub -", tmp_path)
+    assert "'--upper-flag'" in reply
+    assert "'--lower-flag'" not in reply
+
+
+@pytest.mark.skipif(_PWSH is None, reason="pwsh not available")
 def test_powershell_hostile_choice_is_quoted_when_inserted(tmp_path):
     """Security-adjacent: a candidate containing whitespace or a
     PowerShell metacharacter is inserted as ONE quoted literal, not split or

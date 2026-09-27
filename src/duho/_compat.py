@@ -123,19 +123,34 @@ def write_human(text: str, stream=None) -> None:
     forcing UTF-8 -- only a character genuinely outside that encoding is
     escaped (``errors="backslashreplace"``, e.g. ``\\u2192`` for an arrow)
     instead of raising ``UnicodeEncodeError`` and losing the whole message.
+
+    **Tries the normal ``stream.write(text)`` FIRST**, unlike
+    :func:`write_machine` (which always goes straight to the raw
+    ``.buffer``): the ordinary text layer is what applies the platform's own
+    newline translation (``\\n`` -> ``\\r\\n`` on Windows) -- the same
+    translation ``print()``/argparse's own ``print_help()`` get for free.
+    Human console text is meant to look native, so this must NOT bypass that
+    translation in the common case (a fix that regressed this once: routing
+    unconditionally through ``.buffer`` avoided the encoding crash but also
+    silently dropped every ``--help`` output to LF-only on Windows). The
+    ``.buffer`` fallback -- which, writing raw bytes, is necessarily LF-only
+    -- is used only for the genuinely-unrepresentable-character case
+    ``write_machine`` exists for; that trade-off (a rare escaped line's
+    newline no longer gets translated either) is accepted rather than losing
+    the message.
     """
     if stream is None:
         stream = _sys.stdout
-    buffer = getattr(stream, "buffer", None)
-    encoding = getattr(stream, "encoding", None) or "utf-8"
-    if buffer is not None:
-        stream.flush()
-        buffer.write(text.encode(encoding, errors="backslashreplace"))
-        buffer.flush()
-    else:
-        try:
-            stream.write(text)
-        except UnicodeEncodeError:
+    try:
+        stream.write(text)
+    except UnicodeEncodeError:
+        buffer = getattr(stream, "buffer", None)
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        if buffer is not None:
+            stream.flush()
+            buffer.write(text.encode(encoding, errors="backslashreplace"))
+            buffer.flush()
+        else:
             stream.write(
                 text.encode(encoding, errors="backslashreplace").decode(encoding)
             )

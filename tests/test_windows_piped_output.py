@@ -97,6 +97,48 @@ def test_human_help_survives_piped_non_ascii_docstring(tmp_path):
     assert "usage:" in out
 
 
+def test_help_output_uses_windows_native_crlf_line_endings(tmp_path):
+    """`--help`'s ordinary, fully-representable-character path must still
+    get the platform's normal text-mode newline translation (``\\n`` ->
+    ``\\r\\n``) -- 0.5.4's own behavior. A later fix for the
+    ``UnicodeEncodeError`` case above (see the two tests above) routed
+    EVERY ``write_human`` call through the stream's raw, untranslated
+    ``.buffer`` unconditionally, silently dropping ``--help`` output to
+    LF-only on Windows even for plain ASCII text that never needed the
+    workaround at all.
+    """
+    app_file = tmp_path / "plainapp.py"
+    app_file.write_text(
+        "import sys\n"
+        "from duho import Cli, Cmd, main\n"
+        "\n"
+        "class Deploy(Cmd):\n"
+        '    """Deploy the thing."""\n'
+        "\n"
+        "    def __call__(self):\n"
+        "        return 0\n"
+        "\n"
+        "class App(Cli):\n"
+        '    """Plain ASCII app."""\n'
+        "\n"
+        "    _subcommands_ = [Deploy]\n"
+        "\n"
+        "if __name__ == '__main__':\n"
+        "    sys.exit(main(App, setup_logging=False))\n",
+        encoding="ascii",
+    )
+    proc = subprocess.run(
+        [sys.executable, str(app_file), "--help"],
+        capture_output=True,
+        env=_default_env(),
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert b"\r\n" in proc.stdout
+    # Every line ending is CRLF, not a mix and not LF-only.
+    assert proc.stdout.count(b"\n") == proc.stdout.count(b"\r\n")
+
+
 def test_scaffold_reports_written_paths_without_crashing_on_non_ascii_root(tmp_path):
     root = tmp_path / "\u03c9root"  # omega: outside cp1252
     proc = subprocess.run(

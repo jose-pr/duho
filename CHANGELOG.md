@@ -653,6 +653,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   single in-process dispatch, breaking hierarchical control. The descendant
   walk also no longer touches a `NOTSET` child (already inherits for free)
   or promotes a `PlaceHolder` registry entry into a real `Logger`.
+- Human-facing console text (`--help`, an agent-help fallback, `duho.scaffold`'s
+  path report) now gets the platform's normal newline translation again
+  (CRLF on Windows) for the common, fully-representable-character case,
+  instead of always being LF-only. A prior fix for a real Windows crash
+  (`UnicodeEncodeError` writing a non-ASCII docstring through a piped
+  console's code page) made `write_human` route every write through the
+  stream's raw, untranslated `.buffer` unconditionally, which also silently
+  dropped the newline translation for the overwhelming majority of output
+  that never had an encoding problem in the first place. `write_human` now
+  tries the normal `stream.write(text)` first (translated, and correctly
+  encoded for anything representable) and only falls back to the raw
+  `.buffer` write for a character genuinely outside the stream's encoding.
 
 ### Removed
 

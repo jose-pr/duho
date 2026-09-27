@@ -159,6 +159,13 @@ just its annotation.
   defaults (CLI wins), returns a new `type(spec)` instance, `spec` itself is untouched.
   Full precedence: **CLI > instance > env > config > class default**. `parser_kwargs`
   forwards to `cls._parser_(...)` (e.g. `parser_kwargs={"prog": "myapp"}`).
+- **Every declared field is always materialized.** Whether built by `parse`/`main`/`app`
+  or constructed directly (`MyArgs(...)`), an instance carries every field the class
+  declares — including one with no explicit `default=` (its effective default, e.g. a
+  `store_true`/`store_false` bool's `False`, or `None` for a field with no default at
+  all) and one omitted from a direct constructor call. This means `vars(instance)`,
+  `repr(instance)`, and `==` between two instances always compare the full declared
+  field set, never only the fields a particular call happened to pass.
 - **`parse_globals(cls, argv=None, *, config=None, **parser_kwargs)`** — parse only the
   root globals, ignoring subcommands (drops the subparsers action before a
   help-suppressed parse). Accepts `config=` mirroring `parse`/`main`.
@@ -240,7 +247,7 @@ empty when absent).
   **`is_class_command(obj) -> bool`** / **`is_module_command(obj) -> bool`** — the
   corresponding type checks (a strict `Cmd` subclass; a `ModuleCommand` instance).
 - **`ModuleCommand`** — adapts a command `.py` module (plain wrapper, not a `ModuleType`
-  subclass). `_parsername_` = module `_parsername_`/`_cli_name` override, else file stem with
+  subclass). `_parsername_` = module `_parsername_` override, else file stem with
   `_`→`-`. Entrypoint `main` (fallback `run`/`call`); optional hooks `register`/`init`/
   `success`/`finally_`. A module with no entrypoint raises `NotImplementedError` (→ skipped).
   `args_cls` — an optional module-level `Args` declaring the module's own CLI fields
@@ -283,10 +290,13 @@ empty when absent).
   module of defaults (missing → silently ignored). Precedence, highest first: `**env`
   kwargs / a runtime `env[k] = v` write, then the real `os.environ`, then the companion
   module's shipped defaults. Methods incl. `.list(name, sep=":", ty=str)`, `.paths(name,
-  ty=str)` (splits on `os.pathsep`, overridable only by this app's own prefixed
-  `<PREFIX>PATHSEP` env var — never a bare/global `PATHSEP` — NOT `.list`'s `":"`
-  default — so a path-list var never mis-splits a Windows drive letter; also rejects a
-  bare drive-letter segment and any segment resolving to the CWD unless spelled `.`),
+  ty=str, strict=True, on_reject=None)` (splits on `os.pathsep`, overridable only by
+  this app's own prefixed `<PREFIX>PATHSEP` env var — never a bare/global `PATHSEP` —
+  NOT `.list`'s `":"` default — so a path-list var never mis-splits a Windows drive
+  letter; also rejects a bare drive-letter segment and any segment resolving to the
+  CWD unless spelled `.`. `strict=False` skips a rejected segment instead of raising
+  for the whole call, keeping every other entry; `on_reject(segment, reason)`, when
+  given, is called once per skipped segment),
   `.bool(name)` —
   truthy (case-insensitive, stripped) matches the shared `BOOL_TRUE` token set (see
   "Environment variables" below); anything else (incl. a missing key) is `False`. That

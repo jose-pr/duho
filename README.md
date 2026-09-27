@@ -1061,7 +1061,7 @@ raise SystemExit(duho.app(CLI, source=Path("myapp/cmds")))
 
 The subcommand name is the class's `_parsername_`/class name for class commands,
 and the file **stem with `_`→`-`** for module commands (`deploy_all.py` →
-`deploy-all`; override with a module-level `_parsername_`/`_cli_name`). You can
+`deploy-all`; override with a module-level `_parsername_`). You can
 also call `duho.discover_commands(source)` directly to get the `list[Command]`.
 
 Discovery is **resilient**: a command that can't be imported (a missing optional

@@ -140,6 +140,38 @@ def test_subclass_declaring_its_own_parsername_wins():
     assert duho.parser(DeclaredSubclass).prog == "shared-name"
 
 
+class _NamedBase(Cmd):
+    """A base declaring an EXPLICIT ``_parsername_`` (not the derived,
+    class-name-based one)."""
+
+    _parsername_ = "base-cmd"
+
+    def __call__(self):
+        return 0
+
+
+class _UndeclaredChild(_NamedBase):
+    """A subclass that does not re-declare ``_parsername_`` of its own."""
+
+
+def test_explicit_parsername_on_a_base_is_not_inherited_by_a_plain_subclass():
+    """A base's EXPLICITLY declared ``_parsername_`` (not just a derived
+    one) is resolved the same own-class-only way as any other: a subclass
+    that doesn't declare its own gets its OWN class name, never the base's.
+
+    [minor] This is a deliberate choice, not an oversight: inheriting an
+    explicit name here would reopen exactly the sibling-subcommand
+    name-collision this whole own-``vars()``-only rule exists to close (two
+    subclasses of the same explicitly-named base, registered as separate
+    subcommands, would collapse onto one name the moment the base's own
+    parser had been built once). A class that wants to share a base's
+    explicit name still can -- by declaring ``_parsername_`` on itself too,
+    exactly like any other subclass (see the sibling test above).
+    """
+    assert duho.parser(_NamedBase).prog == "base-cmd"
+    assert duho.parser(_UndeclaredChild).prog == "_UndeclaredChild"
+
+
 class _LoggedBase(LoggingArgs, Cmd):
     def __call__(self):
         return 0

@@ -81,9 +81,9 @@ class _NestedAnnotatedArgs(Args):
 
 
 def test_nested_annotated_in_union_lifts_metadata_and_works():
-    if sys.version_info < (3, 10):
-        # On 3.9, `typing.Union.__getitem__` itself eagerly hashes its
-        # members (`_remove_dups_flatten` -> `set(params)`) the moment the
+    if sys.version_info < (3, 11):
+        # On 3.9 and 3.10, `typing.Union.__getitem__` itself eagerly hashes
+        # its members (deduplicating them through a `set`) the moment the
         # annotation is evaluated, before duho's own resolution ever runs --
         # and `Arg[int, NS(...)]`'s `NS(...)` metadata isn't hashable. Not a
         # case duho's ladder can intercept earlier than that; it still
@@ -98,7 +98,7 @@ def test_nested_annotated_in_union_lifts_metadata_and_works():
 
 
 def test_nested_annotated_in_union_env_binding_still_applies(monkeypatch):
-    if sys.version_info < (3, 10):
+    if sys.version_info < (3, 11):
         pytest.skip("see test_nested_annotated_in_union_lifts_metadata_and_works")
     monkeypatch.setenv("ANNOT_N", "9")
     inst = duho.parse(_NestedAnnotatedArgs, [])

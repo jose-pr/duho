@@ -450,8 +450,9 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     the split `--opt = value` form bash produces for `--opt=value`; the
     value-flag set is resolved per command path, not merged globally.
     Every value-taking flag -- choice, Path, or free -- gets its own
-    `$prev` arm. `COMPREPLY` is always filled via `mapfile` from a
-    process-substitution `compgen` call, never `$(...)` splicing, so results
+    `$prev` arm. `COMPREPLY` is always filled by a `while IFS= read -r` loop
+    over a process-substitution `compgen` call (not `mapfile`, which bash
+    3.2 -- still macOS's `/bin/bash` -- does not have), never `$(...)` splicing, so results
     are never word-split or glob-expanded a second time. Registered
     with `-o bashdefault -o default -o filenames` so bash's native filename
     completion applies whenever nothing above matches, and Path
@@ -585,11 +586,11 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
                 if opt.choices:
                     words = _bash_wordlist(list(opt.choices))
                     lines.append(
-                        f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+                        f'                COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -W {words} -- "$cur")'
                     )
                 elif opt.is_path:
                     lines.append(
-                        '                mapfile -t COMPREPLY < <(compgen -f -- "$cur")'
+                        '                COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -f -- "$cur")'
                     )
                 else:
                     lines.append("                COMPREPLY=()")
@@ -603,7 +604,7 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
         if flags:
             words = _bash_wordlist(flags)
             lines.append(
-                f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+                f'                COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -W {words} -- "$cur")'
             )
         else:
             lines.append("                COMPREPLY=()")
@@ -617,11 +618,11 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
                 if pos.choices:
                     words = _bash_wordlist(list(pos.choices))
                     lines.append(
-                        f'                mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+                        f'                COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -W {words} -- "$cur")'
                     )
                 elif pos.is_path:
                     lines.append(
-                        '                mapfile -t COMPREPLY < <(compgen -f -- "$cur")'
+                        '                COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -f -- "$cur")'
                     )
                 else:
                     lines.append("                COMPREPLY=()")
@@ -633,7 +634,7 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
             words = _bash_wordlist(names)
             lines.append(f"        if [ $npos -eq {n_pos} ]; then")
             lines.append(
-                f'            mapfile -t COMPREPLY < <(compgen -W {words} -- "$cur")'
+                f'            COMPREPLY=(); while IFS= read -r w; do COMPREPLY+=("$w"); done < <(compgen -W {words} -- "$cur")'
             )
             lines.append("            return 0")
             lines.append("        fi")

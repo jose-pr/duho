@@ -242,6 +242,14 @@ def test_emitters_render_nonempty_script_with_expected_content(shell):
     assert "{flags}" not in script
 
 
+def test_bash_script_avoids_bash4_only_builtins():
+    """macOS still ships bash 3.2 as /bin/bash: the generated script must not
+    use `mapfile`/`readarray` (bash 4.0+) or associative arrays."""
+    script = completion.bash(App._parser_())
+    for needle in ("mapfile", "readarray", "declare -A"):
+        assert needle not in script
+
+
 def test_bash_script_is_syntactically_valid():
     """Optional smoke check: skipped if a real bash isn't on PATH."""
     if not _BASH:

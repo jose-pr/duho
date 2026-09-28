@@ -163,7 +163,7 @@ def test_root_is_a_namespace_and_not_listed(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Per-command `_mcp_ = False` exclusion (Plan 35 Phase 3) -- module commands
+# Per-command `_mcp_ = False` exclusion -- module commands
 # --------------------------------------------------------------------------
 
 _MODULE_CMD_SECRET = '''\

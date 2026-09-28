@@ -310,10 +310,10 @@ class ModuleCommand:
         self.module = module
         self._parsername_ = name or _resolved_module_name(module)
         # A module-level `_mcp_ = False` opts this command out of the MCP
-        # tool surface (`duho.mcp`'s per-command exclusion, Plan 35 Phase
-        # 3), mirroring `_parsername_`'s own "read a module-level override,
-        # stash it as a plain instance attribute" pattern -- `duho.mcp`
-        # reads it straight off this attribute, never the raw module.
+        # tool surface (`duho.mcp`'s per-command exclusion), mirroring
+        # `_parsername_`'s own "read a module-level override, stash it as a
+        # plain instance attribute" pattern -- `duho.mcp` reads it straight
+        # off this attribute, never the raw module.
         self._mcp_ = getattr(module, "_mcp_", True)
 
         entry = entrypoint if entrypoint is not None else _module_entrypoint(module)

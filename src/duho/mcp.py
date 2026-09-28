@@ -612,7 +612,7 @@ def _walk_tree(
     :func:`duho.parsers.unique_subcommands` finds.
 
     Also computes each node's :attr:`_Node.excluded` (per-command
-    ``_mcp_ = False`` opt-out, Plan 35 Phase 3): a class node reads its own
+    ``_mcp_ = False`` opt-out): a class node reads its own
     ``cls``'s ``_mcp_`` via plain ``getattr`` (so a subclass of an excluded
     command inherits the exclusion, never needing to redeclare it); a
     module-command node reads ``module_command``'s own ``_mcp_`` attribute
@@ -709,8 +709,8 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
 class _ServerCore:
     """One MCP server's resolved ``(root_parser, nodes, dispatch, root_cls)``
     quadruple -- everything :func:`describe_tools`/:func:`call_tool`/
-    ``initialize``'s ``serverInfo`` (Defect 4) need, independent of whether
-    the tree came from a class's static ``_subcommands_``
+    ``initialize``'s ``serverInfo`` (:func:`_server_info`) need, independent
+    of whether the tree came from a class's static ``_subcommands_``
     (:func:`_core_for_class`) or a full ``app()`` build
     (:func:`_core_for_app`). ``dispatch(command, instance)`` performs
     whichever post-parse steps that source normally performs (logging setup,
@@ -766,7 +766,7 @@ def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerC
     """
     parser, root_cls, dispatch = _build_app_core(root, **app_kwargs)
     # `parser.prog` -- not `_command_name(root_cls)` -- is the root tool-name
-    # segment (Defect 3): `_build_parser`/`_prepare_app_parser` already gave
+    # segment: `_build_parser`/`_prepare_app_parser` already gave
     # this exact parser object `prog = app_kwargs["name"]` when `name=` was
     # passed to `app()`, falling back to `_command_name(root_cls)` itself
     # only when it wasn't (`Args._parser_`'s own `name = name or
@@ -869,7 +869,7 @@ def serve_running_app(transport: str = "stdio") -> int:
     else:
         _, parser, root_cls, dispatch = ctx
         # `parser.prog`, not `_command_name(root_cls)` -- see the identical
-        # fix (and its rationale) in `_core_for_app` (Defect 3).
+        # fix (and its rationale) in `_core_for_app`.
         root_name = parser.prog
         nodes = _walk_tree(parser, root_cls, root_name)
         core = _ServerCore(parser, nodes, dispatch, root_cls)
@@ -2112,11 +2112,11 @@ def _line_nesting_exceeds(line: str, limit: int) -> bool:
 
 
 def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
-    """``serverInfo`` for the ``initialize`` response (Defect 4).
+    """``serverInfo`` for the ``initialize`` response.
 
     ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
     the root tool-name segment (``core.root_parser.prog`` -- see
-    :func:`_core_for_app`'s own Defect-3 fix for why this, not
+    :func:`_core_for_app`'s own comment for why this, not
     ``_command_name(root_cls)``, is the right value for an ``app(name=...)``
     tree too). ``version`` is the app's own ``_version_``
     (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``

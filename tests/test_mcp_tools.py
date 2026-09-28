@@ -157,7 +157,7 @@ def test_conflict_groups_noted_in_description():
 
 
 # --------------------------------------------------------------------------
-# Per-command `_mcp_ = False` exclusion (Plan 35 Phase 3)
+# Per-command `_mcp_ = False` exclusion
 # --------------------------------------------------------------------------
 
 

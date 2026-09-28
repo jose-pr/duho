@@ -246,8 +246,8 @@ def test_calling_a_namespace_node_raises_unknown_tool_error():
 
 
 def test_calling_an_excluded_command_raises_unknown_tool_error():
-    # A per-command `_mcp_ = False` (Plan 35 Phase 3) is refused the same
-    # way an unknown name is -- no existence disclosed either way.
+    # A per-command `_mcp_ = False` is refused the same way an unknown
+    # name is -- no existence disclosed either way.
     class Secret(Cmd):
         """A leaf opted out of MCP."""
 

@@ -159,14 +159,14 @@ def test_app_mcp_command_colliding_name_raises():
 
 
 # --------------------------------------------------------------------------
-# Defect regression tests (Plan 35 Phase 4) -- in-process.
+# Defect regression tests -- in-process.
 # --------------------------------------------------------------------------
 
 
 def test_mcp_command_help_row_is_not_blank(capsys):
-    # Defect 2: the dynamically-built `_McpCmd` subclass has no source of
-    # its own for AST docstring introspection, so its --help row used to
-    # come up blank.
+    # The dynamically-built `_McpCmd` subclass has no source of its own
+    # for AST docstring introspection, so its --help row used to come up
+    # blank.
     class Show(Cmd):
         """Show something."""
 
@@ -185,10 +185,9 @@ def test_mcp_command_help_row_is_not_blank(capsys):
 
 
 def test_app_name_kwarg_is_the_root_tool_name_segment():
-    # Defect 3: tool names used the root CLASS-derived name even when
-    # app(name=...) was given -- dotagents calls app(Dotagents,
-    # name="dotagents"), and its tools must come out "dotagents.*", not
-    # "Dotagents.*".
+    # Tool names must reflect app(name=...) rather than the root class's
+    # own derived name -- dotagents calls app(Dotagents, name="dotagents"),
+    # and its tools must come out "dotagents.*", not "Dotagents.*".
     from duho.mcp import describe_tools
 
     class Env(Cmd):
@@ -214,7 +213,7 @@ def _core_for_app_helper(root, **kwargs):
 
 
 def test_serverinfo_reports_the_apps_own_name_and_version():
-    # Defect 4: `initialize` used to report a fixed
+    # `initialize` must report the served app's own identity, not a fixed
     # {"name": "duho.mcp", "version": <duho version>} for every app.
     import io
     import json as _json
@@ -235,9 +234,7 @@ def test_serverinfo_reports_the_apps_own_name_and_version():
 
     core = _core_for_app_helper(Dotagents, name="dotagents")
     stdin = io.StringIO(
-        _json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-        )
+        _json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         + "\n"
     )
     stdout = io.StringIO()
@@ -266,9 +263,7 @@ def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
 
     core = _core_for_app_helper(Plain)
     stdin = io.StringIO(
-        _json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-        )
+        _json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         + "\n"
     )
     stdout = io.StringIO()
@@ -279,7 +274,7 @@ def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
 
 
 # --------------------------------------------------------------------------
-# `duho.main`'s own `_mcp_command_` support (Plan 35 Phase 2) -- in-process.
+# `duho.main`'s own `_mcp_command_` support -- in-process.
 # Shares `_resolve_mcp_command_name`/`_build_mcp_command_class` with app(),
 # so only the main()-specific wiring (no separate kwarg, a fresh root
 # subclass carrying the extra subcommand) needs its own coverage here.
@@ -429,9 +424,9 @@ def test_main_mcp_command_false_does_not_mutate_original_class():
 
 def test_root_mcp_false_does_not_disable_the_mcp_command_subcommand():
     """`_mcp_ = False` on the ROOT keeps its separate, trigger-only meaning
-    (Plan 35 Phase 3) -- it must not be confused with the per-command
-    exclusion, and must not stop `_mcp_command_`'s own subcommand from
-    registering and serving."""
+    -- it must not be confused with the per-command exclusion, and must
+    not stop `_mcp_command_`'s own subcommand from registering and
+    serving."""
     import duho
 
     class Show(Cmd):
@@ -708,10 +703,10 @@ def test_env_trigger_serves_a_class_tree(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
-    # serverInfo now reports the served APP's own identity (Defect 4), not
-    # a fixed "duho.mcp" -- App declares no _parsername_/_version_, so its
-    # name resolves to its class name and its version falls back to
-    # duho's own (never asserted here; only the name is app-specific).
+    # serverInfo reports the served APP's own identity, not a fixed
+    # "duho.mcp" -- App declares no _parsername_/_version_, so its name
+    # resolves to its class name and its version falls back to duho's own
+    # (never asserted here; only the name is app-specific).
     assert responses[0]["result"]["serverInfo"]["name"] == "App"
     names = {t["name"] for t in responses[1]["result"]["tools"]}
     assert names == {"App.Ping"}
@@ -897,8 +892,8 @@ def test_default_cli_help_is_unchanged_with_no_mcp_opt_in(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# `duho.main`'s own `_mcp_command_` subcommand serving over stdio (Plan 35
-# Phase 2) -- real subprocess, mirrors the app() e2e tests above.
+# `duho.main`'s own `_mcp_command_` subcommand serving over stdio -- real
+# subprocess, mirrors the app() e2e tests above.
 # --------------------------------------------------------------------------
 
 _MAIN_MCP_COMMAND_RUNNER = '''\

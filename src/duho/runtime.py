@@ -515,7 +515,7 @@ def _build_mcp_command_class(
     AST-parse for. Also sets an explicit ``__doc__`` -- ``type()`` does NOT
     inherit ``__doc__`` from a base class (unlike every other declarative
     attribute, which normal ``getattr``/MRO lookup finds fine), so without
-    this the subcommand's own ``--help`` row came up blank (Defect 2).
+    this the subcommand's own ``--help`` row came up blank.
     """
     mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
     if mcp_command_name is None:

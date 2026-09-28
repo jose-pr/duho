@@ -131,6 +131,7 @@ from .args import _command_name as _command_name
 from .args import _escape_help as _escape_help
 from .args import _raw_config_values as _raw_config_values
 from .args import _raw_env_values as _raw_env_values
+from .args import _resolve_version as _resolve_version
 from .args import _setup_instance_logging as _setup_instance_logging
 from ._fieldspec import _KVFactory as _KVFactory
 from .logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
@@ -161,10 +162,13 @@ _NONETYPE = type(None)
 #: otherwise it answers with the first (newest) entry.
 _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-#: ``serverInfo.name``/``version`` reported in the ``initialize`` result.
-#: ``version`` is duho's own version (the implementation actually running),
-#: not a placeholder -- a host cannot otherwise tell one duho release apart
-#: from another.
+#: Fallback ``serverInfo.name``/``version`` for the ``initialize`` result
+#: (:func:`_server_info`), used only when the served app's own resolution
+#: somehow comes up empty. The NORMAL case reports the app's own identity
+#: instead: ``name`` is the same root tool-name segment
+#: ``describe_tools``/``call_tool`` use, and ``version`` is the app's own
+#: ``_version_`` when it resolves to a string -- so a host can tell one
+#: served APP apart from another, not just one duho release from another.
 _SERVER_NAME = "duho.mcp"
 _SERVER_VERSION = _DUHO_VERSION
 
@@ -703,21 +707,27 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
 
 
 class _ServerCore:
-    """One MCP server's resolved ``(root_parser, nodes, dispatch)`` triple --
-    everything :func:`describe_tools`/:func:`call_tool` need, independent of
-    whether the tree came from a class's static ``_subcommands_``
+    """One MCP server's resolved ``(root_parser, nodes, dispatch, root_cls)``
+    quadruple -- everything :func:`describe_tools`/:func:`call_tool`/
+    ``initialize``'s ``serverInfo`` (Defect 4) need, independent of whether
+    the tree came from a class's static ``_subcommands_``
     (:func:`_core_for_class`) or a full ``app()`` build
     (:func:`_core_for_app`). ``dispatch(command, instance)`` performs
     whichever post-parse steps that source normally performs (logging setup,
     ``_env_`` attachment, ...) and finally :func:`duho.runtime.run_command`.
+    ``root_cls`` is the concrete root class either builder resolved (never
+    ``None`` -- ``app()``'s own bare-root fallback is duho's internal
+    ``Args`` class, still a real class), read by :func:`_server_info` for
+    ``_version_`` resolution.
     """
 
-    __slots__ = ("root_parser", "nodes", "dispatch")
+    __slots__ = ("root_parser", "nodes", "dispatch", "root_cls")
 
-    def __init__(self, root_parser, nodes, dispatch):
+    def __init__(self, root_parser, nodes, dispatch, root_cls):
         self.root_parser = root_parser
         self.nodes = nodes
         self.dispatch = dispatch
+        self.root_cls = root_cls
 
 
 def _core_for_class(root_cls: "type[_Cmd]") -> "_ServerCore":
@@ -734,7 +744,7 @@ def _core_for_class(root_cls: "type[_Cmd]") -> "_ServerCore":
         _setup_instance_logging(instance, True, root_cls)
         return _run_command(command, instance)
 
-    return _ServerCore(root_parser, nodes, _dispatch)
+    return _ServerCore(root_parser, nodes, _dispatch, root_cls)
 
 
 def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerCore":
@@ -755,9 +765,18 @@ def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerC
     dispatches once per MCP tool call rather than once per process.
     """
     parser, root_cls, dispatch = _build_app_core(root, **app_kwargs)
-    root_name = _command_name(root_cls)
+    # `parser.prog` -- not `_command_name(root_cls)` -- is the root tool-name
+    # segment (Defect 3): `_build_parser`/`_prepare_app_parser` already gave
+    # this exact parser object `prog = app_kwargs["name"]` when `name=` was
+    # passed to `app()`, falling back to `_command_name(root_cls)` itself
+    # only when it wasn't (`Args._parser_`'s own `name = name or
+    # _command_name(cls)`) -- so reading it back here, instead of
+    # re-deriving the class-only fallback and ignoring `name=` entirely,
+    # is what makes `app(Dotagents, name="dotagents")`'s tools come out
+    # `dotagents.*` rather than `Dotagents.*`.
+    root_name = parser.prog
     nodes = _walk_tree(parser, root_cls, root_name)
-    return _ServerCore(parser, nodes, dispatch)
+    return _ServerCore(parser, nodes, dispatch, root_cls)
 
 
 def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
@@ -849,9 +868,11 @@ def serve_running_app(transport: str = "stdio") -> int:
         core = _core_for_class(ctx[1])
     else:
         _, parser, root_cls, dispatch = ctx
-        root_name = _command_name(root_cls)
+        # `parser.prog`, not `_command_name(root_cls)` -- see the identical
+        # fix (and its rationale) in `_core_for_app` (Defect 3).
+        root_name = parser.prog
         nodes = _walk_tree(parser, root_cls, root_name)
-        core = _ServerCore(parser, nodes, dispatch)
+        core = _ServerCore(parser, nodes, dispatch, root_cls)
     return serve(core)
 
 
@@ -2090,6 +2111,33 @@ def _line_nesting_exceeds(line: str, limit: int) -> bool:
     return False
 
 
+def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
+    """``serverInfo`` for the ``initialize`` response (Defect 4).
+
+    ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
+    the root tool-name segment (``core.root_parser.prog`` -- see
+    :func:`_core_for_app`'s own Defect-3 fix for why this, not
+    ``_command_name(root_cls)``, is the right value for an ``app(name=...)``
+    tree too). ``version`` is the app's own ``_version_``
+    (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
+    sentinel resolved via ``importlib.metadata``, or a class-level
+    ``__version__`` fallback) when it resolves to a string, else duho's own
+    ``_SERVER_VERSION`` -- so a served app that never declared its own
+    version is still reported truthfully as "duho itself", not a fabricated
+    placeholder.
+    """
+    core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
+    name = core.root_parser.prog
+    version = _resolve_version(core.root_cls)
+    return {
+        # `prog` is always a real, non-empty string in every reachable
+        # path here; the `_SERVER_NAME` fallback exists only so this stays
+        # defensively correct rather than reporting an empty name.
+        "name": name if name else _SERVER_NAME,
+        "version": version if isinstance(version, str) else _SERVER_VERSION,
+    }
+
+
 def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
@@ -2150,7 +2198,7 @@ def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
         result = {
             "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": _SERVER_NAME, "version": _SERVER_VERSION},
+            "serverInfo": _server_info(root_cls),
         }
     elif method in ("notifications/initialized", "initialized"):
         return None

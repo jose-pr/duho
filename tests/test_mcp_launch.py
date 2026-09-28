@@ -159,6 +159,126 @@ def test_app_mcp_command_colliding_name_raises():
 
 
 # --------------------------------------------------------------------------
+# Defect regression tests (Plan 35 Phase 4) -- in-process.
+# --------------------------------------------------------------------------
+
+
+def test_mcp_command_help_row_is_not_blank(capsys):
+    # Defect 2: the dynamically-built `_McpCmd` subclass has no source of
+    # its own for AST docstring introspection, so its --help row used to
+    # come up blank.
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root app."""
+
+        _subcommands_ = [Show]
+
+    with pytest.raises(SystemExit):
+        app(Root, mcp_command=True, argv=["--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert "Serve this CLI as an MCP server" in out
+
+
+def test_app_name_kwarg_is_the_root_tool_name_segment():
+    # Defect 3: tool names used the root CLASS-derived name even when
+    # app(name=...) was given -- dotagents calls app(Dotagents,
+    # name="dotagents"), and its tools must come out "dotagents.*", not
+    # "Dotagents.*".
+    from duho.mcp import describe_tools
+
+    class Env(Cmd):
+        """Report env stuff."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Dotagents(Cli):
+        """A root whose class name deliberately differs from app(name=)."""
+
+        _subcommands_ = [Env]
+
+    core = _core_for_app_helper(Dotagents, name="dotagents")
+    names = {t["name"] for t in describe_tools(core)}
+    assert names == {"dotagents.Env"}
+
+
+def _core_for_app_helper(root, **kwargs):
+    from duho.mcp import _core_for_app
+
+    return _core_for_app(root, **kwargs)
+
+
+def test_serverinfo_reports_the_apps_own_name_and_version():
+    # Defect 4: `initialize` used to report a fixed
+    # {"name": "duho.mcp", "version": <duho version>} for every app.
+    import io
+    import json as _json
+
+    from duho.mcp import serve
+
+    class Env(Cmd):
+        """Report env stuff."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Dotagents(Cli):
+        """A root reporting its own name and version."""
+
+        _version_ = "9.9.9"
+        _subcommands_ = [Env]
+
+    core = _core_for_app_helper(Dotagents, name="dotagents")
+    stdin = io.StringIO(
+        _json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+        + "\n"
+    )
+    stdout = io.StringIO()
+    serve(core, stdin=stdin, stdout=stdout)
+    response = _json.loads(stdout.getvalue().splitlines()[0])
+    assert response["result"]["serverInfo"] == {"name": "dotagents", "version": "9.9.9"}
+
+
+def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
+    import io
+    import json as _json
+
+    import duho
+    from duho.mcp import serve
+
+    class Env(Cmd):
+        """Report env stuff."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Plain(Cli):
+        """A root with no _version_ of its own."""
+
+        _subcommands_ = [Env]
+
+    core = _core_for_app_helper(Plain)
+    stdin = io.StringIO(
+        _json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+        + "\n"
+    )
+    stdout = io.StringIO()
+    serve(core, stdin=stdin, stdout=stdout)
+    response = _json.loads(stdout.getvalue().splitlines()[0])
+    assert response["result"]["serverInfo"]["name"] == "Plain"
+    assert response["result"]["serverInfo"]["version"] == duho.__version__
+
+
+# --------------------------------------------------------------------------
 # `duho.main`'s own `_mcp_command_` support (Plan 35 Phase 2) -- in-process.
 # Shares `_resolve_mcp_command_name`/`_build_mcp_command_class` with app(),
 # so only the main()-specific wiring (no separate kwarg, a fresh root
@@ -588,7 +708,11 @@ def test_env_trigger_serves_a_class_tree(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
-    assert responses[0]["result"]["serverInfo"]["name"] == "duho.mcp"
+    # serverInfo now reports the served APP's own identity (Defect 4), not
+    # a fixed "duho.mcp" -- App declares no _parsername_/_version_, so its
+    # name resolves to its class name and its version falls back to
+    # duho's own (never asserted here; only the name is app-specific).
+    assert responses[0]["result"]["serverInfo"]["name"] == "App"
     names = {t["name"] for t in responses[1]["result"]["tools"]}
     assert names == {"App.Ping"}
     call_text = responses[2]["result"]["content"][0]["text"]

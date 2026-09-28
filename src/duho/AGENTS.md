@@ -583,11 +583,14 @@ manipulating a parser tree directly:
   just a class. **`UnknownToolError`** /
   **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
   unresolvable tool name and for arguments that are not a JSON object or fail the
-  tool's schema, respectively. The reported `serverInfo.version` is duho's own real
-  running version, not a placeholder; `initialize` negotiates `protocolVersion` against
-  a small supported set (falling back to the newest supported version) rather than
-  echoing the client's request unconditionally. `json`/`importlib.metadata` stay
-  function-local.
+  tool's schema, respectively. `initialize`'s `serverInfo` reports the served APP's own
+  identity, not a fixed placeholder: `name` is the same root tool-name segment every
+  tool name's own root uses (an `app(name=...)` value when given, else `_parsername_`/
+  the class name), and `version` is the app's own `_version_` when it resolves to a
+  string, else duho's own real running version. `initialize` negotiates
+  `protocolVersion` against a small supported set (falling back to the newest
+  supported version) rather than echoing the client's request unconditionally.
+  `json`/`importlib.metadata` stay function-local.
   - **Launching a server from the CLI itself** (no MCP-specific code required):
     every `duho.main(cls)`/`duho.app(...)` call checks a `<PREFIX>MCP` (an
     `Env(prefix)` app's own prefix) or `<NAME>_MCP` (derived from a declared

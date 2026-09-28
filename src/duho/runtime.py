@@ -512,7 +512,10 @@ def _build_mcp_command_class(
     Seeds ``_duho_constants_`` empty like ``_module_args_cls``'s own
     synthesized class does: ``type(...)`` gives this class ``__module__`` =
     this module, which has no class named ``_McpCmd`` in its OWN source to
-    AST-parse for.
+    AST-parse for. Also sets an explicit ``__doc__`` -- ``type()`` does NOT
+    inherit ``__doc__`` from a base class (unlike every other declarative
+    attribute, which normal ``getattr``/MRO lookup finds fine), so without
+    this the subcommand's own ``--help`` row came up blank (Defect 2).
     """
     mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
     if mcp_command_name is None:
@@ -532,7 +535,11 @@ def _build_mcp_command_class(
     return type(
         "_McpCmd",
         (_mcp_module.McpCmd,),
-        {"_parsername_": mcp_command_name, "_duho_constants_": {}},
+        {
+            "_parsername_": mcp_command_name,
+            "_duho_constants_": {},
+            "__doc__": "Serve this CLI as an MCP server",
+        },
     )
 
 

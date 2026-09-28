@@ -320,9 +320,11 @@ empty when absent).
 
 ## Environment variables
 
-- **`AGENT_HELP`** — truthy switches `--help`/agent-help output into machine-readable
-  JSON (see "Agent help" below). Falsy tokens: `""`, `0`, `false`, `no`, `off`, `n`, `f`
-  (case-insensitive); anything else counts as on.
+- **`AGENT_HELP`** / **`AGENTS_HELP`** — either truthy switches `--help`/agent-help
+  output into machine-readable JSON (see "Agent help" below). Falsy tokens: `""`, `0`,
+  `false`, `no`, `off`, `n`, `f` (case-insensitive); anything else counts as on. An
+  explicit `_agent_help_env_` on the CLI root replaces both defaults with exactly one
+  variable name (no aliasing).
 - **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
   duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
   command source, a non-strict RunPath step failure, `app`'s advisory `register`
@@ -401,10 +403,14 @@ empty when absent).
 - **`render(spec) -> str`** — serialize a `describe()` dict to its final JSON text
   (`ensure_ascii=True`, indented).
 - **`agent_help_requested(env_name=None, environ=None) -> bool`** — whether the trigger
-  env var (default `AGENT_HELP`) currently requests agent-help mode.
+  env var currently requests agent-help mode. `env_name=None` checks every name in
+  `DEFAULT_ENVS` (either truthy triggers); an explicit `env_name` checks only that one
+  variable.
 - **`SCHEMA`** — the document format tag stamped into every agent-help JSON document
   (currently `"duho/agent-help@1"`), so a consumer can detect the shape and pin to it.
-- **`DEFAULT_ENV`** — the string `"AGENT_HELP"` (the default trigger env var name).
+- **`DEFAULT_ENV`** — the string `"AGENT_HELP"` (the primary default trigger env var name).
+- **`DEFAULT_ENVS`** — `("AGENT_HELP", "AGENTS_HELP")`, the full set of default trigger
+  env var names checked when no `_agent_help_env_` override is set.
 - **No-secrets contract**: neither the agent-help JSON nor the human `--help` output
   (via `DefaultsFormatter`) ever shows a LIVE env/config value as a field's default —
   both show the field's DECLARED class default plus, only when the effective value
@@ -560,20 +566,60 @@ manipulating a parser tree directly:
   (ASCII, free of shell/batch metacharacters), raising `ValueError` on a bad value
   instead of silently producing a broken or command-injectable launcher. **`ScaffoldCmd`** —
   the `duho.Cmd` implementing the CLI: `python -m duho.scaffold <app>`.
-- **`duho.mcp`** — expose a duho CLI's `Cmd`/`Cli` classes as MCP tools (stdlib JSON-RPC
-  over stdio, zero-dep). **`describe_tools(root_cls) -> list[dict]`** — one tool per
-  leaf/runnable command; a "namespace" node (a mandatory-subcommand parent with no
-  runnable body of its own) is never listed as its own tool — its fields merge into
-  each descendant's own input schema instead. **`call_tool(root_cls, name, arguments)
-  -> dict`**, **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
+- **`duho.mcp`** — expose a duho CLI's `Cmd`/`Cli` classes (a static
+  `_subcommands_` tree) OR a full `duho.app()`-built tree (class AND module
+  commands, from discovered files/`CMDS_PATH`/entry points/`commands=`) as MCP
+  tools (stdlib JSON-RPC over stdio, zero-dep). **`describe_tools(root_cls) ->
+  list[dict]`** — one tool per leaf/runnable command; a "namespace" node (a
+  mandatory-subcommand parent with no runnable body of its own) is never
+  listed as its own tool — its fields merge into each descendant's own input
+  schema instead. **`call_tool(root_cls, name, arguments) -> dict`**,
+  **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
   answered directly), **`input_schema_for_command(cls) -> dict`**,
   **`json_schema_for_field(...)`** (per-field JSON Schema fragment), **`main(argv=None)
   -> int`** — CLI entry point: `python -m duho.mcp <app>` (`<app>` a `module:ClassName`
-  or dotted `module.ClassName` path to a root `Cmd`/`Cli`). **`UnknownToolError`** /
+  or dotted `module.ClassName` path to a root `Cmd`/`Cli`). `root_cls` on every one of
+  these also accepts an opaque server-core object built from a full `app()` tree, not
+  just a class. **`UnknownToolError`** /
   **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
   unresolvable tool name and for arguments that are not a JSON object or fail the
-  tool's schema, respectively. The reported `serverInfo.version` is duho's own real
-  running version, not a placeholder; `initialize` negotiates `protocolVersion` against
-  a small supported set (falling back to the newest supported version) rather than
-  echoing the client's request unconditionally. `json`/`importlib.metadata` stay
-  function-local.
+  tool's schema, respectively. `initialize`'s `serverInfo` reports the served APP's own
+  identity, not a fixed placeholder: `name` is the same root tool-name segment every
+  tool name's own root uses (an `app(name=...)` value when given, else `_parsername_`/
+  the class name), and `version` is the app's own `_version_` when it resolves to a
+  string, else duho's own real running version. `initialize` negotiates
+  `protocolVersion` against a small supported set (falling back to the newest
+  supported version) rather than echoing the client's request unconditionally.
+  `json`/`importlib.metadata` stay function-local.
+  - **Launching a server from the CLI itself** (no MCP-specific code required):
+    every `duho.main(cls)`/`duho.app(...)` call checks a `<PREFIX>MCP` (an
+    `Env(prefix)` app's own prefix) or `<NAME>_MCP` (derived from a declared
+    `_parsername_`, `app(name=...)`, the program name, or the class name,
+    upper-cased with non-`[A-Z0-9]` characters replaced by `_`) environment
+    variable FIRST, before parsing `argv`. Set to `stdio`, it serves that
+    app's full tool tree over stdio instead of running any command; set to
+    anything else, it exits `2` with a message naming the unsupported
+    transport; the variable is always removed from `os.environ` the moment
+    it is seen (present or not), so a served command's own child processes
+    never inherit it. Default on; a root class attribute **`_mcp_ = False`**
+    (declared on `Cli`) or **`app(..., mcp=False)`** disables it entirely
+    (the variable, if set, is then left untouched).
+  - **`McpCmd`** — a ready `Cmd` (`--transport {stdio}`) whose `__call__`
+    calls **`serve_running_app(transport="stdio") -> int`**, which serves
+    the CLI currently being dispatched (read from a `ContextVar` `duho.main`/
+    `duho.app` set around their own dispatch — `RuntimeError` outside such a
+    dispatch; `ValueError` for an unsupported transport). Register a
+    (dynamically-named) `McpCmd` subclass under any name to add a
+    self-serving MCP subcommand by hand; the **`_mcp_command_`** class
+    attribute (declared on `Cli`, `Union[str, bool]`, default `False`) does
+    exactly this for you under both `duho.main(cls)` AND `duho.app(...)` --
+    the latter also accepts an **`app(..., mcp_command=...)`** kwarg, which
+    wins over the class attribute when given (`duho.main` has no such kwarg;
+    it always reads the class attribute directly). Either way: `True` →
+    registers it as `"mcp"`; a non-empty `str` → that exact name (validated
+    at build time: non-empty, no whitespace, not starting with `-`; a name
+    collision with an existing command/alias, or an app/class with no OTHER
+    subcommand at all, is a build-time `ValueError` -- the same validation
+    and message text either entry point goes through). A node whose class is
+    (or subclasses) `McpCmd` is never itself listed as (or callable as) an
+    MCP tool.

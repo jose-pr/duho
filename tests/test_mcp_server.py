@@ -67,7 +67,12 @@ def test_initialize_responds_with_protocol_and_server_info():
     result = responses[0]["result"]
     assert result["protocolVersion"] == "2024-11-05"
     assert result["capabilities"] == {"tools": {}}
-    assert result["serverInfo"]["name"] == "duho.mcp"
+    # serverInfo reports the served APP's own identity, not a fixed
+    # "duho.mcp"/duho version: Server declares no _parsername_ (so its
+    # name resolves to its class name) but DOES declare its own
+    # _version_, which must be reported verbatim.
+    assert result["serverInfo"]["name"] == "Server"
+    assert result["serverInfo"]["version"] == "0.0.1"
 
 
 def test_notification_gets_no_response():

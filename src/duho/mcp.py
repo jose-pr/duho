@@ -131,10 +131,12 @@ from .args import _command_name as _command_name
 from .args import _escape_help as _escape_help
 from .args import _raw_config_values as _raw_config_values
 from .args import _raw_env_values as _raw_env_values
+from .args import _resolve_version as _resolve_version
 from .args import _setup_instance_logging as _setup_instance_logging
 from ._fieldspec import _KVFactory as _KVFactory
 from .logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .logging import log_exception as _log_exception
+from .runtime import _build_app_core as _build_app_core
 from .runtime import run_command as _run_command
 
 __all__ = [
@@ -143,6 +145,8 @@ __all__ = [
     "describe_tools",
     "call_tool",
     "serve",
+    "serve_running_app",
+    "McpCmd",
     "main",
     "UnknownToolError",
     "InvalidArgumentsError",
@@ -158,10 +162,13 @@ _NONETYPE = type(None)
 #: otherwise it answers with the first (newest) entry.
 _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-#: ``serverInfo.name``/``version`` reported in the ``initialize`` result.
-#: ``version`` is duho's own version (the implementation actually running),
-#: not a placeholder -- a host cannot otherwise tell one duho release apart
-#: from another.
+#: Fallback ``serverInfo.name``/``version`` for the ``initialize`` result
+#: (:func:`_server_info`), used only when the served app's own resolution
+#: somehow comes up empty. The NORMAL case reports the app's own identity
+#: instead: ``name`` is the same root tool-name segment
+#: ``describe_tools``/``call_tool`` use, and ``version`` is the app's own
+#: ``_version_`` when it resolves to a string -- so a host can tell one
+#: served APP apart from another, not just one duho release from another.
 _SERVER_NAME = "duho.mcp"
 _SERVER_VERSION = _DUHO_VERSION
 
@@ -507,20 +514,70 @@ def input_schema_for_command(cls: "type[_Cmd]") -> "dict":
 
 
 class _Node:
-    """One node of a root class's cached command tree.
+    """One node of a command tree (a static ``_subcommands_`` class tree, or
+    an ``app()``-built tree of class AND module commands).
 
     ``ancestors`` is the tuple of ``_Node`` from the root down to (but not
     including) this node's immediate parent -- empty for the root itself.
+    ``cls`` is the duho class behind a CLASS-COMMAND node (via
+    ``parser._duho_cls_``); ``None`` for a MODULE-COMMAND node. ``module_command``
+    is the :class:`~duho.discovery.ModuleCommand` behind a module-command
+    node, else ``None``. ``args_cls`` is a module command's own resolved
+    declarative ``Args`` class (``runtime._module_args_cls``), when it
+    declared one -- used for a richer schema/argv mapping than the bare
+    argparse-actions fallback; ``None`` for a class-command node (its schema
+    always comes from ``cls`` itself) or a module command with no declared
+    ``Args`` of its own. A node is a module command iff ``module_command`` is
+    not ``None``; ``cls`` and ``module_command`` are never both set.
+
+    ``excluded`` is true for a non-root node whose own class/module opted
+    out via ``_mcp_ = False`` (see :func:`_walk_tree`), OR that inherited the
+    exclusion from an ancestor -- an excluded node's WHOLE subtree is
+    excluded too. Checked by :func:`describe_tools` (never listed) and
+    :func:`call_tool` (:class:`UnknownToolError`, same as an unknown name --
+    no existence disclosed). Always ``False`` for the root itself: the
+    root's own ``_mcp_`` keeps its separate, trigger-only meaning
+    (:func:`duho.args._maybe_serve_mcp_trigger`), never this one.
     """
 
-    __slots__ = ("dotted_name", "own_name", "parser", "cls", "ancestors")
+    __slots__ = (
+        "dotted_name",
+        "own_name",
+        "parser",
+        "cls",
+        "ancestors",
+        "module_command",
+        "args_cls",
+        "excluded",
+    )
 
-    def __init__(self, dotted_name, own_name, parser, cls, ancestors):
+    def __init__(
+        self,
+        dotted_name,
+        own_name,
+        parser,
+        cls,
+        ancestors,
+        module_command=None,
+        args_cls=None,
+        excluded=False,
+    ):
         self.dotted_name = dotted_name
         self.own_name = own_name
         self.parser = parser
         self.cls = cls
         self.ancestors = ancestors
+        self.module_command = module_command
+        self.args_cls = args_cls
+        self.excluded = excluded
+
+
+def _effective_cls(node_or_step: "_Node") -> "_ty.Optional[type]":
+    """The class to read field declarations from for one tree node: ``cls``
+    for a class command, else its module command's own declared ``args_cls``
+    (``None`` when it declared none -- the bare-actions fallback then
+    applies)."""
+    return node_or_step.cls if node_or_step.cls is not None else node_or_step.args_cls
 
 
 #: root class -> (root_parser, {dotted_name: _Node}), built once per root
@@ -528,6 +585,94 @@ class _Node:
 #: whole tree). A ``WeakKeyDictionary`` so a throwaway root class (as tests
 #: define per test) does not leak for the life of the process.
 _TREE_CACHE: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
+
+
+def _walk_tree(
+    root_parser: "_argparse.ArgumentParser",
+    root_cls: "_ty.Optional[type]",
+    root_name: str,
+) -> "dict[str, _Node]":
+    """Walk an ALREADY-BUILT (and, for a class tree, already layered) parser
+    tree and return ``{dotted_name: _Node}`` -- the shared core both
+    :func:`_tree_for` (a static ``_subcommands_`` class tree) and
+    :func:`_core_for_app` (an ``app()``-built tree of class AND module
+    commands) use.
+
+    A subparser with no ``_duho_cls_`` (see :func:`~duho.args.Args._parser_`,
+    which stashes it unconditionally on every class-command node) is checked
+    for a module-command marker instead (``parser._defaults.get
+    ("_duho_module_command_")``, set by ``runtime._register_module_command``
+    via ``set_defaults`` -- readable straight off the ``dict`` before any
+    parsing happens, so this needs no dry-run parse of its own) and, when
+    present, its own resolved declarative ``args_cls`` (``runtime.
+    _register_module_command`` stashes it as ``_duho_module_args_cls_``,
+    ``None`` when the module declared none). Neither module commands nor
+    class commands ever nest further module commands, but the walk itself
+    makes no such assumption -- it simply recurses into whatever subparsers
+    :func:`duho.parsers.unique_subcommands` finds.
+
+    Also computes each node's :attr:`_Node.excluded` (per-command
+    ``_mcp_ = False`` opt-out): a class node reads its own
+    ``cls``'s ``_mcp_`` via plain ``getattr`` (so a subclass of an excluded
+    command inherits the exclusion, never needing to redeclare it); a
+    module-command node reads ``module_command``'s own ``_mcp_`` attribute
+    (mirroring its ``_parsername_`` -- see ``discovery.ModuleCommand``).
+    Never applied to the ROOT itself (``ancestors`` empty), whose own
+    ``_mcp_`` keeps its separate trigger-only meaning. An excluded node's
+    exclusion is inherited by its whole subtree via ``parent_excluded``.
+    """
+    nodes: "dict[str, _Node]" = {}
+    seen: "set" = set()
+
+    def _walk(parser, cls, dotted_parts, own_name, ancestors, parent_excluded=False):
+        module_command = None
+        args_cls = None
+        if cls is None:
+            defaults = getattr(parser, "_defaults", None) or {}
+            module_command = defaults.get("_duho_module_command_")
+            args_cls = getattr(parser, "_duho_module_args_cls_", None)
+        is_root = not ancestors
+        own_mcp_disabled = False
+        if not is_root:
+            if cls is not None:
+                own_mcp_disabled = not getattr(cls, "_mcp_", True)
+            elif module_command is not None:
+                own_mcp_disabled = not getattr(module_command, "_mcp_", True)
+        excluded = parent_excluded or own_mcp_disabled
+        node = _Node(
+            ".".join(dotted_parts),
+            own_name,
+            parser,
+            cls,
+            ancestors,
+            module_command=module_command,
+            args_cls=args_cls,
+            excluded=excluded,
+        )
+        nodes[node.dotted_name] = node
+        # A dispatch-identity marker (see `call_tool`'s guard against a
+        # positional swallowing the literal subcommand-name token this
+        # module inserts between chain levels): tag EVERY subparser with the
+        # chain of own-names that reaches it. argparse re-runs each level's
+        # defaults-installation as parsing descends (root's default is
+        # installed first, but a DEEPER subparser's own `set_defaults` still
+        # overwrites it once that subparser actually runs), so after a
+        # successful parse this dest holds the tuple for the subparser
+        # ACTUALLY reached -- not necessarily the one `call_tool` intended.
+        parser.set_defaults(_duho_mcp_path_=dotted_parts)
+        for canonical, _aliases, subparser in _parsers.unique_subcommands(parser, seen):
+            sub_cls = getattr(subparser, "_duho_cls_", None)
+            _walk(
+                subparser,
+                sub_cls,
+                dotted_parts + (canonical,),
+                canonical,
+                ancestors + (node,),
+                parent_excluded=excluded,
+            )
+
+    _walk(root_parser, root_cls, (root_name,), root_name, ())
+    return nodes
 
 
 def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
@@ -553,38 +698,85 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
     root_parser = root_cls._parser_()
     _apply_layers(root_parser, root_cls, config=None)
 
-    nodes: "dict[str, _Node]" = {}
-    seen: "set" = set()
-
-    def _walk(parser, cls, dotted_parts, own_name, ancestors):
-        node = _Node(".".join(dotted_parts), own_name, parser, cls, ancestors)
-        nodes[node.dotted_name] = node
-        # A dispatch-identity marker (see `call_tool`'s guard against a
-        # positional swallowing the literal subcommand-name token this
-        # module inserts between chain levels): tag EVERY subparser with the
-        # chain of own-names that reaches it. argparse re-runs each level's
-        # defaults-installation as parsing descends (root's default is
-        # installed first, but a DEEPER subparser's own `set_defaults` still
-        # overwrites it once that subparser actually runs), so after a
-        # successful parse this dest holds the tuple for the subparser
-        # ACTUALLY reached -- not necessarily the one `call_tool` intended.
-        parser.set_defaults(_duho_mcp_path_=dotted_parts)
-        for canonical, _aliases, subparser in _parsers.unique_subcommands(parser, seen):
-            sub_cls = getattr(subparser, "_duho_cls_", None)
-            _walk(
-                subparser,
-                sub_cls,
-                dotted_parts + (canonical,),
-                canonical,
-                ancestors + (node,),
-            )
-
     root_name = _command_name(root_cls)
-    _walk(root_parser, root_cls, (root_name,), root_name, ())
+    nodes = _walk_tree(root_parser, root_cls, root_name)
 
     result = (root_parser, nodes)
     _TREE_CACHE[root_cls] = result
     return result
+
+
+class _ServerCore:
+    """One MCP server's resolved ``(root_parser, nodes, dispatch, root_cls)``
+    quadruple -- everything :func:`describe_tools`/:func:`call_tool`/
+    ``initialize``'s ``serverInfo`` (:func:`_server_info`) need, independent
+    of whether the tree came from a class's static ``_subcommands_``
+    (:func:`_core_for_class`) or a full ``app()`` build
+    (:func:`_core_for_app`). ``dispatch(command, instance)`` performs
+    whichever post-parse steps that source normally performs (logging setup,
+    ``_env_`` attachment, ...) and finally :func:`duho.runtime.run_command`.
+    ``root_cls`` is the concrete root class either builder resolved (never
+    ``None`` -- ``app()``'s own bare-root fallback is duho's internal
+    ``Args`` class, still a real class), read by :func:`_server_info` for
+    ``_version_`` resolution.
+    """
+
+    __slots__ = ("root_parser", "nodes", "dispatch", "root_cls")
+
+    def __init__(self, root_parser, nodes, dispatch, root_cls):
+        self.root_parser = root_parser
+        self.nodes = nodes
+        self.dispatch = dispatch
+        self.root_cls = root_cls
+
+
+def _core_for_class(root_cls: "type[_Cmd]") -> "_ServerCore":
+    """Build a :class:`_ServerCore` for a class's static ``_subcommands_``
+    tree -- the ``serve(root_cls)``/``python -m duho.mcp <app>`` path,
+    unchanged from before this module grew ``app()`` support. ``dispatch``
+    replicates exactly what :func:`call_tool` used to do inline: set up
+    instance logging (always, matching the previous unconditional call), then
+    :func:`duho.runtime.run_command`.
+    """
+    root_parser, nodes = _tree_for(root_cls)
+
+    def _dispatch(command: object, instance: object) -> int:
+        _setup_instance_logging(instance, True, root_cls)
+        return _run_command(command, instance)
+
+    return _ServerCore(root_parser, nodes, _dispatch, root_cls)
+
+
+def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerCore":
+    """Build a :class:`_ServerCore` for a full ``app()`` command tree --
+    class AND module commands, from discovered files, ``CMDS_PATH``, entry
+    points, or an explicit ``commands=`` list, exactly as ``duho.app`` itself
+    would resolve them.
+
+    Built ONCE (``runtime._build_app_core`` runs discovery/parser-build/
+    registration/config-thread-down a single time; **not** a re-discovery per
+    MCP tool call, matching :func:`_core_for_class`'s own one-build-per-server
+    contract), then walked with the same :func:`_walk_tree` core the static
+    class-tree path uses -- so module-command nodes are recognized right
+    alongside class-command ones. ``**app_kwargs`` accepts every keyword
+    :func:`duho.app` itself does (``commands``, ``source``, ``entry_points``,
+    ``argv``, ``name``, ``description``, ``env``, ``config``) except
+    ``setup_logging``/``dispatch``, which have no meaning for a server that
+    dispatches once per MCP tool call rather than once per process.
+    """
+    parser, root_cls, dispatch = _build_app_core(root, **app_kwargs)
+    # `parser.prog` -- not `_command_name(root_cls)` -- is the root tool-name
+    # segment: `_build_parser`/`_prepare_app_parser` already gave
+    # this exact parser object `prog = app_kwargs["name"]` when `name=` was
+    # passed to `app()`, falling back to `_command_name(root_cls)` itself
+    # only when it wasn't (`Args._parser_`'s own `name = name or
+    # _command_name(cls)`) -- so reading it back here, instead of
+    # re-deriving the class-only fallback and ignoring `name=` entirely,
+    # is what makes `app(Dotagents, name="dotagents")`'s tools come out
+    # `dotagents.*` rather than `Dotagents.*`.
+    root_name = parser.prog
+    nodes = _walk_tree(parser, root_cls, root_name)
+    return _ServerCore(parser, nodes, dispatch, root_cls)
 
 
 def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
@@ -601,6 +793,87 @@ def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
     if subparsers_action is None:
         return False
     return bool(getattr(subparsers_action, "required", False))
+
+
+class McpCmd(_Cmd):
+    """Serve the CLI currently being dispatched as an MCP server (stdio).
+
+    A ready-made building block: register a
+    subclass of this under any name to add a self-serving MCP subcommand to
+    a CLI, with zero server code of your own -- ``__call__`` just forwards
+    to :func:`serve_running_app`. ``duho.app``'s own opt-in ``_mcp_command_``
+    class attribute / ``mcp_command=`` kwarg do exactly this (a dynamically
+    named subclass), but any app may register ``McpCmd`` (or a subclass
+    adding, say, its own additional flags) under any name it likes, via
+    ``_subcommands_``/``commands=``/self-registration -- there is nothing
+    ``_mcp_command_`` does that isn't equally reachable by hand.
+
+    A node whose class IS (or subclasses) ``McpCmd`` is never listed as an
+    MCP tool, and never callable via ``call_tool`` either (see
+    :func:`_is_mcp_command_node`) -- a client asking a live MCP server to
+    recursively take over stdio again makes no sense.
+    """
+
+    transport: "_ty.Literal['stdio']" = "stdio"
+    "MCP transport to serve this CLI over"
+    ("--transport",)
+
+    def __call__(self) -> int:
+        return serve_running_app(self.transport)
+
+
+def _is_mcp_command_node(node: "_Node") -> bool:
+    """True when ``node``'s class IS (or subclasses) :class:`McpCmd` -- the
+    self-serving command an app may register under any name. Checked
+    alongside :func:`_is_namespace_node` everywhere a node's callability as
+    an MCP tool matters (:func:`describe_tools`/:func:`call_tool`)."""
+    return (
+        node.cls is not None
+        and isinstance(node.cls, type)
+        and issubclass(node.cls, McpCmd)
+    )
+
+
+def serve_running_app(transport: str = "stdio") -> int:
+    """Serve the CLI currently being dispatched as an MCP server, over
+    ``transport`` (currently only ``"stdio"``).
+
+    Reads the app context :func:`duho.args.main`/:func:`duho.runtime.app`
+    record in a ``ContextVar`` (``duho._compat._MCP_CONTEXT``) around their
+    own dispatch step -- the exact parser/root class/dispatch callable THAT
+    invocation already built -- so serving here needs no rediscovery: this
+    is the SAME tree a client would see calling any other tool on the same
+    running process, just entered from inside a dispatched command (e.g.
+    :class:`McpCmd`) instead of the ``<PREFIX>MCP``/``<NAME>_MCP`` env
+    trigger.
+
+    Raises ``RuntimeError`` when called outside such a dispatch (a bare
+    script that never went through ``duho.main``/``duho.app`` at all has no
+    running app context to serve). Raises ``ValueError`` for an unsupported
+    ``transport`` -- checked BEFORE consulting the context, so it is
+    reported the same way regardless of whether one exists.
+    """
+    if transport != "stdio":
+        raise ValueError(
+            "unsupported MCP transport %r (supported: stdio)" % (transport,)
+        )
+    ctx = _compat._MCP_CONTEXT.get()
+    if ctx is None:
+        raise RuntimeError(
+            "serve_running_app() was called outside a duho.main()/duho.app() "
+            "dispatch -- there is no currently-running app context to serve"
+        )
+    kind = ctx[0]
+    if kind == "class":
+        core = _core_for_class(ctx[1])
+    else:
+        _, parser, root_cls, dispatch = ctx
+        # `parser.prog`, not `_command_name(root_cls)` -- see the identical
+        # fix (and its rationale) in `_core_for_app`.
+        root_name = parser.prog
+        nodes = _walk_tree(parser, root_cls, root_name)
+        core = _ServerCore(parser, nodes, dispatch, root_cls)
+    return serve(core)
 
 
 def _drop_layer_satisfied(
@@ -621,6 +894,91 @@ def _drop_layer_satisfied(
     if not satisfied:
         return required
     return [name for name in required if name not in satisfied]
+
+
+def _own_dests(parser: "_argparse.ArgumentParser") -> "_ty.Optional[set]":
+    """The dest names ``runtime._register_module_command`` stashed as this
+    module command's OWN (``_duho_module_own_dests_``) -- ``None`` for
+    anything else (a class command, or the root of either tree kind), which
+    callers read as "no filtering needed"."""
+    return getattr(parser, "_duho_module_own_dests_", None)
+
+
+def _step_field_names(step: "_Node") -> "list[str]":
+    """Every field name ``step`` itself declares, for whichever kind of node
+    it is: a class command's/module command's own declared ``Args`` fields
+    (:func:`_effective_cls`, filtered to dests actually present on this
+    subparser -- ``_add_fields(strict=False)`` silently SKIPS a module's
+    declared field that collides with an inherited global, so it must not be
+    treated as this step's own field either), or -- when neither exists (a
+    bare module command, register()-hook fields or none at all) -- the
+    dests :data:`_own_dests` names directly.
+    """
+    eff_cls = _effective_cls(step)
+    if eff_cls is not None:
+        own = _own_dests(step.parser)
+        names = [b.name for b in eff_cls._getargs_()]
+        if own is not None:
+            names = [n for n in names if n in own]
+        return names
+    return sorted(_own_dests(step.parser) or ())
+
+
+def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
+    """Best-effort ``(json_schema, required)`` for one bare argparse
+    ``Action``, with no duho field declaration behind it at all (a module
+    command with no declared ``Args``, its fields added directly by a
+    ``register()`` hook, or genuinely none). Mirrors
+    ``duho.agenthelp``'s own builder-less fallback (`_describe_option`/
+    `_describe_positional`) -- lower fidelity than :func:`json_schema_for_field`
+    (no declared-annotation element types, no env/config provenance -- a
+    bare action has neither), but enough for a client to call the tool.
+    """
+    is_positional = not action.option_strings
+    choices = getattr(action, "choices", None)
+    factory = getattr(action, "type", None)
+    scalar = _JSON_SCALARS.get(factory) if isinstance(factory, type) else None
+    if choices:
+        schema: "dict" = {"type": scalar or "string", "enum": [str(c) for c in choices]}
+    elif action.nargs == 0:
+        schema = {"type": "boolean"}
+    elif isinstance(action, _argparse._AppendAction) or action.nargs in ("*", "+"):
+        schema = {
+            "type": "array",
+            "items": {"type": scalar or "string"},
+            "maxItems": _MAX_ARRAY_ITEMS,
+        }
+    else:
+        schema = {"type": scalar or "string"}
+    if is_positional:
+        required = action.nargs not in ("?", "*")
+    else:
+        required = bool(getattr(action, "required", False))
+    if not required:
+        schema.setdefault("default", _agenthelp._jsonable(action.default))
+    help_text = action.help
+    if help_text and help_text is not _argparse.SUPPRESS:
+        schema["description"] = str(help_text).replace("%%", "%")
+    return schema, required
+
+
+def _merge_bare_actions(step: "_Node", properties: "dict") -> "tuple[list, list]":
+    """:func:`_input_schema_for_node`'s per-step merge, for a step with
+    neither ``cls`` nor ``args_cls`` -- derives fields straight from this
+    subparser's OWN actions (:func:`_own_dests`/:func:`_schema_for_action`)
+    rather than any duho field declaration."""
+    own = _own_dests(step.parser) or set()
+    level_names: "list[str]" = []
+    level_required: "list[str]" = []
+    for action in step.parser._actions:
+        if action.dest not in own:
+            continue
+        schema, is_required = _schema_for_action(action)
+        properties[action.dest] = schema
+        level_names.append(action.dest)
+        if is_required:
+            level_required.append(action.dest)
+    return level_names, level_required
 
 
 def _input_schema_for_node(node: "_Node") -> "dict":
@@ -645,18 +1003,38 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     properties: "dict" = {}
     required: "list[str]" = []
     for step in node.ancestors + (node,):
-        clsargs = _introspect.get_clsargs(step.cls)
-        level_names: "list[str]" = []
-        level_required: "list[str]" = []
-        for builder in step.cls._getargs_():
-            name = builder.name
-            level_names.append(name)
-            decl = clsargs.get(name)
-            schema, is_required = json_schema_for_field(decl, builder)
-            properties[name] = schema
-            if is_required:
-                level_required.append(name)
-        level_required = _drop_layer_satisfied(level_required, step.cls, step.parser)
+        eff_cls = _effective_cls(step)
+        if eff_cls is None:
+            # A bare module command (no declared Args of its own): only ever
+            # true for the LEAF (module commands never have descendants), so
+            # this branch cannot shadow/be shadowed by anything deeper.
+            level_names, level_required = _merge_bare_actions(step, properties)
+        else:
+            clsargs = _introspect.get_clsargs(eff_cls)
+            own = _own_dests(step.parser)
+            level_names = []
+            level_required = []
+            for builder in eff_cls._getargs_():
+                name = builder.name
+                if own is not None and name not in own:
+                    # Skipped at registration (`_add_fields(strict=False)`)
+                    # because it collided with an inherited global -- that
+                    # ancestor level already contributes this field.
+                    continue
+                level_names.append(name)
+                decl = clsargs.get(name)
+                schema, is_required = json_schema_for_field(decl, builder)
+                properties[name] = schema
+                if is_required:
+                    level_required.append(name)
+            # NOTE: for a module command, `step.parser` never carries a
+            # `_duho_raw_config_table_` (only a class command's subparser
+            # does -- `runtime._apply_app_config_layers` applies a module's
+            # config slice EAGERLY instead of stashing it for later lookup),
+            # so a config-satisfied (but not env-satisfied) module field is
+            # still reported required here -- conservative, never a security
+            # gap, just occasionally stricter than necessary over MCP.
+            level_required = _drop_layer_satisfied(level_required, eff_cls, step.parser)
         for name in level_names:
             if name in required and name not in level_required:
                 required.remove(name)
@@ -681,14 +1059,18 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     }
 
 
-def _conflict_note(cls: "type[_Cmd]") -> str:
+def _conflict_note(cls: "_ty.Optional[type]") -> str:
     """A short human-readable note for ``cls``'s ``NS(conflicts=...)`` groups.
 
     Exclusive groups are surfaced only as tool-description text in v1 (no
     ``oneOf``/``not`` JSON Schema encoding yet). Reuses
     ``duho.agenthelp._conflict_groups`` rather than re-deriving group
-    membership. Returns ``""`` when the command declares no conflict groups.
+    membership. Returns ``""`` when the command declares no conflict groups,
+    or (a bare module command with no declared ``Args`` at all) ``cls`` is
+    ``None``.
     """
+    if cls is None:
+        return ""
     builders = {b.name: b for b in cls._getargs_()}
     groups = _agenthelp._conflict_groups(builders)
     if not groups:
@@ -704,7 +1086,7 @@ def _tool_spec(node: "_Node") -> "dict":
     """Build one MCP ``{name, description, inputSchema}`` tool spec for ``node``."""
     description = (node.parser.description or "").replace("%%", "%").strip()
     input_schema = _input_schema_for_node(node)
-    note = _conflict_note(node.cls)
+    note = _conflict_note(_effective_cls(node))
     if note:
         description = (description + "\n\n" + note).strip() if description else note
     return {
@@ -714,24 +1096,41 @@ def _tool_spec(node: "_Node") -> "dict":
     }
 
 
-def describe_tools(root_cls: "type[_Cmd]") -> "list[dict]":
+def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     """Describe every callable command in ``root_cls``'s tree as MCP tool specs.
 
-    Each ``Cmd`` reached by walking the built parser tree -- the root itself
-    (when it can itself be dispatched), and every ``_subcommands_`` node,
-    recursively -- becomes one tool ``{name, description, inputSchema}``: a
-    leaf/root tool is named after its own ``_parsername_``/class name, a
-    nested one ``parent.child``. A NAMESPACE node (one whose own subcommand is
-    mandatory -- see :func:`_is_namespace_node`) is skipped: it can never
-    itself dispatch successfully, so listing it would only ever waste a
-    client's turn on a guaranteed usage error; its own fields are still
-    reachable, merged into every one of its descendants' schemas.
+    ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
+    tree path -- unchanged) or a :class:`_ServerCore` (an ``app()``-built
+    tree, from :func:`_core_for_app`).
+
+    Each command reached by walking the built parser tree -- the root itself
+    (when it can itself be dispatched), and every subcommand, recursively --
+    becomes one tool ``{name, description, inputSchema}``: a leaf/root tool is
+    named after its own ``_parsername_``/class name, a nested one
+    ``parent.child``. A NAMESPACE node (one whose own subcommand is mandatory
+    -- see :func:`_is_namespace_node`) is skipped: it can never itself
+    dispatch successfully, so listing it would only ever waste a client's
+    turn on a guaranteed usage error; its own fields are still reachable,
+    merged into every one of its descendants' schemas. This applies equally
+    to a class command AND a module command (an ``app()``-only concept --
+    every ``ModuleCommand`` node is itself always a leaf, never a namespace).
+    A node whose class is (or subclasses) :class:`McpCmd` -- the self-serving
+    command an ``app()`` may register under any name -- is
+    likewise skipped (see :func:`_is_mcp_command_node`): serving one MCP
+    session from inside a tool call another MCP session made makes no sense.
+
+    A node opted out via a per-command ``_mcp_ = False`` (see
+    :attr:`_Node.excluded`, computed by :func:`_walk_tree`) is skipped too,
+    together with its whole subtree -- the ROOT's own ``_mcp_`` is exempt
+    (never treated as this kind of exclusion).
     """
-    _root_parser, nodes = _tree_for(root_cls)
+    core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     return [
         _tool_spec(node)
-        for node in nodes.values()
+        for node in core.nodes.values()
         if not _is_namespace_node(node.parser)
+        and not _is_mcp_command_node(node)
+        and not node.excluded
     ]
 
 
@@ -1068,6 +1467,108 @@ def _synthesize_argv(
     return argv
 
 
+def _synthesize_argv_from_actions(
+    step: "_Node",
+    arguments: "dict",
+    *,
+    skip: "_ty.Optional[frozenset]" = None,
+    ancestor_forbidden: "frozenset" = frozenset(),
+) -> "list[str]":
+    """:func:`_synthesize_argv`'s counterpart for a bare module command --
+    one with no declared ``Args`` (:func:`_effective_cls` is ``None``): maps
+    ``arguments`` onto ``step.parser``'s own actions (:func:`_own_dests`)
+    directly, with no ``ArgumentBuilder`` behind any of them. Only ever
+    called for ``step is node`` itself (a module command is always a leaf).
+
+    Deliberately simpler than :func:`_synthesize_argv` -- there is no
+    ``ArgumentBuilder``/``NS(...)`` metadata to consult here, only the
+    action's own ``nargs``/``type``/class -- but applies the SAME
+    request-level safety checks (:func:`_reject_unsafe_positional`/
+    :func:`_emit_option`) for every emitted token.
+    """
+    argv: "list[str]" = []
+    parser = step.parser
+    forbidden = _sibling_names(parser) | ancestor_forbidden
+    own = _own_dests(parser) or set()
+    for action in parser._actions:
+        dest = action.dest
+        if dest not in own:
+            continue
+        if skip is not None and dest in skip:
+            continue
+        if dest not in arguments:
+            continue
+        value = arguments[dest]
+        if value is None:
+            continue
+
+        is_positional = not action.option_strings
+        flag = action.option_strings[0] if action.option_strings else None
+        is_long = bool(flag) and flag.startswith("--")
+
+        if action.nargs == 0:
+            # A bare 0-arg action over MCP is a JSON boolean; `store_false`
+            # is the only 0-arg action whose "on" state is FALSE.
+            truthy = (
+                not value if isinstance(action, _argparse._StoreFalseAction) else value
+            )
+            if truthy:
+                argv.append(flag)
+            continue
+
+        if isinstance(action, _argparse._AppendAction) or action.nargs in ("*", "+"):
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                token = str(item)
+                if is_positional:
+                    _reject_unsafe_positional(token, parser, forbidden=forbidden)
+                    argv.append(token)
+                else:
+                    _emit_option(argv, flag, is_long, token)
+            continue
+
+        token = str(value)
+        if is_positional:
+            _reject_unsafe_positional(token, parser, forbidden=forbidden)
+            argv.append(token)
+        else:
+            _emit_option(argv, flag, is_long, token)
+    return argv
+
+
+def _synthesize_step_argv(
+    step: "_Node",
+    arguments: "dict",
+    *,
+    skip: "frozenset",
+    ancestor_forbidden: "frozenset",
+) -> "list[str]":
+    """One chain step's own argv contribution, dispatching to
+    :func:`_synthesize_argv` (a real declared class -- a class command, or a
+    module command with its own ``Args``) or :func:`_synthesize_argv_from_actions`
+    (a bare module command) depending on :func:`_effective_cls`.
+    """
+    eff_cls = _effective_cls(step)
+    if eff_cls is None:
+        return _synthesize_argv_from_actions(
+            step, arguments, skip=skip, ancestor_forbidden=ancestor_forbidden
+        )
+    own = _own_dests(step.parser)
+    if own is not None:
+        # A module command's declared field that collided with an inherited
+        # global at registration time was silently skipped -- never emit a
+        # token for it here either (see `_input_schema_for_node`'s matching
+        # skip).
+        skip = skip | {b.name for b in eff_cls._getargs_() if b.name not in own}
+    return _synthesize_argv(
+        eff_cls,
+        arguments,
+        step.parser,
+        skip=skip,
+        ancestor_forbidden=ancestor_forbidden,
+    )
+
+
 _SCHEMA_TYPE_CHECKS = {
     "string": lambda v: isinstance(v, str),
     "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
@@ -1271,13 +1772,21 @@ def _rebound_stderr_logging(active_stream: object, idle_stream: object):
             handler.setStream(idle_stream)
 
 
-def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict":
+def call_tool(
+    root_cls: "_ty.Union[type, _ServerCore]", name: object, arguments: object
+) -> "dict":
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
-    Resolves ``name`` to a node in the cached tree (:func:`_tree_for`),
-    raising :class:`UnknownToolError` for a name that is not in the tree, or
-    that names a namespace node (see :func:`_is_namespace_node`) -- neither
-    can ever be dispatched. Raises :class:`InvalidArgumentsError` when
+    ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
+    tree path -- unchanged) or a :class:`_ServerCore` (an ``app()``-built
+    tree, from :func:`_core_for_app`) -- see :func:`describe_tools`.
+
+    Resolves ``name`` to a node in the tree, raising
+    :class:`UnknownToolError` for a name that is not in the tree, that names
+    a namespace node (see :func:`_is_namespace_node`), or that names a node
+    excluded via a per-command ``_mcp_ = False`` (:attr:`_Node.excluded`) --
+    the same error either way, so an excluded command's existence is never
+    disclosed to a caller probing for it. Raises :class:`InvalidArgumentsError` when
     ``arguments`` is not a JSON object (``None`` is treated as ``{}``), fails
     the tool's own merged ``inputSchema`` (:func:`_validate_arguments`), or
     (discovered while synthesizing argv, since it depends on the built
@@ -1314,14 +1823,17 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     from more than one place in the tree (shared between two parents, or
     both nested and top-level), so a class-identity check alone cannot tell
     a hijack from a legitimate dispatch. After a successful parse, the
-    result is used ONLY when BOTH ``type(instance) is node.cls`` AND the
-    ``_duho_mcp_path_`` tag :func:`_tree_for` attaches to every subparser
-    (via ``set_defaults``, overwritten by the DEEPEST subparser actually
-    reached as parsing descends) equals the tool's own chain of names
-    exactly -- anything else (including a namespace class picked up
-    mid-chain, or the right class reached through the WRONG chain) is
-    treated as a dispatch failure, mapped to ``isError: true``, and the
-    command is NEVER run. :func:`_synthesize_argv` additionally refuses
+    result is used ONLY when BOTH the intended command was actually selected
+    (``type(instance) is node.cls`` for a class command, or the popped
+    ``_duho_module_command_`` marker ``is node.module_command`` for a module
+    command) AND the ``_duho_mcp_path_`` tag :func:`_walk_tree` attaches to
+    every subparser (via ``set_defaults``, overwritten by the DEEPEST
+    subparser actually reached as parsing descends) equals the tool's own
+    chain of names exactly -- anything else (including a namespace class
+    picked up mid-chain, or the right command reached through the WRONG
+    chain) is treated as a dispatch failure, mapped to ``isError: true``, and
+    the command is NEVER run. :func:`_synthesize_argv`/
+    :func:`_synthesize_argv_from_actions` additionally refuse
     outright (before parsing, as an :class:`InvalidArgumentsError`) a value
     explicitly supplied FOR a field at any level that collides with a
     subcommand name/alias registered at THAT level or any ANCESTOR level.
@@ -1339,9 +1851,15 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     during dispatch -> ``isError: true`` with the exception's ``type:
     message`` text. ``KeyboardInterrupt`` is not caught and still propagates.
     """
-    root_parser, nodes = _tree_for(root_cls)
+    core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
+    root_parser, nodes = core.root_parser, core.nodes
     node = nodes.get(name) if isinstance(name, str) else None
-    if node is None or _is_namespace_node(node.parser):
+    if (
+        node is None
+        or _is_namespace_node(node.parser)
+        or _is_mcp_command_node(node)
+        or node.excluded
+    ):
         raise UnknownToolError("unknown tool: %r" % (name,))
 
     if arguments is None:
@@ -1364,8 +1882,8 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
     # named, e.g. a hidden `--force`).
     field_owner: "dict[str, int]" = {}
     for i, step in enumerate(chain):
-        for builder in step.cls._getargs_():
-            field_owner[builder.name] = i
+        for fname in _step_field_names(step):
+            field_owner[fname] = i
     try:
         argv: "list[str]" = []
         ancestor_forbidden: "frozenset" = frozenset()
@@ -1374,10 +1892,9 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
                 fname for fname, owner in field_owner.items() if owner != i
             )
             argv.extend(
-                _synthesize_argv(
-                    step.cls,
+                _synthesize_step_argv(
+                    step,
                     arguments,
-                    step.parser,
                     skip=shadowed,
                     ancestor_forbidden=ancestor_forbidden,
                 )
@@ -1415,7 +1932,20 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
                         )
                         return _text_result(message, is_error=True)
                     actual_path = getattr(instance, "_duho_mcp_path_", None)
-                    if type(instance) is not node.cls or actual_path != expected_path:
+                    # Popped (not merely peeked), mirroring `runtime._run_app`'s
+                    # own contract: framework bookkeeping never lingers in
+                    # `vars(instance)` where a module command's own `main`
+                    # would otherwise see it.
+                    dispatched_module_command = vars(instance).pop(
+                        "_duho_module_command_", None
+                    )
+                    if node.module_command is not None:
+                        identity_ok = dispatched_module_command is node.module_command
+                        target: object = node.module_command
+                    else:
+                        identity_ok = type(instance) is node.cls
+                        target = node.cls
+                    if not identity_ok or actual_path != expected_path:
                         actual_desc = (
                             ".".join(actual_path)
                             if isinstance(actual_path, tuple)
@@ -1427,9 +1957,8 @@ def call_tool(root_cls: "type[_Cmd]", name: object, arguments: object) -> "dict"
                             % (name, actual_desc),
                             is_error=True,
                         )
-                    _setup_instance_logging(instance, True, root_cls)
                     try:
-                        result = _run_command(node.cls, instance)
+                        result = core.dispatch(target, instance)
                     except SystemExit as exc:
                         return _systemexit_result(exc, out.getvalue(), err.getvalue())
             finally:
@@ -1582,6 +2111,33 @@ def _line_nesting_exceeds(line: str, limit: int) -> bool:
     return False
 
 
+def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
+    """``serverInfo`` for the ``initialize`` response.
+
+    ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
+    the root tool-name segment (``core.root_parser.prog`` -- see
+    :func:`_core_for_app`'s own comment for why this, not
+    ``_command_name(root_cls)``, is the right value for an ``app(name=...)``
+    tree too). ``version`` is the app's own ``_version_``
+    (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
+    sentinel resolved via ``importlib.metadata``, or a class-level
+    ``__version__`` fallback) when it resolves to a string, else duho's own
+    ``_SERVER_VERSION`` -- so a served app that never declared its own
+    version is still reported truthfully as "duho itself", not a fabricated
+    placeholder.
+    """
+    core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
+    name = core.root_parser.prog
+    version = _resolve_version(core.root_cls)
+    return {
+        # `prog` is always a real, non-empty string in every reachable
+        # path here; the `_SERVER_NAME` fallback exists only so this stays
+        # defensively correct rather than reporting an empty name.
+        "name": name if name else _SERVER_NAME,
+        "version": version if isinstance(version, str) else _SERVER_VERSION,
+    }
+
+
 def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
@@ -1642,7 +2198,7 @@ def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
         result = {
             "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": _SERVER_NAME, "version": _SERVER_VERSION},
+            "serverInfo": _server_info(root_cls),
         }
     elif method in ("notifications/initialized", "initialized"):
         return None
@@ -1741,12 +2297,20 @@ def _real_stdio_streams() -> "tuple":
 
 
 def serve(
-    root_cls: "type[_Cmd]",
+    root_cls: "_ty.Union[type, _ServerCore]",
     *,
     stdin: "_ty.Optional[_ty.TextIO]" = None,
     stdout: "_ty.Optional[_ty.TextIO]" = None,
 ) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
+
+    ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
+    tree path) or a :class:`_ServerCore` (an ``app()``-built tree, from
+    :func:`_core_for_app`, or the one :func:`serve_running_app` builds from
+    the currently-dispatching app's own context) -- forwarded opaquely to
+    :func:`_handle_request`, which in turn forwards it to
+    :func:`describe_tools`/:func:`call_tool` (both already accept either
+    shape -- see :func:`describe_tools`).
 
     Reads newline-delimited JSON-RPC 2.0 request lines from ``stdin`` (real
     stdio, isolated per :func:`_real_stdio_streams`, when neither ``stdin``

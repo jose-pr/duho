@@ -154,3 +154,110 @@ def test_conflict_groups_noted_in_description():
     tools = _by_name(describe_tools(Root))
     assert "Mutually exclusive" in tools["Root.Compressed"]["description"]
     assert "gzip" in tools["Root.Compressed"]["description"]
+
+
+# --------------------------------------------------------------------------
+# Per-command `_mcp_ = False` exclusion
+# --------------------------------------------------------------------------
+
+
+def test_excluded_leaf_is_not_listed():
+    class Secret(Cmd):
+        """A leaf opted out of MCP."""
+
+        _mcp_ = False
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [Secret, Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}
+
+
+def test_excluded_namespace_hides_its_whole_subtree():
+    class Child(Cmd):
+        """A child of an excluded namespace."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class SecretNS(Cli):
+        """An excluded namespace with children."""
+
+        _mcp_ = False
+        _subcommands_ = [Child]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [SecretNS, Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}
+
+
+def test_excluded_command_inherited_by_subclass():
+    class Secret(Cmd):
+        """A leaf opted out of MCP."""
+
+        _mcp_ = False
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class SecretSubclass(Secret):
+        """A subclass that never redeclares _mcp_."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [SecretSubclass]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == set()
+
+
+def test_root_own_mcp_false_does_not_exclude_its_own_tree():
+    """The root's `_mcp_` keeps its separate, trigger-only meaning -- it
+    must never be treated as this per-command exclusion."""
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """A root that disables the env-var trigger, not its own tree."""
+
+        _mcp_ = False
+        _subcommands_ = [Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}

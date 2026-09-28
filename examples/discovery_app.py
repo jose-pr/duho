@@ -52,6 +52,12 @@ Run it::
     # examples/discovery_app.toml ships with `label = "from-config"`.
     python examples/discovery_app.py greet World            # label == "from-config"
     DISCOVERY_APP_LABEL=from-env python examples/discovery_app.py greet World
+
+    # Serve this app's full tool tree (greet/status/whoami) as an MCP server,
+    # either via the env-var launch trigger or the opt-in "mcp" subcommand
+    # this root registers below (`_mcp_command_ = True`):
+    DISCOVERY_APP_MCP=stdio python examples/discovery_app.py
+    python examples/discovery_app.py mcp
 """
 
 import sys
@@ -77,6 +83,11 @@ class DiscoveryAppArgs(LoggingArgs):
     #: absolute (works regardless of the caller's CWD) and the file genuinely
     #: ships alongside this one.
     _config_ = _CONFIG_PATH
+
+    #: Opt-in "mcp" subcommand (serves this app's full tool tree over
+    #: stdio) alongside the always-on DISCOVERY_APP_MCP=stdio env trigger --
+    #: see the module docstring's "Run it" section.
+    _mcp_command_ = True
 
     label: "Arg[str, NS(env='DISCOVERY_APP_LABEL')]" = "discovery-app"
     "A label commands can read off the shared root (e.g. for a log-line tag). Also settable via DISCOVERY_APP_LABEL or discovery_app.toml's `label` key."

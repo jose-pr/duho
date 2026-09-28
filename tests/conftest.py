@@ -177,6 +177,7 @@ def _isolate_sys_path():
 # must not depend on the environment it happens to run in.
 _RISKY_ENV_VARS = (
     "AGENT_HELP",
+    "AGENTS_HELP",
     "PYTHON_COLORS",
     "NO_COLOR",
     "FORCE_COLOR",

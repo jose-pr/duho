@@ -2773,18 +2773,19 @@ class Cli(Cmd):
     _mcp_: bool = True
 
     #: Opt-in built-in subcommand that serves this CLI as an MCP server,
-    #: read by ``duho.app`` (``runtime.py``) -- NOT by ``duho.main``, which
-    #: has no subcommand-registration step of its own to hook. ``False``
-    #: (default): no subcommand. ``True``: registers ``duho.mcp.McpCmd``
-    #: under the name ``"mcp"``. A non-empty ``str``: registers it under
-    #: that exact name instead (validated at ``app()``-build time: non-empty,
-    #: no whitespace, not starting with ``"-"``; a name colliding with an
-    #: existing command/alias, or no other subcommand existing at all, is a
-    #: build-time ``ValueError``). ``duho.app(..., mcp_command=...)`` wins
-    #: over this class attribute when given (including passing ``False`` to
-    #: override a ``True``/``str`` class default). Quoted ``Union`` (not
-    #: PEP 604 ``|``) per the module's 3.9-quoting rule for declared class
-    #: attrs (see ``_version_`` above).
+    #: read by both ``duho.main`` (this module) and ``duho.app``
+    #: (``runtime.py``). ``False`` (default): no subcommand. ``True``:
+    #: registers ``duho.mcp.McpCmd`` under the name ``"mcp"``. A non-empty
+    #: ``str``: registers it under that exact name instead (validated at
+    #: build time: non-empty, no whitespace, not starting with ``"-"``; a
+    #: name colliding with an existing command/alias, or no other
+    #: subcommand existing at all, is a build-time ``ValueError``).
+    #: ``duho.app(..., mcp_command=...)`` wins over this class attribute
+    #: when given (including passing ``False`` to override a ``True``/
+    #: ``str`` class default) -- ``duho.main`` has no such kwarg, so it
+    #: always reads this attribute directly. Quoted ``Union`` (not PEP 604
+    #: ``|``) per the module's 3.9-quoting rule for declared class attrs
+    #: (see ``_version_`` above).
     _mcp_command_: "_ty.Union[str, bool]" = False
 
     @classmethod
@@ -3294,13 +3295,65 @@ def main(
     is even parsed -- see :func:`_maybe_serve_mcp_trigger`. When the trigger
     fires this returns the MCP server's own exit code instead of running any
     command; otherwise nothing about the rest of this function changes.
+
+    **Opt-in MCP subcommand** (``cls``'s own ``_mcp_command_``, mirroring
+    ``duho.app(..., mcp_command=...)`` -- there is no separate kwarg here,
+    since ``main`` has no other command-source parameters to sit next to).
+    ``False`` (the default): unchanged behavior, and ``duho.mcp`` is never
+    imported. Otherwise a fresh ``duho.mcp.McpCmd`` subclass is registered
+    as an extra top-level subcommand under the resolved name, going through
+    the exact same resolution/validation
+    (:func:`duho.runtime._resolve_mcp_command_name`) and collision/leaf
+    checks (:func:`duho.runtime._build_mcp_command_class`) ``app()`` uses,
+    so the ``ValueError`` messages match. Running ``<prog> <name>`` serves
+    ``cls``'s own static tree (excluding that subcommand itself) over
+    stdio via :func:`duho.mcp.serve_running_app`, through the same
+    ``_MCP_CONTEXT`` ContextVar ``app()`` sets.
     """
     served = _maybe_serve_mcp_trigger(cls)
     if served is not None:
         return served
 
-    parser = cls._parser_(_inherited_config_hint_=config is not None)
-    _apply_layers(parser, cls, config=config)
+    root_cls = cls
+    if getattr(cls, "_mcp_command_", False) is not False:
+        # Lazy: `duho.runtime` (and, transitively, `duho.mcp`) is imported
+        # only when the class attribute is anything other than the literal
+        # `False` default -- an explicit empty string must still reach
+        # `_build_mcp_command_class`'s validation and raise, exactly like
+        # `app()`'s own unconditional call does, so this is `is not False`,
+        # not a truthiness check (`""` is falsy but NOT a valid opt-out).
+        # A `main` call with the default `False` never pays for either
+        # import.
+        from . import runtime as _runtime
+
+        mcp_cls = _runtime._build_mcp_command_class(
+            cls,
+            None,
+            _runtime._existing_command_names(cls, ()),
+            has_other_subcommand=bool(getattr(cls, "_subcommands_", None)),
+        )
+        if mcp_cls is not None:
+            # A fresh subclass of `cls` carrying the extra subcommand,
+            # built fresh per call (never mutating `cls` itself, which
+            # would leak across calls/threads) -- mirrors `duho.app`'s own
+            # per-call `_McpCmd` synthesis. `_MCP_CONTEXT` below is set to
+            # `("class", cls)` -- the ORIGINAL class, not this subclass --
+            # so a nested `serve_running_app()` call re-serves `cls`'s own
+            # tree, which never included this injected subcommand to begin
+            # with (no separate exclusion logic needed).
+            extra_attrs: "dict[str, object]" = {
+                "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
+                + [mcp_cls],
+                "_duho_constants_": {},
+                "__doc__": cls.__doc__,
+            }
+            own_parsername = vars(cls).get("_parsername_")
+            if own_parsername is not None:
+                extra_attrs["_parsername_"] = own_parsername
+            root_cls = type(cls.__name__, (cls,), extra_attrs)
+
+    parser = root_cls._parser_(_inherited_config_hint_=config is not None)
+    _apply_layers(parser, root_cls, config=config)
     instance = parser.parse_args(argv)
 
     _setup_instance_logging(instance, setup_logging, cls)

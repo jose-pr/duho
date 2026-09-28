@@ -607,13 +607,16 @@ manipulating a parser tree directly:
     `duho.app` set around their own dispatch — `RuntimeError` outside such a
     dispatch; `ValueError` for an unsupported transport). Register a
     (dynamically-named) `McpCmd` subclass under any name to add a
-    self-serving MCP subcommand by hand; `duho.app`'s own **`_mcp_command_`**
-    class attribute (declared on `Cli`, `Union[str, bool]`, default `False`)
-    / **`app(..., mcp_command=...)`** kwarg does exactly this for you: `True`
-    → registers it as `"mcp"`; a non-empty `str` → that exact name (validated
+    self-serving MCP subcommand by hand; the **`_mcp_command_`** class
+    attribute (declared on `Cli`, `Union[str, bool]`, default `False`) does
+    exactly this for you under both `duho.main(cls)` AND `duho.app(...)` --
+    the latter also accepts an **`app(..., mcp_command=...)`** kwarg, which
+    wins over the class attribute when given (`duho.main` has no such kwarg;
+    it always reads the class attribute directly). Either way: `True` →
+    registers it as `"mcp"`; a non-empty `str` → that exact name (validated
     at build time: non-empty, no whitespace, not starting with `-`; a name
-    collision with an existing command/alias, or an app with no OTHER
-    subcommand at all, is a build-time `ValueError`). A node whose class is
+    collision with an existing command/alias, or an app/class with no OTHER
+    subcommand at all, is a build-time `ValueError` -- the same validation
+    and message text either entry point goes through). A node whose class is
     (or subclasses) `McpCmd` is never itself listed as (or callable as) an
-    MCP tool. `duho.main` has no subcommand-registration step of its own, so
-    `_mcp_command_`/`McpCmd` only take effect through `duho.app`.
+    MCP tool.

@@ -484,6 +484,58 @@ def _existing_command_names(
     return names
 
 
+def _build_mcp_command_class(
+    root: "type | None",
+    mcp_command: "str | bool | None",
+    other_command_names: "set[str]",
+    *,
+    has_other_subcommand: bool,
+) -> "type | None":
+    """Resolve, validate, and build the dynamic ``McpCmd`` subclass for
+    ``root``'s opt-in MCP subcommand (``mcp_command=``/``root``'s own
+    ``_mcp_command_``) -- the ONE place :func:`app` and ``duho.main`` both
+    go through (the latter via a lazy ``from . import runtime``, since
+    ``args.py`` never imports this module at load time), so the resolution
+    rules and the exact ``ValueError`` text never drift between the two
+    entry points.
+
+    Returns ``None`` when no subcommand should be registered
+    (:func:`_resolve_mcp_command_name` resolved ``mcp_command``/the class
+    attribute to "off"). Otherwise validates that ``has_other_subcommand``
+    is true and that the resolved name isn't already in
+    ``other_command_names``, then builds and returns a fresh, per-call
+    ``duho.mcp.McpCmd`` subclass under that name.
+
+    A dynamic, per-call subclass -- never a shared one -- so two apps (or
+    the same app/``cls`` registering under two different names across
+    calls, e.g. in a test) never clash over a class-level ``_parsername_``.
+    Seeds ``_duho_constants_`` empty like ``_module_args_cls``'s own
+    synthesized class does: ``type(...)`` gives this class ``__module__`` =
+    this module, which has no class named ``_McpCmd`` in its OWN source to
+    AST-parse for.
+    """
+    mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
+    if mcp_command_name is None:
+        return None
+    if not has_other_subcommand:
+        raise ValueError(
+            "mcp_command=%r requires this app to already have at least "
+            "one other subcommand" % (mcp_command_name,)
+        )
+    if mcp_command_name in other_command_names:
+        raise ValueError(
+            "mcp_command=%r collides with an existing command name or "
+            "alias" % (mcp_command_name,)
+        )
+    from . import mcp as _mcp_module
+
+    return type(
+        "_McpCmd",
+        (_mcp_module.McpCmd,),
+        {"_parsername_": mcp_command_name, "_duho_constants_": {}},
+    )
+
+
 def _register_class_command(
     subparsers: "_argparse._SubParsersAction",
     command: type,
@@ -1655,36 +1707,14 @@ def app(
         root, commands, source, env, entry_points, overridden=cmds_path_overridden
     )
 
-    mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
-    if mcp_command_name is not None:
-        has_other_subcommand = bool(resolved_commands) or bool(
-            getattr(root, "_subcommands_", None)
-        )
-        if not has_other_subcommand:
-            raise ValueError(
-                "mcp_command=%r requires this app to already have at least "
-                "one other subcommand" % (mcp_command_name,)
-            )
-        existing_names = _existing_command_names(root, resolved_commands)
-        if mcp_command_name in existing_names:
-            raise ValueError(
-                "mcp_command=%r collides with an existing command name or "
-                "alias" % (mcp_command_name,)
-            )
-        from . import mcp as _mcp_module
-
-        # A dynamic, per-name subclass -- never a shared one -- so two apps
-        # (or the same app registering under two different names across
-        # calls, e.g. in a test) never clash over a class-level
-        # `_parsername_`. Seeds `_duho_constants_` empty like
-        # `_module_args_cls`'s own synthesized class does: `type(...)` gives
-        # this class `__module__` = this module, which has no class named
-        # `_McpCmd` in its OWN source to AST-parse for.
-        mcp_cls = type(
-            "_McpCmd",
-            (_mcp_module.McpCmd,),
-            {"_parsername_": mcp_command_name, "_duho_constants_": {}},
-        )
+    mcp_cls = _build_mcp_command_class(
+        root,
+        mcp_command,
+        _existing_command_names(root, resolved_commands),
+        has_other_subcommand=bool(resolved_commands)
+        or bool(getattr(root, "_subcommands_", None)),
+    )
+    if mcp_cls is not None:
         resolved_commands = list(resolved_commands) + [mcp_cls]
 
     parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(

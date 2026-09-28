@@ -159,6 +159,155 @@ def test_app_mcp_command_colliding_name_raises():
 
 
 # --------------------------------------------------------------------------
+# `duho.main`'s own `_mcp_command_` support (Plan 35 Phase 2) -- in-process.
+# Shares `_resolve_mcp_command_name`/`_build_mcp_command_class` with app(),
+# so only the main()-specific wiring (no separate kwarg, a fresh root
+# subclass carrying the extra subcommand) needs its own coverage here.
+# --------------------------------------------------------------------------
+
+
+def test_main_mcp_command_true_registers_mcp_subcommand():
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """True -> the default 'mcp' name."""
+
+        _subcommands_ = [Show]
+        _mcp_command_ = True
+
+    assert duho.main(Root, ["Show"], setup_logging=False) == 0
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["mcp", "--help"], setup_logging=False)
+
+
+def test_main_mcp_command_explicit_string_name():
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """A custom subcommand name."""
+
+        _subcommands_ = [Show]
+        _mcp_command_ = "serve-mcp"
+
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["serve-mcp", "--help"], setup_logging=False)
+
+
+def test_main_mcp_command_false_is_unchanged(capsys):
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            print("shown")
+            return 0
+
+    class Root(Cli):
+        """The default: no extra subcommand at all."""
+
+        _subcommands_ = [Show]
+
+    assert duho.main(Root, ["Show"], setup_logging=False) == 0
+    assert "shown" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["mcp"], setup_logging=False)
+
+
+@pytest.mark.parametrize("bad", ["", "has space", "-leading-dash"])
+def test_main_mcp_command_rejects_invalid_names(bad):
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """An invalid _mcp_command_ name."""
+
+        _subcommands_ = [Show]
+        _mcp_command_ = bad
+
+    with pytest.raises(ValueError):
+        duho.main(Root, ["Show"], setup_logging=False)
+
+
+def test_main_mcp_command_without_other_subcommands_raises():
+    import duho
+
+    class Solo(Cli):
+        """No subcommands at all."""
+
+        _mcp_command_ = True
+
+        def __call__(self):  # pragma: no cover - never reached
+            return 0
+
+    with pytest.raises(ValueError, match="at least one other subcommand"):
+        duho.main(Solo, [], setup_logging=False)
+
+
+def test_main_mcp_command_colliding_name_raises():
+    import duho
+
+    class Other(Cmd):
+        """An existing command named mcp."""
+
+        _parsername_ = "mcp"
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """Root with a real command already named mcp."""
+
+        _subcommands_ = [Other]
+        _mcp_command_ = True
+
+    with pytest.raises(ValueError, match="collides"):
+        duho.main(Root, ["mcp"], setup_logging=False)
+
+
+def test_main_mcp_command_false_does_not_mutate_original_class():
+    """The dynamic root subclass main() builds when _mcp_command_ is set
+    must never leak back onto the original class -- a second, unrelated
+    main() call against the SAME cls must not see a stale extra
+    subcommand or leftover state."""
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """Registers mcp, then is dispatched again normally."""
+
+        _subcommands_ = [Show]
+        _mcp_command_ = True
+
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["mcp", "--help"], setup_logging=False)
+    # `_subcommands_` on the class itself is untouched by the call above.
+    assert Root._subcommands_ == [Show]
+
+
+# --------------------------------------------------------------------------
 # Opt-out (d) -- in-process: the variable is left untouched, no serving
 # --------------------------------------------------------------------------
 
@@ -293,6 +442,33 @@ def test_normal_main_run_does_not_import_duho_mcp():
         "class App(Cli):\n"
         '    """App."""\n'
         "    _subcommands_ = [Ping]\n"
+        "main(App, ['Ping'], setup_logging=False)\n"
+        "print('duho.mcp' in sys.modules)\n"
+    )
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
+    assert out.strip() == "False"
+
+
+def test_main_mcp_command_explicit_false_does_not_import_duho_mcp():
+    """An explicit `_mcp_command_ = False` (not just the unset default
+    `test_normal_main_run_does_not_import_duho_mcp` above covers) must
+    still take the cheap `is not False` branch and never import
+    `duho.mcp` (`duho.runtime` is always already loaded by `import duho`
+    itself, via `duho/__init__.py`'s own `from .runtime import app,
+    run_command` -- not a signal of anything main() itself did)."""
+    code = (
+        "import sys\n"
+        "from duho import Cli, Cmd, main\n"
+        "class Ping(Cmd):\n"
+        '    """Reply pong."""\n'
+        "    def __call__(self):\n"
+        "        return 0\n"
+        "class App(Cli):\n"
+        '    """App."""\n'
+        "    _subcommands_ = [Ping]\n"
+        "    _mcp_command_ = False\n"
         "main(App, ['Ping'], setup_logging=False)\n"
         "print('duho.mcp' in sys.modules)\n"
     )
@@ -557,6 +733,85 @@ def test_default_cli_help_is_unchanged_with_no_mcp_opt_in(tmp_path):
     cmds_dir.mkdir()
     _write(cmds_dir, "greet.py", _APP_TREE_GREET_MODULE)
     runner = _write(tmp_path, "runner.py", _ENV_TRIGGER_APP_RUNNER)
+    proc = subprocess.run(
+        [sys.executable, str(runner), "--help"],
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "mcp" not in proc.stdout.lower()
+
+
+# --------------------------------------------------------------------------
+# `duho.main`'s own `_mcp_command_` subcommand serving over stdio (Plan 35
+# Phase 2) -- real subprocess, mirrors the app() e2e tests above.
+# --------------------------------------------------------------------------
+
+_MAIN_MCP_COMMAND_RUNNER = '''\
+import sys
+from duho import Cli, Cmd, main
+
+
+class Greet(Cmd):
+    """Print a greeting."""
+
+    def __call__(self):
+        print("hello from main")
+        return 0
+
+
+class Root(Cli):
+    """A tiny app served through duho.main."""
+
+    _subcommands_ = [Greet]
+    _mcp_command_ = True
+
+
+if __name__ == "__main__":
+    sys.exit(main(Root, sys.argv[1:], setup_logging=False))
+'''
+
+
+def test_main_mcp_command_subcommand_serves_over_stdio(tmp_path):
+    runner = _write(tmp_path, "runner.py", _MAIN_MCP_COMMAND_RUNNER)
+    requests = "\n".join(
+        [
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {"name": "Root.Greet", "arguments": {}},
+                }
+            ),
+        ]
+    )
+    proc = subprocess.run(
+        [sys.executable, str(runner), "mcp"],
+        input=requests + "\n",
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    responses = _lines(proc.stdout)
+    names = {t["name"] for t in responses[0]["result"]["tools"]}
+    # The serving subcommand ("mcp") itself must never appear as a tool.
+    assert names == {"Root.Greet"}
+    assert "hello from main" in responses[1]["result"]["content"][0]["text"]
+
+
+def test_default_main_help_is_unchanged_with_no_mcp_opt_in(tmp_path):
+    """A default duho.main CLI's --help output must not mention mcp at
+    all -- the subcommand is opt-in, never on by default."""
+    no_opt_in_runner = _MAIN_MCP_COMMAND_RUNNER.replace(
+        "    _mcp_command_ = True\n", ""
+    )
+    runner = _write(tmp_path, "runner_no_opt_in.py", no_opt_in_runner)
     proc = subprocess.run(
         [sys.executable, str(runner), "--help"],
         capture_output=True,

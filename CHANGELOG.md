@@ -628,7 +628,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   now correctly keeps the base's help text (or flags) instead of losing it.
 - A PEP 695 type alias wrapping `Annotated`, and `Optional[Arg[T, NS(...)]]`
   or any `Union` with exactly one `Annotated` member, now resolve and apply
-  their metadata instead of crashing; a `Union` with more than one
+  their metadata instead of crashing (Python 3.11+: on 3.9 and 3.10
+  `typing.Union` itself rejects the unhashable `NS(...)` metadata, which
+  now surfaces as an error naming the field); a `Union` with more than one
   `Annotated` member now raises a clear error naming the field.
 - `duho.app`'s advisory `register` prepass no longer fails silently when the
   app root already declares built-in `_subcommands_`; a module command's

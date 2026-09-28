@@ -736,6 +736,12 @@ def _zsh_drive(zsh_path, fpath_dir, funcname, cmdname, cmdline, timeout=20):
         zpty -d sh 2>/dev/null
         """)
     with tempfile.TemporaryDirectory() as home:
+        # .zshenv is read before any global zshrc: skip the distro's global
+        # rc files (Ubuntu's /etc/zsh/zshrc runs its own plain `compinit`,
+        # which aborts on a CI runner's insecure fpath dirs) so only the
+        # .zshrc below configures this isolated shell.
+        with open(os.path.join(home, ".zshenv"), "w", newline="\n") as f:
+            f.write("setopt no_global_rcs\nskip_global_compinit=1\n")
         zshrc = os.path.join(home, ".zshrc")
         with open(zshrc, "w", newline="\n") as f:
             f.write(
@@ -967,7 +973,7 @@ def test_fish_completes_at_depth_two_without_leaking(tmp_path):
     parser.prog = "Nest"
     script = completion.fish(parser)
     script_path = tmp_path / "nest.fish"
-    script_path.write_text(script, newline="\n")
+    script_path.write_bytes(script.encode("utf-8"))
     out, err = _fish_drive(_FISH, script_path, "Nest Db ", tmp_path)
     assert err == ""
     names = {
@@ -1020,7 +1026,7 @@ def test_fish_same_named_nested_subcommand_does_not_leak_parent_flags(tmp_path):
     parser.prog = "SameNameApp"
     script = completion.fish(parser)
     script_path = tmp_path / "samename.fish"
-    script_path.write_text(script, newline="\n")
+    script_path.write_bytes(script.encode("utf-8"))
     out, err = _fish_drive(_FISH, script_path, "SameNameApp db run -", tmp_path)
     assert err == ""
     flags = {line.split("\t")[0] for line in out.splitlines() if line}
@@ -1043,7 +1049,7 @@ def test_fish_hostile_choice_does_not_execute(tmp_path):
     parser = _hostile_parser("safe2 $(touch pwned_fish)")
     script = completion.fish(parser)
     script_path = tmp_path / "hostileapp.fish"
-    script_path.write_text(script, newline="\n")
+    script_path.write_bytes(script.encode("utf-8"))
     out, err = _fish_drive(_FISH, script_path, "hostileapp --mode ", tmp_path)
     assert not (tmp_path / "pwned_fish").exists()
     assert "touch" in out
@@ -1070,7 +1076,7 @@ def test_fish_hostile_subcommand_name_does_not_execute(tmp_path):
     parser.prog = "HostRootFish"
     script = completion.fish(parser)
     script_path = tmp_path / "hostrootfish.fish"
-    script_path.write_text(script, newline="\n")
+    script_path.write_bytes(script.encode("utf-8"))
     _fish_drive(_FISH, script_path, "HostRootFish ", tmp_path)
     assert not (tmp_path / "pwned_fish_cond").exists()
 
@@ -1085,7 +1091,7 @@ def test_fish_choice_with_whitespace_and_quote_round_trips(tmp_path):
             action.choices = ("dry run", "it's", "safe")
     script = completion.fish(parser)
     script_path = tmp_path / "hostileapp.fish"
-    script_path.write_text(script, newline="\n")
+    script_path.write_bytes(script.encode("utf-8"))
     out, _ = _fish_drive(_FISH, script_path, "hostileapp --mode ", tmp_path)
     values = {line.split("\t")[0] for line in out.splitlines() if line}
     assert values == {"dry run", "it's", "safe"}
@@ -1102,17 +1108,22 @@ def _pwsh_complete(script, line, cwd, timeout=15):
         + f"$r = TabExpansion2 -inputScript {completion._psq(line)} -cursorColumn {len(line)}\n"
         + "$r.CompletionMatches | ForEach-Object { $_.CompletionText }\n"
     )
-    try:
-        result = subprocess.run(
-            [_PWSH, "-NoProfile", "-Command", "-"],
-            input=ps_script,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.skip("pwsh did not respond within the timeout")
+    # A script FILE, not `-Command -`: fed on stdin, pwsh runs its REPL,
+    # which on Linux/macOS writes cursor-key-mode escape sequences
+    # (`ESC[?1h`/`ESC[?1l`) into stdout around every line.
+    with tempfile.TemporaryDirectory() as script_dir:
+        script_file = pathlib.Path(script_dir) / "complete.ps1"
+        script_file.write_bytes(ps_script.encode("utf-8"))
+        try:
+            result = subprocess.run(
+                [_PWSH, "-NoProfile", "-NonInteractive", "-File", str(script_file)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=cwd,
+            )
+        except subprocess.TimeoutExpired:
+            pytest.skip("pwsh did not respond within the timeout")
     assert result.returncode == 0, result.stderr
     return [line for line in result.stdout.splitlines() if line]
 

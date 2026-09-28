@@ -2763,13 +2763,26 @@ class Cli(Cmd):
     #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
     _exit_codes_: "_ty.Optional[_ty.Mapping[_ty.Any, str]]" = None
 
-    #: When ``False``, disables the ``<PREFIX>MCP``/``<NAME>_MCP`` environment
-    #: trigger (see ``duho.main``/``duho.app``'s own docs) for this app
-    #: entirely -- the variable, if set, is left in ``os.environ`` untouched
-    #: and a normal CLI run proceeds. Default ``True`` (the trigger is
-    #: on by default). ``duho.app(..., mcp=False)`` does the same for one
-    #: ``app()`` call, and wins over this class attribute when given.
-    #: Independent of ``_mcp_command_`` below.
+    #: On the ROOT class of the tree being served, ``False`` disables the
+    #: ``<PREFIX>MCP``/``<NAME>_MCP`` environment trigger (see
+    #: ``duho.main``/``duho.app``'s own docs) for this app entirely -- the
+    #: variable, if set, is left in ``os.environ`` untouched and a normal
+    #: CLI run proceeds. Default ``True`` (the trigger is on by default).
+    #: ``duho.app(..., mcp=False)`` does the same for one ``app()`` call,
+    #: and wins over this class attribute when given. Independent of
+    #: ``_mcp_command_`` below.
+    #:
+    #: On any OTHER (non-root) node in the tree -- a nested ``Cmd``/``Cli``
+    #: reached as a subcommand -- ``_mcp_ = False`` means something
+    #: different: it (and its whole subtree, if it has one) is left out of
+    #: ``tools/list`` entirely, and ``tools/call`` on it (or on anything
+    #: below it) raises the same "unknown tool" error as a nonexistent
+    #: name, disclosing nothing. Read via plain ``getattr``, so a subclass
+    #: of an excluded command is excluded too without redeclaring it. A
+    #: module command supports the same opt-out via a module-level
+    #: ``_mcp_ = False`` (see ``discovery.ModuleCommand``). The command
+    #: registered under ``_mcp_command_``/``mcp_command=`` (an ``McpCmd``
+    #: subclass) is excluded unconditionally regardless of this attribute.
     _mcp_: bool = True
 
     #: Opt-in built-in subcommand that serves this CLI as an MCP server,

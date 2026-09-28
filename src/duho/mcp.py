@@ -525,6 +525,15 @@ class _Node:
     always comes from ``cls`` itself) or a module command with no declared
     ``Args`` of its own. A node is a module command iff ``module_command`` is
     not ``None``; ``cls`` and ``module_command`` are never both set.
+
+    ``excluded`` is true for a non-root node whose own class/module opted
+    out via ``_mcp_ = False`` (see :func:`_walk_tree`), OR that inherited the
+    exclusion from an ancestor -- an excluded node's WHOLE subtree is
+    excluded too. Checked by :func:`describe_tools` (never listed) and
+    :func:`call_tool` (:class:`UnknownToolError`, same as an unknown name --
+    no existence disclosed). Always ``False`` for the root itself: the
+    root's own ``_mcp_`` keeps its separate, trigger-only meaning
+    (:func:`duho.args._maybe_serve_mcp_trigger`), never this one.
     """
 
     __slots__ = (
@@ -535,6 +544,7 @@ class _Node:
         "ancestors",
         "module_command",
         "args_cls",
+        "excluded",
     )
 
     def __init__(
@@ -546,6 +556,7 @@ class _Node:
         ancestors,
         module_command=None,
         args_cls=None,
+        excluded=False,
     ):
         self.dotted_name = dotted_name
         self.own_name = own_name
@@ -554,6 +565,7 @@ class _Node:
         self.ancestors = ancestors
         self.module_command = module_command
         self.args_cls = args_cls
+        self.excluded = excluded
 
 
 def _effective_cls(node_or_step: "_Node") -> "_ty.Optional[type]":
@@ -594,17 +606,35 @@ def _walk_tree(
     class commands ever nest further module commands, but the walk itself
     makes no such assumption -- it simply recurses into whatever subparsers
     :func:`duho.parsers.unique_subcommands` finds.
+
+    Also computes each node's :attr:`_Node.excluded` (per-command
+    ``_mcp_ = False`` opt-out, Plan 35 Phase 3): a class node reads its own
+    ``cls``'s ``_mcp_`` via plain ``getattr`` (so a subclass of an excluded
+    command inherits the exclusion, never needing to redeclare it); a
+    module-command node reads ``module_command``'s own ``_mcp_`` attribute
+    (mirroring its ``_parsername_`` -- see ``discovery.ModuleCommand``).
+    Never applied to the ROOT itself (``ancestors`` empty), whose own
+    ``_mcp_`` keeps its separate trigger-only meaning. An excluded node's
+    exclusion is inherited by its whole subtree via ``parent_excluded``.
     """
     nodes: "dict[str, _Node]" = {}
     seen: "set" = set()
 
-    def _walk(parser, cls, dotted_parts, own_name, ancestors):
+    def _walk(parser, cls, dotted_parts, own_name, ancestors, parent_excluded=False):
         module_command = None
         args_cls = None
         if cls is None:
             defaults = getattr(parser, "_defaults", None) or {}
             module_command = defaults.get("_duho_module_command_")
             args_cls = getattr(parser, "_duho_module_args_cls_", None)
+        is_root = not ancestors
+        own_mcp_disabled = False
+        if not is_root:
+            if cls is not None:
+                own_mcp_disabled = not getattr(cls, "_mcp_", True)
+            elif module_command is not None:
+                own_mcp_disabled = not getattr(module_command, "_mcp_", True)
+        excluded = parent_excluded or own_mcp_disabled
         node = _Node(
             ".".join(dotted_parts),
             own_name,
@@ -613,6 +643,7 @@ def _walk_tree(
             ancestors,
             module_command=module_command,
             args_cls=args_cls,
+            excluded=excluded,
         )
         nodes[node.dotted_name] = node
         # A dispatch-identity marker (see `call_tool`'s guard against a
@@ -633,6 +664,7 @@ def _walk_tree(
                 dotted_parts + (canonical,),
                 canonical,
                 ancestors + (node,),
+                parent_excluded=excluded,
             )
 
     _walk(root_parser, root_cls, (root_name,), root_name, ())
@@ -1065,12 +1097,19 @@ def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     command an ``app()`` may register under any name -- is
     likewise skipped (see :func:`_is_mcp_command_node`): serving one MCP
     session from inside a tool call another MCP session made makes no sense.
+
+    A node opted out via a per-command ``_mcp_ = False`` (see
+    :attr:`_Node.excluded`, computed by :func:`_walk_tree`) is skipped too,
+    together with its whole subtree -- the ROOT's own ``_mcp_`` is exempt
+    (never treated as this kind of exclusion).
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     return [
         _tool_spec(node)
         for node in core.nodes.values()
-        if not _is_namespace_node(node.parser) and not _is_mcp_command_node(node)
+        if not _is_namespace_node(node.parser)
+        and not _is_mcp_command_node(node)
+        and not node.excluded
     ]
 
 
@@ -1722,9 +1761,11 @@ def call_tool(
     tree, from :func:`_core_for_app`) -- see :func:`describe_tools`.
 
     Resolves ``name`` to a node in the tree, raising
-    :class:`UnknownToolError` for a name that is not in the tree, or
-    that names a namespace node (see :func:`_is_namespace_node`) -- neither
-    can ever be dispatched. Raises :class:`InvalidArgumentsError` when
+    :class:`UnknownToolError` for a name that is not in the tree, that names
+    a namespace node (see :func:`_is_namespace_node`), or that names a node
+    excluded via a per-command ``_mcp_ = False`` (:attr:`_Node.excluded`) --
+    the same error either way, so an excluded command's existence is never
+    disclosed to a caller probing for it. Raises :class:`InvalidArgumentsError` when
     ``arguments`` is not a JSON object (``None`` is treated as ``{}``), fails
     the tool's own merged ``inputSchema`` (:func:`_validate_arguments`), or
     (discovered while synthesizing argv, since it depends on the built
@@ -1792,7 +1833,12 @@ def call_tool(
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
     node = nodes.get(name) if isinstance(name, str) else None
-    if node is None or _is_namespace_node(node.parser) or _is_mcp_command_node(node):
+    if (
+        node is None
+        or _is_namespace_node(node.parser)
+        or _is_mcp_command_node(node)
+        or node.excluded
+    ):
         raise UnknownToolError("unknown tool: %r" % (name,))
 
     if arguments is None:

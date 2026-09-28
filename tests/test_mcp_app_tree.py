@@ -160,3 +160,34 @@ def test_root_is_a_namespace_and_not_listed(tmp_path):
     core = _build(tmp_path)
     tools = {t["name"] for t in describe_tools(core)}
     assert "Root" not in tools
+
+
+# --------------------------------------------------------------------------
+# Per-command `_mcp_ = False` exclusion (Plan 35 Phase 3) -- module commands
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_SECRET = '''\
+"""A module command opted out of MCP."""
+
+_mcp_ = False
+
+
+def main(args=None):
+    print("leaked secret")
+    return 0
+'''
+
+
+def test_module_command_opted_out_is_not_listed_or_callable(tmp_path):
+    import pytest
+
+    from duho.mcp import UnknownToolError
+
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    _write(tmp_path, "secret.py", _MODULE_CMD_SECRET)
+    core = _core_for_app(Root, source=tmp_path, argv=[])
+
+    tools = {t["name"] for t in describe_tools(core)}
+    assert tools == {"Root.Deploy"}
+    with pytest.raises(UnknownToolError, match="unknown tool"):
+        call_tool(core, "Root.secret", {})

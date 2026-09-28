@@ -307,6 +307,34 @@ def test_main_mcp_command_false_does_not_mutate_original_class():
     assert Root._subcommands_ == [Show]
 
 
+def test_root_mcp_false_does_not_disable_the_mcp_command_subcommand():
+    """`_mcp_ = False` on the ROOT keeps its separate, trigger-only meaning
+    (Plan 35 Phase 3) -- it must not be confused with the per-command
+    exclusion, and must not stop `_mcp_command_`'s own subcommand from
+    registering and serving."""
+    import duho
+
+    class Show(Cmd):
+        """Show something."""
+
+        def __call__(self):
+            return 0
+
+    class Root(Cli):
+        """Env trigger disabled; the mcp subcommand is a separate opt-in."""
+
+        _mcp_ = False
+        _subcommands_ = [Show]
+        _mcp_command_ = True
+
+    with pytest.raises(SystemExit):
+        duho.main(Root, ["mcp", "--help"], setup_logging=False)
+    from duho.mcp import describe_tools
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Show"}
+
+
 # --------------------------------------------------------------------------
 # Opt-out (d) -- in-process: the variable is left untouched, no serving
 # --------------------------------------------------------------------------

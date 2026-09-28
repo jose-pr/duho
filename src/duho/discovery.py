@@ -259,6 +259,11 @@ class ModuleCommand:
       its annotations still work as CLI fields, with no explicit
       import/subclass of ``duho.Args`` required). ``None`` if the module
       declares no usable ``Args``.
+    * ``_mcp_`` -- a module-level ``_mcp_ = False`` opts this command (and,
+      when it is a namespace, its whole subtree) out of the MCP tool
+      surface -- ``duho.mcp``'s per-command exclusion. Default ``True``
+      (read via ``getattr(module, "_mcp_", True)``, so a module that never
+      mentions it is unaffected).
 
     A ``ModuleCommand`` with no entrypoint raises ``NotImplementedError`` at
     construction (a module offering no ``main``/``run``/``call`` is not a
@@ -304,6 +309,12 @@ class ModuleCommand:
     ) -> None:
         self.module = module
         self._parsername_ = name or _resolved_module_name(module)
+        # A module-level `_mcp_ = False` opts this command out of the MCP
+        # tool surface (`duho.mcp`'s per-command exclusion, Plan 35 Phase
+        # 3), mirroring `_parsername_`'s own "read a module-level override,
+        # stash it as a plain instance attribute" pattern -- `duho.mcp`
+        # reads it straight off this attribute, never the raw module.
+        self._mcp_ = getattr(module, "_mcp_", True)
 
         entry = entrypoint if entrypoint is not None else _module_entrypoint(module)
         if entry is None:

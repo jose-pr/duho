@@ -8,6 +8,7 @@ actions it *would* take instead of touching the filesystem, since the point
 here is exercising duho's CLI surface (subcommands, LoggingArgs, __call__),
 not re-implementing the real backup/copy logic.
 """
+
 import sys
 from pathlib import Path
 
@@ -42,7 +43,9 @@ class Install(LoggingArgs, Cmd):
                 self.dest,
             )
         if self.with_examples:
-            self._logger_.info("would additionally copy examples/ into %s/examples", self.dest)
+            self._logger_.info(
+                "would additionally copy examples/ into %s/examples", self.dest
+            )
         return 0
 
 

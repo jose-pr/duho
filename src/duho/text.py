@@ -9,6 +9,7 @@ where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and
 raises ``TypeError``.
 """
 
+import itertools as _itertools
 import keyword as _keyword
 import re as _re
 import typing as _ty
@@ -20,8 +21,6 @@ __all__ = [
     "camelcase",
     "pysafe",
     "expand",
-    "range",
-    "unicode_range",
     "PYREPLACE",
 ]
 
@@ -40,9 +39,11 @@ def snakecase(name: str) -> str:
     """Coerce ``name`` to ``snake_case``.
 
     Separators (``-``, whitespace, ``_``) collapse to a single ``_``; a leading
-    digit and any other non-word character are underscored; an interior
-    upper-case letter is lower-cased and prefixed with ``_`` (``CamelCaseName`` ->
-    ``camel_case_name``). An acronym run is lowered as individual letters
+    digit and any other non-word character are underscored; an upper-case letter
+    is lower-cased, prefixed with ``_`` UNLESS it already immediately follows a
+    separator (so a title-cased or kebab-case word never produces a doubled
+    ``__``: ``CamelCaseName`` -> ``camel_case_name``, ``My-App`` -> ``my_app``,
+    not ``my__app``). An acronym run is lowered as individual letters
     (``HTTPServer`` -> ``h_t_t_p_server``). An empty string returns ``""``.
     """
     if not name:
@@ -50,19 +51,66 @@ def snakecase(name: str) -> str:
     std = _re.sub(r"[-\s_]+", "_", name)
     std = _re.sub(r"\W|^(?=\d)", "_", std)
     std = std[0].lower() + std[1:]
-    return _re.sub(r"(?<!^)[A-Z]", lambda m: "_" + m.group(0).lower(), std)
+
+    def _lower(match: "_re.Match[str]") -> str:
+        idx = match.start()
+        prefix = "" if idx == 0 or std[idx - 1] == "_" else "_"
+        return prefix + match.group(0).lower()
+
+    return _re.sub(r"[A-Z]", _lower, std)
 
 
 #: Symbol -> word replacements applied by :func:`pysafe`.
 PYREPLACE = {"+": "plus", "!": "not", "*": "all"}
 
+#: Any character remaining after :func:`pysafe`'s substitutions that is still
+#: not valid in a Python identifier. Deliberately narrower than "not
+#: ``str.isidentifier``" -- it is only ever applied by :func:`_pysafe_fixup`
+#: to a part that already failed that check, so a valid non-ASCII identifier
+#: (PEP 3131 permits Unicode letters) is never reached, let alone mangled.
+_NON_IDENTIFIER = _re.compile(r"[^0-9A-Za-z_]")
+
+
+def _pysafe_fixup(part: str) -> str:
+    """Make one already ``separator``-split ``part`` a valid identifier.
+
+    A no-op whenever ``part`` is already a valid, non-keyword identifier --
+    including one containing non-ASCII letters, which Python's own grammar
+    accepts (PEP 3131) and this must never rewrite. Otherwise: any character
+    not in ``[0-9A-Za-z_]`` is underscored, a leading digit is prefixed with
+    ``_``, an empty part becomes ``"_"``, and a part that is a keyword (either
+    still, or newly, after the substitutions above) gets a trailing
+    underscore.
+    """
+    if part and part.isidentifier() and not _keyword.iskeyword(part):
+        return part
+    part = _NON_IDENTIFIER.sub("_", part)
+    if not part:
+        part = "_"
+    elif part[0].isdigit():
+        part = "_" + part
+    if _keyword.iskeyword(part):
+        part = part + "_"
+    return part
+
 
 def pysafe(text: str, separator: str = ".") -> str:
     """Coerce ``text`` into a Python-safe (dotted) identifier.
 
-    Keyword parts (``keyword.iskeyword``) get a trailing underscore, hyphens and
-    spaces become underscores, and the symbols in :data:`PYREPLACE` are spelled
-    out. Never returns an empty string.
+    Runs duho's original (0.5.x) transform first -- a per-part keyword suffix,
+    then a whole-string ``-``/space-to-``_`` substitution, then the
+    :data:`PYREPLACE` symbol spell-out, applied across the whole joined string
+    rather than to each part in isolation -- so every input that transform
+    already turned into a valid identifier still comes out byte-for-byte the
+    same here, quirks included (``pysafe("a+")`` is ``"aplus_plus"``, not the
+    more obvious ``"a_plus"``; a symbol at a dotted-part boundary, like
+    ``pysafe("a.+b")``, can affect the neighboring part). Only where THAT
+    result is not already a valid, non-keyword identifier for one of its
+    ``separator``-delimited parts does this go further (:func:`_pysafe_fixup`):
+    underscoring any character still not identifier-safe, prefixing a leading
+    digit, and suffixing a newly-produced keyword. Never returns an empty
+    string, and never returns a string containing a reserved keyword as one of
+    its dotted parts.
     """
     text = (
         separator.join(
@@ -73,19 +121,22 @@ def pysafe(text: str, separator: str = ".") -> str:
     )
     for symbol, replacement in PYREPLACE.items():
         if text == symbol:
-            return replacement
+            # A bare match becomes the replacement word outright -- but a
+            # substitution that happens to produce a keyword itself
+            # (PYREPLACE["!"] == "not") must still be suffixed, so this
+            # cannot just return early the way duho 0.5.x did.
+            text = replacement + ("_" if _keyword.iskeyword(replacement) else "")
+            break
         if text.startswith(symbol):
             text = replacement + "_" + text.removeprefix(symbol)
         if text.endswith(symbol):
             text = text.removeprefix(symbol) + "_" + replacement
         text = text.replace(symbol, replacement)
+    text = text or "_"
+    return separator.join(_pysafe_fixup(part) for part in text.split(separator))
 
-    return text or "_"
 
-
-def camelcase(
-    text: str, separators: "_ty.Sequence[str] | str | None" = None
-) -> str:
+def camelcase(text: str, separators: "_ty.Sequence[str] | str | None" = None) -> str:
     """Join ``text`` into ``CamelCase``, splitting on ``separators``.
 
     ``separators`` defaults to ``(".", "_", "-")``; a single string is treated
@@ -105,12 +156,11 @@ def camelcase(
     return text
 
 
-_EXPAND_PATTERN = _re.compile(
-    r".*(\[([A-Z0-9]+)-([A-Z0-9]+)(:[^\[\]]*)?\]).*", _re.IGNORECASE
-)
+_EXPAND_PATTERN = _re.compile(r"\[([A-Za-z0-9]+)-([A-Za-z0-9]+)(:[^\[\]]*)?\]")
 
 # The module shadows the builtin ``range`` below; alias it first so both the
-# local ``range`` and the recursion in ``expand`` can still reach the builtin.
+# local ``range`` and the recursion in ``unicode_range`` can still reach the
+# builtin.
 _range = range
 
 
@@ -125,19 +175,49 @@ def range(
 ) -> "_ty.Iterator[str]":
     """Yield formatted range members between ``start`` and ``end`` inclusive.
 
-    Digit endpoints produce an integer range; letter endpoints produce a
-    character range. ``format`` is an optional ``str.format`` spec applied to
-    each member. Shadows the builtin ``range`` inside this module by design.
+    Digit endpoints produce an integer range; single-letter endpoints of the
+    SAME case produce a character range. ``format`` is an optional
+    ``str.format`` spec (including its leading ``:``, e.g. ``":03d"``) applied
+    to each member. Shadows the builtin ``range`` inside this module by design
+    (not exported on :data:`__all__`, so ``from duho.text import *`` cannot
+    shadow it for a star-importer).
+
+    Raises :class:`ValueError` -- never silently yields an empty or surprising
+    range -- for: mismatched-kind endpoints (one digit, one letter), a
+    multi-character letter endpoint, mixed-case letter endpoints (which would
+    otherwise walk the ASCII punctuation between the two cases), or a reversed
+    range (``start`` after ``end``).
     """
     format = format or ""
-    if start.isdigit():
-        start = int(start)  # type: ignore[assignment]
-        end = int(end)  # type: ignore[assignment]
-        func = lambda a, b, c: _range(a, b + 1, c)
-    else:
-        func = unicode_range
+    start_is_digit = start.isdigit()
+    end_is_digit = end.isdigit()
+    if start_is_digit != end_is_digit:
+        raise ValueError(
+            "range endpoints must be the same kind (both digits or both "
+            "letters): %r-%r" % (start, end)
+        )
 
-    for i in func(start, end, step):  # type: ignore[arg-type]
+    if start_is_digit:
+        start_i, end_i = int(start), int(end)
+        if start_i > end_i:
+            raise ValueError("reversed range: %r-%r" % (start, end))
+        func = lambda a, b, c: _range(a, b + 1, c)  # noqa: E731
+        args = (start_i, end_i, step)
+    else:
+        if len(start) != 1 or len(end) != 1:
+            raise ValueError(
+                "letter range endpoints must be single characters: %r-%r" % (start, end)
+            )
+        if start.isupper() != end.isupper():
+            raise ValueError(
+                "letter range endpoints must be the same case: %r-%r" % (start, end)
+            )
+        if ord(start) > ord(end):
+            raise ValueError("reversed range: %r-%r" % (start, end))
+        func = unicode_range
+        args = (start, end, step)
+
+    for i in func(*args):  # type: ignore[arg-type]
         yield f"{{{format}}}".format(i)
 
 
@@ -146,14 +226,38 @@ def expand(text: str) -> "_ty.Iterator[str]":
 
     ``expand("host[01-03]")`` yields ``host1``, ``host2``, ``host3`` (output is
     NOT zero-padded); ``expand("x[A-C]")`` yields ``xA``, ``xB``, ``xC``.
-    Multiple ranges are expanded recursively (Cartesian product). Text with no
-    range is yielded unchanged.
+    Multiple ranges expand as their Cartesian product, computed iteratively
+    (:func:`itertools.product`) rather than by recursion, so the number of
+    ranges in ``text`` is not bounded by Python's recursion limit -- but in the
+    same order the original recursive implementation produced: the LEFTMOST
+    range varies fastest and the RIGHTMOST varies slowest (``"x[1-2][a-b]"``
+    yields ``x1a``, ``x2a``, ``x1b``, ``x2b`` -- the opposite of
+    :func:`itertools.product`'s own left-to-right nesting, which is why the
+    ranges are iterated in reverse and each combination un-reversed before
+    use). Text with no range is yielded unchanged. A malformed range
+    (reversed, mismatched-kind, or a multi-character/mixed-case letter
+    endpoint) raises :class:`ValueError` rather than silently yielding nothing
+    or a surprising result -- see :func:`range`.
     """
-    template = _EXPAND_PATTERN.match(text)
-    if template:
-        _, start, end, format = template.groups()
-        s, e = template.span(1)
-        for i in range(start, end, format=format):
-            yield from expand(f"{text[:s]}{i}{text[e:]}")
-    else:
+    matches = list(_EXPAND_PATTERN.finditer(text))
+    if not matches:
         yield text
+        return
+
+    literals: "list[str]" = []
+    choices: "list[list[str]]" = []
+    pos = 0
+    for match in matches:
+        literals.append(text[pos : match.start()])
+        start, end, fmt = match.group(1), match.group(2), match.group(3)
+        choices.append(list(range(start, end, format=fmt)))
+        pos = match.end()
+    literals.append(text[pos:])
+
+    for reversed_combo in _itertools.product(*reversed(choices)):
+        combo = tuple(reversed(reversed_combo))
+        pieces = [literals[0]]
+        for value, literal in zip(combo, literals[1:]):
+            pieces.append(value)
+            pieces.append(literal)
+        yield "".join(pieces)

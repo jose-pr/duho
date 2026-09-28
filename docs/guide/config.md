@@ -64,6 +64,15 @@ target = "prod"
 Unknown keys are ignored (with a debug log line), so a config file can carry
 settings for several versions of your tool without breaking older ones.
 
+A `_config_` path that does not exist yet is skipped (with a debug log)
+instead of raising — a class attribute is allowed to point at a file an app
+hasn't written yet. An explicit `config=` argument stays strict: a missing
+file passed that way still raises, since you named it directly.
+
+An env var set to the empty string is treated as unset (falls through to
+config/class default) for every field except a bare `str` field, which keeps
+the empty string as its value.
+
 ### TOML support
 
 Reading TOML uses the standard library's `tomllib` on Python 3.11+. On 3.9 and
@@ -129,5 +138,6 @@ duho.value_sources(result)
 # {"token": "env", "verbose": "config", "target": "default"}
 ```
 
-Each value is one of `"cli"`, `"env"`, `"config"`, or `"default"`. This is the
+Each value is one of `"cli"`, `"instance"` (a field that came from an instance
+passed to `duho.parse`), `"env"`, `"config"`, or `"default"`. This is the
 fastest way to answer "why is this setting not what I expect".

@@ -10,6 +10,22 @@ import duho
 from duho import Args, Cmd, LoggingArgs
 
 
+@pytest.fixture(autouse=True)
+def _reset_auto_version_cache(monkeypatch):
+    """`_version_ = duho.AUTO` caches its resolution for the life of the
+    process, keyed by distribution name -- correct in production,
+    where an installed distribution's version cannot change mid-process, but
+    it would otherwise let one test's `importlib.metadata.version`
+    monkeypatch leak into a LATER test resolving AUTO for the same class
+    (same computed distribution name), making that test see a stale cached
+    result instead of its own monkeypatched behavior. Reset to an empty dict
+    before every test in this module; `monkeypatch` restores the original
+    object afterward, same as the provider-state reset pattern used
+    elsewhere in this suite.
+    """
+    monkeypatch.setattr(duho.args, "_AUTO_VERSION_CACHE", {})
+
+
 # --- Literal & Enum -> choices -----------------------------------------
 
 
@@ -55,6 +71,24 @@ def test_literal_choices_reject():
     parser = LiteralArgs._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--mode", "turbo"])
+
+
+class _OptLiteralArgs(Args):
+    """A Literal field wrapped in Optional."""
+
+    mode: "ty.Optional[ty.Literal['fast', 'slow']]"
+    "Mode"
+    ("--mode",)
+
+
+def test_optional_literal_accepts_a_declared_choice():
+    r = duho.parse(_OptLiteralArgs, ["--mode", "fast"])
+    assert r.mode == "fast"
+
+
+def test_optional_literal_rejects_an_undeclared_choice():
+    with pytest.raises(SystemExit):
+        duho.parse(_OptLiteralArgs, ["--mode", "nope"])
 
 
 def test_enum_choices_by_name():
@@ -239,9 +273,7 @@ class AutoVersionDistArgs(Args):
 
 def test_auto_version_resolves(monkeypatch, capsys):
     """AUTO resolves via importlib.metadata.version and adds --version."""
-    monkeypatch.setattr(
-        "importlib.metadata.version", lambda dist: "9.9.9"
-    )
+    monkeypatch.setattr("importlib.metadata.version", lambda dist: "9.9.9")
     parser = AutoVersionArgs._parser_()
     flags = {flag for action in parser._actions for flag in action.option_strings}
     assert "--version" in flags
@@ -422,17 +454,32 @@ def test_main_none_return_maps_to_zero():
 
 
 def test_main_setup_logging_false_leaves_handlers_unchanged():
-    """setup_logging=False must not add handlers to the root logger."""
+    """setup_logging=False must not add handlers to the root logger, nor
+    apply the -v/-q/--loglevel-derived level to any logger.
+
+    Comparing root.handlers alone can't fail under pytest: pytest's own
+    logging plugin already keeps a fixed set of handlers on root regardless
+    of what duho does, so a regression that ignores setup_logging entirely
+    would still show the same handler count. Also check the OTHER effect the
+    flag gates -- the parsed instance's own logger level -- which pytest does
+    not otherwise touch.
+    """
     root = logging.getLogger()
-    before = len(root.handlers)
+    handlers_before = list(root.handlers)
+    root_level_before = root.level
 
     class LoggedApp(LoggingArgs, Cmd):
         def __call__(self):
             return None
 
+    app_logger = logging.getLogger("LoggedApp")
+    app_level_before = app_logger.level
+
     rc = duho.main(LoggedApp, [], setup_logging=False)
     assert rc == 0
-    assert len(root.handlers) == before
+    assert root.handlers == handlers_before
+    assert root.level == root_level_before
+    assert app_logger.level == app_level_before
 
 
 def test_main_systemexit_propagates():

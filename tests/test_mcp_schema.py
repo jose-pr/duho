@@ -9,13 +9,12 @@ flags-tuple / docstring introspection is AST-based and needs one -- same
 convention as ``test_agenthelp.py``.
 """
 
+import argparse
 import enum
 import pathlib
 import typing as ty
 
-import pytest
-
-from duho import Arg, Cmd, NS
+from duho import Arg, Cmd, LoggingArgs, NS
 from duho.mcp import input_schema_for_command
 
 
@@ -206,6 +205,29 @@ def test_dict_field_is_object_with_additional_properties():
     assert labels["default"] == {}
 
 
+# --------------------------------------------------------------------------
+# Every array/object schema publishes a size cap -- an LLM-controlled
+# collection has no other bound, and an unbounded one can stall the
+# single-threaded stdio server (see `_validate_arguments`'s enforcement).
+# --------------------------------------------------------------------------
+
+
+def test_list_field_publishes_max_items():
+    assert _props()["tags"]["maxItems"] == 1000
+
+
+def test_set_field_publishes_max_items():
+    assert _props()["ports"]["maxItems"] == 1000
+
+
+def test_tuple_field_publishes_max_items():
+    assert _props()["coords"]["maxItems"] == 1000
+
+
+def test_dict_field_publishes_max_properties():
+    assert _props()["labels"]["maxProperties"] == 1000
+
+
 def test_list_field_is_repeatable_and_required_when_no_default():
     # `tags` has no explicit default -> duho still gives list fields an
     # implicit [] default (never required).
@@ -272,6 +294,58 @@ def test_positional_with_default_is_optional_positional():
     assert "dest" not in _required()
 
 
+class VariadicPositional(Cmd):
+    """A `nargs='+'` positional that ALSO carries a python-level default."""
+
+    extra: "Arg[ty.List[str], NS(nargs='+')]" = []
+    "one or more values -- argparse itself demands at least one"
+    ("extra",)
+
+    def __call__(self):  # pragma: no cover - not dispatched here
+        return 0
+
+
+def test_nargs_plus_positional_with_a_default_is_still_required():
+    # argparse demands >= 1 token for a "+" positional regardless of any
+    # python-level default; a schema saying otherwise lets a client omit it
+    # and then hit a plain argparse usage error on dispatch.
+    assert "extra" in _required(VariadicPositional)
+
+
+def test_nargs_plus_positional_type_is_still_an_array():
+    assert _props(VariadicPositional)["extra"]["type"] == "array"
+
+
+# --------------------------------------------------------------------------
+# A counting flag (action="count") publishes a JSON Schema `maximum`
+# --------------------------------------------------------------------------
+
+
+class CountingFlag(LoggingArgs, Cmd):
+    """Exposes LoggingArgs' own -v/-q counting flags."""
+
+    def __call__(self):  # pragma: no cover - not dispatched here
+        return 0
+
+
+def test_counting_flag_publishes_a_maximum():
+    props = _props(CountingFlag)
+    assert props["verbose"]["maximum"] == 10
+    assert props["quiet"]["maximum"] == 10
+
+
+def test_counting_flag_publishes_a_minimum_of_zero():
+    # The CLI itself only ever accumulates upward -- a negative count has no
+    # meaning, so it is bounded below the same way it is bounded above.
+    props = _props(CountingFlag)
+    assert props["verbose"]["minimum"] == 0
+    assert props["quiet"]["minimum"] == 0
+
+
+def test_non_counting_int_field_has_no_maximum():
+    assert "maximum" not in _props()["count"]
+
+
 # --------------------------------------------------------------------------
 # descriptions
 # --------------------------------------------------------------------------
@@ -281,3 +355,83 @@ def test_description_from_docstring():
     props = _props()
     assert props["name"]["description"] == "Required string"
     assert props["source"]["description"] == "Required positional Path"
+
+
+# --------------------------------------------------------------------------
+# required-ness must match what argparse actually enforces, not a shortcut
+# --------------------------------------------------------------------------
+
+
+class RequiredWithDefault(Cmd):
+    """A field forced required even though it also carries a default."""
+
+    token: Arg[str, NS(required=True)] = "unused-default"
+    "Explicitly required"
+    ("--token",)
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_explicit_ns_required_true_wins_over_a_present_default():
+    schema = input_schema_for_command(RequiredWithDefault)
+    assert "token" in schema["required"]
+
+
+class OptionalPositional(Cmd):
+    """A positional explicitly given nargs='?' with no default/required set."""
+
+    target: Arg[str, NS(nargs="?")]
+    "May be omitted"
+    ("target",)
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_explicit_nargs_optional_positional_is_not_required():
+    schema = input_schema_for_command(OptionalPositional)
+    assert "target" not in schema["required"]
+
+
+class SuppressedHelp(Cmd):
+    """A field whose help is suppressed from argparse's own output."""
+
+    hidden: Arg[str, NS(help=argparse.SUPPRESS)] = "x"
+    "This docstring must never surface either"
+    ("--hidden",)
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_help_suppress_never_leaks_the_sentinel_or_the_docstring():
+    schema = input_schema_for_command(SuppressedHelp)
+    assert "description" not in schema["properties"]["hidden"]
+
+
+class OverriddenHelp(Cmd):
+    """A field whose explicit help overrides its own docstring."""
+
+    label: Arg[str, NS(help="the OVERRIDE text")] = "x"
+    "the docstring text (must lose to the override)"
+    ("--label",)
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_explicit_help_override_wins_over_the_docstring():
+    schema = input_schema_for_command(OverriddenHelp)
+    assert schema["properties"]["label"]["description"] == "the OVERRIDE text"
+
+
+def test_iso_format_schema_types_match_the_args_ladders_own_set():
+    """``mcp._ISO_FORMATS`` is built from ``args._ISOFORMAT_FACTORIES``'s own
+    keys, not a second, independently hand-kept type list -- adding an
+    ISO type to one ladder without the other now fails loudly here instead of
+    the MCP schema silently disagreeing with what the CLI itself accepts."""
+    import duho.args as args_mod
+    import duho.mcp as mcp_mod
+
+    assert set(mcp_mod._ISO_FORMATS) == set(args_mod._ISOFORMAT_FACTORIES)

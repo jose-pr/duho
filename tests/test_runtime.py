@@ -19,14 +19,17 @@ docstrings, per the project's AST/-c limitation). The fixtures double as
 readable documentation of the supported command shapes.
 """
 
+import logging
+import os
 import sys
+from pathlib import Path
 
 import pytest
 
 import duho
 from duho.discovery import ModuleCommand
-from duho.runtime import app, run_command
-
+from duho.env import Env
+from duho.runtime import _module_args_cls, _resolve_commands, app, run_command
 
 # --------------------------------------------------------------------------
 # Fixture-file helpers
@@ -240,14 +243,140 @@ class Root(duho.LoggingArgs, duho.Cmd):
         return 0
 
 
-@pytest.fixture(autouse=True)
-def _clean_discovered_modules():
-    """Drop synthesized discovery modules between tests so fixtures re-import."""
-    before = set(sys.modules)
-    yield
-    for name in set(sys.modules) - before:
-        if name.startswith("duho._discovered."):
-            sys.modules.pop(name, None)
+class PlainRoot(duho.Cmd):
+    """A plain Cmd root with no _logger_ (not LoggingArgs)."""
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+_MODULE_CMD_RECORDS_VERBOSE = '''\
+"""A simple module command."""
+
+SEEN = {}
+
+
+def main(args):
+    SEEN["verbose"] = getattr(args, "verbose", None)
+    return 0
+'''
+
+
+# --------------------------------------------------------------------------
+# A global declared on the root survives past dispatch to the subcommand
+# --------------------------------------------------------------------------
+
+
+def test_verbose_before_class_subcommand_survives(tmp_path):
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    captured = {}
+
+    def capture(command, instance):
+        captured["verbose"] = getattr(instance, "verbose", None)
+        return 0
+
+    app(
+        Root,
+        source=tmp_path,
+        argv=["-v", "Deploy", "--name", "x"],
+        setup_logging=False,
+        dispatch=capture,
+    )
+    assert captured["verbose"] == 1
+
+
+class _RootEnv(duho.LoggingArgs, duho.Cli):
+    """Root with an env-backed global field."""
+
+    token: duho.Arg[str, duho.NS(env="DUHO_TEST_ROOT_TOKEN")] = "class-default"
+    "Auth token"
+    ("--token",)
+
+    def __call__(self):  # pragma: no cover - root not dispatched
+        return 0
+
+
+def test_root_env_survives_through_subcommand(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_ROOT_TOKEN", "from-env")
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    captured = {}
+
+    def capture(command, instance):
+        captured["token"] = getattr(instance, "token", None)
+        return 0
+
+    app(
+        _RootEnv,
+        source=tmp_path,
+        argv=["Deploy", "--name", "x"],
+        setup_logging=False,
+        dispatch=capture,
+    )
+    assert captured["token"] == "from-env"
+
+
+class _CliReq(duho.LoggingArgs, duho.Cli):
+    """Root with a required global (no class default)."""
+
+    dsn: str
+    "Database DSN"
+    ("--dsn",)
+
+    def __call__(self):  # pragma: no cover - root not dispatched
+        return 0
+
+
+@pytest.mark.requires_toml
+def test_config_required_global_with_module_command(tmp_path):
+    """A config-supplied required global must not hard-exit the advisory
+    prepass, which runs before config layering applies."""
+    cfg = tmp_path / "app.toml"
+    cfg.write_text('dsn = "postgres://x"\n')
+    _write(tmp_path, "backup.py", _MODULE_CMD_RECORDS_VERBOSE)
+    rc = app(
+        _CliReq,
+        source=tmp_path,
+        argv=["backup"],
+        config=cfg,
+        setup_logging=False,
+    )
+    assert rc == 0
+
+
+# --------------------------------------------------------------------------
+# A class command wins a name collision against a module of the same name
+# --------------------------------------------------------------------------
+
+_COLLISION_RAN = {}
+
+
+class _DeployClass(duho.Cmd):
+    """Class command colliding with a module named 'deploy'."""
+
+    _parsername_ = "deploy"
+
+    def __call__(self):
+        _COLLISION_RAN["who"] = "class"
+        return 0
+
+
+def test_name_collision_last_wins_and_dispatch_agrees(tmp_path, caplog):
+    _COLLISION_RAN.clear()
+    _write(tmp_path, "deploy.py", _MODULE_CMD_RECORDS_VERBOSE)
+    module_cmds = duho.discover_commands(tmp_path)
+    # Put the class command LAST so it is the last registered -> should win.
+    commands = list(module_cmds) + [_DeployClass]
+
+    with caplog.at_level("WARNING", logger="duho"):
+        rc = app(
+            Root,
+            commands=commands,
+            argv=["deploy"],
+            setup_logging=False,
+        )
+    assert rc == 0
+    assert _COLLISION_RAN.get("who") == "class"
+    assert any("deploy" in rec.getMessage() for rec in caplog.records)
 
 
 # --------------------------------------------------------------------------
@@ -265,17 +394,12 @@ def test_class_command_dispatches(tmp_path):
 
 def test_module_command_dispatches_with_init_context(tmp_path):
     """app(root, source=dir, argv=[backup]) runs the module main(ctx-threaded)."""
-    mod = _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
+    _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
     rc = app(Root, source=tmp_path, argv=["backup"], setup_logging=False)
     assert rc == 0
-    # Import the fixture to read its recorded TRACE.
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("_probe_backup", mod)
-    probe = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(probe)
-    # The discovered module ran (its own TRACE); re-importing here is a fresh
-    # module, so assert via the *discovered* module instead:
+    # Read the recorded TRACE off the module discovery already imported --
+    # importing the fixture file again here would be a SEPARATE fresh module,
+    # not the one that actually ran.
     discovered = [
         m
         for name, m in sys.modules.items()
@@ -575,6 +699,70 @@ def test_module_args_class_fields_precede_register_added_ones(tmp_path):
     assert discovered.SEEN["extra"] == "trailing-value"
 
 
+_MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS = '''\
+"""A module command declaring a mutually-exclusive pair via NS(conflicts=...)."""
+
+import duho
+from duho import Arg, NS
+
+SEEN = {}
+
+
+class Args:
+    fast: Arg[bool, NS(conflicts="mode")] = False
+    ("--fast",)
+
+    slow: Arg[bool, NS(conflicts="mode")] = False
+    ("--slow",)
+
+
+def main(args):
+    SEEN["fast"] = args.fast
+    SEEN["slow"] = args.slow
+    return None
+'''
+
+
+def test_module_args_class_supports_mutually_exclusive_conflicts(tmp_path):
+    """A module command's own declared fields now honor ``NS(conflicts=...)``
+    the same as a class command's -- this used to need ``_initparser_``'s
+    fuller machinery (only available to a class command) and silently had no
+    support for it at all."""
+    _write(tmp_path, "modeflag.py", _MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS)
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["modeflag", "--fast"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("modeflag")
+    ][0]
+    assert discovered.SEEN["fast"] is True
+    assert discovered.SEEN["slow"] is False
+
+    with pytest.raises(SystemExit):
+        app(
+            Root,
+            source=tmp_path,
+            argv=["modeflag", "--fast", "--slow"],
+            setup_logging=False,
+        )
+
+
+def test_module_declared_fields_share_the_same_field_wiring_as_a_class_command():
+    """`runtime._add_module_declared_fields` is a thin wrapper around the same
+    `duho.args._add_fields` a class command's own `_initparser_` uses, not an
+    independent, hand-kept copy."""
+    import duho.args as args_mod
+    import duho.runtime as runtime_mod
+
+    assert runtime_mod._add_fields is args_mod._add_fields
+
+
 def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path):
     """Wrapping `command.register` on a module with NO register of its own still fires.
 
@@ -600,7 +788,12 @@ def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path
 
     command.register = wrapper
 
-    rc = app(Root, commands=[command], argv=["norereg", "--wrapped", "x"], setup_logging=False)
+    rc = app(
+        Root,
+        commands=[command],
+        argv=["norereg", "--wrapped", "x"],
+        setup_logging=False,
+    )
     assert rc == 2
     assert calls == [True]
 
@@ -681,7 +874,9 @@ def test_commands_arg_class_command(tmp_path):
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("_direct_deploy", tmp_path / "deploy.py")
+    spec = importlib.util.spec_from_file_location(
+        "_direct_deploy", tmp_path / "deploy.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["_direct_deploy"] = mod
     try:
@@ -697,6 +892,65 @@ def test_commands_arg_class_command(tmp_path):
         sys.modules.pop("_direct_deploy", None)
 
 
+class ServeBoolCmd(duho.Cmd):
+    """Serve, with a bool field a config table can set True."""
+
+    reload: bool = False
+    "reload"
+
+    def __call__(self):
+        return self.reload
+
+
+def test_dynamic_commands_bool_field_gets_reversible_no_flag(tmp_path):
+    """A class command reached via ``commands=`` (never ``root._subcommands_``)
+    must ALSO get the reversible ``--no-*`` spelling for a bool field once a
+    config file is in play -- otherwise a config table that sets the field
+    True has no CLI-side way back to False. Before the fix this only worked
+    for a STATIC ``_subcommands_`` tree; a dynamically resolved command
+    lacked the config hint entirely and ``--no-reload`` was simply an
+    unrecognized argument.
+    """
+    cfg = tmp_path / "app.json"
+    cfg.write_text('{"ServeBoolCmd": {"reload": true}}')
+    # The config-supplied True still applies with no flag at all.
+    rc = app(
+        commands=[ServeBoolCmd], config=cfg, argv=["ServeBoolCmd"], setup_logging=False
+    )
+    assert rc is True
+    # --no-reload overrides it back to False.
+    rc = app(
+        commands=[ServeBoolCmd],
+        config=cfg,
+        argv=["ServeBoolCmd", "--no-reload"],
+        setup_logging=False,
+    )
+    assert rc is False
+
+
+def test_source_discovered_commands_bool_field_gets_reversible_no_flag(tmp_path):
+    """The same fix, via ``source=`` discovery instead of an explicit
+    ``commands=`` list -- ``_resolve_commands``'s OTHER dynamic base source."""
+    _write(
+        tmp_path,
+        "serve.py",
+        '"""Serve."""\n'
+        "from duho import Cmd\n\n\n"
+        "class Serve(Cmd):\n"
+        '    """Serve."""\n\n'
+        "    reload: bool = False\n"
+        '    "reload"\n\n'
+        "    def __call__(self):\n"
+        "        return self.reload\n",
+    )
+    cfg = tmp_path / "app.json"
+    cfg.write_text('{"Serve": {"reload": true}}')
+    rc = app(
+        source=tmp_path, config=cfg, argv=["Serve", "--no-reload"], setup_logging=False
+    )
+    assert rc is False
+
+
 def test_parent_args_inherited_by_subcommand(tmp_path):
     """Global root options (-v) are accepted on a subcommand (parents=)."""
     _write(tmp_path, "backup.py", _MODULE_CMD_LIFECYCLE)
@@ -704,6 +958,58 @@ def test_parent_args_inherited_by_subcommand(tmp_path):
     # name because each subparser inherits the root parser via parents=.
     rc = app(Root, source=tmp_path, argv=["backup", "-v"], setup_logging=False)
     assert rc == 0
+
+
+# --------------------------------------------------------------------------
+# A rootless app() must never leak duho's OWN framework docstring as --help
+# --------------------------------------------------------------------------
+
+
+class _Deployish(duho.Cmd):
+    """Deploy the thing."""
+
+    x: int = 0
+
+    def __call__(self):
+        return 0
+
+
+def test_rootless_app_help_does_not_leak_args_docstring(capsys):
+    """``duho.app(commands=[...])`` with no ``root`` builds its top-level
+    parser from duho's OWN bare ``Args`` class (a synthesized, root-less
+    fallback -- see ``runtime._build_parser``), never something the caller
+    wrote. Before the fix, ``Args.__doc__`` (the framework's internal
+    field-declaration contract, meant for someone reading duho's own source)
+    leaked straight into this app's ``--help`` description."""
+    with pytest.raises(SystemExit):
+        app(commands=[_Deployish], argv=["--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert "Base class for a duho command" not in out
+    assert "declare CLI" not in out
+
+
+def test_rootless_app_help_still_honors_an_explicit_description(capsys):
+    """The fix must not swallow a caller-supplied ``description=`` -- only
+    duho's OWN unrequested class docstring is suppressed."""
+    with pytest.raises(SystemExit):
+        app(
+            commands=[_Deployish],
+            argv=["--help"],
+            description="My rootless app",
+            setup_logging=False,
+        )
+    out = capsys.readouterr().out
+    assert "My rootless app" in out
+
+
+def test_app_with_real_root_still_shows_its_own_docstring(capsys):
+    """A REAL user-supplied root's docstring must keep showing up -- the fix
+    only suppresses duho's own synthesized ``Args`` fallback, never an
+    app's actual root class."""
+    with pytest.raises(SystemExit):
+        app(Root, commands=[_Deployish], argv=["--help"], setup_logging=False)
+    out = capsys.readouterr().out
+    assert Root.__doc__ in out
 
 
 # --------------------------------------------------------------------------
@@ -739,6 +1045,151 @@ def test_run_command_class_command_direct():
 
     inst = Inline()
     assert run_command(Inline, inst) == 7
+
+
+_MODULE_CMD_NONZERO = '''\
+"""A module command whose main returns a non-zero exit code."""
+
+TRACE = []
+
+
+def init(args):
+    return "ctx"
+
+
+def main(args):
+    return 2
+
+
+def success(ctx, args):
+    TRACE.append("success")
+
+
+def finally_(ctx, args):
+    TRACE.append("finally")
+'''
+
+_MODULE_CMD_RAISES_AND_FINALLY_RAISES = '''\
+"""main raises; finally_ also raises -- the original must propagate."""
+
+
+def init(args):
+    return "ctx"
+
+
+def main(args):
+    raise RuntimeError("original")
+
+
+def success(ctx, args):
+    pass
+
+
+def finally_(ctx, args):
+    raise RuntimeError("from-finally")
+'''
+
+
+def _module_command_from(tmp_path, name, source):
+    (tmp_path / name).write_text(source)
+    return duho.discover_commands(tmp_path)[0]
+
+
+def test_success_not_run_on_nonzero(tmp_path):
+    cmd = _module_command_from(tmp_path, "job.py", _MODULE_CMD_NONZERO)
+    rc = run_command(cmd, object())
+    assert rc == 2
+    assert cmd.module.TRACE == ["finally"]  # success skipped, finally ran
+
+
+def test_finally_does_not_mask_original_exception(tmp_path):
+    cmd = _module_command_from(
+        tmp_path, "job2.py", _MODULE_CMD_RAISES_AND_FINALLY_RAISES
+    )
+    with pytest.raises(RuntimeError, match="original"):
+        run_command(cmd, object())
+
+
+# --------------------------------------------------------------------------
+# run_command delivers the documented "duho" logger fallback
+# --------------------------------------------------------------------------
+
+_MODULE_HOOK_READS_LOGGER = '''\
+"""A module command whose hooks read args._logger_ directly (documented convention)."""
+SEEN = {}
+
+
+def init(args=None):
+    SEEN["logger_name"] = getattr(args, "_logger_", None).name
+    return None
+
+
+def main(args=None):
+    args._logger_.info("hello")
+    return 0
+'''
+
+
+def test_run_command_delivers_duho_logger_fallback_to_module_hooks(tmp_path):
+    """A module command's hooks/entrypoint may read ``args._logger_`` directly,
+    per the documented convention -- even against a PLAIN root with no
+    ``LoggingArgs`` (e.g. ``duho.app(root=None, source=...)``, a common
+    plugin-only shape). ``run_command`` must deliver the ``"duho"`` fallback
+    logger itself, rather than letting a bare ``argparse.Namespace`` (no
+    ``_logger_`` of its own) raise ``AttributeError`` on first use.
+    """
+    mod_path = _write(tmp_path, "plain_hook.py", _MODULE_HOOK_READS_LOGGER)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_r018_plain_hook", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_r018_plain_hook"] = module
+    try:
+        spec.loader.exec_module(module)
+        command = ModuleCommand(module, name="plain-hook")
+        instance = duho.NS()  # no _logger_ of its own
+        rc = run_command(command, instance)
+        assert rc == 0
+        assert module.SEEN["logger_name"] == "duho"
+        assert instance._logger_.name == "duho"
+    finally:
+        sys.modules.pop("_r018_plain_hook", None)
+
+
+def test_run_command_does_not_override_an_existing_logger(tmp_path):
+    """A root that already has a real ``_logger_`` (e.g. ``LoggingArgs``-based)
+    keeps its own -- the fallback only fills a gap, it never overrides."""
+    mod_path = _write(tmp_path, "has_logger.py", _MODULE_HOOK_READS_LOGGER)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_r018_has_logger", mod_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_r018_has_logger"] = module
+    try:
+        spec.loader.exec_module(module)
+        command = ModuleCommand(module, name="has-logger")
+        instance = duho.NS()
+        instance._logger_ = duho.logging.getLogger("scoped.logger")
+        run_command(command, instance)
+        assert module.SEEN["logger_name"] == "scoped.logger"
+    finally:
+        sys.modules.pop("_r018_has_logger", None)
+
+
+def test_register_hook_logger_uses_module_commands_own_resolution():
+    """The 3-arg ``register`` hook's logger and ``ModuleCommand._logger_for``
+    must be ONE shared resolution, not two independently-maintained
+    copies that could silently diverge -- a bare structural check that the
+    duplicate ``runtime._HOOK_LOGGER`` is gone and the call site reuses
+    ``command._logger_for``.
+    """
+    import inspect
+
+    from duho import runtime as _runtime
+
+    assert not hasattr(_runtime, "_HOOK_LOGGER")
+    source = inspect.getsource(_runtime._register_module_command)
+    assert "_logger_for" in source
 
 
 # --------------------------------------------------------------------------
@@ -874,6 +1325,18 @@ def test_dispatch_can_fan_out_over_targets(tmp_path):
 # CMDS_PATH extends _subcommands_ (it does not replace them)
 # --------------------------------------------------------------------------
 
+
+def test_resolve_commands_without_cmds_path_does_not_import_cwd(tmp_path, monkeypatch):
+    """A missing CMDS_PATH env value must never glob-import the CWD."""
+    # A canary module that raises on import if duho ever glob-imports the CWD.
+    (tmp_path / "canary.py").write_text("raise RuntimeError('CWD import happened')\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CANARY_CMDS_PATH", raising=False)
+
+    env = duho.env.Env("canary")  # no CANARY_CMDS_PATH set
+    assert _resolve_commands(None, None, None, env) == []
+
+
 _MODULE_CMD_GREET = '''\
 """A discovered command."""
 
@@ -919,9 +1382,14 @@ def test_cmds_path_extends_builtin_subcommands(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
     env = duho.env.Env("DUHO")
 
-    assert app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
+    assert (
+        app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
+    )
     # The built-in still works -- this is the half that regressed before.
-    assert app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False) == "built-in"
+    assert (
+        app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False)
+        == "built-in"
+    )
 
 
 def test_cmds_path_command_overrides_same_named_builtin(tmp_path, monkeypatch):
@@ -929,15 +1397,17 @@ def test_cmds_path_command_overrides_same_named_builtin(tmp_path, monkeypatch):
     _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
     monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
 
-    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"], setup_logging=False
+    )
     assert rc == "overridden"
 
 
 def test_builtin_subcommands_survive_without_cmds_path():
     """No CMDS_PATH set -> the root's own _subcommands_ are the command set."""
-    rc = app(RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins, env=duho.env.Env("DUHO"), argv=["hello"], setup_logging=False
+    )
     assert rc == "built-in"
 
 
@@ -980,12 +1450,361 @@ def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_CMDS_PATH", str(extra_dir))
     env = duho.env.Env("DUHO")
 
-    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["greet"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins,
+        source=builtins_dir,
+        env=env,
+        argv=["greet"],
+        setup_logging=False,
+    )
     assert rc == "greeted"
-    rc = app(RootWithBuiltins, source=builtins_dir, env=env, argv=["hello"],
-             setup_logging=False)
+    rc = app(
+        RootWithBuiltins,
+        source=builtins_dir,
+        env=env,
+        argv=["hello"],
+        setup_logging=False,
+    )
     assert rc == "from-source"
+
+
+# --------------------------------------------------------------------------
+# Overriding a command deregisters its aliases too
+# --------------------------------------------------------------------------
+
+
+class _AliasedDeploy(duho.LoggingArgs, duho.Cmd):
+    """A built-in with an alias, carried on the root class."""
+
+    _parsername_ = "deploy"
+    _parseraliases_ = ["d"]
+
+    def __call__(self):
+        return "built-in-deploy"
+
+
+class RootWithAliasedBuiltin(duho.LoggingArgs, duho.Cli):
+    """A root whose only built-in subcommand declares an alias."""
+
+    _subcommands_ = [_AliasedDeploy]
+
+    def __call__(self):  # pragma: no cover - root is not dispatched here
+        return 0
+
+
+_MODULE_CMD_DEPLOY_OVERRIDE = '''\
+"""Shadows the built-in deploy."""
+
+
+def main(args=None):
+    return "overridden-deploy"
+'''
+
+
+def test_cmds_path_override_deregisters_the_shadowed_commands_aliases(
+    tmp_path, monkeypatch, capsys
+):
+    """Overriding a built-in via CMDS_PATH also drops its stale aliases.
+
+    Before the fix, `_deregister_subparser` popped only the primary name from
+    argparse's `_name_parser_map`; the shadowed command's alias (`d`) stayed
+    registered and kept SILENTLY dispatching to the OLD command even though
+    `deploy` itself now ran the override. The module override declares
+    no alias of its own, so the correct post-fix outcome for `d` is an
+    ordinary "invalid choice" (the alias is gone, not secretly re-pointed) --
+    never a silent run of the shadowed built-in.
+    """
+    _write(tmp_path, "deploy.py", _MODULE_CMD_DEPLOY_OVERRIDE)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    rc = app(RootWithAliasedBuiltin, env=env, argv=["deploy"], setup_logging=False)
+    assert rc == "overridden-deploy"
+    with pytest.raises(SystemExit):
+        app(RootWithAliasedBuiltin, env=env, argv=["d"], setup_logging=False)
+    assert "invalid choice: 'd'" in capsys.readouterr().err
+
+
+class _DeployPatch(duho.LoggingArgs, duho.Cmd):
+    """An explicit override reusing the SAME name and alias as the built-in."""
+
+    _parsername_ = "deploy"
+    _parseraliases_ = ["d"]
+
+    def __call__(self):
+        return "patched-deploy"
+
+
+def test_commands_override_reusing_the_same_alias_does_not_crash():
+    """A class-command override that reuses the shadowed command's own alias
+    must not raise argparse's `conflicting subparser alias` (3.11+) nor
+    silently leave the alias pointing at the old command (3.9)."""
+    rc = app(
+        RootWithAliasedBuiltin,
+        commands=[_DeployPatch],
+        argv=["deploy"],
+        setup_logging=False,
+    )
+    assert rc == "patched-deploy"
+    rc = app(
+        RootWithAliasedBuiltin,
+        commands=[_DeployPatch],
+        argv=["d"],
+        setup_logging=False,
+    )
+    assert rc == "patched-deploy"
+
+
+# --------------------------------------------------------------------------
+# commands=/source=/entry_points= are additive with a root's own
+# _subcommands_, not a replacement for them
+# --------------------------------------------------------------------------
+
+
+class _Extra(duho.Cmd):
+    """An explicitly-passed command unrelated to any built-in."""
+
+    _parsername_ = "extra"
+
+    def __call__(self):
+        return "extra"
+
+
+def test_commands_arg_is_additive_with_root_builtins():
+    """commands=[...] adds to root._subcommands_; both remain callable."""
+    rc = app(RootWithBuiltins, commands=[_Extra], argv=["hello"], setup_logging=False)
+    assert rc == "built-in"
+    rc = app(RootWithBuiltins, commands=[_Extra], argv=["extra"], setup_logging=False)
+    assert rc == "extra"
+
+
+def test_source_arg_is_additive_with_root_builtins(tmp_path):
+    """source=dir adds to root._subcommands_; both remain callable."""
+    _write(tmp_path, "extra.py", _MODULE_CMD_GREET)
+    rc = app(RootWithBuiltins, source=tmp_path, argv=["hello"], setup_logging=False)
+    assert rc == "built-in"
+    rc = app(RootWithBuiltins, source=tmp_path, argv=["extra"], setup_logging=False)
+    assert rc == "greeted"
+
+
+# --------------------------------------------------------------------------
+# Override/collision logging: deferred, once, and INFO vs WARNING
+# --------------------------------------------------------------------------
+
+
+def test_cmds_path_override_logs_info_once_never_a_warning(
+    tmp_path, monkeypatch, caplog
+):
+    """The documented CMDS_PATH-overrides-a-builtin story logs INFO exactly
+    once; it must never ALSO trip the generic 'registered by more than one
+    source' WARNING (that one is for a genuinely separate collision)."""
+    _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
+    monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
+    env = duho.env.Env("DUHO")
+
+    with caplog.at_level("INFO", logger="duho.runtime"):
+        rc = app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False)
+    assert rc == "overridden"
+    info_messages = [r.message for r in caplog.records if r.levelname == "INFO"]
+    warning_messages = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert sum("overrides the built-in" in m for m in info_messages) == 1
+    assert not warning_messages
+
+
+def test_genuine_collision_between_two_explicit_sources_still_warns(tmp_path, caplog):
+    """Two independently-resolved commands sharing a name (not the documented
+    CMDS_PATH override) is a real ambiguity and must still warn."""
+    _write(tmp_path, "hello.py", _MODULE_CMD_HELLO_OVERRIDE)
+
+    with caplog.at_level("WARNING", logger="duho.runtime"):
+        rc = app(RootWithBuiltins, source=tmp_path, argv=["hello"], setup_logging=False)
+    assert rc == "overridden"
+    assert any(
+        "registered by more than one source" in r.message for r in caplog.records
+    )
+
+
+# --------------------------------------------------------------------------
+# register()'s ArgumentError rewrap only blames a global when one actually
+# conflicted
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_SELF_COLLISION = '''\
+"""A register() hook that collides with the module's OWN declared field."""
+
+
+class Args:
+    """A plain Args class with a --url field."""
+
+    url: str = "default"
+    "The url."
+    ("--url",)
+
+
+def register(parser, args):
+    parser.add_argument("--url")
+
+
+def main(args):
+    return None
+'''
+
+
+def test_register_hook_self_collision_error_does_not_blame_a_global(tmp_path):
+    """A register() hook colliding with the module's OWN declared field (not
+    an inherited global) must not be told to rename a nonexistent global
+    flag."""
+    import argparse
+
+    _write(tmp_path, "selfcollide.py", _MODULE_CMD_REGISTER_SELF_COLLISION)
+    with pytest.raises(argparse.ArgumentError) as excinfo:
+        app(Root, source=tmp_path, argv=["selfcollide", "--help"], setup_logging=False)
+    msg = str(excinfo.value)
+    assert "selfcollide" in msg
+    assert "global" not in msg
+    assert "--url" in msg
+
+
+# --------------------------------------------------------------------------
+# A non-command in commands=... fails loudly
+# --------------------------------------------------------------------------
+
+
+def test_commands_arg_with_a_non_command_raises_typeerror():
+    """A non-Cmd/non-ModuleCommand item in commands=... must fail loudly,
+    naming the bad object, instead of being silently dropped."""
+
+    class NotACommand:
+        pass
+
+    with pytest.raises(TypeError, match="NotACommand"):
+        app(Root, commands=[NotACommand()], argv=["x"], setup_logging=False)
+
+
+# --------------------------------------------------------------------------
+# A keyword-only register() logger parameter is passed by keyword
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_KWONLY_LOGGER = '''\
+"""A register hook with a keyword-only logger parameter."""
+import logging
+
+SEEN = {}
+
+
+def register(parser, args, *, logger):
+    SEEN["logger_is_logger"] = isinstance(logger, logging.Logger)
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
+
+def test_register_hook_keyword_only_logger_is_called_by_keyword(tmp_path):
+    """`register(parser, args, *, logger)` cannot be called positionally
+    (raises TypeError: too many positional arguments); it must be called
+    `logger=...`."""
+    _write(tmp_path, "kwreg.py", _MODULE_CMD_REGISTER_KWONLY_LOGGER)
+    rc = app(Root, source=tmp_path, argv=["kwreg", "--flag", "kw"], setup_logging=False)
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("kwreg")
+    ][0]
+    assert discovered.SEEN["logger_is_logger"] is True
+    assert discovered.SEEN["flag"] == "kw"
+
+
+# --------------------------------------------------------------------------
+# register()'s arity detection reads its OWN signature, not a wrapped
+# function's (functools.wraps guidance, mirrors the fix in runpath)
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_REGISTER_WRAPPED = '''\
+"""A register hook wrapped with functools.wraps: the WRAPPER's own signature
+(3-arg, with a logger) differs from the function it wraps (2-arg)."""
+import functools
+import logging
+
+SEEN = {}
+
+
+def _original(parser, args):
+    pass
+
+
+@functools.wraps(_original)
+def register(parser, args, logger):
+    SEEN["logger_is_logger"] = isinstance(logger, logging.Logger)
+    parser.add_argument("--flag", default="unset")
+
+
+def main(args):
+    SEEN["flag"] = getattr(args, "flag", None)
+    return None
+'''
+
+
+def test_register_hook_wrapped_with_functools_wraps_uses_its_own_signature(tmp_path):
+    """Inspecting the WRAPPED function (`follow_wrapped=True`, inspect's
+    default) would see the 2-arg original and never pass a logger, silently
+    dropping the wrapper's own extra parameter."""
+    _write(tmp_path, "wrapreg.py", _MODULE_CMD_REGISTER_WRAPPED)
+    rc = app(
+        Root, source=tmp_path, argv=["wrapreg", "--flag", "w"], setup_logging=False
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("wrapreg")
+    ][0]
+    assert discovered.SEEN["logger_is_logger"] is True
+    assert discovered.SEEN["flag"] == "w"
+
+
+# --------------------------------------------------------------------------
+# A module command's async hooks are rejected loudly, never silently skipped
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_ASYNC_MAIN = '''\
+"""A module command whose main is async."""
+
+
+async def main(args):
+    return None
+'''
+
+_MODULE_CMD_ASYNC_INIT = '''\
+"""A module command whose init is async."""
+
+
+async def init(args):
+    return None
+
+
+def main(args):
+    return None
+'''
+
+
+def test_async_module_command_main_raises_type_error(tmp_path):
+    """An `async def main()` must be rejected loudly instead of silently
+    never running (mirrors runpath's async-step rejection)."""
+    _write(tmp_path, "asyncmain.py", _MODULE_CMD_ASYNC_MAIN)
+    with pytest.raises(TypeError, match="coroutine"):
+        app(Root, source=tmp_path, argv=["asyncmain"], setup_logging=False)
+
+
+def test_async_module_command_init_raises_type_error(tmp_path):
+    """An `async def init()` must be rejected loudly too."""
+    _write(tmp_path, "asyncinit.py", _MODULE_CMD_ASYNC_INIT)
+    with pytest.raises(TypeError, match="coroutine"):
+        app(Root, source=tmp_path, argv=["asyncinit"], setup_logging=False)
 
 
 # --------------------------------------------------------------------------
@@ -1029,7 +1848,7 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
     Regression test for the finding that `_register_module_command` built an
     unpatched subparser, so this exact shape (`query <ns> -f <val> <targets...>`)
     raised `unrecognized arguments` even though the same shape on a declarative
-    `Cmd` subcommand already worked via Plan 25's reorder fix.
+    `Cmd` subcommand already worked via the positional-reorder fix.
     """
     _write(tmp_path, "query.py", _MODULE_CMD_QUERY_SHAPED)
     rc = app(
@@ -1047,3 +1866,945 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
     assert discovered.SEEN["ns"] == "user"
     assert discovered.SEEN["filter"] == "username=root"
     assert discovered.SEEN["targets"] == ["nas1"]
+
+
+# --------------------------------------------------------------------------
+# app() must thread env/config down to a class command's OWN nested
+# `_subcommands_`, and to a module command's declared `Args` class -- not
+# only to the root and top-level class commands.
+# --------------------------------------------------------------------------
+
+_CLASS_CMD_NESTED_D021 = '''\
+"""Remote operations."""
+from duho import Cmd, Arg, NS
+
+
+class Push(Cmd):
+    """Push to a remote."""
+
+    url: "Arg[str, NS(env='DUHO_TEST_D021_URL')]" = "default-url"
+    "Target url"
+    ("--url",)
+
+    def __call__(self):
+        return "push " + self.url
+
+
+class Remote(Cmd):
+    """Remote command group."""
+
+    _subcommands_ = [Push]
+
+    def __call__(self):  # pragma: no cover - not dispatched directly
+        return 0
+'''
+
+
+def test_app_threads_env_to_nested_class_subcommand(tmp_path, monkeypatch):
+    _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
+    monkeypatch.setenv("DUHO_TEST_D021_URL", "from-env")
+    rc = app(Root, source=tmp_path, argv=["Remote", "Push"], setup_logging=False)
+    monkeypatch.delenv("DUHO_TEST_D021_URL", raising=False)
+    assert rc == "push from-env"
+
+
+@pytest.mark.requires_toml
+def test_app_threads_config_to_nested_class_subcommand(tmp_path):
+    _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
+    cfg = tmp_path / "app.toml"
+    cfg.write_text('[Remote.Push]\nurl = "from-config"\n')
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["Remote", "Push"],
+        config=str(cfg),
+        setup_logging=False,
+    )
+    assert rc == "push from-config"
+
+
+_MODULE_CMD_ARGS_ENV_D021 = '''\
+"""A module command whose declared Args field is backed by env/config."""
+from duho import Arg, NS
+
+SEEN = {}
+
+
+class Args:
+    token: "Arg[str, NS(env='DUHO_TEST_D021_MODTOKEN')]" = "unset"
+    "Auth token"
+    ("--token",)
+
+
+def main(args):
+    SEEN["token"] = args.token
+    return None
+'''
+
+
+def _discovered_module(name):
+    return [
+        m
+        for mod_name, m in sys.modules.items()
+        if mod_name.startswith("duho._discovered.") and mod_name.endswith(name)
+    ][0]
+
+
+def test_app_threads_env_to_module_declared_args_class(tmp_path, monkeypatch):
+    _write(tmp_path, "modtok.py", _MODULE_CMD_ARGS_ENV_D021)
+    monkeypatch.setenv("DUHO_TEST_D021_MODTOKEN", "from-env")
+    rc = app(Root, source=tmp_path, argv=["modtok"], setup_logging=False)
+    monkeypatch.delenv("DUHO_TEST_D021_MODTOKEN", raising=False)
+    assert rc == 0
+    assert _discovered_module("modtok").SEEN["token"] == "from-env"
+
+
+@pytest.mark.requires_toml
+def test_app_threads_config_to_module_declared_args_class(tmp_path):
+    _write(tmp_path, "modtok.py", _MODULE_CMD_ARGS_ENV_D021)
+    cfg = tmp_path / "app.toml"
+    cfg.write_text('[modtok]\ntoken = "from-config"\n')
+    rc = app(
+        Root, source=tmp_path, argv=["modtok"], config=str(cfg), setup_logging=False
+    )
+    assert rc == 0
+    assert _discovered_module("modtok").SEEN["token"] == "from-config"
+
+
+# --------------------------------------------------------------------------
+# A root global's help text spelling %(default)s literally must never crash
+# ANY subcommand's -h under app() -- parent-arg inheritance (parents=
+# [base_parser]) copies that global's Action onto every subcommand, and its
+# default is then suppressed there (see _finalize_command_tree) so the
+# child's absence of the flag defers to the root/env/config value. argparse's
+# own raw %(default)s expansion reads action.default DIRECTLY and deletes
+# the 'default' format key whenever it is SUPPRESS -- this used to raise
+# KeyError('default') rendering -h, for EVERY subcommand kind, even with no
+# env/config involved.
+# --------------------------------------------------------------------------
+
+
+class _RootWithPercentDefaultGlobal(duho.Cli):
+    """Root whose own global's help spells %(default)s literally."""
+
+    rtok: "duho.Arg[str, duho.NS(env='DUHO_TEST_ROOT_PERCENT_DEFAULT')]" = "rootdef"
+    "root %(default)s"
+    ("--rtok",)
+
+
+_MODULE_CMD_PLAIN_NO_OWN_ARGS = '''\
+"""plain module with no Args of its own."""
+
+
+def main(args=None):
+    return 0
+'''
+
+_MODULE_CMD_WITH_REGISTER_HOOK_FIELD = '''\
+"""module with a register hook adding its own field."""
+
+
+def register(parser, args):
+    parser.add_argument("--rh", default="rhdef", help="rh %(default)s")
+
+
+def main(args=None):
+    return 0
+'''
+
+
+class _ClassCmdWithPercentDefault(duho.Cmd):
+    """A dynamically-registered class command with its own %(default)s."""
+
+    ktok: str = "kdef"
+    "klass %(default)s"
+    ("--ktok",)
+
+    def __call__(self):  # pragma: no cover - not dispatched, only -h is exercised
+        return None
+
+
+def test_module_command_without_declared_args_help_survives_percent_default(
+    tmp_path, capsys
+):
+    """A module command that declares NO ``Args`` of its own used to never
+    get ``install_help_redaction`` at all (only a module WITH declared
+    fields did) -- its ``-h`` stayed the plain, unprotected stdlib
+    ``_HelpAction``."""
+    _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["plain", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_module_command_with_register_hook_help_survives_percent_default(
+    tmp_path, capsys
+):
+    """Same fix for a module command whose fields come from a ``register``
+    hook rather than a declared ``Args`` class -- also never got
+    ``install_help_redaction`` before."""
+    _write(tmp_path, "regh.py", _MODULE_CMD_WITH_REGISTER_HOOK_FIELD)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["regh", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_dynamically_registered_class_command_help_survives_percent_default(capsys):
+    """A ``commands=``-registered class command's ``-h`` already goes
+    through ``_AgentHelpAction`` (always installed), but that alone did not
+    stash a class default for the ROOT's own inherited-and-suppressed
+    global -- only for fields belonging to the class command's own
+    ``_getargs_()``."""
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            _RootWithPercentDefaultGlobal,
+            commands=[_ClassCmdWithPercentDefault],
+            argv=["_ClassCmdWithPercentDefault", "-h"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    assert "root rootdef" in capsys.readouterr().out
+
+
+def test_help_never_shows_a_live_env_value_for_a_suppressed_root_global(
+    tmp_path, capsys, monkeypatch
+):
+    """The stashed value is the CLASS default (see the tests above), never
+    the LIVE env-layered one -- the same no-secrets-in-help contract every
+    other ``NS(env=...)`` field already gets."""
+    _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
+    monkeypatch.setenv("DUHO_TEST_ROOT_PERCENT_DEFAULT", "topsecretvalue")
+    with pytest.raises(SystemExit):
+        app(
+            _RootWithPercentDefaultGlobal,
+            source=tmp_path,
+            argv=["plain", "-h"],
+            setup_logging=False,
+        )
+    out = capsys.readouterr().out
+    assert "topsecretvalue" not in out
+    assert "root rootdef" in out
+
+
+# --------------------------------------------------------------------------
+# A bad env/config value for a MODULE command's declared field must never
+# surface as an uncaught traceback (which could echo the raw value via its
+# chained cause) -- reported instead through that subcommand's own
+# parser.error() (usage text + exit 2), the same contract the deferred,
+# class-command layering path already has via _finalize_layers.
+# --------------------------------------------------------------------------
+
+_MODULE_CMD_WITH_INT_ENV_FIELD = '''\
+"""module with an int env field."""
+from duho import Arg, Args, NS
+
+
+class Args(Args):
+    port: Arg[int, NS(env="DUHO_TEST_BAD_MOD_PORT")] = 1
+    "port"
+    ("--port",)
+
+
+def main(args=None):
+    return 0
+'''
+
+
+def test_bad_env_value_for_module_command_field_reports_via_parser_error(
+    tmp_path, monkeypatch, capsys
+):
+    _write(tmp_path, "intmod.py", _MODULE_CMD_WITH_INT_ENV_FIELD)
+    monkeypatch.setenv("DUHO_TEST_BAD_MOD_PORT", "not-an-int-secret")
+    with pytest.raises(SystemExit) as excinfo:
+        app(Root, source=tmp_path, argv=["intmod"], setup_logging=False)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "not-an-int-secret" not in err
+    assert "DUHO_TEST_BAD_MOD_PORT" in err
+
+
+def test_bad_env_value_for_module_command_field_does_not_break_other_commands(
+    tmp_path, monkeypatch, capsys
+):
+    """A bad value belonging to ONE module command must not itself become an
+    uncaught exception that takes the whole process down with exit 1 --
+    every registered command still gets a normal, exit-2 usage error instead
+    of a raw traceback."""
+    _write(tmp_path, "intmod.py", _MODULE_CMD_WITH_INT_ENV_FIELD)
+    monkeypatch.setenv("DUHO_TEST_BAD_MOD_PORT", "not-an-int-secret")
+    with pytest.raises(SystemExit) as excinfo:
+        app(Root, source=tmp_path, argv=["-h"], setup_logging=False)
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "not-an-int-secret" not in err
+
+
+# --------------------------------------------------------------------------
+# app() must keep a subcommand's DELIBERATELY redeclared default,
+# both for a builtin (`_subcommands_`) and a `source=`-discovered one (whose
+# subparser shares the root's Action objects via `parents=[base_parser]`).
+# --------------------------------------------------------------------------
+
+
+class _DeployBuiltinD022(duho.Cmd):
+    """A builtin subcommand redeclaring `region` with its own default."""
+
+    region: str = "eu"
+    ("--region",)
+
+    def __call__(self):
+        return "region=" + self.region
+
+
+class _RegionRootBuiltinD022(duho.Cli):
+    """A root whose OWN `region` default differs from its builtin child's."""
+
+    region: str = "us"
+    ("--region",)
+
+    _subcommands_ = [_DeployBuiltinD022]
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+def test_app_builtin_subcommand_keeps_redeclared_default():
+    rc = app(_RegionRootBuiltinD022, argv=["_DeployBuiltinD022"], setup_logging=False)
+    assert rc == "region=eu"
+
+
+class _RegionRootD022(duho.Cli):
+    """A `commands=`/`source=`-only root -- no builtin `_subcommands_`."""
+
+    region: str = "us"
+    ("--region",)
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+_CLASS_CMD_REGION_OVERRIDE_D022 = '''\
+"""Deploy with its own region default, different from the app root's."""
+from duho import Cmd
+
+
+class Deploy(Cmd):
+    """Deploy somewhere."""
+
+    region: str = "eu"
+    "Target region"
+    ("--region",)
+
+    def __call__(self):
+        return "region=" + self.region
+'''
+
+
+def test_app_discovered_class_command_keeps_redeclared_default(tmp_path):
+    _write(tmp_path, "deploy.py", _CLASS_CMD_REGION_OVERRIDE_D022)
+    rc = app(_RegionRootD022, source=tmp_path, argv=["Deploy"], setup_logging=False)
+    assert rc == "region=eu"
+
+
+# --------------------------------------------------------------------------
+# a required global given AFTER the subcommand must be accepted, just
+# like one given before it -- for both a module and a class command.
+# --------------------------------------------------------------------------
+
+
+class _TokenRootD023(duho.Cli):
+    """A root with a REQUIRED global (no class default)."""
+
+    token: int
+    "Auth token"
+    ("--token",)
+
+    def __call__(self):  # pragma: no cover - root is not dispatched
+        return 0
+
+
+_MODULE_CMD_BACKUP_D023 = '''\
+"""Backup command."""
+
+
+def main(args):
+    return "token=" + str(args.token)
+'''
+
+_CLASS_CMD_BACKUP_D023 = '''\
+"""Backup command (class)."""
+from duho import Cmd
+
+
+class BackupCls(Cmd):
+    """Backup, as a class command."""
+
+    def __call__(self):
+        return "token=" + str(self.token)
+'''
+
+
+def test_app_required_global_after_module_subcommand(tmp_path):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["backup", "--token", "5"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_required_global_after_class_subcommand(tmp_path):
+    _write(tmp_path, "backupcls.py", _CLASS_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["BackupCls", "--token", "5"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_required_global_before_subcommand_still_works(tmp_path):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    rc = app(
+        _TokenRootD023,
+        source=tmp_path,
+        argv=["--token", "5", "backup"],
+        setup_logging=False,
+    )
+    assert rc == "token=5"
+
+
+def test_app_missing_required_global_reports_clear_error(tmp_path, capsys):
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    with pytest.raises(SystemExit) as exc:
+        app(_TokenRootD023, source=tmp_path, argv=["backup"], setup_logging=False)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--token" in err
+    assert "required" in err
+
+
+def test_app_required_global_shows_as_required_in_usage(tmp_path, capsys):
+    """The un-requiring above (so `--token` can follow the subcommand, or come
+    from config/env) must not make `--help` LOOK like `--token` is optional --
+    enforcement moved to a post-parse check, but the usage TEXT still owes the
+    user an accurate picture of what's actually mandatory. Checked at both the
+    root's own usage line and the subcommand's (inherited) one."""
+    _write(tmp_path, "backup.py", _MODULE_CMD_BACKUP_D023)
+    with pytest.raises(SystemExit):
+        app(_TokenRootD023, source=tmp_path, argv=["--help"], setup_logging=False)
+    root_usage = capsys.readouterr().out
+    assert "--token TOKEN" in root_usage
+    assert "[--token TOKEN]" not in root_usage
+
+    with pytest.raises(SystemExit):
+        app(
+            _TokenRootD023,
+            source=tmp_path,
+            argv=["backup", "--help"],
+            setup_logging=False,
+        )
+    sub_usage = capsys.readouterr().out
+    assert "--token TOKEN" in sub_usage
+    assert "[--token TOKEN]" not in sub_usage
+
+
+# --------------------------------------------------------------------------
+# CMDS_PATH resolution: multi-dir joins, security, resilience, expansion
+# --------------------------------------------------------------------------
+
+
+def test_resolve_commands_from_cmds_path_env(tmp_path, monkeypatch):
+    """env.paths('CMDS_PATH', ty=Path) with a real dir resolves its commands.
+
+    The single-dir value is an absolute path -- on Windows it carries a
+    drive-letter colon (``C:\\...``), which must NOT be split (see
+    ``Env.paths`` / ``os.pathsep``).
+    """
+    monkeypatch.delenv("PATHSEP", raising=False)
+    cmd_dir = tmp_path / "cmds"
+    cmd_dir.mkdir()
+    _write(cmd_dir, "deploy.py", _CLASS_CMD_DEPLOY)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmd_dir))
+    env = Env("myapp")
+
+    resolved = _resolve_commands(Root, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+
+
+def test_resolve_commands_from_multi_cmds_path_env(tmp_path, monkeypatch):
+    """Two dirs joined by the OS path separator both resolve."""
+    monkeypatch.delenv("PATHSEP", raising=False)
+    dir_a = tmp_path / "a"
+    dir_a.mkdir()
+    _write(dir_a, "deploy.py", _CLASS_CMD_DEPLOY)
+    dir_b = tmp_path / "b"
+    dir_b.mkdir()
+    _write(dir_b, "release.py", _CLASS_CMD_DEPLOY.replace("Deploy", "Release"))
+    monkeypatch.setenv("MYAPP_CMDS_PATH", os.pathsep.join([str(dir_a), str(dir_b)]))
+    env = Env("myapp")
+
+    resolved = _resolve_commands(Root, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert {"Deploy", "Release"} <= names
+
+
+def test_app_dispatches_command_from_cmds_path_env(tmp_path, monkeypatch):
+    """End-to-end: a CMDS_PATH-resolved command dispatches through app()."""
+    cmd_dir = tmp_path / "cmds"
+    cmd_dir.mkdir()
+    _write(cmd_dir, "deploy.py", _CLASS_CMD_DEPLOY)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmd_dir))
+    env = Env("myapp")
+
+    rc = app(Root, env=env, argv=["Deploy", "--name", "x"], setup_logging=False)
+    assert rc == "deployed x"
+
+
+_MODULE_CMD_EVIL = '''\
+"""A CWD command that must never be imported."""
+from pathlib import Path
+
+Path(r"{marker}").write_text("evil ran")
+
+
+def main(args=None):
+    return "evil ran"
+'''
+
+
+def test_cmds_path_empty_segment_never_imports_cwd(tmp_path, monkeypatch):
+    """A leading, trailing, doubled, or separator-only CMDS_PATH value must
+    never import (let alone execute) anything from the current directory.
+
+    An empty CMDS_PATH segment used to become ``Path("")`` (== ``Path(".")``),
+    which glob-imported and EXECUTED every top-level ``.py`` file in the CWD
+    at import time -- the marker file below is written as an IMPORT-TIME side
+    effect, not by calling the command, so even a bare resolution (no
+    dispatch) must not trigger it. ``os.pathsep`` on this box is ``;``
+    (Windows); the fix does not hard-code it.
+    """
+    real_cmds = tmp_path / "cmds"
+    real_cmds.mkdir()
+    _write(real_cmds, "deploy.py", _CLASS_CMD_DEPLOY)
+
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    marker = cwd / "CANARY_IMPORTED.txt"
+    _write(cwd, "evil.py", _MODULE_CMD_EVIL.format(marker=marker))
+
+    monkeypatch.chdir(cwd)
+    monkeypatch.delenv("PATHSEP", raising=False)
+    sep = os.pathsep
+
+    cases = {
+        "leading": f"{sep}{real_cmds}",
+        "trailing": f"{real_cmds}{sep}",
+        "doubled": f"{real_cmds}{sep}{sep}{real_cmds}",
+        "only_sep": sep,
+    }
+    for label, value in cases.items():
+        if marker.exists():
+            marker.unlink()
+        monkeypatch.setenv("MYAPP_CMDS_PATH", value)
+        env = Env("myapp", autoload=False)
+        resolved = _resolve_commands(None, None, None, env, None)
+        assert not marker.exists(), f"{label}: evil.py was imported from the CWD"
+        names = {
+            getattr(c, "_parsername_", None) or getattr(c, "__name__", None)
+            for c in resolved
+        }
+        assert "evil" not in names, f"{label}: evil registered as a command"
+
+
+def test_cmds_path_explicit_dot_segment_is_still_honored(tmp_path, monkeypatch):
+    """An explicit '.' segment IS still the current directory (unlike an
+    empty one -- see test_cmds_path_empty_segment_never_imports_cwd)."""
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MYAPP_CMDS_PATH", ".")
+    env = Env("myapp", autoload=False)
+
+    resolved = _resolve_commands(None, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+
+
+def test_cmds_path_stale_entry_is_skipped_not_fatal(tmp_path, monkeypatch, caplog):
+    """A deleted/nonexistent CMDS_PATH directory is skipped with a WARNING;
+    the other entries (and built-ins) still resolve."""
+    good_dir = tmp_path / "good"
+    good_dir.mkdir()
+    _write(good_dir, "deploy.py", _CLASS_CMD_DEPLOY)
+    missing_dir = tmp_path / "does-not-exist"
+
+    monkeypatch.setenv(
+        "MYAPP_CMDS_PATH", os.pathsep.join([str(good_dir), str(missing_dir)])
+    )
+    env = Env("myapp", autoload=False)
+
+    with caplog.at_level("WARNING", logger="duho.runtime"):
+        resolved = _resolve_commands(Root, None, None, env, None)
+
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+    assert any("is not a directory" in rec.message for rec in caplog.records)
+
+
+def test_cmds_path_tilde_is_expanded(tmp_path, monkeypatch):
+    """A ``~``-prefixed CMDS_PATH entry is expanded to the home directory."""
+    home = tmp_path / "home"
+    cmds = home / "cmds"
+    cmds.mkdir(parents=True)
+    _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("MYAPP_CMDS_PATH", str(Path("~") / "cmds"))
+    env = Env("myapp", autoload=False)
+
+    resolved = _resolve_commands(None, None, None, env, None)
+    names = {getattr(c, "__name__", "") for c in resolved}
+    assert "Deploy" in names
+
+
+# --------------------------------------------------------------------------
+# A module Args that already subclasses the app root is used as-is
+# --------------------------------------------------------------------------
+
+
+def test_module_args_cls_already_subclassing_root_is_used_as_is():
+    """When a module's own ``Args`` already subclasses the app root (the
+    documented convention: ``class Args(MyAppRoot): ...``), `_module_args_cls`
+    must return it AS-IS rather than wrapping it in a second synthesized
+    mixin class."""
+
+    class _FakeModuleCommand:
+        pass
+
+    class SubclassesRoot(Root):
+        method: str
+
+    fake_command = _FakeModuleCommand()
+    fake_command.args_cls = SubclassesRoot
+
+    result = _module_args_cls(fake_command, Root)
+    assert result is SubclassesRoot
+
+
+# --------------------------------------------------------------------------
+# setup_logging=True installs a handler once, never stacks
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clean_root_logger():
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    saved_level = root.level
+    yield root
+    root.handlers[:] = saved
+    root.setLevel(saved_level)
+
+
+def test_setup_logging_installs_handler_once(tmp_path, _clean_root_logger):
+    """setup_logging=True installs a stderr handler; a second app() does not stack.
+
+    A module command leaves the dispatched ``instance`` as the LoggingArgs root,
+    so it exposes ``_set_loglevels_`` and the ``setup_logging`` path runs.
+    """
+    _write(tmp_path, "backup.py", _MODULE_MAIN)
+    root = _clean_root_logger
+    root.handlers[:] = []  # start from a clean slate
+
+    app(Root, source=tmp_path, argv=["backup"], setup_logging=True)
+    count_after_first = len(root.handlers)
+    assert count_after_first >= 1
+
+    app(Root, source=tmp_path, argv=["backup"], setup_logging=True)
+    # The `if not root_logger.handlers` guard means the second run does not add
+    # another handler.
+    assert len(root.handlers) == count_after_first
+
+
+# --------------------------------------------------------------------------
+# A non-Cmd selected leaf raises NotImplementedError through app()'s own
+# dispatch path (distinct from duho.main's root-level check)
+# --------------------------------------------------------------------------
+
+
+class _DataLeaf(duho.Args):
+    """A data-only leaf (not a Cmd)."""
+
+    y: int = 2
+    ("--y",)
+
+
+class _CmdParent(duho.Cmd):
+    """A Cmd parent whose subcommand leaf is a plain data Args."""
+
+    _parsername_ = "parent"
+    _subcommands_ = [_DataLeaf]
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_non_cmd_leaf_raises_not_implemented():
+    with pytest.raises(NotImplementedError, match="holds data but is not runnable"):
+        app(
+            Root,
+            commands=[_CmdParent],
+            argv=["parent", "_DataLeaf"],
+            setup_logging=False,
+        )
+
+
+# --------------------------------------------------------------------------
+# name=/description= overrides reach the parser
+# --------------------------------------------------------------------------
+
+
+def test_name_and_description_overrides_reach_parser(tmp_path, capsys):
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    with pytest.raises(SystemExit):
+        app(
+            Root,
+            source=tmp_path,
+            argv=["--help"],
+            name="myprog",
+            description="My custom description.",
+            setup_logging=False,
+        )
+    out = capsys.readouterr().out
+    assert "myprog" in out
+    assert "My custom description." in out
+
+
+# --------------------------------------------------------------------------
+# register 3-arg logger fallback when the root has no _logger_
+# --------------------------------------------------------------------------
+
+
+def test_register_3arg_logger_fallback_to_duho(tmp_path):
+    """A 3-arg register on a non-LoggingArgs root gets the fallback 'duho' logger."""
+    _write(tmp_path, "reg3.py", _MODULE_CMD_REGISTER_3ARG)
+    rc = app(
+        PlainRoot, source=tmp_path, argv=["reg3", "--flag", "v"], setup_logging=False
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.") and name.endswith("reg3")
+    ][0]
+    assert discovered.SEEN["logger_is_logger"] is True
+    # PlainRoot has no `_logger_`, so app falls back to the module 'duho' logger.
+    assert discovered.SEEN["logger_name"] == "duho"
+
+
+# --------------------------------------------------------------------------
+# A register hook sees real parsed globals even when the root already has
+# its own _subcommands_ (a real subparsers action already exists by the time
+# the advisory prepass runs)
+# --------------------------------------------------------------------------
+
+_MODULE_REG_READS_GLOBAL = '''\
+"""A module command whose register reads a root global."""
+
+SEEN = {}
+
+
+def register(parser, args):
+    SEEN["args"] = args
+    SEEN["region"] = getattr(args, "region", "<missing>")
+
+
+def main(args):
+    return 0
+'''
+
+
+class RootWithRegionAndBuiltins(duho.Cmd):
+    """A root with a real subparsers action already attached, plus a global."""
+
+    region: str = "us"
+    "Which region"
+    ("--region",)
+
+    _subcommands_ = [_Hello]
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_register_hook_sees_real_globals_when_root_has_builtin_subcommands(tmp_path):
+    """The advisory prepass used to always fail with `KeyError('#cls')` when
+    the root already has `_subcommands_` -- silently swallowed at DEBUG, so
+    every module `register` hook got `args=None` instead of the parsed
+    globals."""
+    _write(tmp_path, "region_probe.py", _MODULE_REG_READS_GLOBAL)
+    rc = app(
+        RootWithRegionAndBuiltins,
+        source=tmp_path,
+        argv=["--region", "eu", "region-probe"],
+        setup_logging=False,
+    )
+    assert rc == 0
+    discovered = [
+        m
+        for name, m in sys.modules.items()
+        if name.startswith("duho._discovered.")
+        and name.endswith("region_probe")
+        and hasattr(m, "SEEN")
+    ][0]
+    assert discovered.SEEN["args"] is not None
+    assert discovered.SEEN["region"] == "eu"
+
+
+# --------------------------------------------------------------------------
+# The advisory prepass must never itself print/exit for real
+# --------------------------------------------------------------------------
+
+_MODULE_MAIN = '''\
+"""A module command."""
+
+
+def main(args):
+    return 0
+'''
+
+
+class VersionedRoot(duho.Cli):
+    """A Cli root with --version and --print-completion, and no builtins."""
+
+    _version_ = "9.9.9"
+    _completion_ = True
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_version_prints_once_with_a_module_command_present(tmp_path, capsys):
+    """`--version` used to print twice through `duho.app` whenever a module
+    command triggers the advisory prepass -- the prepass's OWN
+    `_VersionAction` printed for real (only `-h`/`--help` was silenced), then
+    the real parse printed again."""
+    _write(tmp_path, "hello.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            VersionedRoot,
+            source=tmp_path,
+            argv=["--version"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert out.count("9.9.9") == 1
+
+
+def test_print_completion_emits_exactly_one_script(tmp_path, capsys):
+    """`--print-completion` used to run for real during the advisory prepass
+    too (before any subcommand was registered), then again on the real
+    parse -- writing two concatenated scripts, the first incomplete."""
+    _write(tmp_path, "hello.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            VersionedRoot,
+            source=tmp_path,
+            argv=["--print-completion", "bash"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert out.count("# bash completion for") == 1
+    assert "hello" in out  # the ONE script includes the discovered subcommand
+
+
+@pytest.mark.requires_toml
+def test_non_dict_subcommand_config_table_tolerated(tmp_path):
+    """A `[subcommand]` config entry that is a scalar (not a table) is ignored."""
+    _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
+    config = tmp_path / "app.toml"
+    # `Deploy` maps to a scalar, not a table -> the sub-table branch coerces to {}.
+    config.write_text('Deploy = "not-a-table"\n')
+    rc = app(
+        Root,
+        source=tmp_path,
+        argv=["Deploy", "--name", "z"],
+        config=config,
+        setup_logging=False,
+    )
+    assert rc == "deployed z"
+
+
+class RequiredRoot(duho.LoggingArgs, duho.Cmd):
+    """A root with a required global (no default)."""
+
+    token: int
+    "A required typed global"
+    ("--token",)
+
+    def __call__(self):  # pragma: no cover
+        return 0
+
+
+def test_prepass_systemexit_is_swallowed_real_parse_reports(tmp_path, capsys):
+    """A bad required global with a module command present: the advisory
+    prepass hits SystemExit (swallowed, silently), and the real parse reports
+    the error exactly once, authoritatively.
+
+    Asserting only `pytest.raises(SystemExit)` cannot tell the fixed code
+    from the bug -- an UNSWALLOWED prepass error also raises SystemExit here,
+    just with the wrong (or doubled) message. Pinning `exc.value.code == 2`
+    and that the error text appears ONCE closes that gap.
+    """
+    _write(tmp_path, "backup.py", _MODULE_MAIN)
+    # --token given a non-int: prerun_parse's quiet parse errors (silently)
+    # and is swallowed; the authoritative parse below then exits 2, reporting
+    # the error exactly once.
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            RequiredRoot,
+            source=tmp_path,
+            argv=["--token", "notanint", "backup"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert err.count("invalid int value") == 1
+
+
+def test_prepass_does_not_preempt_subcommand_help(tmp_path, capsys):
+    """`<module-cmd> --help` with a required root global must show the
+    SUBCOMMAND's help, not a spurious "arguments are required" error from the
+    advisory prepass (which used to run for real, print its own error, and
+    only THEN let the real parse show help)."""
+    _write(tmp_path, "backup.py", _MODULE_MAIN)
+    with pytest.raises(SystemExit) as excinfo:
+        app(
+            RequiredRoot,
+            source=tmp_path,
+            argv=["backup", "--help"],
+            setup_logging=False,
+        )
+    assert excinfo.value.code == 0
+    out, err = capsys.readouterr()
+    assert "arguments are required" not in err
+    assert err == ""
+    assert "backup" in out

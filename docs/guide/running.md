@@ -5,21 +5,22 @@
 `duho.main(cls, argv=None, *, setup_logging=True, config=None)` is the one-call
 entry point. It builds the parser, parses `argv` (defaulting to `sys.argv`), sets
 up logging if the class mixes in [`LoggingArgs`](logging.md), and calls the parsed
-instance — an `Args` instance is directly callable, so `instance()` runs the
-command via its `__call__()`.
+instance's `__call__()`. Subclass `duho.Cmd` (or plain `Args` with your own
+`__call__`, as below) to make a class runnable this way.
 
+<!-- runnable -->
 ```python
 import duho
-from duho import Args
+from duho import Cmd
 
-class Greet(Args):
+class Greet(Cmd):
     """Print a greeting."""
 
     name: str = "world"
     "Who to greet"
     ("--name",)
 
-    def __call__(self) -> int | None:
+    def __call__(self):
         print(f"Hello, {self.name}!")
         # returning None counts as success (exit code 0)
 
@@ -28,8 +29,11 @@ if __name__ == "__main__":
 ```
 
 `__call__` returns the process exit code; `None` means 0. `SystemExit` raised by
-argparse (bad arguments, `--help`, `--version`) propagates normally. If the
-selected class has no `__call__`, `main` raises `NotImplementedError` naming it.
+argparse (bad arguments, `--help`, `--version`) propagates normally. Dispatching a
+class with no `__call__` (a data-only `Args`, or a `Cmd` that never overrode it)
+raises a clear `NotImplementedError` naming it — see
+[Commands: Args vs Cmd](https://github.com/jose-pr/duho/#commands-args-vs-cmd) in
+the README.
 
 ### Exit codes as an `IntEnum`
 
@@ -157,7 +161,20 @@ serving on 3000
 ```
 
 A subcommand can declare its own `_subcommands_`, composing into multi-level
-trees; `main` always dispatches to the **deepest** selected class. Options
+trees; `main` always dispatches to the **deepest** selected class.
+
+**Global options go before the subcommand here.** With this static
+`_subcommands_` tree (whether run through `duho.main` or through `duho.app`
+with no `commands=`/`source=`/`entry_points=` given), a root/global option must
+be given *before* the subcommand name — `myapp -v Serve` works, `myapp Serve -v`
+does not. `duho.app` resolving its commands through `commands=`/`source=`/
+`entry_points=` is more permissive: a root option (required or not) is accepted
+either before or after the subcommand — see
+[Discovering commands from files](#discovering-commands-from-files) below and
+[Customizing a subcommand parser](https://github.com/jose-pr/duho/#customizing-a-subcommand-parser)
+in the README.
+
+Options
 declared on a parent (say `-v` from `LoggingArgs`) remain available.
 
 To name a command something other than its class name, pass `name=`:

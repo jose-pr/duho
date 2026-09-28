@@ -46,17 +46,20 @@ parser]``), so ``examples/rc/__main__.py`` and its steps read
 ``cmd.label``/``cmd.dry_run`` directly off the SAME ``RunPathCmd`` instance
 duho built -- no redeclaring those fields per step.
 
-**A real limitation, not silently worked around**: unlike a plain module
+**Sharing more than data: ``register(base=...)``**. Unlike a plain module
 command (whose ``args`` parameter genuinely IS an instance of whatever root
 class you pass), the RunPath provider builds its OWN ``RunPathCmd`` subclass
-per directory (see ``duho.runpath._build_runpath_command``) -- it does not
-multiply-inherit a custom root class, so a METHOD declared on
-``RunpathAppArgs`` would NOT be callable on the parsed ``rc`` instance (only
-its DATA fields propagate, via argparse's namespace, not real class
-inheritance). Any shared BEHAVIOR here is therefore a plain module-level
-helper function (``format_tag_line(cmd, message)``) taking the instance as
-its first argument, rather than a bound method -- verified empirically
-against this exact combination before writing it this way.
+per directory (see ``duho.runpath._build_runpath_command``); by default it
+does not inherit a custom root class, so only DATA fields propagate onto the
+parsed ``rc`` instance (via ``app()``'s ``parents=`` mechanism), not METHODS.
+``duho.runpath.register(base=RunpathAppArgs)`` (called once, early, below)
+fixes exactly this: every RunPathCmd this module's provider builds afterward
+ALSO inherits ``RunpathAppArgs`` for real, so a method like ``_tag_line_``
+below is callable on the parsed ``rc`` instance too, not just its data
+fields. ``examples/rc/__main__.py`` still falls back to reading ``cmd.label``
+directly when ``_tag_line_`` isn't there (so the directory stays runnable
+from an entry point that never registered this base), but calling it through
+``python examples/runpath_app.py rc`` exercises the real method.
 
 Run it (needs ``import duho.runpath`` to activate the RunPath provider,
 already done below)::
@@ -66,25 +69,22 @@ already done below)::
     python examples/runpath_app.py rc --rcopts '!*,provision'
     python examples/runpath_app.py rc --rcopts 'strict'
 """
+
 import sys
 from pathlib import Path
 
 import duho
-import duho.runpath  # noqa: F401 -- import activates the RunPath provider
+import duho.runpath  # activates the RunPath provider and provides register()
 from duho import LoggingArgs
 from duho.discovery import CmdBuilder
-from duho.runpath import RunPathCmd
 
 _RC_DIR = Path(__file__).parent / "rc"
 
 
 class RunpathAppArgs(LoggingArgs):
-    """Global options shared by every runpath_app command.
+    """runpath-app: a demo CLI that runs an ordered step directory as `rc`.
 
-    Same shape as ``discovery_app.py``'s ``DiscoveryAppArgs`` -- a data
-    mixin passed as ``duho.app``'s ``root``. See the module docstring for
-    why this example uses a plain function, not a method, for shared
-    behavior.
+    These options are global -- shared with the `rc` step directory below.
     """
 
     label: str = "runpath-app"
@@ -95,16 +95,21 @@ class RunpathAppArgs(LoggingArgs):
     "Steps may check this and skip side effects (none of these example steps have real ones)."
     ("--dry-run",)
 
+    def _tag_line_(self, message: str) -> str:
+        """Format ``message`` tagged with this instance's own ``label`` field.
 
-def format_tag_line(cmd: RunPathCmd, message: str) -> str:
-    """Format ``message`` tagged with ``cmd.label`` -- a plain function, not
-    a method, since ``cmd`` (a provider-built ``RunPathCmd`` subclass) does
-    NOT inherit ``RunpathAppArgs``'s methods, only its DATA fields (see the
-    module docstring's "real limitation" note)."""
-    label = getattr(cmd, "label", "runpath-app")
-    return f"[{label}] {message}"
+        A real, inherited METHOD -- reachable on a parsed ``rc`` instance only
+        because ``duho.runpath.register(base=RunpathAppArgs)`` (below) makes
+        every RunPathCmd this module builds actually inherit this class, not
+        just copy its data fields (see the module docstring).
+        """
+        return f"[{self.label}] {message}"
 
 
 if __name__ == "__main__":
+    # Registered here (not at import time) so importing this module alone --
+    # e.g. for its RunpathAppArgs class -- never has the side effect of
+    # rebinding every RunPathCmd this process builds.
+    duho.runpath.register(base=RunpathAppArgs)
     rc_command = CmdBuilder("rc", _RC_DIR).command
     sys.exit(duho.app(RunpathAppArgs, commands=[rc_command], name="runpath-app"))

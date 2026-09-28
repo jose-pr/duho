@@ -7,14 +7,18 @@ Because timings differ per interpreter version, each version carries its own
 entry; this script measures on whatever Python runs it and merges (only) that
 version's entry, leaving other versions untouched.
 
-Run it ONLY after an intentional, understood performance change (and on a quiet
-machine). See CONTRIBUTING.md.
+Run it ONLY after an intentional, understood performance change, on a quiet
+machine of the SAME kind ``check_baseline.py`` will later compare against --
+ideally from the CI benchmark job's own runner/artifacts, not a contributor
+laptop (a local run is a sanity check, not baseline-grade evidence: see
+benchmarks/README.md). See CONTRIBUTING.md.
 
     python benchmarks/update_baseline.py            # update current py entry
     python benchmarks/update_baseline.py -n 15       # more startup samples
 
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import json
 import sys

@@ -8,8 +8,6 @@ Fixtures at module level: AST-based flags/docstring introspection needs a real
 source file (same convention as ``test_agenthelp.py``).
 """
 
-import pytest
-
 from duho import Cli, Cmd, LoggingArgs
 from duho.mcp import describe_tools
 
@@ -64,7 +62,9 @@ def _by_name(tools):
 def test_every_node_gets_a_tool_namespaced_parent_child():
     tools = describe_tools(App)
     names = {t["name"] for t in tools}
-    assert names == {"App", "App.Deploy", "App.Rollback"}
+    # "App" itself is a namespace: it always requires a subcommand, so it can
+    # never be dispatched and is not listed as a callable tool.
+    assert names == {"App.Deploy", "App.Rollback"}
 
 
 def test_flat_app_with_no_subcommands_has_one_tool():
@@ -97,24 +97,35 @@ def test_tool_spec_has_name_description_input_schema():
     assert "environment" in deploy["inputSchema"]["required"]
 
 
-def test_root_tool_describes_roots_own_fields():
+def test_namespace_root_is_not_listed_but_its_fields_reach_children():
     tools = _by_name(describe_tools(App))
-    root = tools["App"]
-    assert root["description"] == "My multi-command app."
-    # LoggingArgs' own fields (verbose/quiet/loglevels) are real duho fields on
-    # the root -- they show up on the root's own schema.
-    assert "verbose" in root["inputSchema"]["properties"]
+    assert "App" not in tools
+    # A namespace root (its own subcommand is mandatory) is not itself a
+    # callable tool, but its own fields -- here LoggingArgs' verbose/quiet/
+    # loglevels -- must still be reachable: they are merged into every
+    # descendant's own schema, since MCP has no separate way to call the
+    # root first and supply them.
+    deploy = tools["App.Deploy"]
+    assert "verbose" in deploy["inputSchema"]["properties"]
+    assert "environment" in deploy["inputSchema"]["properties"]
 
 
-def test_leaf_tool_with_no_fields_has_empty_schema():
+def test_leaf_tool_with_no_fields_of_its_own_inherits_ancestor_fields():
     tools = _by_name(describe_tools(App))
     rollback = tools["App.Rollback"]
-    assert rollback["inputSchema"]["properties"] == {}
+    # Rollback declares no fields of its own, but its namespace ancestor
+    # App's own (LoggingArgs) fields are merged in.
+    assert set(rollback["inputSchema"]["properties"]) == {
+        "verbose",
+        "quiet",
+        "loglevels",
+        "--",
+    }
     assert rollback["inputSchema"]["required"] == []
 
 
 # --------------------------------------------------------------------------
-# Conflict groups -> description note (Decision 6)
+# Conflict groups -> description note
 # --------------------------------------------------------------------------
 
 
@@ -143,3 +154,110 @@ def test_conflict_groups_noted_in_description():
     tools = _by_name(describe_tools(Root))
     assert "Mutually exclusive" in tools["Root.Compressed"]["description"]
     assert "gzip" in tools["Root.Compressed"]["description"]
+
+
+# --------------------------------------------------------------------------
+# Per-command `_mcp_ = False` exclusion
+# --------------------------------------------------------------------------
+
+
+def test_excluded_leaf_is_not_listed():
+    class Secret(Cmd):
+        """A leaf opted out of MCP."""
+
+        _mcp_ = False
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [Secret, Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}
+
+
+def test_excluded_namespace_hides_its_whole_subtree():
+    class Child(Cmd):
+        """A child of an excluded namespace."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class SecretNS(Cli):
+        """An excluded namespace with children."""
+
+        _mcp_ = False
+        _subcommands_ = [Child]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [SecretNS, Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}
+
+
+def test_excluded_command_inherited_by_subclass():
+    class Secret(Cmd):
+        """A leaf opted out of MCP."""
+
+        _mcp_ = False
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class SecretSubclass(Secret):
+        """A subclass that never redeclares _mcp_."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """Root."""
+
+        _subcommands_ = [SecretSubclass]
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == set()
+
+
+def test_root_own_mcp_false_does_not_exclude_its_own_tree():
+    """The root's `_mcp_` keeps its separate, trigger-only meaning -- it
+    must never be treated as this per-command exclusion."""
+
+    class Visible(Cmd):
+        """A normal leaf."""
+
+        def __call__(self):  # pragma: no cover
+            return 0
+
+    class Root(Cli):
+        """A root that disables the env-var trigger, not its own tree."""
+
+        _mcp_ = False
+        _subcommands_ = [Visible]
+
+    names = {t["name"] for t in describe_tools(Root)}
+    assert names == {"Root.Visible"}

@@ -36,6 +36,9 @@ class TestRelativeTo:
     def test_relative_to_prefix(self):
         assert PythonName("a.b.c").relative_to(PythonName("a.b")) == "c"
 
+    def test_relative_to_empty_base_returns_self(self):
+        assert PythonName("a.b.c").relative_to(PythonName("")) == "a.b.c"
+
     def test_relative_to_deep_prefix(self):
         assert PythonName("a.b.c.d").relative_to(PythonName("a.b")) == "c.d"
 
@@ -46,6 +49,17 @@ class TestRelativeTo:
     def test_relative_to_longer_raises(self):
         with pytest.raises(ValueError):
             PythonName("a.b").relative_to(PythonName("a.b.c"))
+
+    def test_relative_to_error_message_is_readable(self):
+        """The message names both operands in words, not a raw list/tuple repr."""
+        with pytest.raises(ValueError) as excinfo:
+            PythonName("a.b.c").relative_to(PythonName("x.y"))
+        assert str(excinfo.value) == "a.b.c is not relative to x.y"
+
+    def test_relative_to_longer_error_message_is_readable(self):
+        with pytest.raises(ValueError) as excinfo:
+            PythonName("a.b").relative_to(PythonName("a.b.c"))
+        assert str(excinfo.value) == "a.b is not relative to a.b.c"
 
 
 class TestAsPath:
@@ -81,3 +95,40 @@ class TestCamelCase:
 
     def test_camelcase_slice(self):
         assert PythonName("a.b.c").camelcase(start=1) == "BC"
+
+    def test_camelcase_trailing_dot_does_not_raise(self):
+        """A trailing/doubled dot must not crash camelcase on an empty part."""
+        assert PythonName("a.").camelcase() == "A"
+        assert PythonName(".a").camelcase() == "A"
+        assert PythonName("a..b").camelcase() == "AB"
+
+    def test_new_with_trailing_dot_part_camelcases(self):
+        """PythonName.new can itself produce an empty dotted part; camelcase
+        on the result must not raise (the guard applies end to end)."""
+        assert PythonName.new("a.", "b", sanitize=False).camelcase() == "AB"
+
+
+class TestQualSplit:
+    def test_qualsplit_of_string(self):
+        assert list(PythonName.qualsplit("a.b.c")) == ["a", "b", "c"]
+
+    def test_qualsplit_drops_empty_segments(self):
+        """A leading, trailing or doubled separator never leaves an empty part
+        (matching _qualparts' own filtering) -- this is also what keeps
+        camelcase from indexing into an empty string."""
+        assert list(PythonName.qualsplit("a..b")) == ["a", "b"]
+        assert list(PythonName.qualsplit("a.")) == ["a"]
+        assert list(PythonName.qualsplit(".a")) == ["a"]
+
+    def test_qualsplit_of_qualname(self):
+        assert list(PythonName.qualsplit(PythonName("a.b"))) == ["a", "b"]
+
+
+class TestNewPreservesSubclass:
+    def test_new_returns_subclass_instance(self):
+        class MyName(PythonName):
+            pass
+
+        result = MyName.new("a", "b")
+        assert isinstance(result, MyName)
+        assert result == "a.b"

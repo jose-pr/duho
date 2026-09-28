@@ -30,7 +30,6 @@ from duho.args import Cli, Cmd
 from duho.env import Env
 from duho.runtime import app
 
-
 # --------------------------------------------------------------------------
 # Fixture-file helpers (real .py files -- never -c: AST-derived flags need a file)
 # --------------------------------------------------------------------------
@@ -301,15 +300,14 @@ def test_logging_args_cli_mro_resolves_all_members():
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.requires_toml
 def test_app_threads_config_and_env_to_subcommand(tmp_path):
     """A Cli root's ``_config_`` applies to a discovered subcommand's fields,
     and the resolved ``Env`` reaches the dispatched command via ``_env_``."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text(
-        "[Deploy]\nregion = \"eu-west\"\nreplicas = 5\n"
-    )
+    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "eu-west"\nreplicas = 5\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")
@@ -326,15 +324,19 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
     assert rc == "region=eu-west replicas=5 env=True"
 
 
+@pytest.mark.requires_toml
 def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
-    """An explicit ``config=`` to app() overrides the root's ``_config_``."""
+    """An explicit ``config=`` to app() overrides the root's ``_config_``:
+    both are set here to REAL files with DIFFERENT values, so a
+    refactor that let ``_config_`` shadow ``config=`` would fail this."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "override.toml").write_text("[Deploy]\nregion = \"us-east\"\n")
+    (tmp_path / "class-attr.toml").write_text('[Deploy]\nregion = "from-class-attr"\n')
+    (tmp_path / "override.toml").write_text('[Deploy]\nregion = "us-east"\n')
 
     class MyApp(Cli):
-        _config_ = None
+        _config_ = str(tmp_path / "class-attr.toml")
 
         def __call__(self):
             return 0
@@ -349,13 +351,14 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     assert rc == "region=us-east replicas=1 env=False"
 
 
-def test_app_cli_dispatches_two_self_registered_command_files(tmp_path):
-    """End-to-end: a Cli root with commands discovered from a dir dispatches
-    each; CLI overrides still win over config."""
+@pytest.mark.requires_toml
+def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
+    """End-to-end: a Cli root with a command discovered from a dir dispatches
+    it; CLI overrides still win over config."""
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text("[Deploy]\nregion = \"cfg\"\n")
+    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "cfg"\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")
@@ -368,3 +371,43 @@ def test_app_cli_dispatches_two_self_registered_command_files(tmp_path):
         setup_logging=False,
     )
     assert rc == "region=cli replicas=1 env=False"
+
+
+# --------------------------------------------------------------------------
+# A global option declared on the root is not shadowed by a subcommand that
+# inherits the same field
+# --------------------------------------------------------------------------
+
+
+class _GlobalOptionRoot(Cmd):
+    db: str = None
+    ("--db",)
+
+
+class _GlobalOptionSub(_GlobalOptionRoot):
+    def __call__(self):
+        return 0
+
+
+class _GlobalOptionApp(_GlobalOptionRoot, Cli):
+    _subcommands_ = [_GlobalOptionSub]
+
+    def __call__(self):
+        return 0
+
+
+def test_global_option_before_subcommand_survives():
+    parser = _GlobalOptionApp._parser_()
+    # Given BEFORE the subcommand -- previously clobbered to None by the
+    # child's inherited --db default. Now preserved.
+    assert parser.parse_args(["--db", "X", "_GlobalOptionSub"]).db == "X"
+
+
+def test_global_option_after_subcommand_still_works():
+    parser = _GlobalOptionApp._parser_()
+    assert parser.parse_args(["_GlobalOptionSub", "--db", "Y"]).db == "Y"
+
+
+def test_global_option_absent_uses_root_default():
+    parser = _GlobalOptionApp._parser_()
+    assert parser.parse_args(["_GlobalOptionSub"]).db is None

@@ -1,32 +1,56 @@
 name: Docs
 
-# Builds and deploys the documentation site independently of a release tag --
-# manual dispatch (e.g. after fixing a docs-only issue without cutting a new
-# release) or automatically when docs-affecting files land on main.
+# Builds the docs site and deploys it to GitHub Pages. Kept separate from
+# release.yml so the site can be rebuilt/redeployed without cutting a
+# release, and a release is never the first time the docs build is
+# exercised. This workflow owns EVERY Pages deploy (main = latest tracked
+# between releases, a published release = the version just shipped):
+# release.yml only gates on a strict `mkdocs build --strict` and never
+# deploys itself, so a Pages hiccup can no longer turn an otherwise-green
+# release red.
+#
+# Triggers:
+#   - release published (a v* release ships its matching docs).
+#   - push to the default branch touching docs sources -- src/** because the
+#     API reference is generated from src/ docstrings by mkdocstrings, and
+#     CHANGELOG.md because docs/changelog.md snippet-embeds it.
+#   - workflow_dispatch, for a manual redeploy against any ref.
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
   push:
-    branches:
-      - main
+    branches: ["main"]
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "README.md"
+      - "src/**"
+      - "CHANGELOG.md"
       - ".github/workflows/docs.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Serialize deploys; never cancel an in-flight Pages deploy mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   docs-build:
     name: Build documentation site
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - uses: actions/configure-pages@v6
+        with:
+          enablement: true
       - name: Install package with docs tooling
         run: python -m pip install -e ".[dev,docs,colorama,config]"
       - name: Build docs

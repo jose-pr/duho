@@ -12,6 +12,7 @@ Note: duho resolves `enum.Enum` CLI values by member *name* (not `.value`),
 so `FileType` members are named lowercase (`dir`/`file`/`link`) to match the
 `--type dir` CLI spelling directly.
 """
+
 import enum
 import sys
 from pathlib import Path

@@ -17,7 +17,6 @@ import pytest
 
 from duho.logging import TRACEBACK_ENV, log_exception, traceback_enabled
 
-
 # --------------------------------------------------------------------------
 # traceback_enabled: the env-var contract
 # --------------------------------------------------------------------------
@@ -28,15 +27,19 @@ def test_disabled_when_unset(monkeypatch):
     assert traceback_enabled() is False
 
 
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", "anything"])
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", "y", "t"])
 def test_enabled_for_truthy_values(monkeypatch, value):
     monkeypatch.setenv(TRACEBACK_ENV, value)
     assert traceback_enabled() is True
 
 
-@pytest.mark.parametrize("value", ["", "0", "false", "FALSE", "no", "off", "  off  "])
-def test_disabled_for_falsey_values(monkeypatch, value):
-    """An explicitly-off value must not enable tracebacks (incl. an EMPTY value)."""
+@pytest.mark.parametrize(
+    "value", ["", "0", "false", "FALSE", "no", "off", "  off  ", "anything"]
+)
+def test_disabled_for_falsey_or_unrecognized_values(monkeypatch, value):
+    """An explicitly-off value, an EMPTY one, or an unrecognized one must not
+    enable tracebacks -- an unrecognized ``DUHO_TRACEBACK`` value defaults to
+    OFF (the safe reading), never ON."""
     monkeypatch.setenv(TRACEBACK_ENV, value)
     assert traceback_enabled() is False
 
@@ -113,30 +116,6 @@ def main(cmd):
 """
 
 
-@pytest.fixture(autouse=True)
-def _restore_providers():
-    """Snapshot/restore the global provider registry (see test_runpath.py).
-
-    ``import duho.runpath`` auto-registers its provider as an import side-effect,
-    so without this the registration leaks into every later test in the session.
-    """
-    import duho.discovery as _discovery
-    import duho.runpath as runpath
-
-    saved = list(_discovery._PROVIDERS)
-    saved_registered = runpath._REGISTERED
-    # Register explicitly rather than relying on the import side-effect: by the
-    # time this file runs, an earlier test module may already have imported
-    # duho.runpath (consuming the one-shot side-effect) and then restored a
-    # snapshot taken before it, leaving no provider registered.
-    runpath.register()
-    try:
-        yield
-    finally:
-        _discovery._PROVIDERS[:] = saved
-        runpath._REGISTERED = saved_registered
-
-
 def _runpath_dir(tmp_path):
     directory = tmp_path / "steps"
     directory.mkdir()
@@ -158,8 +137,12 @@ def _run_steps(directory, caplog, monkeypatch, tb):
     instance = cmd_cls()
     instance.rcopts = []
     with caplog.at_level(logging.ERROR, logger="duho.runpath"):
-        assert instance() == 0  # resilient: the failing step does not abort
-    return [r for r in caplog.records if "step exploded" in r.getMessage() or r.exc_info]
+        assert (
+            instance() == 1
+        )  # resilient: the run continues, but the failed step sets the exit code
+    return [
+        r for r in caplog.records if "step exploded" in r.getMessage() or r.exc_info
+    ]
 
 
 def test_runpath_step_failure_gains_traceback(tmp_path, caplog, monkeypatch):

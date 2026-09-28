@@ -20,12 +20,15 @@ behaviors clients rely on are reproduced on that path:
   ``parents=[<root parser>]`` so global/root options appear on each subcommand.
 * **Shared namespace** -- class commands already carry the ``"#cls"``
   deepest-selection contract (``_initparser_``), which yields one merged instance
-  of the deepest selected class. Module commands don't declare their own args, so
-  the parsed instance is the root instance (plus any fields a module ``register``
-  hook added directly).
+  of the deepest selected class. A module command's parsed instance stays the
+  ROOT instance (plus any fields a module ``register`` hook, or its own declared
+  ``Args`` class, added directly) -- it is never itself constructed as a duho
+  class, unlike a class command.
 * **Nested-help suppression** -- the optional two-pass prepass uses the existing
-  :func:`duho.parsers.prerun_parse`, which already relaxes ``_HelpAction`` and
-  subparser validation for the prepass and restores them. No hand-patching.
+  :func:`duho.parsers.prerun_parse` (``quiet=True``), which detaches the
+  subparsers action and silences every terminal action (help, version,
+  print-completion, help-agents) and any parse error for the duration of the
+  call, restoring all of it before returning. No hand-patching.
 * **``register`` hook** -- a module command may define ``register(parser, args)``
   (or the arity-tolerant ``register(parser, args, logger)``) to add arguments
   directly on the argparse object of its subcommand.
@@ -44,42 +47,72 @@ import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
 
+from . import _compat as _compat
 from . import logging as _duho_logging
+from . import parsers as _parsers
 from .args import (
     Args as _Args,
     Cmd as _Cmd,
+    _add_fields as _add_fields,
     _apply_default_layers_one as _apply_default_layers_one,
-    _load_config as _load_config,
+    _escape_description as _escape_description,
+    _escape_help as _escape_help,
     _maybe_await as _maybe_await,
+    _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
+    _resolve_config_dict as _resolve_config_dict,
+    _setup_instance_logging as _setup_instance_logging,
+    _stash_layer_state as _stash_layer_state,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from .discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
+    _command_name as _command_name,
     _noop as _discovery_noop,
     discover_commands as _discover_commands,
     discover_entry_points as _discover_entry_points,
     is_class_command as _is_class_command,
     is_module_command as _is_module_command,
 )
+from .logging import log_exception as _log_exception
+
+if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
+    from .env import Env as _Env
 
 __all__ = ["run_command", "app"]
 
 _LOGGER = _logging.getLogger(__name__)
 
-#: The logger handed to a USER hook that has no `_logger_` of its own.
-#: Deliberately the app-facing "duho" parent, NOT this module's own
-#: `_LOGGER` -- a user's register/main hook is not framework-internal
-#: output, so its records must not be attributed to `duho.runtime`.
-_HOOK_LOGGER = _logging.getLogger("duho")
+# `_command_name` used to be a byte-for-byte copy of
+# `discovery._command_name` (the same "`_parsername_` if set, else the class
+# name" rule was ALSO inlined again in `args.py` and `mcp.py`); imported from
+# `discovery` above instead so there is exactly one copy for this module and
+# `discovery` to share, rather than two definitions that could silently drift
+# apart (the import direction only allows it this way round: `discovery.py`
+# already imports from `.args`, so `args.py`/`mcp.py` still keep their own).
 
 
-def _command_name(command: object) -> str:
-    """Resolve a command's subcommand name (class or module command)."""
-    if _is_class_command(command):
-        return getattr(command, "_parsername_", None) or command.__name__  # type: ignore[union-attr]
-    return getattr(command, "_parsername_", "")
+def _reject_coroutine(result: object, where: str) -> None:
+    """Refuse a coroutine ``result`` from a module command's entrypoint/hooks.
+
+    duho only ever awaits ``Cmd.__call__`` (via ``duho.args._maybe_await`` --
+    a class command may declare ``async def __call__``, driven to completion
+    with ``asyncio.run`` at the call site). A module command's ``main``/
+    ``init``/``success``/``finally_`` are NOT awaited: before this, an
+    ``async def`` hook silently produced a coroutine nothing ever ran, whose
+    only symptom was an easy-to-miss "coroutine was never awaited"
+    ``RuntimeWarning`` raised later from the coroutine's own ``__del__``. This
+    turns that into an immediate, loud failure instead. Mirrors
+    :func:`duho.runpath._reject_coroutine` -- a separate copy, since
+    ``runtime.py`` and ``runpath.py`` intentionally don't import each other.
+    """
+    if _inspect.iscoroutine(result):
+        result.close()
+        raise TypeError(
+            "duho.runtime: %s returned a coroutine; duho awaits only "
+            "Cmd.__call__ -- module command hooks must be synchronous" % where
+        )
 
 
 def run_command(
@@ -107,23 +140,48 @@ def run_command(
       ``main``'s return value (or ``None`` -> ``0``) is the exit code; an
       exception from ``main`` propagates after ``finally_`` runs.
 
-    No separate ``logger`` argument is threaded: hooks read ``instance._logger_``
-    when the args class provides one (``ModuleCommand`` resolves it internally).
+    No separate ``logger`` argument is threaded: hooks read ``instance._logger_``.
+    For a module command, THIS driver ensures it is present before any hook
+    runs: when ``instance`` has no ``_logger_`` of its own (a plain root, not
+    ``LoggingArgs``-based), it is set to ``module_command._logger_for(instance)``
+    (the ``"duho"`` fallback) so a hook written against the documented
+    ``args._logger_`` convention never hits ``AttributeError``. Setting
+    the attribute is best-effort: a root whose ``_logger_`` is a read-only
+    property simply keeps using its own resolution.
+
+    A module command's ``init``/``main``/``success``/``finally_`` are never
+    awaited (unlike a class command's ``__call__``, see :func:`_maybe_await`):
+    a coroutine returned by any of them is closed immediately and raises
+    ``TypeError`` (see :func:`_reject_coroutine`), rather than silently never
+    running.
     """
     if _is_module_command(command):
         module_command = _ty.cast(_ModuleCommand, command)
+        if not isinstance(getattr(instance, "_logger_", None), _logging.Logger):
+            try:
+                instance._logger_ = module_command._logger_for(instance)  # type: ignore[attr-defined]
+            except (
+                Exception
+            ):  # pragma: no cover - a property-bearing root may refuse the write
+                pass
         ctx = context if context is not None else module_command.init(instance)
+        _reject_coroutine(ctx, "%s init()" % _command_name(command))
         try:
             result = module_command.main(instance)
+            _reject_coroutine(result, "%s main()" % _command_name(command))
             # `success` is the SUCCESS hook: run it only when main reported
-            # success (None or exit code 0), not for a non-zero exit code (M22).
+            # success (None or exit code 0), not for a non-zero exit code.
             if result is None or result == 0:
-                module_command.success(ctx, instance)
+                success_result = module_command.success(ctx, instance)
+                _reject_coroutine(
+                    success_result, "%s success()" % _command_name(command)
+                )
         finally:
             # A raising `finally_` must not mask the original exception (if main
-            # raised) nor the real exit code: log and swallow its error (M22).
+            # raised) nor the real exit code: log and swallow its error.
             try:
-                module_command.finally_(ctx, instance)
+                fin_result = module_command.finally_(ctx, instance)
+                _reject_coroutine(fin_result, "%s finally_()" % _command_name(command))
             except Exception:
                 _LOGGER.exception(
                     "finally_ hook for command %r raised; ignoring",
@@ -133,52 +191,129 @@ def run_command(
 
     # Class command: the parsed instance is the command; run it via __call__.
     # An ``async def __call__`` returns a coroutine; drive it to completion with
-    # its own ``asyncio.run`` per call (F4) -- so a fan-out worker dispatching
+    # its own ``asyncio.run`` per call -- so a fan-out worker dispatching
     # the command per target gets an independent loop each time.
     result = _maybe_await(instance())  # type: ignore[operator]
     return 0 if result is None else result
 
 
-def _cmds_path_commands(env: object) -> "list[_Command]":
+def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
     """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
 
     Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
     ``env`` doesn't support the expected interface -- all best-effort, never
-    raises. Only touches ``CMDS_PATH`` when it is actually set and non-empty:
-    a missing value must NOT be split/globbed -- that is what turned an unset
-    var into "import every ``.py`` in the CWD" (C11). Splits on the OS path
-    separator (``os.pathsep``; ``PATHSEP`` overrides), NOT a hard-coded
-    ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter is mis-split
-    into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+    raises for a resolution problem (a per-entry issue is logged and that
+    entry skipped; see below). Only touches ``CMDS_PATH`` when it is actually
+    set and non-empty: a missing value must NOT be split/globbed -- that is
+    what turned an unset var into "import every ``.py`` in the CWD".
+    Splits on the OS path separator (``os.pathsep``; ``PATHSEP`` overrides),
+    NOT a hard-coded ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter
+    is mis-split into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+
+    **Empty segments never mean the CWD (a security-relevant fix).** ``env.paths``
+    already drops an empty/whitespace-only segment before converting it to a
+    ``Path`` (a leading, trailing, or doubled separator -- the common
+    ``X="$X:/extra"`` append idiom run while ``X`` was unset -- must never
+    resolve to ``Path('.')`` and glob-import/execute the current directory).
+    This function does NOT trust that alone, since ``env`` is duck-typed and
+    may not be a real :class:`duho.env.Env`: it re-requests the raw STRING
+    segments (``ty=str``, no ``Path`` conversion yet) and filters blank ones
+    itself before ever constructing a ``Path`` -- a defense-in-depth second
+    layer that holds even for a caller-supplied ``env`` whose own ``paths()``
+    does not filter. (An explicit ``"."`` segment is still honoured.)
+
+    **A stale entry is skipped, not fatal.** Each entry is expanded
+    with ``~`` (``Path.expanduser()``) and, if it does not resolve to an
+    existing directory, logged at WARNING and skipped -- a removed plugin
+    directory or an unexpanded ``~`` must not take down every invocation,
+    built-ins and ``--help`` included. Discovery's own resilience still
+    applies per entry (an ``ImportError`` from a single bad command file is
+    logged and skipped; a ``SyntaxError`` still propagates).
+
+    **One bad entry (a bare drive, or one resolving to the CWD -- see
+    :meth:`duho.env.Env.paths`) must not drop every OTHER entry.** Requests
+    ``strict=False`` so :meth:`Env.paths` skips a rejected segment instead of
+    raising for the whole call (a security/robustness fix -- raising here used
+    to be swallowed by the bare ``except Exception`` below, silently dropping
+    the ENTIRE ``CMDS_PATH``, valid entries included, with no log at all).
+    Each rejected segment is collected via ``on_reject`` and logged at
+    WARNING once resolution succeeds. A duck-typed ``env`` (not a real
+    :class:`duho.env.Env`) may not accept those keywords at all -- caught
+    separately and retried with the plain two-arg call, so such a caller
+    keeps its previous best-effort behavior unchanged.
     """
     if env is None:
         return []
-    raw = None
     try:
-        raw = env.get("CMDS_PATH")  # type: ignore[attr-defined]
+        raw = env.get("CMDS_PATH")
     except Exception:  # pragma: no cover - env is best-effort here
         raw = None
     if not raw:
         return []
+    rejected: "list[tuple[str, str]]" = []
     try:
-        paths = env.paths("CMDS_PATH", ty=_Path)  # type: ignore[attr-defined]
+        segments = env.paths(
+            "CMDS_PATH",
+            ty=str,
+            strict=False,
+            on_reject=lambda segment, reason: rejected.append((segment, reason)),
+        )
+    except TypeError:
+        # A duck-typed `env` that doesn't support `strict`/`on_reject`.
+        try:
+            segments = env.paths("CMDS_PATH", ty=str)
+        except Exception:  # pragma: no cover - env is best-effort here
+            segments = []
     except Exception:  # pragma: no cover - env is best-effort here
-        paths = []
+        segments = []
+    for bad_segment, reason in rejected:
+        _LOGGER.warning(
+            "CMDS_PATH entry %r rejected (%s); skipping", bad_segment, reason
+        )
     discovered: "list[_Command]" = []
-    for path in paths:
-        if str(path):
+    for segment in segments:
+        segment = segment.strip() if isinstance(segment, str) else str(segment)
+        if not segment:
+            # An empty/whitespace-only segment is never the current directory.
+            continue
+        path = _Path(segment).expanduser()
+        if not path.is_dir():
+            _LOGGER.warning("CMDS_PATH entry %r is not a directory; skipping", segment)
+            continue
+        try:
             discovered.extend(_discover_commands(path))
+        except ImportError as exc:
+            _log_exception(
+                _LOGGER,
+                "skipping CMDS_PATH entry %r: %s",
+                segment,
+                exc,
+                level=_logging.WARNING,
+            )
+            continue
     return discovered
 
 
 def _merge_discovered(
-    base: "list[_Command]", discovered: "list[_Command]"
+    base: "list[_Command]",
+    discovered: "list[_Command]",
+    overridden: "set[str] | None" = None,
 ) -> "list[_Command]":
     """Merge ``discovered`` on top of ``base``: discovered wins on a name clash.
 
     Keeps ``base``'s order for everything NOT overridden, then appends every
-    discovered command; a name collision drops the ``base`` entry and logs the
-    shadowing at INFO (the override story is intentional, but never silent).
+    discovered command. A name collision drops the ``base`` entry (the
+    override story is intentional, but never silent).
+
+    **Logging is deferred, not skipped.** Called from
+    :func:`_resolve_commands` -- itself called before ``app()`` has set up any
+    logging handler -- an immediate ``_LOGGER.info`` here is emitted into the
+    void: Python's ``logging.lastResort`` handler only prints WARNING and
+    above, so the override notice would be silently lost even under ``-vv``.
+    When ``overridden`` is given, the overridden name is recorded into it
+    instead of logged immediately, so the caller (``app()``) can log it once
+    logging is actually configured. When ``overridden`` is omitted (a direct,
+    non-``app()`` caller), the old immediate-INFO behavior is kept.
     """
     if not discovered:
         return base
@@ -187,7 +322,10 @@ def _merge_discovered(
     for cmd in base:
         name = _command_name(cmd)
         if name and name in override:
-            _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
+            if overridden is not None:
+                overridden.add(name)
+            else:
+                _LOGGER.info("CMDS_PATH command %r overrides the built-in", name)
             continue
         merged.append(cmd)
     merged.extend(discovered)
@@ -198,8 +336,9 @@ def _resolve_commands(
     root: "type | None",
     commands: "_ty.Sequence[_Command] | None",
     source: "str | _Path | None",
-    env: object,
+    env: "_Env | None",
     entry_points: "str | None" = None,
+    overridden: "set[str] | None" = None,
 ) -> "list[_Command]":
     """Resolve the command set for :func:`app` by precedence.
 
@@ -218,7 +357,23 @@ def _resolve_commands(
     footgun for a *supplementary* command directory -- the usual reason to point
     at one is "I have a few extra commands", not "replace this CLI". A discovered
     command whose name collides with a base command **wins** (that is the
-    override story), and the shadowing is logged so it is never silent.
+    override story), and the shadowing is never silent (see ``overridden``).
+
+    **Additive, not exclusive, w.r.t. a root's OWN declared subcommands.**
+    This function only falls back to ``root._subcommands_`` as ITS
+    OWN base when none of ``commands``/``source``/``entry_points`` is given.
+    But ``app()`` separately, and always, registers ``root``'s own declared
+    ``_subcommands_`` too (via ``root_cls._parser_()``, independent of this
+    function) -- so passing ``commands=``/``source=``/``entry_points=``
+    alongside a root that already declares ``_subcommands_`` does not remove
+    or replace those; this function's result is layered on top of them, not
+    instead of them. Pass an explicit, subcommand-free root (or ``root=None``)
+    to get a command set with nothing but what this function resolves.
+
+    ``overridden``, when given, receives the name of every base command a
+    CMDS_PATH-discovered one replaced (see :func:`_merge_discovered`) --
+    ``app()`` uses this to log the override once, after logging is set up,
+    and to avoid a second, redundant collision warning when registering.
 
     Discovery is resilient (a bad command drops out with a warning -- see
     :func:`duho.discovery.discover_commands` /
@@ -231,43 +386,232 @@ def _resolve_commands(
     elif entry_points is not None:
         base = _discover_entry_points(entry_points)
     else:
-        base = list(getattr(root, "_subcommands_", []) or []) if root is not None else []
+        base = (
+            list(getattr(root, "_subcommands_", []) or []) if root is not None else []
+        )
 
-    return _merge_discovered(base, _cmds_path_commands(env))
+    return _merge_discovered(base, _cmds_path_commands(env), overridden=overridden)
+
+
+def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":
+    """Every name ``command`` claims in a subparsers action.
+
+    A class command claims its primary ``cmd_name`` PLUS its own
+    ``_parseraliases_`` (argparse's ``add_parser(..., aliases=...)`` registers
+    each alias as an extra ``_name_parser_map`` key pointing at the same
+    subparser object). A module command has no alias mechanism and claims
+    only its primary name. Used to detect -- and, on an override, fully
+    undo -- a collision against ANY of a command's names, not just its
+    primary one: checking only ``cmd_name`` missed the case where an
+    INCOMING command's alias collides with an already-registered name/alias,
+    which argparse itself only reports at ``add_parser()`` time (raising on
+    3.11+, silently overwriting on 3.9).
+    """
+    names = [cmd_name]
+    if kind == "class":
+        for alias in getattr(command, "_parseraliases_", None) or ():
+            if alias not in names:
+                names.append(alias)
+    return names
+
+
+def _resolve_mcp_command_name(
+    root: "type | None", mcp_command: "str | bool | None"
+) -> "str | None":
+    """Resolve ``app()``'s opt-in MCP subcommand name.
+    ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
+    means "use the class attribute instead" -- including to turn a
+    class-level ``True``/non-empty ``str`` back OFF by passing ``False``
+    explicitly); the class attribute is ``root``'s own ``_mcp_command_``
+    (declared on ``Cli``, default ``False``; ``root=None`` has none).
+
+    Returns ``None`` (no subcommand) for ``False``, the literal ``"mcp"``
+    for ``True``, or the given name for a non-empty ``str`` -- validated
+    here (non-empty, no whitespace, not starting with ``"-"``), raising
+    ``ValueError`` naming the bad value otherwise. Does NOT check for a
+    name collision or "does this root even have another subcommand" --
+    :func:`app` does both once the full resolved command set is known.
+    """
+    value = (
+        mcp_command
+        if mcp_command is not None
+        else getattr(root, "_mcp_command_", False)
+    )
+    if value is False or value is None:
+        return None
+    if value is True:
+        return "mcp"
+    name = str(value)
+    if not name or any(ch.isspace() for ch in name):
+        raise ValueError(
+            "mcp_command=%r is not a valid subcommand name (it must be "
+            "non-empty and contain no whitespace)" % (value,)
+        )
+    if name.startswith("-"):
+        raise ValueError(
+            "mcp_command=%r is not a valid subcommand name (it must not "
+            "start with '-')" % (value,)
+        )
+    return name
+
+
+def _existing_command_names(
+    root: "type | None", resolved_commands: "_ty.Sequence[_Command]"
+) -> "set[str]":
+    """Every name (primary + aliases) already claimed by ``root``'s own
+    static ``_subcommands_`` plus ``resolved_commands`` -- used to reject an
+    ``mcp_command`` name that collides with one of them, the same "every
+    name a command claims" accounting :func:`_full_names` gives
+    :func:`_register_commands`'s own collision handling, just checked
+    up front so a collision is a build-time ``ValueError`` rather than a
+    silent override.
+    """
+    names: "set[str]" = set()
+    for sub in getattr(root, "_subcommands_", None) or ():
+        cmd_name = _command_name(sub)
+        if cmd_name:
+            names.update(_full_names(sub, cmd_name, "class"))
+    for command in resolved_commands:
+        if _is_class_command(command):
+            cmd_name = _command_name(command)
+            kind = "class"
+        elif _is_module_command(command):
+            cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
+            kind = "module"
+        else:  # pragma: no cover - app() itself rejects this shape later
+            continue
+        names.update(_full_names(command, cmd_name, kind))
+    return names
+
+
+def _build_mcp_command_class(
+    root: "type | None",
+    mcp_command: "str | bool | None",
+    other_command_names: "set[str]",
+    *,
+    has_other_subcommand: bool,
+) -> "type | None":
+    """Resolve, validate, and build the dynamic ``McpCmd`` subclass for
+    ``root``'s opt-in MCP subcommand (``mcp_command=``/``root``'s own
+    ``_mcp_command_``) -- the ONE place :func:`app` and ``duho.main`` both
+    go through (the latter via a lazy ``from . import runtime``, since
+    ``args.py`` never imports this module at load time), so the resolution
+    rules and the exact ``ValueError`` text never drift between the two
+    entry points.
+
+    Returns ``None`` when no subcommand should be registered
+    (:func:`_resolve_mcp_command_name` resolved ``mcp_command``/the class
+    attribute to "off"). Otherwise validates that ``has_other_subcommand``
+    is true and that the resolved name isn't already in
+    ``other_command_names``, then builds and returns a fresh, per-call
+    ``duho.mcp.McpCmd`` subclass under that name.
+
+    A dynamic, per-call subclass -- never a shared one -- so two apps (or
+    the same app/``cls`` registering under two different names across
+    calls, e.g. in a test) never clash over a class-level ``_parsername_``.
+    Seeds ``_duho_constants_`` empty like ``_module_args_cls``'s own
+    synthesized class does: ``type(...)`` gives this class ``__module__`` =
+    this module, which has no class named ``_McpCmd`` in its OWN source to
+    AST-parse for. Also sets an explicit ``__doc__`` -- ``type()`` does NOT
+    inherit ``__doc__`` from a base class (unlike every other declarative
+    attribute, which normal ``getattr``/MRO lookup finds fine), so without
+    this the subcommand's own ``--help`` row came up blank.
+    """
+    mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
+    if mcp_command_name is None:
+        return None
+    if not has_other_subcommand:
+        raise ValueError(
+            "mcp_command=%r requires this app to already have at least "
+            "one other subcommand" % (mcp_command_name,)
+        )
+    if mcp_command_name in other_command_names:
+        raise ValueError(
+            "mcp_command=%r collides with an existing command name or "
+            "alias" % (mcp_command_name,)
+        )
+    from . import mcp as _mcp_module
+
+    return type(
+        "_McpCmd",
+        (_mcp_module.McpCmd,),
+        {
+            "_parsername_": mcp_command_name,
+            "_duho_constants_": {},
+            "__doc__": "Serve this CLI as an MCP server",
+        },
+    )
 
 
 def _register_class_command(
     subparsers: "_argparse._SubParsersAction",
     command: type,
     base_parser: "_argparse.ArgumentParser",
-) -> None:
+    *,
+    inherited_config_hint: bool = False,
+) -> "_argparse.ArgumentParser":
     """Register a class command under ``subparsers`` with parent-arg inheritance.
 
     Delegates to the class's own ``_parser_(subparsers, parents=[base_parser])``:
     this reuses the shipped registration path (which installs the ``"#cls"``
     deepest-selection ``parse_known_args`` on the subparser and recurses into any
     nested ``_subcommands_``), while ``parents=`` makes the root/global options
-    appear on the subcommand too.
+    appear on the subcommand too. Returns the built subparser so the caller can
+    link it to the app's root (``_duho_parent_parser_``) for the
+    lazy env/config layering and provenance-merge machinery in ``args.py``.
+
+    ``inherited_config_hint`` is ``app()``'s own ``config is not None``
+    (whether a config FILE is coming, whatever ``command`` itself declares) --
+    forwarded to ``_parser_`` as ``_inherited_config_hint_``, the SAME hint a
+    STATIC ``_subcommands_`` tree already gets recursively from its root's own
+    ``_parser_`` call. Without it, a ``commands=``/``source=``/CMDS_PATH
+    class command (resolved by :func:`_resolve_commands`, never reachable via
+    ``root._subcommands_``) only got the reversible ``--no-*`` spelling for a
+    bool field when the command's OWN class happened to declare its own
+    ``_config_`` -- never from the app-level ``config=``/env layering that
+    threads down to it regardless (see ``_apply_app_config_layers``), so a
+    config/env value that later flips such a field back to ``True`` had no
+    CLI-side way to override it back to ``False``.
     """
-    command._parser_(subparsers, parents=[base_parser])  # type: ignore[attr-defined]
+    return command._parser_(  # type: ignore[attr-defined]
+        subparsers,
+        parents=[base_parser],
+        _inherited_config_hint_=inherited_config_hint,
+    )
 
 
 def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
-    """True if a module ``register`` hook takes a 3rd ``logger`` positional.
+    """True if a module ``register`` hook accepts a resolved ``logger``.
 
-    A module's ``register`` may be written either 2-arg ``(parser, args)`` or
-    3-arg ``(parser, args, logger)``. This inspects the hook's signature and
-    returns ``True`` only when it accepts a third positional argument -- either
-    because it declares three (or more) positional parameters, or because it
-    declares a ``*args`` catch-all (which can absorb a logger). If the signature
-    cannot be introspected (a builtin / C callable / anything ``inspect`` refuses),
-    we conservatively default to ``False`` (the 2-arg call), which is the
+    A module's ``register`` may be written 2-arg ``(parser, args)``, 3-arg
+    ``(parser, args, logger)``, or with a keyword-only ``logger`` (e.g.
+    ``(parser, args, *, logger)``). This inspects the hook's signature and
+    returns ``True`` when it accepts a logger via any of those shapes --
+    three (or more) positional parameters, a ``*args`` catch-all (which can
+    absorb a logger positionally), or a parameter literally named ``logger``
+    of any kind (see :func:`_wants_logger_by_keyword` for which of these
+    calling conventions to actually use). If the signature cannot be
+    introspected (a builtin / C callable / anything ``inspect`` refuses), we
+    conservatively default to ``False`` (the 2-arg call), which is the
     historical shape and never over-supplies an argument the hook can't take.
+
+    Inspects with ``follow_wrapped=False``: a hook wrapped with
+    ``functools.wraps`` (e.g. a user decorator around ``register``) must be
+    read on its OWN signature, not the wrapped function's -- otherwise the
+    wrapper's own extra/different parameters are invisible and the wrong
+    calling convention is chosen (the same bug ``runpath._step_wants_ctx``
+    had before the fix).
     """
     try:
-        params = _inspect.signature(register).parameters
+        params = _inspect.signature(register, follow_wrapped=False).parameters
     except (TypeError, ValueError):  # pragma: no cover - builtins/C callables
         return False
+    logger_param = params.get("logger")
+    if (
+        logger_param is not None
+        and logger_param.kind is _inspect.Parameter.KEYWORD_ONLY
+    ):
+        return True
     positional = 0
     for param in params.values():
         if param.kind is _inspect.Parameter.VAR_POSITIONAL:
@@ -278,6 +622,48 @@ def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
         ):
             positional += 1
     return positional >= 3
+
+
+def _wants_logger_by_keyword(register: "_ty.Callable[..., object]") -> bool:
+    """True if ``register``'s logger must be passed as ``logger=...``.
+
+    A keyword-only ``logger`` parameter (``def register(parser, args, *,
+    logger)``) cannot be supplied positionally -- doing so raises
+    ``TypeError: register() takes 2 positional arguments but 3 were given``.
+    Only called after :func:`_wants_logger_arg` has already confirmed a
+    logger slot exists; this just decides how to pass it.
+    """
+    try:
+        params = _inspect.signature(register, follow_wrapped=False).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins/C callables
+        return False
+    logger_param = params.get("logger")
+    return (
+        logger_param is not None
+        and logger_param.kind is _inspect.Parameter.KEYWORD_ONLY
+    )
+
+
+def _conflicting_option_strings(exc: "_argparse.ArgumentError") -> "list[str]":
+    """Extract the actual conflicting option string(s) from an argparse
+    ``ArgumentError`` raised by ``_ActionsContainer._handle_conflict_error``.
+
+    That error's message is always one of ``"conflicting option string: %s"``
+    or ``"conflicting option strings: %s"`` (stdlib ``argparse``, stable
+    across the supported Python range), where ``%s`` is a comma-joined list
+    of the option string(s) that actually collided -- e.g. ``"-q"`` or ``"-h,
+    --help"``. Parsed from ``exc.message`` (not ``str(exc)``, which prepends
+    an unrelated ``argument ...:`` prefix naming the NEW action, not the
+    option strings). Returns ``[]`` if the message doesn't match this shape
+    (a different ``ArgumentError`` entirely -- callers should treat that as
+    "unknown, not a global-flag collision").
+    """
+    message = getattr(exc, "message", "") or ""
+    prefix, sep, tail = message.partition("conflicting option string")
+    if not sep or prefix:
+        return []
+    _, _, tail = tail.partition(":")
+    return [s.strip() for s in tail.split(",") if s.strip()]
 
 
 def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None":
@@ -301,7 +687,15 @@ def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None"
         return None
     if issubclass(args_cls, root_cls):
         return args_cls
-    return type("_Args", (args_cls, root_cls), {})
+    # Seed an empty `_duho_constants_` in the synthesized namespace, the
+    # same reason `Cmd`/`Cli` (and `duho.command()`) seed one on
+    # themselves. `type(...)` gives this class `__module__` = wherever `type`
+    # was actually called from -- `duho.runtime` -- so without a seed,
+    # `_class_constants` would AST-parse `runtime.py` itself looking for a
+    # `_Args` ClassDef that was never there, on every module command that
+    # declares its own `Args` (a real, measured cold-start cost this class
+    # has no source body to justify paying).
+    return type("_Args", (args_cls, root_cls), {"_duho_constants_": {}})
 
 
 def _add_module_declared_fields(
@@ -309,28 +703,21 @@ def _add_module_declared_fields(
 ) -> None:
     """Add ``args_cls``'s own declared fields directly to ``parser``.
 
-    Mirrors the field-adding half of ``Args._initparser_`` (iterate
-    ``_getargs_()``, call each builder's ``add_to_parser``) WITHOUT installing
-    ``_initparser_``'s ``"#cls"`` dispatch-patching -- a module command's
-    parsed instance must stay the ROOT instance (the existing module-command
-    contract), not get hijacked into constructing an instance of this
-    synthesized/declared class. Skips any field whose ``dest`` is already on
-    the parser (the same root-option collision guard ``_initparser_`` itself
-    applies), so a declared field never re-adds/conflicts with an inherited
-    global.
+    Thin wrapper around the shared ``duho.args._add_fields`` WITHOUT
+    installing ``_initparser_``'s ``"#cls"`` dispatch-patching -- a module
+    command's parsed instance must stay the ROOT instance (the existing
+    module-command contract), not get hijacked into constructing an instance
+    of this synthesized/declared class. ``strict=False`` skips (rather than
+    raises on) a dest already present on the parser -- whether inherited from
+    the root or added by duho itself -- so a declared field never re-adds/
+    conflicts with an inherited global, matching a module command's existing
+    contract.
 
-    **Scope note**: does not support ``NS(conflicts=...)`` (mutually-exclusive
-    groups) or ``NS(group=...)`` (titled groups) for a module command's
-    declared fields -- those need ``_initparser_``'s fuller machinery, which
-    is intertwined with the dispatch-patching this function deliberately
-    avoids. A module command needing those should keep using ``register()``
-    imperatively for that field, matching today's existing capability.
+    A module command's declared fields now support ``NS(conflicts=...)``/
+    ``NS(group=...)`` the same as a class command's -- that support used to
+    live only in ``_initparser_``'s own, separate copy of this wiring.
     """
-    actions_by_dest = {action.dest: action for action in parser._actions}  # type: ignore[attr-defined]
-    for builder in args_cls._getargs_():  # type: ignore[attr-defined]
-        if builder.name in actions_by_dest:
-            continue
-        builder.add_to_parser(parser)
+    _add_fields(parser, args_cls, strict=False)
 
 
 def _register_module_command(
@@ -375,16 +762,47 @@ def _register_module_command(
     the 2-arg call). This lets a module written against the 3-arg shape work
     without change while staying fully backward-compatible with 2-arg hooks.
     """
-    module = command.module
-    doc = (getattr(module, "__doc__", None) or "").strip()
-    help_text = doc.splitlines()[0] if doc else ""
+    # Read `command.description`/`command.help` (the `ModuleCommand`
+    # properties already deriving exactly this from `module.__doc__`) rather
+    # than re-deriving it here from `module.__doc__` a second time -- one
+    # source of truth for what a module command's docstring means.
+    # `help=` is ALWAYS `%`-expanded by argparse (crashing subparser
+    # registration itself on 3.14 for every OTHER command too, not just this
+    # one, the moment any command file's docstring has a stray `%`); escape
+    # it the same way a class command's docstring already is.
+    # `description=` is left as-is: argparse only `%`-formats it when it
+    # contains a literal `%(prog)`, so escaping unconditionally would show a
+    # literal `%` doubled in this command's own `--help`.
     parser = subparsers.add_parser(
         command._parsername_,
         parents=[base_parser],
-        help=help_text,
-        description=doc,
+        help=_escape_help(command.help),
+        description=_escape_description(command.description),
         add_help=True,
     )
+    # Mark this subparser's selection with a PRIVATE, per-parser dest
+    # rather than relying on the shared `command`/`_duho_command_` subparsers
+    # dest to name it. That dest is shared with every nested `_subcommands_`
+    # tree (a class command's own subparsers) AND any root field a user
+    # happens to declare -- `app()`'s dispatch used to read it via
+    # `getattr(instance, "command", None)`, so a nested `remote list` class
+    # subcommand silently ran the top-level `list.py` module command instead
+    # (same dest, same name), and a root `--command` field's value was
+    # overwritten by whichever subcommand ran. `set_defaults` only applies
+    # when THIS subparser is the one argparse actually selected, so `app()`
+    # can now identify "a module command was chosen, and this is which one"
+    # directly, with no dependence on any dest a user or a nested tree could
+    # ever collide with.
+    parser.set_defaults(_duho_module_command_=command)
+
+    # Snapshot the dest names already present (inherited root/global options
+    # via `parents=[base_parser]`, plus the auto-added `-h`/`--help`) BEFORE
+    # this command's own fields go on -- the difference is this subparser's
+    # OWN dests, stashed below for `duho.mcp` to build a schema/argv mapping
+    # from (a declared field that collides with an inherited global is
+    # silently SKIPPED by `_add_fields(strict=False)` just below, so it must
+    # not be treated as this command's own field either).
+    dests_before = {a.dest for a in parser._actions}
 
     args_cls = _module_args_cls(command, root_cls)
     if args_cls is not None:
@@ -407,10 +825,17 @@ def _register_module_command(
     if callable(register) and register is not _discovery_noop:
         try:
             if _wants_logger_arg(register):
-                logger = getattr(root_instance_args, "_logger_", None)
-                if not isinstance(logger, _logging.Logger):
-                    logger = _HOOK_LOGGER
-                register(parser, root_instance_args, logger)
+                # One resolution, shared with the rest of the module-command
+                # lifecycle: `command._logger_for` (the args instance's own
+                # `_logger_` if present, else the "duho" fallback) -- not a
+                # second, separately-maintained copy of that fallback.
+                logger = command._logger_for(root_instance_args)
+                if _wants_logger_by_keyword(register):
+                    # A keyword-only `logger` (`def register(parser, args, *,
+                    # logger)`) cannot be supplied positionally.
+                    register(parser, root_instance_args, logger=logger)
+                else:
+                    register(parser, root_instance_args, logger)
             else:
                 register(parser, root_instance_args)
         except _argparse.ArgumentError as exc:
@@ -420,22 +845,47 @@ def _register_module_command(
             # ``LoggingArgs``, or ``-h``/``-v``/``--version``) collides. argparse's
             # own message doesn't say it clashed with a *global*, and the crash
             # only appears once a command is moved onto ``app``'s inheritance --
-            # re-raise naming the command and the cause.
+            # re-raise naming the command and the cause. BUT only when the
+            # option string(s) argparse actually reports as conflicting are
+            # ones the ROOT owns (`base_parser`) -- a hook that collides with
+            # its own module-declared field, or adds the same flag twice, has
+            # nothing to do with an inherited global, and blaming one sends
+            # the author to look in the wrong place.
+            conflicting = _conflicting_option_strings(exc)
+            global_options = getattr(base_parser, "_option_string_actions", {})
+            if conflicting and any(opt in global_options for opt in conflicting):
+                raise _argparse.ArgumentError(
+                    None,
+                    f"command {command._parsername_!r}: its register() hook added "
+                    f"an option that collides with a global flag inherited from "
+                    f"the app root ({exc}). Every subcommand parser inherits the "
+                    f"root's global options (e.g. -h, -v, -q, --version); pick a "
+                    f"different flag in register().",
+                ) from exc
             raise _argparse.ArgumentError(
-                None,
-                f"command {command._parsername_!r}: its register() hook added an "
-                f"option that collides with a global flag inherited from the app "
-                f"root ({exc}). Every subcommand parser inherits the root's global "
-                f"options (e.g. -h, -v, -q, --version); pick a different flag in "
-                f"register().",
+                None, f"command {command._parsername_!r}: {exc}"
             ) from exc
+
+    # Stashed for `duho.mcp`'s MCP tool tree:
+    # `_duho_module_args_cls_` is the resolved declarative class (``None`` for
+    # a module with no ``Args``/only a ``register`` hook), reused for a
+    # richer JSON-Schema field mapping than the bare-action fallback;
+    # `_duho_module_own_dests_` is every dest THIS registration actually added
+    # (declared fields plus anything a ``register`` hook added directly),
+    # excluding inherited globals and `-h`/`--help` -- the set MCP maps
+    # tool-call arguments onto. Neither attribute is read anywhere else in
+    # this module; a module command's own dispatch contract is unaffected.
+    parser._duho_module_args_cls_ = args_cls  # type: ignore[attr-defined]
+    parser._duho_module_own_dests_ = {  # type: ignore[attr-defined]
+        a.dest for a in parser._actions
+    } - dests_before
 
     # A module command's subparser is a plain `add_parser()` instance --
     # never touched by `Args._initparser_`'s patching -- so it never got the
     # flag-between-positionals reorder fix declarative `Args`/`Cmd`
     # subcommands get. Patch it now that every field (declared + register
-    # hook) is in place, so `_has_variadic_and_sibling_positional` sees the
-    # parser's final shape.
+    # hook) is in place, so `_has_variadic_positional` sees the parser's
+    # final shape.
     _patch_parser_for_reorder(parser)
 
 
@@ -443,6 +893,7 @@ def _build_parser(
     root: "type | None",
     name: "str | None",
     description: "str | None",
+    config: "str | _Path | None" = None,
 ) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type]":
     """Build the top-level parser and a help-free base parser for ``root``.
 
@@ -450,6 +901,13 @@ def _build_parser(
     ``Args``/``LoggingArgs`` subclass supplying global options; ``None`` yields a
     bare data ``Args`` root so an app with only external commands still works.
     ``name`` / ``description`` override the parser prog / description when given.
+
+    ``config`` -- ``app()``'s own ``config=`` kwarg -- is passed through as a
+    hint (`_inherited_config_hint_`) even though it is applied to the parser
+    LATER, by `_apply_app_config_layers`: a root class declares no `_config_`
+    of its own still needs to know a config table is coming, so a layered
+    bool field gets the reversible `--no-*` form instead of a bare
+    ``store_true`` that can never turn a config-supplied ``True`` back off.
 
     The **base parser** carries the same global options but is built with
     ``add_help=False``. It is the one used as ``parents=`` for each subcommand:
@@ -464,115 +922,633 @@ def _build_parser(
         parser_kwargs["name"] = name
     if description is not None:
         parser_kwargs["description"] = description
-    parser = root_cls._parser_(**parser_kwargs)  # type: ignore[attr-defined]
-    base_parser = root_cls._parser_(add_help=False)  # type: ignore[attr-defined]
+    elif root is None:
+        # `root_cls` here is duho's OWN bare `Args` framework class (an app
+        # with no root, only discovered/explicit `commands=`), never
+        # something the user wrote -- `_parser_`'s `kwargs.setdefault
+        # ("description", cls.__doc__)` would otherwise leak `Args`'s OWN
+        # docstring (the framework's internal field-declaration contract) as
+        # this app's top-level `--help` description. Passing an explicit
+        # empty description here (rather than leaving it unset) pre-empts
+        # that `setdefault` for exactly this synthesized-root case, while a
+        # real user-supplied `root` class keeps using its own docstring as
+        # before.
+        parser_kwargs["description"] = ""
+    has_config = config is not None
+    parser = root_cls._parser_(  # type: ignore[attr-defined]
+        **parser_kwargs, _inherited_config_hint_=has_config
+    )
+    base_parser = root_cls._parser_(  # type: ignore[attr-defined]
+        add_help=False, _inherited_config_hint_=has_config
+    )
     # base_parser exists only to donate the root's *options* to each subcommand
     # via `parents=`. When the root carries `_subcommands_`, `_parser_` also gave
     # it a subparsers action -- inheriting that would nest the whole command tree
     # under every subcommand and make its `command` argument required again
     # ("Root greet ... {hello} ... error: the following arguments are required:
     # command"). Drop it; only optionals should flow downward.
-    _strip_subparsers(base_parser)
+    _parsers.strip_subparsers(base_parser)
     return parser, base_parser, root_cls
 
 
-def _strip_subparsers(parser: "_argparse.ArgumentParser") -> None:
-    """Remove any subparsers action from ``parser`` (used for parent donors)."""
-    subs = [
-        a for a in parser._actions  # type: ignore[attr-defined]
-        if isinstance(a, _argparse._SubParsersAction)  # type: ignore[attr-defined]
-    ]
-    for action in subs:
-        parser._actions.remove(action)  # type: ignore[attr-defined]
-        for group in parser._action_groups:  # type: ignore[attr-defined]
-            if action in group._group_actions:  # type: ignore[attr-defined]
-                group._group_actions.remove(action)  # type: ignore[attr-defined]
-
-
-def _existing_subparsers(
-    parser: "_argparse.ArgumentParser",
-) -> "_argparse._SubParsersAction | None":
-    """The parser's already-registered subparsers action, if it has one.
-
-    A root class carrying ``_subcommands_`` gets one from its own ``_parser_``;
-    argparse permits only a single subparsers action per parser, so callers must
-    reuse it instead of adding another."""
-    for action in parser._actions:  # type: ignore[attr-defined]
-        if isinstance(action, _argparse._SubParsersAction):  # type: ignore[attr-defined]
-            return action
-    return None
-
-
-def _deregister_subparser(
-    subparsers: "_argparse._SubParsersAction", name: str
-) -> None:
-    """Remove a previously-registered subparser ``name`` from ``subparsers``.
+def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) -> None:
+    """Remove a previously-registered subparser ``name``, and every alias of
+    the SAME subparser, from ``subparsers``.
 
     argparse's ``add_parser`` raises ``ArgumentError('conflicting subparser')``
-    on a duplicate name, so a later registration under the same name cannot
-    simply overwrite an earlier one. This drops the earlier registration from
-    the name->parser map and the help pseudo-actions so the later command can
-    register cleanly and win (see the collision handling in :func:`app`, M6).
+    (or, for an alias specifically, ``'conflicting subparser alias'`` on
+    3.11+) on a duplicate name/alias, so a later registration under the same
+    name cannot simply overwrite an earlier one. argparse registers a
+    class command's aliases (``_parseraliases_``) as EXTRA keys in
+    ``_name_parser_map`` pointing at the very same subparser object as its
+    primary name -- so an override that only popped ``name`` left every alias
+    of the LOSING command still dispatching to it. Deleting every key
+    whose value ``is`` that same parser object removes the primary name AND
+    every alias in one pass, whatever they're named, without this function
+    needing to know the losing command's own alias list.
     """
-    subparsers._name_parser_map.pop(name, None)  # type: ignore[attr-defined]
+    name_parser_map = subparsers._name_parser_map  # type: ignore[attr-defined]
+    parser_obj = name_parser_map.get(name)
+    if parser_obj is None:
+        return
+    dropped = [n for n, p in name_parser_map.items() if p is parser_obj]
+    for n in dropped:
+        name_parser_map.pop(n, None)
     subparsers._choices_actions = [  # type: ignore[attr-defined]
-        a for a in subparsers._choices_actions  # type: ignore[attr-defined]
-        if getattr(a, "dest", None) != name
+        a
+        for a in subparsers._choices_actions  # type: ignore[attr-defined]
+        if getattr(a, "dest", None) not in dropped
     ]
 
 
 def _apply_app_config_layers(
-    parser: "_argparse.ArgumentParser",
     root_cls: type,
     subparsers: "_argparse._SubParsersAction",
-    class_command_names: "dict[str, type]",
+    registry: "dict[str, tuple[str, object]]",
     raw_config: dict,
 ) -> None:
     """Thread env/config-file defaults down a ``Cli`` app's command tree.
 
-    ``duho.main``/``duho.parse`` route through ``_apply_default_layers``, which
-    walks a *statically declared* ``_subcommands_`` tree. ``app`` instead
-    registers commands from precedence-resolved sources (``commands`` /
-    ``discover_commands(source)`` / env), so its subcommand parsers are NOT
-    reachable via ``root_cls._subcommands_``. This helper reproduces the same
-    layering against the parsers ``app`` actually built:
+    ``duho.main``/``duho.parse``/``duho.parse_globals`` route through
+    ``args._apply_layers``, which stashes a class's own (and, recursively,
+    every STATICALLY declared ``_subcommands_`` descendant's own) config-table
+    slice on its parser, deferring actual conversion to that parser's own
+    ``_initparser_``-patched ``parse_known_args``. ``app``
+    registers commands from precedence-resolved sources instead of a static
+    tree, so its top-level subcommand parsers are not reachable that way --
+    this re-stashes against the parsers ``app`` actually built:
 
-    * the root TOML keys (top-level table) apply to ``root_cls``'s own fields on
-      ``parser``;
-    * each **class command**'s ``[<subcommand-name>]`` table applies to that
-      command's fields on its own subparser (looked up in the live
-      ``subparsers.choices``).
+    * a **class command** (and, via that SAME recursive stash, any of ITS OWN
+      nested ``_subcommands_``) is threaded the normal lazy way,
+      since its subparser IS built through ``_parser_``/``_initparser_``
+      (``_register_class_command`` already links it to the app root via
+      ``_duho_parent_parser_``, so its provenance merges upward too);
+    * a **module command** with a declared ``args_cls`` (since 0.4.1 a
+      module command may declare a module-level ``Args`` class) has NO
+      ``_initparser_`` hook at all (its subparser is a deliberately bare
+      stdlib one -- see this module's own docstring), so its table is applied
+      EAGERLY, immediately, rather than deferred.
 
-    Module commands declare no duho fields, so config tables don't apply to them
-    (a module reads its own settings via ``env``/its ``register`` hook). Config
-    is loaded ONCE. ``config`` (explicit arg) overrides ``root_cls._config_``,
-    mirroring ``duho.main``. Precedence stays CLI > env > config > class default,
-    and a supplied value un-requires its field, exactly as in ``args.py``.
+    A module command's own env/config-bound field, once laid on eagerly
+    above, gets the SAME "never show the live value" redaction a class
+    command's does: right after ``_apply_default_layers_one`` installs it,
+    ``duho.agenthelp.stash_default_provenance`` snapshots the class default
+    (and, when applicable, a value-free provenance note) onto each action,
+    for its own ``--help``/agent-help description to read later -- BEFORE
+    ``app()``'s own ``parser.parse_args(argv)`` runs (this whole function is
+    called from command-tree assembly, always before that), so it is in
+    place no matter which trigger fires. Passed this command's OWN
+    ``args_cls`` explicitly rather than relying on ``parser._duho_cls_``: a
+    module command's subparser deliberately has none (``duho.mcp`` also reads
+    that same attribute, to decide whether a node is callable -- a decision
+    this redaction has no business changing). ``duho.agenthelp`` is imported
+    lazily so a plain ``duho.app()`` call with no module command declaring
+    fields never pays for it.
 
-    ``raw_config`` is the already-loaded TOML table (``app`` loads it once so the
-    root layering can also run before the advisory prepass -- see C5).
+    **A bad env/config value never raises a raw traceback.**
+    ``_apply_default_layers_one`` raises ``ValueError`` `from None` (the
+    original conversion exception -- which may itself echo the raw,
+    possibly-secret value, e.g. ``int()``'s own error message -- is never
+    chained, so it can never surface via an uncaught exception's printed
+    cause). Left uncaught here, that ``ValueError`` would still propagate out
+    of ``app()`` itself and crash EVERY invocation (including `-h`) with exit
+    1 the moment any registered module command declares a bad env/config
+    value -- reported instead through this subcommand's own ``parser.error()``
+    (usage text + exit 2), the same contract the deferred, class-command path
+    already gets from `_finalize_layers`.
+
+    ``raw_config`` is the already-loaded TOML table (``app`` loads it once so
+    the root layering can also run before the advisory prepass).
     """
-    # Root fields: top-level keys + root env(NS(env=...)) defaults.
-    _apply_default_layers_one(parser, root_cls, raw_config)
+    from . import agenthelp as _agenthelp
 
-    # Class commands: each gets its own [<name>] table applied to its subparser.
     choices = subparsers.choices or {}
-    for name, command_cls in class_command_names.items():
+    for name, (kind, command) in registry.items():
         sub_parser = choices.get(name)
         if sub_parser is None:
             continue
-        sub_table = raw_config.get(name)
+        sub_table = raw_config.get(name) if raw_config else None
         sub_table = sub_table if isinstance(sub_table, dict) else {}
-        _apply_default_layers_one(sub_parser, command_cls, sub_table)
-        # Merge the class command's provenance up into the root parser so
-        # `value_sources` (which reads the root via `_duho_last_parser_`) sees a
-        # config value on a subcommand field instead of mislabeling it (C14).
-        parser._duho_value_sources_.update(  # type:ignore[attr-defined]
-            getattr(sub_parser, "_duho_value_sources_", {})
+        if kind == "class":
+            _stash_layer_state(sub_parser, command, sub_table)
+            continue
+        args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
+        if args_cls is not None:
+            try:
+                _apply_default_layers_one(sub_parser, args_cls, sub_table)
+            except ValueError as exc:
+                sub_parser.error(str(exc))
+                continue  # pragma: no cover - parser.error always raises SystemExit
+
+            _agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+        # Every module command's `-h` -- whether or not it declares its own
+        # `Args` -- gets this protection, not only one whose own field was
+        # just laid on above: a module command's subparser is a plain
+        # `add_parser()` instance with its own ordinary argparse `-h`/
+        # `--help` action -- it never goes through `args.py`'s
+        # `_install_agent_help`/`_AgentHelpAction` (this command
+        # deliberately has no `_duho_cls_` of its own; see this function's
+        # own docstring) -- so without this its help text would render a
+        # literal `%(default)s` straight from a live env/config value staged
+        # above, OR raise `KeyError` for a root-inherited option whose class
+        # default `_finalize_command_tree` already stashed onto it (see
+        # there), exactly like an unprotected class command's `-h` would.
+        _agenthelp.install_help_redaction(sub_parser)
+
+
+def _prepare_app_parser(
+    root: "type | None",
+    name: "str | None",
+    description: "str | None",
+    config: "str | _Path | None",
+    argv: "_ty.Sequence[str] | None",
+    resolved_commands: "list[_Command]",
+) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type, dict, object]":
+    """Build :func:`app`'s top-level parser and run its advisory prepass.
+
+    Returns ``(parser, base_parser, root_cls, raw_config, prepass_args)``.
+    Everything here happens BEFORE any command is actually registered:
+    building the parser pair (:func:`_build_parser`), resolving and stashing
+    the root's own config-layer slice, and -- only when at least one resolved
+    command is a module command -- running the best-effort prepass that
+    offers a module ``register`` hook the already-parsed globals. Split out
+    of :func:`app`; no behavior change, the full suite is the guard.
+    """
+    parser, base_parser, root_cls = _build_parser(root, name, description, config)
+
+    # Resolve the config table ONCE (a not-yet-created class-level
+    # `_config_` is skipped, not a crash) and stash the root's own slice on
+    # `parser` up front, BEFORE the advisory prepass. Actual conversion is
+    # deferred to `parser`'s own `_initparser_`-patched `parse_known_args`,
+    # which the prepass below already triggers -- so a
+    # required global supplied by config/env still reaches it and does not
+    # hard-exit with a usage error. `_apply_app_config_layers` (called
+    # after registration) re-stashes it (idempotent) alongside each command's
+    # own table.
+    raw_config: dict = _resolve_config_dict(root_cls, config)
+    _stash_layer_state(parser, root_cls, raw_config)
+
+    # A prepass parsed root instance is offered to module ``register`` hooks so a
+    # hook that wants the already-parsed globals can read them. It is a
+    # best-effort prepass: `prerun_parse` detaches `parser`'s subparsers action
+    # for the call (restoring it before returning, so registration below still
+    # sees it) -- which is what makes this safe to run even when `root` already
+    # has built-in `_subcommands_` (previously a KeyError('#cls') here, from the
+    # relaxed subparsers action re-entering this same parser's own patched
+    # parse_known_args and double-popping the selection marker) -- and
+    # `quiet=True` so a required/unknown-arg error, and every terminal action
+    # (--version, --print-completion, --help-agents, -h/--help), stays fully
+    # silent here; the real parse below is what actually reports/prints,
+    # exactly once. Most register hooks ignore the parsed globals
+    # entirely and just add static args.
+    prepass_args: object = None
+    if any(_is_module_command(c) for c in resolved_commands):
+        try:
+            from .parsers import prerun_parse as _prerun_parse
+
+            prepass_args = _prerun_parse(parser, argv, quiet=True)
+        except SystemExit:
+            # A required- or unknown-arg error (raised silently, since
+            # quiet=True) must not abort the whole app: degrade to no prepass
+            # and let the real parse below report it authoritatively.
+            prepass_args = None
+        except Exception:
+            # Fully swallowed by design, which also hides a genuinely broken
+            # parser from the author; DUHO_TRACEBACK=1 surfaces it at DEBUG.
+            _duho_logging.log_exception(
+                _LOGGER,
+                "advisory register prepass raised; continuing without it",
+                level=_logging.DEBUG,
+            )
+            prepass_args = None
+
+    return parser, base_parser, root_cls, raw_config, prepass_args
+
+
+def _register_commands(
+    root: "type | None",
+    resolved_commands: "list[_Command]",
+    parser: "_argparse.ArgumentParser",
+    base_parser: "_argparse.ArgumentParser",
+    root_cls: type,
+    prepass_args: object,
+    cmds_path_overridden: "set[str]",
+    inherited_config_hint: bool = False,
+) -> "tuple[_argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]]":
+    """Register every resolved command on ``parser`` and resolve collisions.
+
+    Returns ``(subparsers, registry, notices)``. ``registry`` (PRIMARY names
+    only) is later consumed by :func:`_apply_app_config_layers`; ``notices``
+    collects override/collision log records for :func:`app` to flush once
+    logging is actually configured. Split out of :func:`app`;
+    no behavior change, the full suite is the guard.
+
+    ``inherited_config_hint`` is ``app()``'s own ``config is not None``,
+    forwarded to :func:`_register_class_command` for every dynamically
+    resolved class command (``commands=``/``source=``/CMDS_PATH) -- see that
+    function's docstring for why a command resolved this way needs it too,
+    not just one reachable via a root's static ``_subcommands_`` tree.
+    """
+    notices: "list[tuple[int, str]]" = []
+
+    # Map each subcommand name to (kind, command) in ONE registry so registration
+    # and dispatch agree. A name registered twice (e.g. a module command and a
+    # class command sharing a name) warns naming both; the LAST registration wins
+    # -- the earlier subparser is deregistered so argparse does not raise
+    # `conflicting subparser`, and dispatch resolves via this same registry.
+    # `registry` stays keyed by PRIMARY names only (its shape `_apply_app_config_
+    # layers` below relies on, one config-table lookup per canonical subcommand
+    # name). `claimed` mirrors it but also carries every class command's
+    # ALIASES (`_full_names`), so the collision check below catches an alias
+    # clash too, not just a primary-name one.
+    registry: "dict[str, tuple[str, object]]" = {}
+    claimed: "dict[str, tuple[str, object]]" = {}
+
+    # A root class with `_subcommands_` already had them registered by its own
+    # `_parser_`, which created a subparsers action. argparse allows only one per
+    # parser ("cannot have multiple subparser arguments"), so reuse that action
+    # rather than adding a second -- otherwise a root with built-ins could not
+    # also take discovered commands (CMDS_PATH being additive depends on this).
+    # Re-registering a name is safe: `_deregister_subparser` drops the earlier
+    # entry so the later one wins.
+    subparsers = _parsers.find_subparsers(parser)
+    if subparsers is None:
+        # A private dest -- matches the one a class root's own
+        # static `_subcommands_` tree uses (`Args._parser_`) -- so a root
+        # field a user happens to name `command` is never silently
+        # overwritten by subcommand selection. Dispatch below no longer reads
+        # this dest at all (a module command is identified by its own
+        # `_duho_module_command_` marker instead); it exists purely so
+        # argparse can enforce "a subcommand is required".
+        subparsers = parser.add_subparsers(
+            title="command", dest="_duho_command_", required=True
         )
-        parser._duho_merged_defaults_.update(  # type:ignore[attr-defined]
-            getattr(sub_parser, "_duho_merged_defaults_", {})
+    else:
+        # Names the root's own `_parser_` already wired up. Re-registering one
+        # here would drop its `"#cls"` selection hook and break dispatch, so skip
+        # any resolved command that is already present and identical -- only a
+        # genuinely different command (a CMDS_PATH override) re-registers.
+        preregistered = set(subparsers._name_parser_map)  # type: ignore[attr-defined]
+        builtin_by_name = {
+            _command_name(c): c
+            for c in (getattr(root, "_subcommands_", []) or [])
+            if _command_name(c)
+        }
+        resolved_commands = [
+            c
+            for c in resolved_commands
+            if not (
+                _command_name(c) in preregistered
+                and builtin_by_name.get(_command_name(c)) is c
+            )
+        ]
+        # Seed `registry` with the root's own pre-registered builtins so the
+        # collision-check loop below (keyed on `cmd_name in registry`) also
+        # catches a genuinely DIFFERENT command overriding one of THESE names
+        # -- not just a collision between two commands both resolved in the
+        # loop itself. Without this, a CMDS_PATH override of a preregistered
+        # builtin skips `_deregister_subparser` entirely (registry looked
+        # empty for that name) and argparse's own `add_parser` raises
+        # `conflicting subparser` when the loop tries to register the
+        # override under the same, still-occupied name.
+        for builtin_name, builtin_command in builtin_by_name.items():
+            if builtin_name in preregistered:
+                registry[builtin_name] = ("class", builtin_command)
+                for n in _full_names(builtin_command, builtin_name, "class"):
+                    if n in preregistered:
+                        claimed[n] = ("class", builtin_command)
+    for command in resolved_commands:
+        if _is_class_command(command):
+            cmd_name = _command_name(command)
+            kind: str = "class"
+        elif _is_module_command(command):
+            cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
+            kind = "module"
+        else:
+            # A provider/caller can hand `commands=`/`source=` anything;
+            # silently dropping a non-command (behind a "can't happen" pragma
+            # that coverage proved wrong) left the user staring at argparse's
+            # bare "invalid choice ... (choose from )" with no hint why.
+            raise TypeError(
+                f"app(): expected a Cmd subclass or a discovered ModuleCommand, "
+                f"got {command!r} ({type(command).__name__})"
+            )
+
+        names = _full_names(command, cmd_name, kind)
+        colliding: "dict[int, tuple[str, object]]" = {}
+        for n in names:
+            prev = claimed.get(n)
+            if prev is not None:
+                colliding.setdefault(id(prev[1]), prev)
+
+        for prev_kind, prev_obj in colliding.values():
+            prev_name = _command_name(prev_obj)
+            if cmd_name not in cmds_path_overridden:
+                # Not the documented CMDS_PATH-overrides-a-base-command story
+                # (that one is reported once via `cmds_path_overridden` below,
+                # after logging is set up) -- a genuine, otherwise-silent
+                # collision between two independently-resolved commands.
+                notices.append(
+                    (
+                        _logging.WARNING,
+                        "command name %r registered by more than one source "
+                        "(%s %r, then %s %r); the last registration wins."
+                        % (
+                            prev_name,
+                            prev_kind,
+                            getattr(prev_obj, "__name__", prev_obj),
+                            kind,
+                            getattr(command, "__name__", command),
+                        ),
+                    )
+                )
+            _deregister_subparser(subparsers, prev_name)
+            for n in list(registry):
+                if registry[n][1] is prev_obj:
+                    del registry[n]
+            for n in list(claimed):
+                if claimed[n][1] is prev_obj:
+                    del claimed[n]
+
+        if kind == "class":
+            command_cls = _ty.cast(type, command)
+            child_parser = _register_class_command(
+                subparsers,
+                command_cls,
+                base_parser,
+                inherited_config_hint=inherited_config_hint,
+            )
+            # Link this class command's own parser to the app root
+            # so its (and, recursively, any of ITS OWN nested subcommands')
+            # provenance merges upward once actually selected -- the same
+            # mechanism the static `_subcommands_` tree gets in `Args._parser_`.
+            child_parser._duho_parent_parser_ = parser  # type: ignore[attr-defined]
+        else:
+            _register_module_command(
+                subparsers,
+                _ty.cast(_ModuleCommand, command),
+                base_parser,
+                prepass_args,
+                root_cls,
+            )
+        registry[cmd_name] = (kind, command)
+        for n in names:
+            claimed[n] = (kind, command)
+
+    # Same rule `Args._parser_` applies to its own static `_subcommands_`
+    # tree: without an explicit `metavar`, argparse falls back to the
+    # ACTION'S DEST (never `choices`) for its "required"/"invalid choice"
+    # ERROR text, leaking the private `_duho_command_` dest. Set it from the
+    # FINAL registry (primary names only, sorted for a deterministic
+    # message) now that every command -- static builtins and CMDS_PATH-
+    # discovered alike -- is registered.
+    subparsers.metavar = "{" + ",".join(sorted(registry)) + "}"
+
+    return subparsers, registry, notices
+
+
+def _finalize_command_tree(
+    parser: "_argparse.ArgumentParser",
+    subparsers: "_argparse._SubParsersAction",
+    root_cls: type,
+    registry: "dict[str, tuple[str, object]]",
+    raw_config: dict,
+) -> "list[_argparse.Action]":
+    """Suppress inherited root defaults and thread config/env layers down.
+
+    Returns ``required_root_actions`` -- the root's own required-global
+    actions un-required here so a value given AFTER the subcommand, or
+    supplied by config/env, is not rejected; :func:`app` re-checks these
+    against the parsed instance once parsing is done. Split out of
+    :func:`app`; no behavior change, the full suite is the guard.
+    """
+    from . import formatters as _formatters
+
+    # Suppress the root's own optional dests on every registered subparser so an
+    # option given BEFORE the subcommand (or supplied by the root env/config
+    # layer) is not clobbered by the child's inherited default. This is the
+    # `app()` analogue of the suppression `Args._parser_` performs for a static
+    # `_subcommands_` tree.
+    root_builders = {b.name: b for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+    root_dests = set(root_builders)
+    # Pass each root field's EFFECTIVE default so `_suppress_inherited_defaults`
+    # keeps a child's DELIBERATELY redeclared default instead of suppressing
+    # it back to the root's -- `Args._parser_` already does this for the static
+    # `_subcommands_` tree; app()'s own call site had not.
+    root_defaults = {n: b._effective_default_() for n, b in root_builders.items()}
+    # A required global given AFTER the subcommand is otherwise rejected --
+    # `parents=[base_parser]` copies the root's option ACTIONS onto every child
+    # (shared objects, not copies), so un-requiring only the child's copy below
+    # leaves the ROOT's own separate action (built when `parser` itself was
+    # constructed) still `required=True`; that one is never "seen" when the flag
+    # arrives in the subcommand's argv slice, so argparse reports it missing.
+    # Un-require the root's own copies here and enforce presence AFTER the real
+    # parse instead (root value, child value, or a config/env layer all count).
+    required_root_actions = [
+        a
+        for a in parser._actions
+        if a.dest in root_dests and a.option_strings and getattr(a, "required", False)
+    ]
+    for action in required_root_actions:
+        action.required = False
+        # Un-requiring the action for enforcement's sake also made argparse's
+        # own usage renderer show it as `[--opt]` (optional) -- flag it so
+        # `formatters.install_required_usage_formatter` (installed on
+        # `parser` below) still renders it as required in `--help`/usage
+        # text without re-enabling argparse's own (now redundant, and
+        # differently timed) rejection.
+        action._duho_display_required_ = True  # type: ignore[attr-defined]
+    _formatters.install_required_usage_formatter(parser)
+    for sub_parser in (subparsers.choices or {}).values():
+        _suppress_inherited_defaults(sub_parser, root_dests, root_defaults)
+        # `parents=[base_parser]` copies EVERY root option onto each subparser,
+        # including *required* globals. `_suppress_inherited_defaults` skips
+        # required actions (correct for the static tree, whose children don't
+        # inherit root options as their own actions). Here the root parser owns
+        # and enforces the required global; a child must not independently
+        # re-require it (which would error even when it was given before the
+        # subcommand or supplied by a config/env layer). Suppress + un-require
+        # the child's inherited copy so the root's value flows through.
+        for action in sub_parser._actions:
+            if (
+                action.dest in root_dests
+                and action.option_strings
+                and getattr(action, "required", False)
+            ):
+                action.required = False
+                action.default = _argparse.SUPPRESS
+                action._duho_display_required_ = True  # type: ignore[attr-defined]
+        _formatters.install_required_usage_formatter(sub_parser)
+        # A root-inherited option's default may now be `_argparse.SUPPRESS`
+        # (set just above for a formerly-required global, or by
+        # `_suppress_inherited_defaults` for an optional one) so the child's
+        # absence of the flag defers to whatever the root/parent actually
+        # parsed. But argparse's OWN raw `%(default)s` expansion
+        # (`HelpFormatter._expand_help`) reads `action.default` DIRECTLY and
+        # deletes the `default` key from its format params whenever it is
+        # SUPPRESS -- so a root global's help text that spells the
+        # placeholder literally (e.g. `"root %(default)s"`) raised
+        # `KeyError('default')` rendering ANY subcommand's `-h` under
+        # `app()`, even with no env/config involved (this is real argparse
+        # `parents=` inheritance, unlike the static `_subcommands_` tree,
+        # which never copies a parent's Actions at all -- see this
+        # function's own docstring). Stash the ROOT's own class default
+        # directly on the action so `duho.agenthelp`'s
+        # `redact_action_defaults` -- already installed on every class
+        # command's `-h` via `_AgentHelpAction`, and on every module
+        # command's via `install_help_redaction` in
+        # `_apply_app_config_layers` -- substitutes a real value back onto
+        # `action.default` for the duration of the render. This dest is
+        # never in the CHILD class's own `_getargs_()` (it belongs to the
+        # root), so `stash_default_provenance`'s own builder-keyed stash
+        # never reaches it and never overwrites what's set here.
+        for action in sub_parser._actions:
+            if action.dest in root_dests and action.default is _argparse.SUPPRESS:
+                action._duho_class_default_ = root_defaults.get(  # type: ignore[attr-defined]
+                    action.dest
+                )
+                action._duho_default_source_ = None  # type: ignore[attr-defined]
+        # A `commands=`/`source=` class command's subparser
+        # shares the root's Action OBJECTS via `parents=[base_parser]` --
+        # `_suppress_inherited_defaults` correctly leaves a differing child
+        # default alone, but the shared action's OWN `.default` still needs
+        # setting to THAT child's value (a static `_subcommands_` child, built
+        # with its own dedicated actions, already gets this for free above).
+        command_cls = getattr(sub_parser, "_duho_cls_", None)
+        if command_cls is not None and command_cls is not root_cls:
+            child_defaults = {
+                b.name: b._effective_default_() for b in command_cls._getargs_()
+            }
+            differing = {
+                n: v
+                for n, v in child_defaults.items()
+                if n in root_defaults and v != root_defaults[n]
+            }
+            if differing:
+                sub_parser.set_defaults(**differing)
+
+    # Thread env/config-file defaults down the app's command tree (a Cli root's
+    # `_config_`, or an explicit `config`, plus each command's NS(env=...)
+    # fields). This is app()'s analogue of the `args._apply_layers` call that
+    # `duho.main`/`duho.parse` make; app() resolves commands from sources that
+    # aren't reachable via `root._subcommands_`, so it layers against the
+    # parsers actually built here. See `_apply_app_config_layers`.
+    _apply_app_config_layers(root_cls, subparsers, registry, raw_config)
+
+    return required_root_actions
+
+
+def _run_app(
+    parser: "_argparse.ArgumentParser",
+    argv: "_ty.Sequence[str] | None",
+    env: "_Env | None",
+    setup_logging: bool,
+    root_cls: type,
+    required_root_actions: "list[_argparse.Action]",
+    cmds_path_overridden: "set[str]",
+    notices: "list[tuple[int, str]]",
+    run: "_ty.Callable[[_Command, object], int]",
+) -> int:
+    """Parse ``argv``, finish per-invocation setup, and dispatch one command.
+
+    The real ``parse_args`` call, the required-global re-check,
+    attaching ``_env_``, logging setup, flushing the deferred override/
+    collision notices, and resolving + running the selected command
+    (module vs class). Split out of :func:`app`; no behavior change,
+    the full suite is the guard.
+    """
+    instance = parser.parse_args(argv)
+
+    # A root required global un-required above must still
+    # have ended up with a real value from SOMEWHERE (the root itself, a child
+    # given the flag after the subcommand, or a config/env layer) -- report it
+    # the same way argparse's own required-arguments check would.
+    missing_required = [
+        a for a in required_root_actions if getattr(instance, a.dest, None) is None
+    ]
+    if missing_required:
+        parser.error(
+            "the following arguments are required: "
+            + ", ".join(
+                a.option_strings[0] if a.option_strings else a.dest
+                for a in missing_required
+            )
         )
+
+    # Make the resolved app-wide `Env` reachable from the dispatched command via
+    # the sandwich-named `_env_` handle (never a user field). A command reads
+    # `self._env_` for app-level settings; None when no env was passed.
+    try:
+        instance._env_ = env  # type: ignore[attr-defined]
+    except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
+        pass
+
+    _setup_instance_logging(instance, setup_logging, root_cls)
+
+    # Flush every deferred override/collision notice now that logging is
+    # actually configured -- an INFO emitted earlier, before any
+    # handler existed, would have been silently lost even under `-vv`
+    # (`logging.lastResort` only prints WARNING and above). The intentional,
+    # documented CMDS_PATH-over-a-base-command override is INFO; anything
+    # else the registration loop collected (two independently-resolved
+    # commands genuinely colliding) is WARNING -- and it alone, not both, so
+    # the documented override no longer warns on every run.
+    for overridden_name in sorted(cmds_path_overridden):
+        _LOGGER.info("CMDS_PATH command %r overrides the built-in", overridden_name)
+    for level, message in notices:
+        _LOGGER.log(level, message)
+
+    # Resolve which command was selected. A class command selection yields a
+    # constructed instance that IS the command (a Cmd subclass); a module
+    # command selection leaves ``instance`` as the root instance, identified
+    # by the private ``_duho_module_command_`` marker its OWN subparser set
+    # via ``set_defaults`` -- NOT by any shared ``command``/
+    # ``_duho_command_`` dest, which a nested ``_subcommands_`` tree sharing
+    # a subcommand's name, or a root field a user happens to call ``command``,
+    # could otherwise silently redirect dispatch through. ``pop`` (mirroring
+    # the ``"#cls"`` sidecar convention) keeps this framework bookkeeping out
+    # of ``vars(instance)``.
+    module_command = _ty.cast(
+        "_ModuleCommand | None", vars(instance).pop("_duho_module_command_", None)
+    )
+
+    if module_command is not None:
+        # run_command owns the full lifecycle (init -> main -> success/finally_).
+        # Don't pre-build the context here or init would run twice. When a custom
+        # `dispatch` was supplied it replaces this final run step (default is
+        # `run_command`); it receives the resolved ModuleCommand and the instance.
+        return run(module_command, instance)
+
+    # Class command (or the root itself if it is a runnable Cmd): dispatch the
+    # parsed instance directly. It is already the deepest selected Cmd.
+    if not isinstance(instance, _Cmd):
+        raise NotImplementedError(
+            f"{type(instance).__name__} holds data but is not runnable "
+            f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
+            f"build one with duho.command(...)) to run it, or register runnable "
+            f"commands"
+        )
+    return run(_ty.cast(_Command, type(instance)), instance)
 
 
 def app(
@@ -584,11 +1560,13 @@ def app(
     argv: "_ty.Sequence[str] | None" = None,
     name: "str | None" = None,
     description: "str | None" = None,
-    env: object = None,
+    env: "_Env | None" = None,
     config: "str | _Path | None" = None,
     setup_logging: bool = True,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
-) -> int:
+    mcp: "bool | None" = None,
+    mcp_command: "str | bool | None" = None,
+) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
     ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
@@ -600,6 +1578,16 @@ def app(
     base was used -- a layer, not a branch reachable only when no other source
     is given -- extending the base rather than replacing it, with a discovered
     command overriding a same-named base command (logged, never silent).
+
+    **Additive, not exclusive.** ``root``'s own declared
+    ``_subcommands_`` are ALWAYS registered too (``app`` reuses the
+    subparsers action ``root_cls._parser_()`` already built for them), no
+    matter what ``commands``/``source``/``entry_points`` was passed --
+    passing one of those does not remove or replace a root's built-ins, it
+    only adds alongside them (see :func:`_resolve_commands` for the exact
+    contract). Give ``root`` no ``_subcommands_`` of its own (or pass
+    ``root=None``) for an app whose ONLY commands are the ones explicitly
+    resolved here.
 
     ``entry_points`` is an installed-distribution entry-point **group** name
     (e.g. ``"myapp.commands"``): every entry point advertised in that group by an
@@ -622,10 +1610,10 @@ def app(
 
     Parsing goes through the root parser's patched ``parse_known_args`` (from
     ``_initparser_``), so ``"#cls"`` selection, ``_passthrough_`` capture, and
-    the layered instance construction all apply. When ``setup_logging`` and the
-    parsed instance exposes ``_set_loglevels_`` (``LoggingArgs``), stderr logging
-    is initialised (unless the root logger already has handlers) and verbosity
-    applied -- identical to ``duho.main``.
+    the layered instance construction all apply. When ``setup_logging``,
+    stderr logging is initialised and verbosity applied -- identical to
+    ``duho.main``, including its fallback for a plain ``Cmd`` command
+    selected under a ``LoggingArgs`` root (see ``_setup_instance_logging``).
 
     **Config/env thread-down.** Before parsing, env/config-file defaults are
     layered onto the root and every class command's fields (precedence CLI > env
@@ -638,10 +1626,12 @@ def app(
     dispatched instance as the sandwich-named ``_env_`` handle, so a command can
     read app-wide settings via ``self._env_``.
 
-    The selected command is dispatched via :func:`run_command`; its int return is
+    The selected command is dispatched via :func:`run_command`; its return is
     this function's return (success -> ``0``, a ``main`` returning ``2`` ->
-    ``2``). Discovery is resilient: a single unimportable command drops out with a
-    warning and the rest still run.
+    ``2``, and any OTHER non-``None`` value a command returns passes straight
+    through unchanged -- hence the ``Any`` return type, not ``int``). Discovery
+    is resilient: a single unimportable command drops out with a warning and
+    the rest still run.
 
     **The ``dispatch`` seam.** ``app`` owns discovery, parser build, command
     registration, config/env thread-down, parsing, and logging setup. The final
@@ -657,215 +1647,233 @@ def app(
     ``instance`` the default path would run) is reused rather than re-derived. When
     ``dispatch`` is ``None`` the behavior is byte-identical to calling
     :func:`run_command` directly, so existing callers are unaffected.
+
+    **MCP launch trigger.** Checked FIRST, before ``argv``
+    is parsed or anything else here runs: a ``<PREFIX>MCP``/``<NAME>_MCP``
+    environment variable (name derived from ``env``'s prefix, else from
+    ``root``/``name``/``argv[0]``/``root``'s class name -- see
+    ``duho.args._mcp_env_var_name``) set to ``"stdio"`` serves this app's
+    FULL resolved tree (class and module commands alike) as an MCP server
+    over stdio instead of running any command, returning the server's own
+    exit code. ``mcp=False`` (or ``root``'s own ``_mcp_ = False``) disables
+    this trigger entirely -- the variable, if set, is left untouched and a
+    normal run proceeds. See :func:`duho.args._maybe_serve_mcp_trigger` for
+    the full contract (env var removal, unsupported-transport handling,
+    lazy ``duho.mcp`` import).
+
+    **Opt-in MCP subcommand** (``mcp_command``). ``None`` (the
+    default) uses ``root``'s own ``_mcp_command_`` class attribute
+    (``False`` unless declared); an explicit ``True``/``False``/``str`` here
+    wins over it. See :func:`_resolve_mcp_command_name` for the exact
+    name/validation rules. When resolved to a name, ``duho.mcp.McpCmd`` is
+    registered under it like any other class command -- it goes through the
+    SAME collision/override accounting every other resolved command does
+    (:func:`_register_commands`), except a collision with an EXISTING name
+    is a build-time ``ValueError`` here (an explicit opt-in must not
+    silently lose to it), and it requires this app to already have at least
+    one other subcommand (a subparsers action that would ONLY ever offer
+    ``mcp`` is not a meaningful CLI). ``duho.mcp`` is imported only once a
+    name is actually resolved.
     """
+    root_cls_for_mcp = root if root is not None else _Args
+    mcp_enabled = mcp if mcp is not None else getattr(root_cls_for_mcp, "_mcp_", True)
+    if mcp_enabled:
+
+        def _mcp_core_for_this_app() -> object:
+            from . import mcp as _mcp_module
+
+            return _mcp_module._core_for_app(
+                root,
+                commands=commands,
+                source=source,
+                entry_points=entry_points,
+                argv=argv,
+                name=name,
+                description=description,
+                env=env,
+                config=config,
+            )
+
+        served = _maybe_serve_mcp_trigger(
+            root_cls_for_mcp, env=env, name=name, core_factory=_mcp_core_for_this_app
+        )
+        if served is not None:
+            return served
+
     run = dispatch if dispatch is not None else run_command
-    resolved_commands = _resolve_commands(root, commands, source, env, entry_points)
-
-    parser, base_parser, root_cls = _build_parser(root, name, description)
-
-    # Load the config table ONCE and apply the root-level layers up front, BEFORE
-    # the advisory prepass. This lets a required global supplied by config/env
-    # reach the prepass parse so it does not hard-exit with a usage error (C5);
-    # `_apply_app_config_layers` re-applies it (idempotent) alongside each class
-    # command's own table after registration.
-    config_path = config if config is not None else getattr(root_cls, "_config_", None)
-    config_loader = getattr(root_cls, "_config_loader_", None)
-    raw_config: dict = (
-        _load_config(config_path, config_loader) if config_path is not None else {}
-    )
-    _apply_default_layers_one(parser, root_cls, raw_config)
-
-    # A prepass parsed root instance is offered to module ``register`` hooks so a
-    # hook that wants the already-parsed globals can read them. It is a
-    # best-effort, help-suppressed prepass (nested-help gotcha handled by the
-    # existing prerun_parse); most register hooks ignore it and add static args.
-    prepass_args: object = None
-    if any(_is_module_command(c) for c in resolved_commands):
-        try:
-            from .parsers import prerun_parse as _prerun_parse
-
-            prepass_args = _prerun_parse(parser, argv)
-        except SystemExit:
-            # The prepass is advisory (help is disabled inside prerun_parse, so a
-            # SystemExit here is never a user-requested --help). A required- or
-            # unknown-arg exit must not abort the whole app: degrade to no prepass
-            # and let the real parse below report errors authoritatively (C5).
-            prepass_args = None
-        except Exception:  # pragma: no cover - prepass is advisory only
-            # Fully swallowed by design, which also hides a genuinely broken
-            # parser from the author; DUHO_TRACEBACK=1 surfaces it at DEBUG.
-            _duho_logging.log_exception(
-                _LOGGER,
-                "advisory register prepass raised; continuing without it",
-                level=_logging.DEBUG,
-            )
-            prepass_args = None
-
-    # Map each subcommand name to (kind, command) in ONE registry so registration
-    # and dispatch agree. A name registered twice (e.g. a module command and a
-    # class command sharing a name) warns naming both; the LAST registration wins
-    # -- the earlier subparser is deregistered so argparse does not raise
-    # `conflicting subparser`, and dispatch resolves via this same registry (M6).
-    registry: "dict[str, tuple[str, object]]" = {}
-
-    # A root class with `_subcommands_` already had them registered by its own
-    # `_parser_`, which created a subparsers action. argparse allows only one per
-    # parser ("cannot have multiple subparser arguments"), so reuse that action
-    # rather than adding a second -- otherwise a root with built-ins could not
-    # also take discovered commands (CMDS_PATH being additive depends on this).
-    # Re-registering a name is safe: `_deregister_subparser` drops the earlier
-    # entry so the later one wins.
-    subparsers = _existing_subparsers(parser)
-    if subparsers is None:
-        subparsers = parser.add_subparsers(
-            title="command", dest="command", required=True
-        )
-    else:
-        # Names the root's own `_parser_` already wired up. Re-registering one
-        # here would drop its `"#cls"` selection hook and break dispatch, so skip
-        # any resolved command that is already present and identical -- only a
-        # genuinely different command (a CMDS_PATH override) re-registers.
-        preregistered = set(subparsers._name_parser_map)  # type: ignore[attr-defined]
-        builtin_by_name = {
-            _command_name(c): c
-            for c in (getattr(root, "_subcommands_", []) or [])
-            if _command_name(c)
-        }
-        resolved_commands = [
-            c for c in resolved_commands
-            if not (
-                _command_name(c) in preregistered
-                and builtin_by_name.get(_command_name(c)) is c
-            )
-        ]
-        # Seed `registry` with the root's own pre-registered builtins so the
-        # collision-check loop below (keyed on `cmd_name in registry`) also
-        # catches a genuinely DIFFERENT command overriding one of THESE names
-        # -- not just a collision between two commands both resolved in the
-        # loop itself. Without this, a CMDS_PATH override of a preregistered
-        # builtin skips `_deregister_subparser` entirely (registry looked
-        # empty for that name) and argparse's own `add_parser` raises
-        # `conflicting subparser` when the loop tries to register the
-        # override under the same, still-occupied name.
-        for name, builtin_command in builtin_by_name.items():
-            if name in preregistered:
-                registry[name] = ("class", builtin_command)
-    for command in resolved_commands:
-        if _is_class_command(command):
-            cmd_name = _command_name(command)
-            kind: str = "class"
-        elif _is_module_command(command):
-            cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
-            kind = "module"
-        else:  # pragma: no cover - resolver only yields the two kinds
-            continue
-
-        if cmd_name in registry:
-            prev_kind, prev_obj = registry[cmd_name]
-            _LOGGER.warning(
-                "command name %r registered by more than one source "
-                "(%s %r, then %s %r); the last registration wins.",
-                cmd_name,
-                prev_kind,
-                getattr(prev_obj, "__name__", prev_obj),
-                kind,
-                getattr(command, "__name__", command),
-            )
-            _deregister_subparser(subparsers, cmd_name)
-
-        if kind == "class":
-            command_cls = _ty.cast(type, command)
-            _register_class_command(subparsers, command_cls, base_parser)
-        else:
-            _register_module_command(
-                subparsers,
-                _ty.cast(_ModuleCommand, command),
-                base_parser,
-                prepass_args,
-                root_cls,
-            )
-        registry[cmd_name] = (kind, command)
-
-    # Suppress the root's own optional dests on every registered subparser so an
-    # option given BEFORE the subcommand (or supplied by the root env/config
-    # layer) is not clobbered by the child's inherited default (C4). This is the
-    # `app()` analogue of the suppression `Args._parser_` performs for a static
-    # `_subcommands_` tree.
-    root_dests = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
-    for sub_parser in (subparsers.choices or {}).values():
-        _suppress_inherited_defaults(sub_parser, root_dests)
-        # `parents=[base_parser]` copies EVERY root option onto each subparser,
-        # including *required* globals. `_suppress_inherited_defaults` skips
-        # required actions (correct for the static tree, whose children don't
-        # inherit root options as their own actions). Here the root parser owns
-        # and enforces the required global; a child must not independently
-        # re-require it (which would error even when it was given before the
-        # subcommand or supplied by a config/env layer). Suppress + un-require
-        # the child's inherited copy so the root's value flows through (C5/C4).
-        for action in sub_parser._actions:
-            if (
-                action.dest in root_dests
-                and action.option_strings
-                and getattr(action, "required", False)
-            ):
-                action.required = False
-                action.default = _argparse.SUPPRESS
-
-    # Thread env/config-file defaults down the app's command tree (a Cli root's
-    # `_config_`, or an explicit `config`, plus each command's NS(env=...)
-    # fields). This is app()'s analogue of the `_apply_default_layers` call that
-    # `duho.main`/`duho.parse` make; app() resolves commands from sources that
-    # aren't reachable via `root._subcommands_`, so it layers against the
-    # parsers actually built here. See `_apply_app_config_layers`.
-    class_commands_by_name = {
-        n: _ty.cast(type, obj) for n, (k, obj) in registry.items() if k == "class"
-    }
-    _apply_app_config_layers(
-        parser, root_cls, subparsers, class_commands_by_name, raw_config
+    # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
+    # Collected rather than logged immediately: at this point in `app()` no
+    # logging handler has been installed yet, so an immediate `_LOGGER.info`
+    # would be emitted into the void -- flushed once `_run_app` has set
+    # up logging. Also used by `_register_commands` to recognize that a
+    # registry collision for the SAME name is this very (intentional,
+    # already-accounted-for) override, not a second, independent one worth
+    # its own warning.
+    cmds_path_overridden: "set[str]" = set()
+    resolved_commands = _resolve_commands(
+        root, commands, source, env, entry_points, overridden=cmds_path_overridden
     )
 
-    instance = parser.parse_args(argv)
+    mcp_cls = _build_mcp_command_class(
+        root,
+        mcp_command,
+        _existing_command_names(root, resolved_commands),
+        has_other_subcommand=bool(resolved_commands)
+        or bool(getattr(root, "_subcommands_", None)),
+    )
+    if mcp_cls is not None:
+        resolved_commands = list(resolved_commands) + [mcp_cls]
 
-    # Make the resolved app-wide `Env` reachable from the dispatched command via
-    # the sandwich-named `_env_` handle (never a user field). A command reads
-    # `self._env_` for app-level settings; None when no env was passed.
+    parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
+        root, name, description, config, argv, resolved_commands
+    )
+
+    subparsers, registry, notices = _register_commands(
+        root,
+        resolved_commands,
+        parser,
+        base_parser,
+        root_cls,
+        prepass_args,
+        cmds_path_overridden,
+        inherited_config_hint=config is not None,
+    )
+
+    required_root_actions = _finalize_command_tree(
+        parser, subparsers, root_cls, registry, raw_config
+    )
+
+    # Recorded so `duho.mcp.serve_running_app` (called from within a
+    # dispatched command -- the whole point of the `mcp_command` subcommand
+    # just above, but any command may call it) can serve THIS SAME
+    # already-built tree, with no rediscovery: `parser`/`root_cls` and the
+    # post-parse dispatch closure (env attach, logging, notices, then `run`)
+    # are exactly what this call already resolved. Set only around the
+    # actual dispatch step (`_run_app`), never left behind afterward.
+    mcp_dispatch = _make_post_parse_dispatch(
+        env, root_cls, notices, cmds_path_overridden, run
+    )
+    token = _compat._MCP_CONTEXT.set(("app", parser, root_cls, mcp_dispatch))
     try:
-        instance._env_ = env  # type: ignore[attr-defined]
-    except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
-        pass
+        return _run_app(
+            parser,
+            argv,
+            env,
+            setup_logging,
+            root_cls,
+            required_root_actions,
+            cmds_path_overridden,
+            notices,
+            run,
+        )
+    finally:
+        _compat._MCP_CONTEXT.reset(token)
 
-    if setup_logging and hasattr(instance, "_set_loglevels_"):
-        root_logger = _logging.getLogger()
-        if not root_logger.handlers:
-            _duho_logging.init_stderr_logging()
-        instance._set_loglevels_()  # type: ignore[attr-defined]
 
-    # Resolve which command was selected. A class command selection yields a
-    # constructed instance that IS the command (a Cmd subclass); a module command
-    # selection leaves ``instance`` as the root instance and names the module via
-    # the ``command`` dest.
-    selected_name = getattr(instance, "command", None)
-    entry = registry.get(selected_name) if selected_name else None
-    module_command = (
-        _ty.cast(_ModuleCommand, entry[1])
-        if entry is not None and entry[0] == "module"
-        else None
+def _make_post_parse_dispatch(
+    env: "_Env | None",
+    root_cls: type,
+    notices: "list[tuple[int, str]]",
+    cmds_path_overridden: "set[str]",
+    run: "_ty.Callable[[object, object], int]" = run_command,
+) -> "_ty.Callable[[object, object], int]":
+    """Build a ``dispatch(command, instance) -> int`` closure replicating
+    :func:`_run_app`'s POST-parse steps for one already-parsed instance:
+    attaching the resolved ``env`` as ``instance._env_``, logging setup
+    (unconditionally -- every caller of this closure, MCP serving, wants a
+    served command's logging configured regardless of what a NORMAL CLI run
+    of this same app would pass as its own ``setup_logging``), and flushing
+    the deferred override/collision ``notices`` (once total across every
+    call this ONE closure serves, not once per call). Shared by
+    :func:`_build_app_core` (``duho.mcp._core_for_app``'s building block)
+    and :func:`app` itself (which stashes an equivalent closure in
+    ``duho.mcp.serve_running_app``'s context, reusing THIS SAME already-
+    resolved ``env``/``notices``/``cmds_path_overridden`` rather than
+    rebuilding them).
+    """
+    logged = False
+
+    def _dispatch(command: object, instance: object) -> int:
+        nonlocal logged
+        try:
+            instance._env_ = env  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
+            pass
+        _setup_instance_logging(instance, True, root_cls)
+        if not logged:
+            logged = True
+            for overridden_name in sorted(cmds_path_overridden):
+                _LOGGER.info(
+                    "CMDS_PATH command %r overrides the built-in", overridden_name
+                )
+            for level, message in notices:
+                _LOGGER.log(level, message)
+        return run(_ty.cast(_Command, command), instance)
+
+    return _dispatch
+
+
+def _build_app_core(
+    root: "type | None" = None,
+    *,
+    commands: "_ty.Sequence[_Command] | None" = None,
+    source: "str | _Path | None" = None,
+    entry_points: "str | None" = None,
+    argv: "_ty.Sequence[str] | None" = None,
+    name: "str | None" = None,
+    description: "str | None" = None,
+    env: "_Env | None" = None,
+    config: "str | _Path | None" = None,
+) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
+    """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
+    dispatching -- the building block :mod:`duho.mcp` needs to serve an
+    ``app()``-based CLI's full tree (class AND module commands) over MCP.
+
+    Runs the exact same discovery/parser-build/registration/config-thread-down
+    steps :func:`app` itself calls (:func:`_resolve_commands`,
+    :func:`_prepare_app_parser`, :func:`_register_commands`,
+    :func:`_finalize_command_tree`) -- built ONCE, not per MCP tool call, same
+    as a real ``app()`` invocation builds its parser once per process.
+    ``argv`` here only feeds the advisory ``register``-hook prepass
+    (:func:`_prepare_app_parser`); it is never parsed for real by this
+    function -- an MCP tool call parses its own synthesized argv against the
+    returned parser instead.
+
+    Returns ``(parser, root_cls, dispatch)``. ``dispatch(command, instance)``
+    replicates :func:`_run_app`'s POST-parse steps for one already-parsed
+    instance: attaching the resolved ``env`` as ``instance._env_``, logging
+    setup (identical to a real ``app()`` run), flushing the deferred
+    override/collision notices (once, not once per call), and
+    :func:`run_command`. The caller (``duho.mcp``) is responsible for parsing
+    argv against ``parser`` and resolving which command to dispatch -- the
+    same responsibility split :func:`_run_app` has, just with the parse step
+    performed by the caller instead of internally, so a caller can verify
+    IDENTITY (which command actually got selected) before ever calling
+    ``dispatch`` -- a security-relevant check for MCP, whose arguments are
+    LLM-controlled and must never be allowed to silently redirect dispatch to
+    an unintended command (see ``duho.mcp``'s own dispatch-identity guard).
+    """
+    cmds_path_overridden: "set[str]" = set()
+    resolved_commands = _resolve_commands(
+        root, commands, source, env, entry_points, overridden=cmds_path_overridden
     )
 
-    if module_command is not None:
-        # run_command owns the full lifecycle (init -> main -> success/finally_).
-        # Don't pre-build the context here or init would run twice. When a custom
-        # `dispatch` was supplied it replaces this final run step (default is
-        # `run_command`); it receives the resolved ModuleCommand and the instance.
-        return run(module_command, instance)
+    parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
+        root, name, description, config, argv, resolved_commands
+    )
 
-    # Class command (or the root itself if it is a runnable Cmd): dispatch the
-    # parsed instance directly. It is already the deepest selected Cmd.
-    if not isinstance(instance, _Cmd):
-        raise NotImplementedError(
-            f"{type(instance).__name__} holds data but is not runnable "
-            f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
-            f"build one with duho.command(...)) to run it, or register runnable "
-            f"commands"
-        )
-    return run(_ty.cast(_Command, type(instance)), instance)
+    subparsers, registry, notices = _register_commands(
+        root,
+        resolved_commands,
+        parser,
+        base_parser,
+        root_cls,
+        prepass_args,
+        cmds_path_overridden,
+        inherited_config_hint=config is not None,
+    )
+
+    _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)
+
+    dispatch = _make_post_parse_dispatch(env, root_cls, notices, cmds_path_overridden)
+    return parser, root_cls, dispatch

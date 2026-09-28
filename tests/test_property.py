@@ -1,4 +1,4 @@
-"""Property-based round-trip suites (Plan 03 T7, needs the `hypothesis` dev extra).
+"""Property-based round-trip suites (needs the `hypothesis` dev extra).
 
 Four families of invariants:
 
@@ -8,11 +8,12 @@ Four families of invariants:
 * **duho.expand** -- generated ``[a-b]`` numeric/alpha ranges expand to exactly
   the product of the range sizes and match a naive reference implementation.
 * **text.snakecase** -- output is a lower-case ``[a-z0-9_]*`` string for
-  ASCII-identifier inputs (C13).
-* **parse_loglevels** -- never raises on separator soup and returns a well-shaped
-  mapping.
+  ASCII-identifier inputs.
+* **parse_loglevels** -- separator soup either shapes into a well-formed
+  mapping or raises ``argparse.ArgumentTypeError`` cleanly; nothing else.
 """
 
+import argparse
 import importlib.util
 import keyword
 import re
@@ -33,7 +34,6 @@ import duho  # noqa: E402
 from duho import expand, snakecase  # noqa: E402
 from duho.logging import parse_loglevels  # noqa: E402
 
-
 # ==========================================================================
 # Field round-trip
 # ==========================================================================
@@ -42,7 +42,7 @@ _MODDIR = tempfile.mkdtemp(prefix="duho_prop_")
 if _MODDIR not in sys.path:
     sys.path.insert(0, _MODDIR)
 
-_HEADER = '''\
+_HEADER = """\
 import enum
 import typing as ty
 from pathlib import Path
@@ -55,22 +55,20 @@ class Color(enum.Enum):
     RED = "red"
     GREEN = "green"
     BLUE = "blue"
-'''
+"""
 
 
 def _build_and_parse(name, annotation, default_literal, argv):
     """Write a one-field Args class to a real module, import it, parse argv."""
     mod_name = "m_" + uuid.uuid4().hex
-    src = _HEADER + textwrap.dedent(
-        f'''
+    src = _HEADER + textwrap.dedent(f'''
 
 class Conf(Args):
     """Generated field-round-trip class."""
 
     {name}: {annotation} = {default_literal}
     ("--{name}",)
-'''
-    )
+''')
     path = Path(_MODDIR) / (mod_name + ".py")
     path.write_text(src)
     spec = importlib.util.spec_from_file_location(mod_name, path)
@@ -97,18 +95,32 @@ _safe_value = st.text(
 # Names that would collide with something in the generated module namespace
 # (the `import typing as ty` alias, the seeded `Color` enum, etc.).
 _RESERVED_NAMES = {
-    "ty", "enum", "duho", "args", "path", "color", "conf", "field",
-    "help", "h",  # would produce --help/--h flags colliding with argparse
+    "ty",
+    "enum",
+    "duho",
+    "args",
+    "path",
+    "color",
+    "conf",
+    "field",
+    "help",
+    "h",  # would produce --help/--h flags colliding with argparse
     # Field names identical to their own annotation self-shadow (Python
     # stores the class-body value before the annotation is ever read, e.g.
     # `bool: bool = False`) -- a duho-detected, unfixable-by-duho error, not
     # a case this round-trip test should generate.
-    "str", "int", "float", "bool", "list", "set", "tuple",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "list",
+    "set",
+    "tuple",
 }
 
-_identifiers = st.text(
-    alphabet=string.ascii_lowercase, min_size=2, max_size=8
-).filter(lambda s: not keyword.iskeyword(s) and s not in _RESERVED_NAMES)
+_identifiers = st.text(alphabet=string.ascii_lowercase, min_size=2, max_size=8).filter(
+    lambda s: not keyword.iskeyword(s) and s not in _RESERVED_NAMES
+)
 
 
 @st.composite
@@ -117,7 +129,18 @@ def _field_case(draw):
     name = draw(_identifiers)
     kind = draw(
         st.sampled_from(
-            ["str", "int", "float", "bool", "path", "literal", "list", "set", "tuple", "optional"]
+            [
+                "str",
+                "int",
+                "float",
+                "bool",
+                "path",
+                "literal",
+                "list",
+                "set",
+                "tuple",
+                "optional",
+            ]
         )
     )
 
@@ -142,9 +165,7 @@ def _field_case(draw):
         raw = "/".join(segs)
         return name, "Path", 'Path(".")', ["--%s" % name, raw], Path(raw)
     if kind == "literal":
-        values = draw(
-            st.lists(_safe_value, min_size=2, max_size=4, unique=True)
-        )
+        values = draw(st.lists(_safe_value, min_size=2, max_size=4, unique=True))
         chosen = draw(st.sampled_from(values))
         ann = "ty.Literal[%s]" % ", ".join(repr(v) for v in values)
         return name, ann, repr(values[0]), ["--%s" % name, chosen], chosen
@@ -272,7 +293,7 @@ _SNAKE_OK = re.compile(r"^[a-z0-9_]*$")
     )
 )
 def test_snakecase_is_lower_word_string(name):
-    """For ASCII-identifier-ish inputs, snakecase output is [a-z0-9_]* (C13)."""
+    """For ASCII-identifier-ish inputs, snakecase output is [a-z0-9_]*."""
     out = snakecase(name)
     assert _SNAKE_OK.match(out), (name, out)
 
@@ -290,13 +311,19 @@ def test_snakecase_lowercases_all_letters(name):
 
 
 @settings(deadline=None, max_examples=200)
-@given(
-    text=st.text(
-        alphabet=string.ascii_letters + string.digits + ":,", max_size=30
-    )
-)
-def test_parse_loglevels_never_raises_and_shapes(text):
-    result = parse_loglevels(text)
+@given(text=st.text(alphabet=string.ascii_letters + string.digits + ":,", max_size=30))
+def test_parse_loglevels_shapes_or_raises_cleanly(text):
+    """An entry that doesn't resolve to a known level name (matched
+    case-insensitively) or an integer now raises
+    ``argparse.ArgumentTypeError`` -- so argparse reports it as a normal
+    "invalid value" usage error -- instead of silently vanishing from the
+    result. Every input therefore either produces a well-shaped dict or
+    raises that one specific, documented exception; nothing else.
+    """
+    try:
+        result = parse_loglevels(text)
+    except argparse.ArgumentTypeError:
+        return
     assert isinstance(result, dict)
     for key, value in result.items():
         assert isinstance(key, str)

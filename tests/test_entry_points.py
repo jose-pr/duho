@@ -18,8 +18,10 @@ import textwrap
 
 import pytest
 
-import duho
+from conftest import subprocess_env
 
+import duho
+from duho import _compat
 
 # A plugin module exposing a class command (a Cmd subclass) and a module-command
 # entrypoint, plus a broken entry-point target that does not exist.
@@ -68,9 +70,7 @@ def _install_fake_distribution(tmp_path, module_name, entry_points_txt):
     (dist_info / "METADATA").write_text(
         "Metadata-Version: 2.1\nName: duho-test-plugins\nVersion: 1.0\n"
     )
-    (dist_info / "entry_points.txt").write_text(
-        textwrap.dedent(entry_points_txt)
-    )
+    (dist_info / "entry_points.txt").write_text(textwrap.dedent(entry_points_txt))
     return dist_info
 
 
@@ -103,6 +103,38 @@ def test_discover_entry_points_loads_and_skips_broken(fake_plugins, caplog):
     assert any("broken" in rec.message for rec in caplog.records)
 
 
+def test_discover_entry_points_skips_a_target_that_loads_but_is_not_a_command(
+    tmp_path, monkeypatch, caplog
+):
+    """An entry point that LOADS successfully but isn't a command is skipped.
+
+    Distinct from the "broken" entry point above (which fails to load at
+    all): here the target resolves to a real object -- a plain list -- that
+    is neither a Cmd subclass, a command module, nor a Command.
+    """
+    module_name = "duho_test_plugin_noncmd_mod"
+    _install_fake_distribution(
+        tmp_path,
+        module_name,
+        f"""\
+        [{_GROUP}]
+        junk = {module_name}:RAN
+        """,
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        with caplog.at_level(logging.WARNING, logger="duho"):
+            commands = duho.discover_entry_points(_GROUP)
+        assert commands == []
+        assert any(
+            "junk" in rec.message and "not a command" in rec.message
+            for rec in caplog.records
+        )
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_app_dispatches_class_command_plugin(fake_plugins):
     module = importlib.import_module(fake_plugins)
     module.RAN.clear()
@@ -127,6 +159,40 @@ def test_missing_group_yields_no_commands():
     assert duho.discover_entry_points("duho_no_such_group_zzz.commands") == []
 
 
+def test_duplicated_distribution_dedupes_entry_points(tmp_path, monkeypatch):
+    """A distribution visible TWICE on sys.path (user site + venv, a
+    stray checkout's ``.egg-info``/``.dist-info`` on ``PYTHONPATH``) used to
+    return every entry point twice on Python 3.9 only -- 3.10+'s own
+    ``entry_points()`` already de-duplicates by distribution name. Doubled
+    entry points also made ``duho.app`` log a spurious "registered by more
+    than one source" WARNING on every invocation, help included."""
+    module_name = "duho_test_plugin_dup_mod"
+    site_a = tmp_path / "site_a"
+    site_b = tmp_path / "site_b"
+    site_a.mkdir()
+    site_b.mkdir()
+    entry_points_txt = f"""\
+        [{_GROUP}]
+        hello = {module_name}:HelloCmd
+        """
+    # Two copies of the SAME distribution (same normalized name + version),
+    # each on its own sys.path entry.
+    _install_fake_distribution(site_a, module_name, entry_points_txt)
+    _install_fake_distribution(site_b, module_name, entry_points_txt)
+
+    monkeypatch.syspath_prepend(str(site_b))
+    monkeypatch.syspath_prepend(str(site_a))
+    importlib.invalidate_caches()
+    try:
+        entry_points = _compat.iter_entry_points(_GROUP)
+        assert sorted(ep.name for ep in entry_points) == ["hello"]  # not doubled
+
+        commands = duho.discover_entry_points(_GROUP)
+        assert sorted(duho.discovery._command_name(c) for c in commands) == ["hello"]
+    finally:
+        sys.modules.pop(module_name, None)
+
+
 def test_entry_points_lazy_import():
     """discover_entry_points must not have been triggered by ``import duho``."""
     # A plain import of duho never loads importlib.metadata (P1/F6). This is the
@@ -134,5 +200,7 @@ def test_entry_points_lazy_import():
     code = "import sys, duho; print('importlib.metadata' in sys.modules)"
     import subprocess
 
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

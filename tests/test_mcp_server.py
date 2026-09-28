@@ -17,6 +17,7 @@ import sys
 
 import pytest
 
+from conftest import subprocess_env
 from duho import Cli, Cmd
 from duho.mcp import _resolve_app, main, serve
 
@@ -54,14 +55,24 @@ def _run(*requests):
 
 def test_initialize_responds_with_protocol_and_server_info():
     rc, responses = _run(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
     )
     assert rc == 0
     assert len(responses) == 1
     result = responses[0]["result"]
     assert result["protocolVersion"] == "2024-11-05"
     assert result["capabilities"] == {"tools": {}}
-    assert result["serverInfo"]["name"] == "duho.mcp"
+    # serverInfo reports the served APP's own identity, not a fixed
+    # "duho.mcp"/duho version: Server declares no _parsername_ (so its
+    # name resolves to its class name) but DOES declare its own
+    # _version_, which must be reported verbatim.
+    assert result["serverInfo"]["name"] == "Server"
+    assert result["serverInfo"]["version"] == "0.0.1"
 
 
 def test_notification_gets_no_response():
@@ -81,7 +92,9 @@ def test_tools_list_returns_the_describe_tools_shape():
     )
     tools = responses[0]["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert names == {"Server", "Server.Ping"}
+    # "Server" itself is a namespace (its own subcommand is mandatory), so it
+    # is not listed as a callable tool.
+    assert names == {"Server.Ping"}
     for tool in tools:
         assert set(tool) == {"name", "description", "inputSchema"}
 
@@ -102,7 +115,12 @@ def test_tools_call_dispatches_and_returns_call_tool_result():
 
 def test_full_scripted_conversation():
     rc, responses = _run(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         {
@@ -137,7 +155,11 @@ def test_unknown_method_gets_method_not_found():
 
 
 def test_blank_lines_are_skipped():
-    stdin = io.StringIO("\n\n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n\n")
+    stdin = io.StringIO(
+        "\n\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        + "\n\n"
+    )
     stdout = io.StringIO()
     serve(Server, stdin=stdin, stdout=stdout)
     responses = _lines(stdout.getvalue())
@@ -184,6 +206,17 @@ def test_main_with_no_args_reports_usage(capsys):
     assert "usage" in captured.err
 
 
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_main_help_flag_reports_usage_without_trying_to_resolve_it(capsys, flag):
+    # "-h"/"--help" used to be handed straight to `_resolve_app` as an <app>
+    # spec, which always failed with a confusing "could not resolve" error.
+    rc = main([flag])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "usage" in captured.err
+    assert "could not resolve" not in captured.err
+
+
 # --------------------------------------------------------------------------
 # python -m duho.mcp <app> end-to-end (real subprocess)
 # --------------------------------------------------------------------------
@@ -204,24 +237,22 @@ def test_python_dash_m_end_to_end(tmp_path):
         '    """E2E app."""\n'
         "    _subcommands_ = [Ping]\n"
     )
-    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}) + "\n"
-    env = {"PYTHONPATH": str(tmp_path)}
-    import os
-
-    full_env = dict(os.environ)
-    full_env["PYTHONPATH"] = str(tmp_path)
+    request = (
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+        + "\n"
+    )
     proc = subprocess.run(
         [sys.executable, "-m", "duho.mcp", "mcp_e2e_app:App"],
         input=request,
         capture_output=True,
         text=True,
-        env=full_env,
+        env=subprocess_env(extra_path=tmp_path),
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert names == {"App", "App.Ping"}
+    assert names == {"App.Ping"}
 
 
 # --------------------------------------------------------------------------
@@ -229,19 +260,38 @@ def test_python_dash_m_end_to_end(tmp_path):
 # --------------------------------------------------------------------------
 
 
+def test_duho_agenthelp_is_lazy_until_first_attribute_access():
+    code = (
+        "import sys, duho\n"
+        "print('duho.agenthelp' in sys.modules)\n"
+        "duho.agenthelp\n"
+        "print('duho.agenthelp' in sys.modules)\n"
+    )
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    ).splitlines()
+    assert out == ["False", "True"]
+
+
 def test_plain_import_duho_still_lazy_about_json():
     code = "import sys, duho; print('json' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"
 
 
 def test_plain_import_duho_still_lazy_about_importlib_metadata():
     code = "import sys, duho; print('importlib.metadata' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"
 
 
 def test_import_duho_mcp_alone_does_not_load_json():
     code = "import sys, duho.mcp; print('json' in sys.modules)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

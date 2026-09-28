@@ -8,11 +8,37 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-Nothing yet.
+A large internal review pass across the whole library — see `CHANGELOG.md`
+for the full list of fixes and additions. No version number or release date
+is assigned yet.
 
-**Performance target for the next release:** keep parser construction in the
-sub-millisecond range as features grow, and no regression on parsing. Compare
-against the 0.1.1 CI baseline below (never against local numbers).
+### Performance evidence gap (0.3.0 – 0.5.4)
+
+The releases between 0.3.0 and 0.5.4 (RunPath, MCP, agent help, formatters,
+the lazy-import and AST-walk performance work, PowerShell completion, and
+the current benchmark-harness rewrite) shipped without a
+`RELEASENOTES.md` entry recording their perf evidence. Their `CHANGELOG.md`
+entries quote local/development-machine numbers (e.g. the 0.4.0 P1–P5
+"~75 ms to ~51 ms" import figures) that were never captured as a committed
+CI benchmark run for that release. Those numbers are not reproducible from
+`benchmarks/baseline.json` today and should not be cited as CI-verified —
+treat them as informal, at-the-time observations only.
+
+The benchmark harness itself changed materially in this pass (see
+`CHANGELOG.md`): `bench_startup.py`'s end-to-end metrics now measure from a
+real temporary file, the cold-build path no longer double-counts duho's own
+source parse, and `benchmarks/baseline.json` was regenerated to match the
+current CI matrix (`3.9`, `3.13`). None of the pre-existing 0.3.x–0.5.x
+numbers are comparable to a run against the current harness.
+
+**Performance target for the next release:** regenerate
+`benchmarks/baseline.json`'s `3.9` and `3.13` entries from an actual CI
+benchmark-job run (not a local machine) before the next release, so
+`check_baseline.py` gates on evidence instead of a stale local number for
+`3.13` and skips `3.9` entirely, as it does today. Keep parser construction
+in the sub-millisecond range as features grow, and no regression on parsing.
+Compare against the 0.1.1 CI baseline below only informally — a like-for-like
+CI comparison requires the regenerated baseline above.
 
 ---
 

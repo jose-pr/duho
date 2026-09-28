@@ -37,6 +37,26 @@ class AsyncRaises(Cmd):
         raise RuntimeError("boom")
 
 
+class RecordingAsync(Cmd):
+    """An async command that records which event loop it ran on."""
+
+    def __call__(self):
+        return self._run()
+
+    async def _run(self):
+        import asyncio
+
+        RUN_LOOPS[self.target] = asyncio.get_running_loop()
+        return 3
+
+
+#: Populated by RecordingAsync._run, keyed by the target name it was dispatched
+#: with -- lets a test assert distinct calls actually ran on distinct loops.
+#: Holds the loop objects themselves: comparing ``id()`` of loops that were
+#: already closed and freed is unreliable, because CPython reuses the address.
+RUN_LOOPS: "dict[str, asyncio.AbstractEventLoop]" = {}
+
+
 def test_async_call_returns_exit_code():
     assert duho.main(AsyncReturn, []) == 3
 
@@ -48,6 +68,20 @@ def test_async_call_none_maps_to_zero():
 def test_async_call_exception_propagates():
     with pytest.raises(RuntimeError, match="boom"):
         duho.main(AsyncRaises, [])
+
+
+def test_app_dispatches_an_async_class_command():
+    """duho.app's dispatch path also drives an async __call__ to completion."""
+
+    class Root(Cmd):
+        """A root with one async subcommand."""
+
+        _subcommands_ = [AsyncReturn]
+
+        def __call__(self):  # pragma: no cover - root is not dispatched here
+            return 0
+
+    assert duho.app(Root, argv=["AsyncReturn"], setup_logging=False) == 3
 
 
 def test_async_run_command_drives_coroutine():
@@ -64,10 +98,17 @@ def test_async_fanout_gives_each_call_its_own_run():
     its own asyncio.run per call (no shared loop)."""
     from duho.fanout import run_targets
 
+    RUN_LOOPS.clear()
+
     def make_call(target):
-        inst = AsyncReturn()
+        inst = RecordingAsync()
+        inst.target = target
         return duho.run_command(type(inst), inst)
 
     rc = run_targets(make_call, ["a", "b"])
-    # Each returns 3; aggregate is non-zero (last/any non-zero).
-    assert rc != 0
+    # Both targets return 3; the aggregate exit code is exactly that value,
+    # not merely "some non-zero code".
+    assert rc == 3
+    # Each target actually ran its own coroutine, on its own event loop.
+    assert set(RUN_LOOPS) == {"a", "b"}
+    assert RUN_LOOPS["a"] is not RUN_LOOPS["b"]

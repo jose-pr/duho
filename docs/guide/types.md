@@ -8,7 +8,8 @@ The annotation decides how duho converts the string argparse hands it.
 | `bool` | Default `False` (or no default) → a simple `--flag` switch. Default `True` → `--flag` / `--no-flag`, so the default can be turned back off. |
 | `typing.Literal["a", "b"]` | Becomes `choices`. Mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips. |
 | `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the member itself. |
-| `list` / `list[T]` | Accepts repeated (`--x a --x b`) and space-separated (`--x a b`) forms. Bare `list` elements are `str`. Defaults to `[]`. |
+| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — space-separated (`--x a b`) is **not** the default; pass `NS(nargs="*")` to opt back into it. As a POSITIONAL: variadic and space-separated (`nargs="*"`) unconditionally. Bare `list` elements are `str`. Defaults to `[]`. |
+| `datetime.date` / `datetime.datetime` / `datetime.time` | Parsed via `fromisoformat`. See [Dates and times](#dates-and-times) below. |
 | `typing.Optional[T]` / `T \| None` | Not required; converts with `T`. |
 | `typing.Union[A, B]` / `A \| B` | Tries each member in declaration order; the first that accepts the text wins. |
 | `pathlib.Path` | Converted to a `Path`. Also gets file completion in generated [completion scripts](completion.md). |
@@ -93,6 +94,9 @@ the enum would never match.
 
 ## Lists
 
+An OPTION collects a `list[T]` field with one value per flag occurrence —
+repeat the flag to accumulate:
+
 ```python
 class App(Args):
     tags: list[str] = []
@@ -101,8 +105,64 @@ class App(Args):
 
 ```bash
 $ app --tag a --tag b     # -> ["a", "b"]
+$ app --tag a b           # error: unrecognized arguments: b
+```
+
+Space-separated multi-value (`--tag a b`) is not the default for an option —
+pass an explicit `NS(nargs="*")` to opt back into it:
+
+```python
+from duho import Args, Arg, NS
+
+class App(Args):
+    tags: Arg[list[str], NS(nargs="*")] = []
+    ("--tag",)
+```
+
+```bash
 $ app --tag a b           # -> ["a", "b"]
 ```
+
+A `list[T]` **positional**, by contrast, is always variadic and
+space-separated (`nargs="*"`) — no override needed:
+
+```python
+class App(Args):
+    tags: list[str] = []
+    ("tags",)
+```
+
+```bash
+$ app a b     # -> ["a", "b"]
+```
+
+## Dates and times
+
+`datetime.date`, `datetime.datetime`, and `datetime.time` fields are parsed
+with the type's own `fromisoformat`:
+
+```python
+import datetime
+from duho import Args
+
+class App(Args):
+    day: datetime.date = None
+    ("--day",)
+```
+
+```bash
+$ app --day 2026-01-01     # -> datetime.date(2026, 1, 1)
+```
+
+A trailing `Z` (RFC 3339's UTC marker) is accepted for `datetime`/`time`
+values on **every** supported Python version — including 3.9/3.10, where
+it's rewritten to `+00:00` before delegating to `fromisoformat` (which only
+started accepting `Z` natively on 3.11). A `date` value never accepts a
+trailing `Z` on any version — a date has no time-of-day/UTC component, so
+`fromisoformat` rejects it the same way on every version. A basic, no-dash
+format like `20260101` works for `date`/`datetime` on 3.11+ (native
+`fromisoformat` accepts it there) but raises on 3.9/3.10 — stick to the
+dashed/colon-separated ISO forms if you need to support the older versions.
 
 ## Dicts
 

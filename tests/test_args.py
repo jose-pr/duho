@@ -1,16 +1,28 @@
 """Tests for duho.cli.args module."""
 
 import argparse
+import datetime
 import enum
 import sys
 import typing as ty
 import pytest
-from duho import Append, Arg, Args, Argument, ArgumentBuilder, Choice, Const, Count, Extend, NS, parser as duho_parser
-from duho.parsers import prerun_parse
+from duho import (
+    Append,
+    Arg,
+    Args,
+    Choice,
+    Const,
+    Count,
+    Extend,
+    NS,
+    parse,
+    parser as duho_parser,
+)
 
 
 class SimpleArgs(Args):
     """A simple argument set."""
+
     name: str
     "The name parameter"
     ("--name",)
@@ -18,6 +30,7 @@ class SimpleArgs(Args):
 
 class OptionalArgs(Args):
     """Arguments with optional fields."""
+
     name: str
     "Required name"
     ("--name",)
@@ -29,6 +42,7 @@ class OptionalArgs(Args):
 
 class DefaultArgs(Args):
     """Arguments with defaults."""
+
     name: str = "default"
     "Name with default"
     ("--name",)
@@ -40,6 +54,7 @@ class DefaultArgs(Args):
 
 class UnionArgs(Args):
     """Arguments with union types."""
+
     value: ty.Union[int, str]
     "Can be int or str"
     ("--value",)
@@ -119,6 +134,36 @@ def test_union_types():
     assert isinstance(args.value, str)
 
 
+class _OptListInt(Args):
+    nums: "ty.Optional[ty.List[int]]"
+    "Numbers"
+    ("--nums",)
+
+
+def test_optional_list_int_multi():
+    # A list-as-option field takes ONE value per occurrence -- repeat the
+    # flag for more (`--nums 1 --nums 2`), not space-separated in one
+    # occurrence (which is reserved for the POSITIONAL case).
+    r = parse(_OptListInt, ["--nums", "1", "--nums", "2"])
+    assert r.nums == [1, 2]
+
+
+def test_optional_list_int_single_token():
+    # A naive Optional element factory would char-split "123" -> ['1','2','3'];
+    # here it is a single-element list [123].
+    r = parse(_OptListInt, ["--nums", "123"])
+    assert r.nums == [123]
+
+
+def test_union_with_collection_member_is_build_error():
+    class _BadUnion(Args):
+        x: ty.Union[ty.List[int], str]
+        ("--x",)
+
+    with pytest.raises(ValueError):
+        _BadUnion._parser_()
+
+
 def test_union_enum_resolves_by_name():
     """Union[Enum, str]: an enum-member name short-circuits to the enum
     (resolved by NAME, not value); a non-matching string falls through to
@@ -130,6 +175,7 @@ def test_union_enum_resolves_by_name():
 
     class UnionEnumArgs(Args):
         """Arguments with a union of an enum and str."""
+
         col: ty.Union[Color, str]
         "Can be a Color name or an arbitrary string"
         ("--col",)
@@ -147,6 +193,19 @@ def test_parser_name():
     """Test that parser inherits class name."""
     parser = SimpleArgs._parser_()
     assert parser.prog == "SimpleArgs"
+
+
+class _StickyName(Args):
+    x: str = "a"
+    "X"
+    ("--x",)
+
+
+def test_caller_supplied_name_not_persisted():
+    """A one-off `name=` override to `_parser_()` must not stick to the class
+    -- a later `_parser_()` call (with no override) must not inherit it."""
+    _StickyName._parser_(name="alias")
+    assert getattr(_StickyName, "_parsername_", None) != "alias"
 
 
 def test_help_from_docstring():
@@ -183,6 +242,7 @@ def test_required_vs_optional():
 
 class PositionalArgs(Args):
     """Test positional arguments."""
+
     input_file: str
     "Input file to process"
     ("input",)
@@ -196,13 +256,15 @@ def test_positional_arguments():
     """Test positional (non-flag) arguments."""
     parser = PositionalArgs._parser_()
     args = parser.parse_args(["input.txt", "output.txt"])
-    # Positional args map to action dest, which is the field name
-    assert hasattr(args, "input_file") or hasattr(args, "input")
-    assert hasattr(args, "output_file") or hasattr(args, "output")
+    # The positional's own literal name ("input"/"output") is the dest, not
+    # the field name it's declared on (`input_file`/`output_file`).
+    assert args.input == "input.txt"
+    assert args.output == "output.txt"
 
 
 class ShortFlagsArgs(Args):
     """Test short flag syntax."""
+
     verbose: bool = False
     "Verbose output"
     ("-v",)
@@ -210,6 +272,7 @@ class ShortFlagsArgs(Args):
 
 class MultiFlag(Args):
     """Arguments with multiple flag names."""
+
     verbose: int = 0
     "Verbosity level"
     ("-v", "--verbose")
@@ -237,13 +300,19 @@ def test_multiple_flags():
 def test_subparser_integration():
     """Test building parsers for subcommands."""
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest="cmd")
 
     SimpleArgs._parser_(subparsers, name="simple")
     DefaultArgs._parser_(subparsers, name="default")
 
-    # Should not raise
-    assert subparsers is not None
+    # Both registered subcommands actually parse via their own class fields.
+    args = parser.parse_args(["simple", "--name", "x"])
+    assert args.cmd == "simple"
+    assert args.name == "x"
+
+    args = parser.parse_args(["default"])
+    assert args.cmd == "default"
+    assert args.name == "default"
 
 
 def test_module_level_parser():
@@ -256,6 +325,7 @@ def test_module_level_parser():
 
 class GrandparentArgs(Args):
     """Grandparent docstring."""
+
     shared: str = "gp"
     "Shared field from grandparent"
     ("--shared",)
@@ -287,6 +357,7 @@ def test_multi_base_ancestry_docstring():
 
 class UnderscoreFieldArgs(Args):
     """Underscore-prefixed annotated names are skipped from discovery."""
+
     _secret: str = "x"
     "Should never become a flag"
     ("--secret",)
@@ -313,6 +384,7 @@ class MethodNameMixin(Args):
 
 class MethodCollisionArgs(MethodNameMixin):
     """Field name collides with an inherited plain method."""
+
     count: int
     "Count field colliding with inherited method"
     ("--count",)
@@ -350,6 +422,7 @@ def test_pep604_union_type_conversion():
 
     class Pep604UnionArgs(Args):
         """Arguments with a PEP 604 union type."""
+
         value: eval("int | str")
         "Can be int or str"
         ("--value",)
@@ -373,6 +446,7 @@ def test_pep604_optional_not_required():
 
     class Pep604OptionalArgs(Args):
         """Arguments with a PEP 604 optional type."""
+
         count: eval("int | None") = None
         "Optional count"
         ("--count",)
@@ -391,6 +465,7 @@ def test_pep604_optional_not_required():
 
 class BoolDefaultTrueArgs(Args):
     """Arguments with a bool field defaulting to True."""
+
     flag: bool = True
     "A flag defaulting to True"
     ("--flag",)
@@ -410,28 +485,9 @@ def test_bool_default_true_round_trip():
     assert args.flag is False
 
 
-def test_prerun_parse_restores_patches_on_systemexit():
-    """prerun_parse must restore _HelpAction/_SubParsersAction.__call__ even
-    when the underlying parse raises SystemExit (e.g. bad args)."""
-    help_call_before = argparse._HelpAction.__call__
-    subparsers_call_before = argparse._SubParsersAction.__call__
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--required-thing", required=True)
-
-    with pytest.raises(SystemExit):
-        # parse_known_args raises SystemExit for unrecognized/invalid options
-        # in some configurations; force one via an invalid choice-style parser.
-        sub_parser = argparse.ArgumentParser()
-        sub_parser.add_argument("--num", type=int, required=True)
-        prerun_parse(sub_parser, ["--num", "not-a-number"])
-
-    assert argparse._HelpAction.__call__ is help_call_before
-    assert argparse._SubParsersAction.__call__ is subparsers_call_before
-
-
 class NoLeakArgs(Args):
     """Arguments used to confirm #cls does not leak into the instance."""
+
     name: str = "x"
     "Name"
     ("--name",)
@@ -449,6 +505,7 @@ def test_no_hash_cls_leak_in_parsed_instance():
 
 class ImplicitFlagFromDocstringArgs(Args):
     """A field with a docstring but no flag tuple derives --count from the name."""
+
     count: ty.Optional[int] = None
     "Optional count"
 
@@ -465,6 +522,7 @@ def test_implicit_flag_derived_from_name_with_docstring():
 
 class ImplicitFlagNoDocstringArgs(Args):
     """A field with neither docstring nor flag tuple still derives --workers."""
+
     workers: int = 4
 
 
@@ -479,6 +537,7 @@ def test_implicit_flag_derived_from_name_no_docstring():
 
 class UnderscoreToDashArgs(Args):
     """A field with underscores in its name, no flag tuple, dashes when derived."""
+
     dry_run: bool = False
 
 
@@ -497,6 +556,7 @@ def test_implicit_flag_underscore_to_dash():
 
 class KwargsOverrideArgs(Args):
     """NS(kwargs={...}) must win over explicit NS(field=...) values."""
+
     mode: Arg[str, NS(required=True, kwargs={"required": False, "default": "x"})] = None
     "Mode with conflicting required flags"
     ("--mode",)
@@ -511,6 +571,7 @@ def test_kwargs_dict_overrides_explicit_field():
 
 class StoreConstArgs(Args):
     """store_const action requires and forwards const=."""
+
     mode: Arg[str, Const("fast")] = "slow"
     "Mode flag"
     ("--fast",)
@@ -530,6 +591,7 @@ def test_store_const_without_const_raises():
 
     class BadConstArgs(Args):
         """Missing const for store_const."""
+
         mode: Arg[str, NS(action="store_const")] = None
         "Mode flag missing const"
         ("--fast",)
@@ -541,6 +603,7 @@ def test_store_const_without_const_raises():
 def test_action_version_forwards_version_and_suppresses_type():
     class VersionArgs(Args):
         """Class exercising a manual version action."""
+
         ver: Arg[str, NS(action="version", version="myprog 1.2.3")] = None
         "Show version"
         ("--show-version",)
@@ -574,6 +637,7 @@ def test_type_incompatible_actions_suppress_type_kwarg():
 
 class RequiredPositionalArgs(Args):
     """A single required positional argument."""
+
     src: str
     "Source path"
     ("src",)
@@ -590,6 +654,7 @@ def test_required_positional():
 
 class OptionalPositionalArgs(Args):
     """A positional with a real default becomes optional (nargs='?')."""
+
     dst: str = "-"
     "Destination path"
     ("dst",)
@@ -614,6 +679,7 @@ def test_optional_positional_uses_nargs_question_mark():
 
 class TwoPositionalsArgs(Args):
     """Two positionals preserve declaration order."""
+
     src: str
     "Source"
     ("src",)
@@ -636,6 +702,7 @@ def test_two_positionals_preserve_order():
 
 class PositionalNargsPlusArgs(Args):
     """A positional bound to nargs='+' via Arg[list, NS(nargs='+')]."""
+
     files: Arg[list, NS(nargs="+")]
     "Files to process"
     ("files",)
@@ -657,11 +724,52 @@ def test_positional_never_gets_required_kwarg():
         assert "required" not in kwargs
 
 
+class OptionalTypedPositionalNoDefaultArgs(Args):
+    """An `Optional[T]` positional with NO explicit default. `Optional[T]`
+    means "not required" for an option; a positional with no default used to
+    stay required anyway."""
+
+    target: "ty.Optional[int]"
+    "Target"
+    ("target",)
+
+
+def test_optional_positional_without_default_is_not_required():
+    parser = OptionalTypedPositionalNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.target is None
+
+    args = parser.parse_args(["3"])
+    assert args.target == 3
+
+
+class OptionalNoDefaultOptionNoAssignArgs(Args):
+    """Same shape, declared with no `= None` assignment at all."""
+
+    timeout: "ty.Optional[int]"
+    "Timeout"
+    ("--timeout",)
+
+
+def test_effective_default_is_none_for_non_required_option_without_default():
+    """`_effective_default_()` used to return NOT_DEFINED here, so a direct
+    instance had no attribute at all, although a parsed one gets None."""
+    [builder] = [
+        b
+        for b in OptionalNoDefaultOptionNoAssignArgs._getargs_()
+        if b.name == "timeout"
+    ]
+    assert builder._effective_default_() is None
+    inst = OptionalNoDefaultOptionNoAssignArgs()
+    assert inst.timeout is None
+
+
 # --- argument helper factories (Count/Append/Const/Choice) ---
 
 
 class CountArgs(Args):
     """verbose: Arg[int, Count()] counts repeated -v flags."""
+
     verbose: Arg[int, Count()] = 0
     "Verbosity"
     ("-v", "--verbose")
@@ -676,8 +784,92 @@ def test_count_helper():
     assert args.verbose == 0
 
 
+class CountNoDefaultArgs(Args):
+    """Same as the README's `Arg[int, Count()]` row, with NO `= 0` default --
+    Count/Const/store_false with no declared default used to become a
+    mandatory option."""
+
+    verbose: Arg[int, Count()]
+    "Verbosity"
+    ("-v", "--verbose")
+
+
+def test_count_with_no_default_is_not_required():
+    parser = CountNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.verbose == 0
+
+    args = parser.parse_args(["-vv"])
+    assert args.verbose == 2
+
+
+class StoreFalseNoDefaultArgs(Args):
+    """A `store_false` action with no declared default."""
+
+    keep: Arg[bool, NS(action="store_false")]
+    "Keep"
+    ("--no-keep",)
+
+
+def test_store_false_with_no_default_is_not_required():
+    parser = StoreFalseNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.keep is True
+
+    args = parser.parse_args(["--no-keep"])
+    assert args.keep is False
+
+
+class ConstNoDefaultArgs(Args):
+    """A `store_const` field (via Const()) with no declared default."""
+
+    mode: Arg[str, Const("fast")]
+    "Mode"
+    ("--fast",)
+
+
+def test_const_with_no_default_is_not_required():
+    parser = ConstNoDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.mode is None
+
+    args = parser.parse_args(["--fast"])
+    assert args.mode == "fast"
+
+
+class RawKwargsConstArgs(Args):
+    """`const=` supplied through the raw NS(kwargs={...}) escape hatch must
+    still be seen by the store_const/append_const build-time check."""
+
+    fast: Arg[int, NS(kwargs={"action": "store_const", "const": 5})] = 0
+    "Fast mode"
+    ("--fast",)
+
+
+def test_const_via_raw_kwargs_escape_hatch():
+    parser = RawKwargsConstArgs._parser_()
+    args = parser.parse_args(["--fast"])
+    assert args.fast == 5
+
+
+class RawKwargsVersionArgs(Args):
+    """`version=` supplied through the raw NS(kwargs={...}) escape hatch."""
+
+    dummy: Arg[str, NS(kwargs={"action": "version", "version": "9.9"})] = None
+    "Version"
+    ("--ver",)
+
+
+def test_version_via_raw_kwargs_escape_hatch(capsys):
+    parser = RawKwargsVersionArgs._parser_()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--ver"])
+    assert "9.9" in capsys.readouterr().out
+
+
 class AppendArgs(Args):
     """tags: Arg[list, Append()] accumulates repeated --tags flags."""
+
     tags: Arg[list, Append()] = []
     "Tags"
     ("--tags",)
@@ -689,8 +881,37 @@ def test_append_helper():
     assert args.tags == ["a", "b"]
 
 
+class AppendWithDefaultArgs(Args):
+    """A non-empty default -- the first CLI occurrence must REPLACE it,
+    the same "CLI wins" rule every other collection option follows, not
+    merge onto it the way stdlib's own "append" action would."""
+
+    tags: Arg[list, Append()] = ["default"]
+    "Tags"
+    ("--tags",)
+
+
+def test_append_first_occurrence_replaces_a_nonempty_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args(["--tags", "a"])
+    assert args.tags == ["a"]  # not ["default", "a"]
+
+
+def test_append_repeated_occurrences_still_accumulate_after_replacing_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args(["--tags", "a", "--tags", "b"])
+    assert args.tags == ["a", "b"]
+
+
+def test_append_absent_keeps_the_declared_default():
+    parser = AppendWithDefaultArgs._parser_()
+    args = parser.parse_args([])
+    assert args.tags == ["default"]
+
+
 class ExtendArgs(Args):
     """opts: Arg[list, Extend(',')] splits each occurrence on `,` and flattens."""
+
     opts: Arg[list, Extend(",")] = []
     "Options"
     ("--opts",)
@@ -713,8 +934,112 @@ def test_extend_helper_flattens_across_repeated_occurrences():
     assert args.opts == ["a", "b", "c"]
 
 
+class ExtendNonEmptyDefaultArgs(Args):
+    """A declared non-empty default used to be silently discarded regardless
+    of whether the flag was ever given: Extend() put its own
+    `default=[]` into the raw kwargs= escape hatch, which always wins."""
+
+    paths: Arg[list, Extend(":")] = ["/usr/bin"]
+    "Search path"
+    ("--path",)
+
+
+def test_extend_keeps_declared_default_when_flag_absent():
+    inst = parse(ExtendNonEmptyDefaultArgs, [])
+    assert inst.paths == ["/usr/bin"]
+    # A direct instance sees the same default (Args.__init__ seeds it too).
+    assert ExtendNonEmptyDefaultArgs().paths == ["/usr/bin"]
+
+
+def test_extend_cli_value_replaces_declared_default():
+    inst = parse(ExtendNonEmptyDefaultArgs, ["--path", "a:b"])
+    assert inst.paths == ["a", "b"]
+
+
+class ExtendIntArgs(Args):
+    """Extend() on a typed list[int] must convert the split parts through
+    the element factory instead of leaving them as strings."""
+
+    nums: Arg["list[int]", Extend(",")] = []
+    "Numbers"
+    ("--nums",)
+
+
+def test_extend_composes_with_element_factory():
+    inst = parse(ExtendIntArgs, ["--nums", "1,2"])
+    assert inst.nums == [1, 2]
+    assert all(isinstance(n, int) for n in inst.nums)
+
+
+class ExtendSetArgs(Args):
+    """Extend() on a set field must produce a set, not a list."""
+
+    tags: Arg["set[str]", Extend(",")] = set()
+    "Tags"
+    ("--tags",)
+
+
+def test_extend_on_set_field_produces_a_set_and_dedups():
+    inst = parse(ExtendSetArgs, ["--tags", "a,b", "--tags", "a"])
+    assert inst.tags == {"a", "b"}
+    assert isinstance(inst.tags, set)
+
+
+class ExtendEnvArgs(Args):
+    """An Extend() field layered from an env var."""
+
+    paths: Arg[list, Extend(":"), NS(env="DUHO_TEST_A020_PATH")] = []
+    "Search path"
+    ("--path",)
+
+
+def test_extend_env_value_is_split_not_nested(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_A020_PATH", "a:b")
+    inst = parse(ExtendEnvArgs, [])
+    assert inst.paths == ["a", "b"]
+
+
+class ExtendConfigArgs(Args):
+    """An Extend() field sourced from a TOML value."""
+
+    paths: Arg[list, Extend(",")] = []
+    "Search path"
+    ("--path",)
+
+
+@pytest.mark.requires_toml
+def test_extend_config_string_value_is_split(tmp_path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('paths = "a,b"\n')
+    inst = parse(ExtendConfigArgs, [], config=cfg)
+    assert inst.paths == ["a", "b"]
+
+
+@pytest.mark.requires_toml
+def test_extend_config_array_values_are_split_and_flattened(tmp_path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text('paths = ["a,b", "c"]\n')
+    inst = parse(ExtendConfigArgs, [], config=cfg)
+    assert inst.paths == ["a", "b", "c"]
+
+
+class AppendSetArgs(Args):
+    """Append() forces argparse's stdlib list-only "append" action, which
+    does not compose with a set field's own collection action."""
+
+    tags: Arg["set[str]", Append()] = set()
+    "Tags"
+    ("--tags",)
+
+
+def test_append_on_set_field_raises_at_build_time():
+    with pytest.raises(ValueError, match="set"):
+        AppendSetArgs._parser_()
+
+
 class ConstHelperArgs(Args):
     """mode: Arg[str, Const('fast')] sets the const value on presence."""
+
     mode: Arg[str, Const("fast")] = "slow"
     "Mode"
     ("--fast",)
@@ -731,6 +1056,7 @@ def test_const_helper():
 
 class ChoiceArgs(Args):
     """mode: Arg[str, Choice('a', 'b')] restricts accepted values."""
+
     mode: Arg[str, Choice("a", "b")] = "a"
     "Mode"
     ("--mode",)
@@ -743,3 +1069,253 @@ def test_choice_helper():
 
     with pytest.raises(SystemExit):
         parser.parse_args(["--mode", "c"])
+
+
+# --- direct instance construction (Args()) ---
+
+
+class DirectListDefaultArgs(Args):
+    """A field with an explicit CLASS-level mutable default."""
+
+    files: "list[str]" = []
+    "Files"
+    ("--file",)
+
+
+def test_direct_instance_does_not_share_class_level_mutable_default():
+    """Mutating a directly-built instance's list field used to mutate the
+    CLASS ATTRIBUTE itself: `hasattr(self, name)` is already True for
+    a field with a class-level default, so `Args.__init__` skipped seeding a
+    fresh copy onto the instance, and the instance just read the class
+    attribute by inheritance."""
+    a = DirectListDefaultArgs()
+    assert "files" in vars(a)
+    assert a.files is not DirectListDefaultArgs.files
+
+    a.files.append("leak")
+    assert DirectListDefaultArgs.files == []
+    assert DirectListDefaultArgs().files == []
+    assert parse(DirectListDefaultArgs, []).files == []
+
+
+class _NoDefaultListArgs(Args):
+    """A field with NO declared default at all (required, list[int])."""
+
+    items: "ty.List[int]"
+    "Items"
+    ("--items",)
+
+
+def test_no_default_list_field_is_not_shared_across_parses():
+    """Two separate parse() calls of a required list field must never share
+    the same underlying list object."""
+    a = parse(_NoDefaultListArgs, [])
+    a.items.append(99)
+    b = parse(_NoDefaultListArgs, [])
+    assert b.items == []
+    assert _NoDefaultListArgs().items == []
+
+
+# --- shared positional/bare-bool detection ---
+
+
+class IsPositionalArgs(Args):
+    option_field: str = "x"
+    "An option"
+    ("--option-field",)
+
+    positional_field: str
+    "A positional"
+    ("positional_field",)
+
+    bare_bool: bool = False
+    "A bare bool -- a store_true flag"
+    ("--bare-bool",)
+
+    literal_bool: "ty.Literal[True, False]" = True
+    "A Literal[True, False] field -- NOT a bare bool flag (carries choices)"
+    ("--literal-bool",)
+
+
+def test_is_positional_property_matches_flags():
+    builders = {b.name: b for b in IsPositionalArgs._getargs_()}
+    assert builders["option_field"].is_positional is False
+    assert builders["positional_field"].is_positional is True
+
+
+def test_is_bare_bool_flag_excludes_literal_bool():
+    """A `Literal[True, False]` field carries `choices` and must go through
+    type=+choices= like any other Literal -- it is NOT a bare store_true/
+    BooleanOptionalAction flag, even though its declared type is `bool`-ish
+    (this is the exact disagreement duho.mcp independently re-derived
+    and got wrong)."""
+    builders = {b.name: b for b in IsPositionalArgs._getargs_()}
+    assert builders["bare_bool"].is_bare_bool_flag is True
+    assert builders["literal_bool"].is_bare_bool_flag is False
+
+
+class _LiteralBoolArgs(Args):
+    flag: "ty.Literal[True, False]" = False
+    "Flag"
+    ("--flag",)
+
+
+def test_literal_bool_builds_and_roundtrips_end_to_end():
+    # A naive store_true + choices= combination is an argparse TypeError at
+    # build time; the field must go through type=+choices= instead.
+    parser = _LiteralBoolArgs._parser_()
+    assert parser is not None
+    r = parse(_LiteralBoolArgs, ["--flag", "True"])
+    assert r.flag is True
+
+
+# --- ClassVar / Final are skipped, never a flag --------------------------
+
+
+class _WithClassVar(Args):
+    count: ty.ClassVar[int] = 0
+    active: bool = False
+    "Active"
+    ("--active",)
+
+
+def test_classvar_field_is_not_a_flag():
+    help_text = _WithClassVar._parser_().format_help()
+    assert "--count" not in help_text
+    r = parse(_WithClassVar, [])
+    assert r.count == 0
+    assert r.active is False
+
+
+# --- date/datetime factories -----------------------------------------------
+
+
+class _WhenArgs(Args):
+    when: datetime.date
+    "When"
+    ("--when",)
+
+
+def test_date_factory():
+    r = parse(_WhenArgs, ["--when", "2026-07-19"])
+    assert r.when == datetime.date(2026, 7, 19)
+
+
+def test_date_bad_value_is_argparse_error():
+    with pytest.raises(SystemExit):
+        parse(_WhenArgs, ["--when", "not-a-date"])
+
+
+class _OptWhenArgs(Args):
+    when: "ty.Optional[datetime.datetime]"
+    "When"
+    ("--when",)
+
+
+def test_optional_datetime_factory():
+    r = parse(_OptWhenArgs, ["--when", "2026-07-19T10:30:00"])
+    assert r.when == datetime.datetime(2026, 7, 19, 10, 30, 0)
+
+
+# --- declaration-shape build errors -----------------------------------------
+
+
+def test_set_flags_container_is_build_error():
+    class _SetFlags(Args):
+        verbose: int = 0
+        {"-v"}  # noqa: B018 - deliberate misuse under test
+
+    with pytest.raises(ValueError):
+        _SetFlags._parser_()
+
+
+class _SuppressSecond(Args):
+    hidden: Arg[int, NS(help="x"), argparse.SUPPRESS] = 0
+    ("--hidden",)
+
+    shown: int = 1
+    "Shown"
+    ("--shown",)
+
+
+def test_suppress_honored_as_second_metadata_item():
+    names = {b.name for b in _SuppressSecond._getargs_()}
+    assert "hidden" not in names
+    assert "shown" in names
+
+
+# --- dead/write-only internals -----------------------------------------
+
+
+def test_parser_typing_helper_is_not_a_real_runtime_class():
+    """The ``_Parser`` typing helper only ever describes an annotation/cast
+    shape for a type checker -- it is never instantiated, so it lives under
+    ``TYPE_CHECKING`` and is not a real attribute of either module at
+    runtime."""
+    import duho
+    import duho.args
+
+    assert not hasattr(duho, "_Parser")
+    assert not hasattr(duho.args, "_Parser")
+
+
+def test_parser_no_longer_accepts_an_init_kwarg():
+    """``_parser_(init=False)`` had no caller anywhere and skipping
+    ``_initparser_`` was never a supported mode; the parameter is gone, so an
+    explicit ``init=`` is now an ordinary unrecognized keyword."""
+    with pytest.raises(TypeError):
+        SimpleArgs._parser_(init=True)
+
+
+def test_type_to_spec_ladder_is_reexported_unchanged_from_fieldspec():
+    """The type -> argparse-spec ladder moved into its own internal module,
+    but every public/cross-module name stays importable from
+    ``duho.args`` exactly as before -- a re-export, not a copy."""
+    import duho._fieldspec as fieldspec_mod
+    import duho.args as args_mod
+
+    assert args_mod.Factory is fieldspec_mod.Factory
+    assert args_mod.UpdateAction is fieldspec_mod.UpdateAction
+    assert args_mod._factory_for is fieldspec_mod._factory_for
+    assert args_mod._bool_from_text is fieldspec_mod._bool_from_text
+    assert args_mod._choice_checked is fieldspec_mod._choice_checked
+    assert args_mod._ISOFORMAT_FACTORIES is fieldspec_mod._ISOFORMAT_FACTORIES
+
+
+def test_layering_pipeline_is_reexported_unchanged_from_layers():
+    """The env/config/instance layering pipeline moved into its own internal
+    module, but every public/cross-module name stays importable from
+    ``duho.args`` exactly as before -- a re-export, not a copy."""
+    import duho._layers as layers_mod
+    import duho.args as args_mod
+
+    assert args_mod.value_sources is layers_mod.value_sources
+    assert args_mod._apply_layers is layers_mod._apply_layers
+    assert args_mod._apply_default_layers_one is layers_mod._apply_default_layers_one
+    assert args_mod._stash_layer_state is layers_mod._stash_layer_state
+    assert args_mod._stage_layers is layers_mod._stage_layers
+    assert args_mod._finalize_layers is layers_mod._finalize_layers
+    assert args_mod._merge_layers_upward is layers_mod._merge_layers_upward
+    assert args_mod._raw_env_values is layers_mod._raw_env_values
+    assert args_mod._raw_config_values is layers_mod._raw_config_values
+    assert args_mod._resolve_config_dict is layers_mod._resolve_config_dict
+
+
+def test_directly_built_instance_seeds_every_defaulted_field_into_vars():
+    """``Args.__init__`` seeds a class-body default for every declared field
+    the caller did not pass, so a directly-built instance has the SAME
+    attribute surface as a parsed one (e.g. a bare ``bool`` field, whose
+    default only otherwise materializes via argparse). This is a deliberate,
+    documented behavior: it changes ``vars()``/``repr()``/``==`` for an
+    instance built with fewer kwargs than its declared fields, vs. a version
+    that only seeded EXPLICITLY-passed ones."""
+    instance = DefaultArgs(name="Charlie")
+    assert vars(instance)["name"] == "Charlie"
+    # `verbose` was never passed -- still present in vars(), seeded to its
+    # class-body default, not merely readable via class-attribute fallback.
+    assert "verbose" in vars(instance)
+    assert instance.verbose is False
+
+    other = DefaultArgs(name="Charlie")
+    assert instance == other
+    assert repr(instance) == repr(other)

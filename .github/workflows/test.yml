@@ -1,11 +1,14 @@
 name: Test
 
-# On-demand / ad-hoc test workflow, kept separate from release.yml's own
-# release-gate test job so it can be run without cutting a release. Two ways
-# to trigger it:
+# On-demand / ad-hoc test workflow. Three ways to trigger it:
 #   - workflow_dispatch (optionally against a specific ref), for manual runs.
 #   - push of a tag matching "ci-*" (throwaway tag, delete after) so an agent
 #     without dashboard access can trigger + poll a run via the API/CLI.
+#   - workflow_call, so release.yml's release gate reuses this exact matrix
+#     (coverage, benchmark and shell-completion gates included) instead of
+#     keeping a second, drifting copy that only exercises a "3.9, newest"
+#     edge subset. `inputs.ref` is unset on a workflow_call trigger, so every
+#     `inputs.ref || github.ref` below falls back to the caller's own ref.
 # Not triggered by push/PR on branches by default -- add that only if the
 # project actually wants CI on every commit.
 on:
@@ -18,6 +21,7 @@ on:
   push:
     tags:
       - "ci-*"
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -45,15 +49,17 @@ jobs:
             python-version: "3.12"
           - os: ubuntu-latest
             python-version: "3.13"
+          - os: ubuntu-latest
+            python-version: "3.14"
           # Windows/macOS matrix edges (oldest + newest supported)
           - os: windows-latest
             python-version: "3.9"
           - os: windows-latest
-            python-version: "3.13"
+            python-version: "3.14"
           - os: macos-latest
             python-version: "3.9"
           - os: macos-latest
-            python-version: "3.13"
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,6 +79,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests
         run: python -m pytest -q
+
+  format:
+    # black is standard on this project (kb/PYTHON.md); --check makes CI fail
+    # on unformatted code instead of relying on a developer running it locally.
+    name: Formatting check (black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - name: Install package with dev extras
+        run: python -m pip install -e ".[dev]"
+      - name: Check formatting
+        run: python -m black --check src tests examples benchmarks
 
   coverage:
     # Coverage gate on a single controlled Linux runner where the shell-driven
@@ -106,7 +129,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.9", "3.14"]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -126,9 +149,11 @@ jobs:
         run: python benchmarks/compare_cache.py
       - name: Regression gate (vs committed baseline)
         # Fails only on a structural regression: >1.5x on warm-metric medians,
-        # >1.3x on the startup deltas (which normalize out runner speed). A
-        # Python version without a committed baseline entry is skipped, not
-        # failed -- regenerate baselines with benchmarks/update_baseline.py.
+        # >1.3x on the startup deltas (meaningful because a baseline and its
+        # comparison run share the same CI runner image, not because the
+        # delta itself cancels machine speed). A Python version without a
+        # committed baseline entry is skipped, not failed -- regenerate
+        # baselines with benchmarks/update_baseline.py.
         run: python benchmarks/check_baseline.py -n 12
       - name: Upload benchmark result
         if: always()
@@ -138,9 +163,10 @@ jobs:
           path: benchmarks/results/*.json
 
   docs:
-    # The release workflow gates its Pages deploy on `mkdocs build --strict`.
-    # Run the same check here so a docs break is caught before a tag is cut,
-    # not halfway through an irreversible release.
+    # The release workflow reuses this job to gate a release on `mkdocs build
+    # --strict`; it never deploys (docs.yml owns every Pages deploy). Run the
+    # same check here so a docs break is caught before a tag is cut, not
+    # halfway through an irreversible release.
     name: Build documentation
     runs-on: ubuntu-latest
     steps:

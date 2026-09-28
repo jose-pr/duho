@@ -9,18 +9,19 @@ authors = [{ name = "Jose A." }]
 description = "A declarative CLI framework for building command-line applications with minimal boilerplate"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Shells",
@@ -31,7 +32,7 @@ dependencies = []
 [project.optional-dependencies]
 colorama = ["colorama"]
 config = ["tomli; python_version < '3.11'"]
-dev = ["build", "hatchling", "hypothesis", "pytest", "pytest-cov", "twine"]
+dev = ["black", "build", "hatchling", "hypothesis", "pytest", "pytest-cov", "twine"]
 docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
 
 [project.urls]
@@ -44,17 +45,20 @@ Repository = "https://github.com/jose-pr/duho"
 # Ship the consumer-facing docs inside the installed package, so they are
 # readable from site-packages via importlib.resources without the repo.
 # src/duho/AGENTS.md is included automatically by living in the package
-# dir; the repo-root AGENTS.md is development-only and deliberately not
-# shipped.
+# dir; README.md needs the force-include below to also land inside the
+# installed package. There is no committed repo-root AGENTS.md.
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "duho/README.md"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/.*", "/benchmarks"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/duho"]
+exclude = ["/.*", "/benchmarks", "*.local.*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-testpaths = ["tests"]
+testpaths = ["tests", "benchmarks"]
+markers = [
+    "requires_toml: skip when neither tomllib (3.11+) nor the tomli backport is importable",
+]
+
+[tool.black]
+target-version = ["py39"]

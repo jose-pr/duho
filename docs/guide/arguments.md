@@ -115,8 +115,11 @@ pass straight through. Anything duho doesn't model explicitly can go through
 
 `NS(...)` is an untyped `argparse.Namespace`, so a misspelled key
 (`NS(hlep="oops")`) is silently dropped. `duho.Meta` is a dataclass with the
-same known fields — an unknown keyword is a `TypeError` at class-definition
-time, and only the fields you set are merged:
+same known fields EXCEPT `dest` — an unknown keyword is a `TypeError`, and
+only the fields you set are merged. That `TypeError` is raised as soon as the
+annotation is evaluated: at class-definition time on Python 3.9-3.13 with
+eager annotations, or at first parser build on 3.14+ (PEP 649), under string
+annotations, or with `from __future__ import annotations`:
 
 ```python
 from duho import Args, Arg, Meta
@@ -126,8 +129,11 @@ class Run(Args):
     ("--level",)
 ```
 
-`Meta` is the recommended, typo-safe form; `NS` keeps working. `Meta.kwargs` is
-the same raw `add_argument` escape hatch as `NS(kwargs=...)`.
+`Meta` is the recommended, typo-safe form; `NS` keeps working. A field's
+`dest` is always its declared name, so `Meta` has no `dest` field at all —
+`Meta(dest=...)` is a `TypeError` where `NS(dest=...)` would be silently
+ignored. `Meta.kwargs` is the same raw `add_argument` escape hatch as
+`NS(kwargs=...)`.
 
 Any metadata object exposing a str `.documentation` attribute (a PEP-727-style
 `Doc`) contributes help text, so `Arg[int, Doc("how many")]` works too.
@@ -202,7 +208,16 @@ A field whose name starts with `_` is **not** a CLI argument — duho skips it.
 Use this for internal state you want on the instance but not on the command line.
 
 Framework members are sandwich-named (`_parser_`, `_version_`, `_subcommands_`,
-`_config_`…) and the dispatch hook is `__call__` (an `Args` instance is directly
-callable — `instance()` runs the command), so the ordinary name space is
-entirely yours: a field called `main`, `parse`, or `help` will not collide with
-anything.
+`_config_`…) and the dispatch hook is the `__call__` dunder — implement it (on a
+`duho.Cmd` subclass, or on plain `Args`) to make a class runnable, and
+`duho.main`/`duho.run_command` call `instance()` to run it — so a field called
+`main` or `parse` will not collide with anything.
+
+Three plain (non-sandwich) names ARE reserved, though: a field named `help`,
+`version` (when a `--version` flag resolves), or `print_completion` (when
+`_completion_ = True`) raises a build-time `ValueError` naming the collision,
+since each would otherwise clash with an argparse-added flag of the same
+name. On a `duho.Cli` subclass, `subcommand` is a fourth, differently-behaved
+gotcha: it is the name `Cli` itself uses for the `@Root.subcommand` decorator,
+so a CLI field also named `subcommand` silently replaces the decorator
+instead of raising — avoid that field name on a `Cli` subclass.

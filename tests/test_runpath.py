@@ -7,12 +7,13 @@ that it ran by appending its name to a shared results file, so a test asserts th
 observed run order directly.
 
 **Provider isolation is the top footgun** (per the plan): the RunPath provider is
-a module-global registered on import. Every test snapshots/restores
-``discovery._PROVIDERS`` via the autouse ``_restore_providers`` fixture AND uses
-``runpath.unregister()`` where it asserts the unregistered state, so provider
+a module-global registered on import. The autouse provider-isolation fixture in
+``conftest.py`` snapshots/restores it around every test, and tests use
+``runpath.unregister()`` where they assert the unregistered state, so provider
 state never leaks between tests.
 """
 
+import functools
 import textwrap
 
 import pytest
@@ -20,40 +21,12 @@ import pytest
 import duho
 from duho import discovery as _discovery
 from duho import runpath
-from duho.discovery import CmdBuilder, discover_commands
+from duho.discovery import CmdBuilder
 from duho.runpath import RunPathCmd, is_runpath_dir, register, unregister
 
-
 # --------------------------------------------------------------------------
-# Provider isolation + fixture helpers
+# Fixture helpers
 # --------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _restore_providers():
-    """Snapshot/restore the global provider registry around every test.
-
-    Also resets ``runpath``'s own ``_REGISTERED`` bookkeeping so ``register()``/
-    ``unregister()`` start each test from a known state, then restores it. This is
-    what stops provider state from leaking between tests. ``_BASE`` (the class
-    every provider-built RunPathCmd subclass ALSO inherits from, set via
-    ``register(base=...)``) is module-global the same way -- snapshot/restore it
-    too so a test that changes it never leaks into the next. ``_ADAPTER``
-    (``register(step_adapter=...)``) is module-global for the same reason, and
-    leaks harder: it is consulted per step run, so it would affect every
-    already-built command in a later test, not just newly built ones.
-    """
-    saved = list(_discovery._PROVIDERS)
-    saved_registered = runpath._REGISTERED
-    saved_base = runpath._BASE
-    saved_adapter = runpath._ADAPTER
-    try:
-        yield
-    finally:
-        _discovery._PROVIDERS[:] = saved
-        runpath._REGISTERED = saved_registered
-        runpath._BASE = saved_base
-        runpath._ADAPTER = saved_adapter
 
 
 def _write_step(directory, filename, body):
@@ -66,14 +39,12 @@ def _write_step(directory, filename, body):
 
 def _record_step(name, results_path, extra=""):
     """Return step source whose ``main`` appends ``name`` to the results file."""
-    return textwrap.dedent(
-        '''\
+    return textwrap.dedent("""\
         {extra}
         def main(args):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write("{name}\\n")
-        '''
-    ).format(name=name, results=str(results_path), extra=extra)
+        """).format(name=name, results=str(results_path), extra=extra)
 
 
 def _read_results(results_path):
@@ -96,6 +67,16 @@ def _run(directory, rcopts=None):
     instance()
     results_dir = directory.parent
     return _read_results(results_dir / "results.txt"), instance
+
+
+def _run_rc(directory, rcopts=None):
+    """Like :func:`_run`, but also returns the actual ``__call__`` exit code."""
+    cmd = _build_command(directory)
+    instance = cmd()
+    instance.rcopts = list(rcopts or [])
+    code = instance()
+    results_dir = directory.parent
+    return _read_results(results_dir / "results.txt"), code
 
 
 # --------------------------------------------------------------------------
@@ -150,7 +131,9 @@ def test_priority_overrides_numeric_prefix(tmp_path):
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
     # File 10 declares PRIORITY 99 -> runs last despite the low prefix.
-    _write_step(steps, "10-early.py", _record_step("early", results, extra="PRIORITY = 99"))
+    _write_step(
+        steps, "10-early.py", _record_step("early", results, extra="PRIORITY = 99")
+    )
     _write_step(steps, "20-mid.py", _record_step("mid", results))
     _write_step(steps, "30-late.py", _record_step("late", results))
 
@@ -164,7 +147,11 @@ def test_required_reorders_after_dependency(tmp_path):
     results = tmp_path / "results.txt"
     # `alpha` (prefix 10) REQUIRES `beta` (prefix 20) -> beta must run first,
     # overriding the numeric order.
-    _write_step(steps, "10-alpha.py", _record_step("alpha", results, extra='REQUIRED = ["beta"]'))
+    _write_step(
+        steps,
+        "10-alpha.py",
+        _record_step("alpha", results, extra='REQUIRED = ["beta"]'),
+    )
     _write_step(steps, "20-beta.py", _record_step("beta", results))
 
     ran, _ = _run(steps)
@@ -175,7 +162,9 @@ def test_required_missing_step_warns_resilient(tmp_path, caplog):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -188,10 +177,31 @@ def test_required_missing_step_errors_strict(tmp_path):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with pytest.raises(ValueError, match="ghost"):
         _run(steps, rcopts=["strict"])
+
+
+def test_required_step_disabled_by_rcopts_warns_resilient(tmp_path, caplog):
+    """A REQUIRED dependency that EXISTS but is disabled via rcopts selection
+    (not merely missing) is a resilient warning, same as a missing one."""
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-build.py", _record_step("build", results))
+    _write_step(
+        steps,
+        "20-deploy.py",
+        _record_step("deploy", results, extra='REQUIRED = ["build"]'),
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        _run(steps, rcopts=["!*", "deploy"])
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "deploy" in messages and "build" in messages
 
 
 # --------------------------------------------------------------------------
@@ -295,17 +305,14 @@ def test_rcopts_unknown_pattern_errors_strict(tmp_path):
 
 
 def test_failing_step_resilient_continues(tmp_path, caplog):
-    # A plain filename (no `?` suffix) is strict-by-default for THAT step
-    # (restoring the predecessor's hardcoded `RcOptions(strict=True)` base),
-    # independent
-    # of the run-wide --rcopts flag. An explicit `!strict` on --rcopts (CLI,
-    # wins last per the confirmed precedence) overrides every step's own
-    # filename-derived strict setting back to resilient -- this is the
-    # portable way to exercise "resilient continue" (a literal `?` filename
-    # suffix is not a valid Windows path character, so the `?`-suffix override
-    # itself is exercised directly against `_parse_file_modifiers`, see
-    # test_file_modifiers_* below, and end-to-end via `!name` on POSIX-legal
-    # filenames only).
+    # A plain filename (no `;!strict`/`:!strict` modifier) is strict-by-default
+    # for THAT step, independent of the run-wide --rcopts flag. An explicit
+    # `!strict` on --rcopts (CLI, wins last per the confirmed precedence)
+    # overrides every step's own filename-derived strict setting back to
+    # resilient -- this is the portable way to exercise "resilient continue"
+    # end to end. The filename modifier syntax itself (`;`/`:`-separated
+    # tokens, `!` negation) is exercised directly against
+    # `_parse_file_modifiers`, see test_file_modifiers_* below.
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
@@ -362,6 +369,34 @@ def test_failing_step_strict_stops(tmp_path):
     assert _read_results(tmp_path / "results.txt") == ["ok"]
 
 
+def test_import_error_step_skipped_resilient(tmp_path, caplog):
+    """An import failure on a step marked resilient is skipped, not fatal."""
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-good.py", _record_step("good", results))
+    _write_step(
+        steps,
+        "20-broken;!strict.py",
+        "import a_module_that_does_not_exist_xyz\ndef main(args): pass\n",
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["good"]
+    assert any("broken" in r.getMessage() for r in caplog.records)
+
+
+def test_syntax_error_step_always_surfaces(tmp_path):
+    """A SyntaxError is a bug, not an environmental failure -- never swallowed,
+    even on a step that would otherwise be treated resiliently."""
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-bad.py", "def main(args)\n    pass\n")  # missing colon
+    with pytest.raises(SyntaxError):
+        _run(steps)
+
+
 # --------------------------------------------------------------------------
 # Provider registration / unregistration isolation
 # --------------------------------------------------------------------------
@@ -410,21 +445,6 @@ def test_register_is_idempotent(tmp_path):
     assert len(_discovery._PROVIDERS) == n
 
 
-def test_discover_commands_yields_runpath_when_dir_shaped(tmp_path):
-    # A package dir containing a RunPath subdir: discover_commands walks .py files
-    # at the top level; the RunPath provider is exercised via CmdBuilder for the
-    # subdir. Here we assert the provider path directly through discover on a dir
-    # of numbered steps resolved by CmdBuilder (discover_commands over a dir globs
-    # top-level .py files, which is a different surface). We use CmdBuilder as the
-    # provider entry point per the plan's done-when.
-    register()
-    steps = tmp_path / "runsteps"
-    results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results))
-    cmd = CmdBuilder("runsteps", steps).command
-    assert issubclass(cmd, RunPathCmd)
-
-
 def test_runpath_not_in_top_level_all():
     # Opt-in: runpath symbols must NOT be on the core duho surface.
     assert "runpath" not in duho.__all__
@@ -454,10 +474,10 @@ def test_init_hook_ctx_reaches_two_arg_step_one_arg_step_unaffected(tmp_path):
     results = tmp_path / "results.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return {"greeting": "hi"}
-        ''',
+        """,
     )
     _write_step(
         steps,
@@ -467,11 +487,11 @@ def test_init_hook_ctx_reaches_two_arg_step_one_arg_step_unaffected(tmp_path):
     _write_step(
         steps,
         "20-modern.py",
-        '''\
+        """\
         def main(cmd, ctx):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(ctx["greeting"] + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     ran, _ = _run(steps)
@@ -510,19 +530,19 @@ def test_step_adapter_can_give_steps_an_app_specific_signature(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "CTX"
-        ''',
+        """,
     )
     _write_step(
         steps,
         "10-app-shape.py",
-        '''\
+        """\
         def main(ctx, cmd):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(ctx + ":" + type(cmd).__name__ + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     _run(steps)
@@ -567,19 +587,19 @@ def test_step_adapter_result_drives_arity_detection(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "FROM-INIT"
-        ''',
+        """,
     )
     _write_step(
         steps,
         "10-one.py",
-        '''\
+        """\
         def main(seen):
             with open(r"{results}", "a", encoding="utf-8") as fh:
                 fh.write(seen + "\\n")
-        '''.format(results=str(results)),
+        """.format(results=str(results)),
     )
 
     _run(steps)
@@ -631,7 +651,7 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -642,16 +662,18 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally:" + ctx + "\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-a.py", _record_step("a", results))
 
     _run(steps)
     lines = calls.read_text(encoding="utf-8").splitlines()
-    # finally_ runs immediately after the step loop (a plain try/finally around
-    # it); success fires after, once the run is confirmed non-aborted. Each
+    # success() runs INSIDE the try, before finally_ -- matching
+    # discovery.run_command's own main-then-success-then-finally_ order
+    # ([minor] behavior change: this used to be finally_-then-success, which
+    # left success() seeing a ctx that finally_ had already torn down). Each
     # fires exactly once.
-    assert lines == ["finally:ctx", "success:ctx"]
+    assert lines == ["success:ctx", "finally:ctx"]
 
 
 def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
@@ -661,7 +683,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -672,7 +694,7 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-ok.py", _record_step("ok", results))
     _write_step(
@@ -682,14 +704,15 @@ def test_init_finally_runs_even_when_a_step_raises_resilient(tmp_path):
     )
 
     # boom is strict-by-default (plain filename), so this run raises;
-    # explicit !strict makes it resilient again, and success() should NOT run
-    # (resilient continue still counts as "not aborted"? no -- see below).
+    # explicit !strict makes it resilient again (the run completes).
     _run(steps, rcopts=["!strict"])
     lines = calls.read_text(encoding="utf-8").splitlines()
-    # finally_ always runs; success only fires on a clean run with no abort --
-    # here nothing aborted (resilient continue), so success DOES fire too.
+    # finally_ always runs; success() is gated on the aggregate outcome
+    # -- a step that failed, even resiliently, means success() does NOT fire,
+    # matching discovery.run_command's own "success only on a clean result"
+    # contract.
     assert "finally" in lines
-    assert "success" in lines
+    assert "success" not in lines
 
 
 def test_init_finally_runs_when_step_raises_and_aborts_strict(tmp_path):
@@ -699,7 +722,7 @@ def test_init_finally_runs_when_step_raises_and_aborts_strict(tmp_path):
     calls = tmp_path / "calls.txt"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             return "ctx"
 
@@ -710,7 +733,7 @@ def test_init_finally_runs_when_step_raises_and_aborts_strict(tmp_path):
         def finally_(ctx, cmd, logger):
             with open(r"{calls}", "a", encoding="utf-8") as fh:
                 fh.write("finally\\n")
-        '''.format(calls=str(calls)),
+        """.format(calls=str(calls)),
     )
     _write_step(steps, "10-ok.py", _record_step("ok", results))
     _write_step(
@@ -730,10 +753,10 @@ def test_init_raising_is_always_fatal_even_without_strict(tmp_path):
     steps = tmp_path / "steps"
     _write_init(
         steps,
-        '''\
+        """\
         def init(cmd, logger):
             raise RuntimeError("init boom")
-        ''',
+        """,
     )
     _write_step(steps, "10-a.py", "def main(cmd): pass\n")
 
@@ -798,7 +821,7 @@ def test_file_modifiers_parse_extra_tokens_and_key_value():
 
     clean, opts = _parse_file_modifiers("provision:key1:!key2:key3=val")
     assert clean == "provision"
-    assert opts.opts == {"key1": True, "key2": False, "key3": "val"}
+    assert opts.extra == {"key1": True, "key2": False, "key3": "val"}
 
 
 def test_file_modifiers_enabled_token_equivalent_to_bang_prefix():
@@ -897,15 +920,22 @@ def test_two_symlinks_one_file_different_effective_options(tmp_path):
         (steps / "02-step.py").symlink_to(target)
         (steps / "!02-step2.py").symlink_to(target)
     except OSError:
-        pytest.skip("symlink creation not permitted (needs elevated privileges on Windows)")
+        pytest.skip(
+            "symlink creation not permitted (needs elevated privileges on Windows)"
+        )
 
     register()
-    from duho.runpath import _load_steps
+    from duho.runpath import _load_steps, _Selection
 
-    loaded = _load_steps(steps, "steps", strict=False)
+    loaded, present, _broken = _load_steps(steps, "steps", _Selection.parse([]))
+    # Both directory entries resolve to different effective enabled state from
+    # the SAME physical file -- symlink-transparent, since the parse reads the
+    # entry's own name. `step2` is disabled, so it is never imported
+    # and never appears in `loaded`; it is still `present` on disk though.
     by_name = {s.name: s for s in loaded}
-    assert by_name["step"].file_enabled is True
-    assert by_name["step2"].file_enabled is False
+    assert by_name["step"].opts.enabled is True
+    assert "step2" not in by_name
+    assert set(present) == {"step", "step2"}
 
 
 # --------------------------------------------------------------------------
@@ -934,7 +964,9 @@ def test_before_after_missing_name_is_silent_noop(tmp_path, caplog):
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='BEFORE = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='BEFORE = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -947,7 +979,9 @@ def test_required_missing_name_still_warns_unlike_before_after(tmp_path, caplog)
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
-    _write_step(steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]'))
+    _write_step(
+        steps, "10-a.py", _record_step("a", results, extra='REQUIRED = ["ghost"]')
+    )
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
@@ -966,7 +1000,10 @@ def test_before_after_disabled_target_is_silent_noop(tmp_path, caplog):
         ran, _ = _run(steps)
     # `b` is disabled by its filename; `a`'s AFTER=["b"] is a silent no-op.
     assert ran == ["a"]
-    assert not any("disabled" in rec.message.lower() and "b" in rec.message for rec in caplog.records)
+    assert not any(
+        "disabled" in rec.message.lower() and "b" in rec.message
+        for rec in caplog.records
+    )
 
 
 def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
@@ -976,12 +1013,22 @@ def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
     # `x` REQUIREs `y`; `y` declares BEFORE=["x"] is fine (consistent), but here
     # make an actual cycle: `x` REQUIRES `y`, `y` REQUIRES `x` (mixed with a
     # BEFORE edge reinforcing the same cycle) -- must not hang, must emit both.
-    _write_step(steps, "10-x.py", _record_step("x", results, extra='REQUIRED = ["y"]\nBEFORE = ["y"]'))
+    _write_step(
+        steps,
+        "10-x.py",
+        _record_step("x", results, extra='REQUIRED = ["y"]\nBEFORE = ["y"]'),
+    )
     _write_step(steps, "20-y.py", _record_step("y", results, extra='REQUIRED = ["x"]'))
 
     with caplog.at_level("WARNING", logger="duho"):
         ran, _ = _run(steps)
-    assert set(ran) == {"x", "y"}
+    # Deterministic: the cycle is broken at "x" (the lower-numbered step), so
+    # "x" always runs before "y", and the break is actually reported.
+    assert ran == ["x", "y"]
+    assert any(
+        "cycle" in rec.message and "x" in rec.message and "y" in rec.message
+        for rec in caplog.records
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1024,3 +1071,853 @@ def test_register_base_lets_a_custom_root_class_be_inherited(tmp_path):
     instance = cmd()
     assert isinstance(instance, MyRoot)
     assert instance.greet() == "hi custom"
+
+
+# --------------------------------------------------------------------------
+# Ordering stability (Kahn's algorithm): a regression that only shows up
+# with 3+ steps, where a naive "whole pass" sort lets a reordered step jump
+# past every unrelated LATER step, not just its own dependency.
+# --------------------------------------------------------------------------
+
+
+def test_ordering_only_jumps_its_own_dependency_not_unrelated_later_steps(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-migrate.py",
+        _record_step("migrate", results, extra='AFTER = ["backup"]'),
+    )
+    _write_step(steps, "30-backup.py", _record_step("backup", results))
+    _write_step(steps, "90-cleanup.py", _record_step("cleanup", results))
+
+    ran, _ = _run(steps)
+    # migrate is reordered after backup, but must NOT also jump ahead of
+    # cleanup (an unrelated, later, unconnected step).
+    assert ran == ["backup", "migrate", "cleanup"]
+
+
+def test_required_ordering_does_not_jump_past_unrelated_later_step(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-alpha.py",
+        _record_step("alpha", results, extra='REQUIRED = ["beta"]'),
+    )
+    _write_step(steps, "20-beta.py", _record_step("beta", results))
+    _write_step(steps, "99-teardown.py", _record_step("teardown", results))
+
+    ran, _ = _run(steps)
+    assert ran == ["beta", "alpha", "teardown"]
+
+
+# --------------------------------------------------------------------------
+# Step return codes: a non-zero int return is a failure. Under strict it ends
+# the run cleanly (no raised exception, unlike a step that actually raises)
+# and reports that step's own code; under resilient it is logged and the run
+# continues. The aggregate exit code ranks every step's own code by magnitude
+# (like `duho.fanout`'s own aggregator), so a negative code is never hidden
+# by an earlier or later `0`.
+# --------------------------------------------------------------------------
+
+
+def test_nonzero_step_return_is_strict_by_default(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-boom.py", "def main(cmd):\n    return 1\n")
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    with caplog.at_level("ERROR", logger="duho"):
+        ran, code = _run_rc(steps)
+    # No exception escapes -- the step's own code is returned directly, and
+    # the later step never runs (the failure is still fatal by default).
+    assert ran == []
+    assert code == 1
+    assert any("non-zero" in rec.message for rec in caplog.records)
+
+
+def test_nonzero_step_return_resilient_continues_and_sets_exit_code(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-boom;!strict.py", "def main(cmd):\n    return 3\n")
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    ran, code = _run_rc(steps)
+    assert ran == ["after"]
+    assert code == 3
+
+
+def test_exit_code_is_max_of_step_codes_and_zero_on_clean_run(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a;!strict.py", "def main(cmd):\n    return 2\n")
+    _write_step(steps, "20-b;!strict.py", "def main(cmd):\n    return 5\n")
+    _write_step(steps, "30-c.py", "def main(cmd):\n    return 0\n")
+
+    _ran, code = _run_rc(steps)
+    assert code == 5
+
+    clean_steps = steps.parent / "clean"
+    _write_step(clean_steps, "10-a.py", "def main(cmd):\n    pass\n")
+    _, clean_code = _run_rc(clean_steps)
+    assert clean_code == 0
+
+
+def test_negative_step_return_code_is_not_hidden_by_a_later_success(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a;!strict.py", "def main(cmd):\n    return -1\n")
+    _write_step(steps, "20-b.py", "def main(cmd):\n    return None\n")
+
+    _ran, code = _run_rc(steps)
+    # A plain `max()` over [0, -1, 0] would return 0, silently reporting
+    # success -- the negative code must win instead.
+    assert code == -1
+
+
+def test_exit_code_ranks_negative_codes_by_magnitude(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a;!strict.py", "def main(cmd):\n    return -5\n")
+    _write_step(steps, "20-b;!strict.py", "def main(cmd):\n    return -2\n")
+
+    _ran, code = _run_rc(steps)
+    assert code == -5
+
+
+def test_init_finally_runs_when_step_returns_nonzero_strict_and_no_traceback(
+    tmp_path,
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    calls = tmp_path / "calls.txt"
+    _write_init(
+        steps,
+        """\
+        def init(cmd, logger):
+            return "ctx"
+
+        def success(ctx, cmd, logger):
+            with open(r"{calls}", "a", encoding="utf-8") as fh:
+                fh.write("success\\n")
+
+        def finally_(ctx, cmd, logger):
+            with open(r"{calls}", "a", encoding="utf-8") as fh:
+                fh.write("finally\\n")
+        """.format(calls=str(calls)),
+    )
+    _write_step(steps, "10-ok.py", _record_step("ok", results))
+    _write_step(steps, "20-boom.py", "def main(cmd):\n    return 7\n")
+
+    # A non-zero RETURN under strict (plain filename, no !strict) ends the
+    # run cleanly -- unlike a raised exception, it never escapes as one, and
+    # `finally_` still runs while `success` does not (the run failed).
+    ran, code = _run_rc(steps)
+    assert ran == ["ok"]
+    assert code == 7
+    lines = calls.read_text(encoding="utf-8").splitlines()
+    assert lines == ["finally"]
+
+
+def test_swallowed_exception_failure_contributes_exit_code_one(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(
+        steps, "10-boom;!strict.py", 'def main(cmd):\n    raise RuntimeError("x")\n'
+    )
+
+    _ran, code = _run_rc(steps)
+    assert code == 1
+
+
+def test_success_hook_does_not_fire_when_a_step_returned_nonzero_resilient(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    calls = tmp_path / "calls.txt"
+    _write_init(
+        steps,
+        """\
+        def success(ctx, cmd, logger):
+            with open(r"{calls}", "a", encoding="utf-8") as fh:
+                fh.write("success\\n")
+        """,
+    )
+    _write_step(steps, "10-boom;!strict.py", "def main(cmd):\n    return 1\n")
+
+    _run(steps)
+    assert not calls.exists() or "success" not in calls.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------
+# REQUIRED and a failed dependency: a step whose REQUIRED dependency actually
+# ran (or tried to import) and failed is skipped too, not just reordered.
+# --------------------------------------------------------------------------
+
+
+def test_dependent_is_skipped_when_required_step_raises_resilient(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps, "10-build;!strict.py", 'def main(cmd):\n    raise RuntimeError("boom")\n'
+    )
+    _write_step(
+        steps,
+        "20-deploy;!strict.py",
+        _record_step("deploy", results, extra='REQUIRED = ["build"]'),
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, code = _run_rc(steps)
+    assert ran == []
+    assert code != 0
+    assert any(
+        "deploy" in rec.message and "build" in rec.message for rec in caplog.records
+    )
+
+
+def test_dependent_aborts_strict_when_required_step_fails(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(
+        steps, "10-build;!strict.py", 'def main(cmd):\n    raise RuntimeError("boom")\n'
+    )
+    _write_step(steps, "20-deploy.py", "REQUIRED = ['build']\ndef main(cmd): pass\n")
+
+    with pytest.raises(ValueError, match="build"):
+        _run(steps)
+
+
+def test_dependent_is_skipped_when_required_step_import_fails(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-build;!strict.py",
+        "import a_module_that_does_not_exist_xyz\ndef main(cmd): pass\n",
+    )
+    _write_step(
+        steps,
+        "20-deploy;!strict.py",
+        _record_step("deploy", results, extra='REQUIRED = ["build"]'),
+    )
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _code = _run_rc(steps)
+    assert ran == []
+
+
+# --------------------------------------------------------------------------
+# --rcopts token parsing no longer forces strict from an unrelated token.
+# --------------------------------------------------------------------------
+
+
+def test_rcopts_enable_token_does_not_force_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-report;!strict.py",
+        'def main(cmd):\n    raise RuntimeError("boom")\n',
+    )
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    # `report:enable` carries no strict token at all; the step's own !strict
+    # filename default must be left alone.
+    ran, _ = _run(steps, rcopts=["report:enable"])
+    assert ran == ["after"]
+
+
+def test_rcopts_key_value_extra_token_does_not_force_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-report;!strict.py",
+        'def main(cmd):\n    raise RuntimeError("boom")\n',
+    )
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    ran, _ = _run(steps, rcopts=["report:channel=ops"])
+    assert ran == ["after"]
+
+
+def test_rcopts_trailing_separator_does_not_force_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-report;!strict.py",
+        'def main(cmd):\n    raise RuntimeError("boom")\n',
+    )
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    ran, _ = _run(steps, rcopts=["report:"])
+    assert ran == ["after"]
+
+
+def test_rcopts_explicit_strict_token_still_overrides(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(
+        steps,
+        "10-report;!strict.py",
+        'def main(cmd):\n    raise RuntimeError("boom")\n',
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _run(steps, rcopts=["report:strict"])
+
+
+def test_rcopts_pattern_whitespace_is_stripped(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-build.py", _record_step("build", results))
+
+    ran, _ = _run(steps, rcopts=[" build : !strict "])
+    assert ran == ["build"]
+
+
+# --------------------------------------------------------------------------
+# Disabled/deselected steps are never imported (their module body never runs).
+# --------------------------------------------------------------------------
+
+
+def test_disabled_step_module_body_never_executes(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    marker = tmp_path / "marker.txt"
+    _write_step(
+        steps,
+        "!20-gpu.py",
+        f"""
+        with open(r"{marker}", "a", encoding="utf-8") as fh:
+            fh.write("imported\\n")
+        def main(cmd):
+            pass
+        """,
+    )
+    _write_step(steps, "10-build.py", "def main(cmd): pass\n")
+
+    _run(steps)
+    assert not marker.exists()
+
+
+def test_deselected_step_module_body_never_executes(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    marker = tmp_path / "marker.txt"
+    _write_step(
+        steps,
+        "20-gpu.py",
+        f"""
+        with open(r"{marker}", "a", encoding="utf-8") as fh:
+            fh.write("imported\\n")
+        def main(cmd):
+            pass
+        """,
+    )
+    _write_step(steps, "10-build.py", "def main(cmd): pass\n")
+
+    _run(steps, rcopts=["!*", "build"])
+    assert not marker.exists()
+
+
+def test_disabled_step_broken_import_never_aborts_a_strict_run(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "!20-gpu.py",
+        "import a_module_that_does_not_exist_xyz\ndef main(cmd): pass\n",
+    )
+    _write_step(steps, "10-build.py", _record_step("build", results))
+
+    ran, _ = _run(steps, rcopts=["strict"])
+    assert ran == ["build"]
+
+
+# --------------------------------------------------------------------------
+# A step's own strict setting governs an import failure, not just the
+# run-wide flag.
+# --------------------------------------------------------------------------
+
+
+def test_plain_steps_import_failure_aborts_even_without_run_wide_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-broken.py",
+        "import a_module_that_does_not_exist_xyz\ndef main(cmd): pass\n",
+    )
+    _write_step(steps, "20-after.py", _record_step("after", results))
+
+    with pytest.raises(ImportError):
+        _run(steps)
+    assert _read_results(results) == []
+
+
+# --------------------------------------------------------------------------
+# register(base=<a Cli app root>): the built RunPathCmd stays the step
+# runner, never the root's own subcommand tree or __call__.
+# --------------------------------------------------------------------------
+
+
+def test_register_base_cli_root_does_not_turn_rc_into_a_subcommand_tree(tmp_path):
+    from duho import Cli, LoggingArgs
+
+    class Hello(duho.Cmd):
+        def __call__(self):
+            return 0
+
+    class MyApp(LoggingArgs, Cli):
+        _version_ = "9.9.9"
+        _subcommands_ = [Hello]
+
+    unregister()
+    register(base=MyApp)
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-a.py", _record_step("a", results))
+
+    ran, code = _run_rc(steps)
+    assert ran == ["a"]
+    assert code == 0
+
+    # No nested-subcommand requirement and no inherited --version flag.
+    cmd = _build_command(steps)
+    parser = cmd._parser_()
+    help_text = parser.format_help()
+    assert "--version" not in help_text
+
+
+def test_register_base_cli_root_custom_call_does_not_replace_step_runner(tmp_path):
+    from duho import Cli, LoggingArgs
+
+    class MyApp(LoggingArgs, Cli):
+        def __call__(self):
+            return 7
+
+    unregister()
+    register(base=MyApp)
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-a.py", _record_step("a", results))
+
+    ran, code = _run_rc(steps)
+    assert ran == ["a"]
+    assert code == 0
+
+
+# --------------------------------------------------------------------------
+# Arity detection follows a step_adapter's OWN signature, not a
+# functools.wraps-preserved original.
+# --------------------------------------------------------------------------
+
+
+def test_step_adapter_with_functools_wraps_still_receives_ctx(tmp_path):
+    results = tmp_path / "results.txt"
+
+    def adapter(entrypoint):
+        @functools.wraps(entrypoint)
+        def call(cmd, ctx=None):
+            return entrypoint("%s" % ctx)
+
+        return call
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_init(
+        steps,
+        """\
+        def init(cmd, logger):
+            return "FROM-INIT"
+        """,
+    )
+    _write_step(
+        steps,
+        "10-one.py",
+        """\
+        def main(seen):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write(seen + "\\n")
+        """.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "FROM-INIT"
+
+
+def test_step_adapter_bare_passthrough_falls_back_to_wrapped_arity(tmp_path):
+    # A generic decorator with NO explicit params of its own (bare
+    # *args/**kwargs) must still read the wrapped step's real arity.
+    results = tmp_path / "results.txt"
+
+    def generic_decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    def adapter(entrypoint):
+        return generic_decorator(entrypoint)
+
+    register(step_adapter=adapter)
+    steps = tmp_path / "steps"
+    _write_init(steps, "def init(cmd, logger):\n    return 'CTX'\n")
+    _write_step(
+        steps,
+        "10-one.py",
+        """\
+        def main(cmd, ctx):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write(ctx + "\\n")
+        """.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "CTX"
+
+
+# --------------------------------------------------------------------------
+# ctx is only ever supplied when a __main__.py actually exists.
+# --------------------------------------------------------------------------
+
+
+def test_no_lifecycle_defaulted_second_param_keeps_its_own_default(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-one.py",
+        """\
+        def main(cmd, dry_run=False):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write("dry_run=%s\\n" % dry_run)
+        """.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "dry_run=False"
+
+
+def test_with_lifecycle_defaulted_second_param_receives_ctx(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_init(steps, "def init(cmd, logger):\n    return {'conn': 1}\n")
+    _write_step(
+        steps,
+        "10-one.py",
+        """\
+        def main(cmd, dry_run=False):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write("dry_run=%s\\n" % dry_run)
+        """.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "dry_run={'conn': 1}"
+
+
+# --------------------------------------------------------------------------
+# __main__.py is imported before any step (its module-level setup, e.g. a
+# sys.path mutation, is already in effect for step imports).
+# --------------------------------------------------------------------------
+
+
+def test_lifecycle_module_setup_is_visible_to_step_imports(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    helper_dir = tmp_path / "lib"
+    helper_dir.mkdir()
+    (helper_dir / "shared_helper_xyz.py").write_text("VALUE = 42\n")
+    results = tmp_path / "results.txt"
+    _write_init(
+        steps,
+        f"""\
+        import sys
+        sys.path.insert(0, r"{helper_dir}")
+        def init(cmd, logger):
+            return None
+        """,
+    )
+    _write_step(
+        steps,
+        "10-use.py",
+        """\
+        import shared_helper_xyz
+        def main(cmd):
+            with open(r"{results}", "a", encoding="utf-8") as fh:
+                fh.write(str(shared_helper_xyz.VALUE) + "\\n")
+        """.format(results=str(results)),
+    )
+
+    _run(steps)
+    assert results.read_text(encoding="utf-8").strip() == "42"
+
+
+# --------------------------------------------------------------------------
+# Duplicate step names are detected, not silently accepted.
+# --------------------------------------------------------------------------
+
+
+def test_duplicate_step_name_errors_even_when_not_strict(tmp_path):
+    """Two ENABLED steps with the same name always raise -- not only under
+    `--rcopts strict` -- since silently dropping one from the ordering graph
+    would leave a REQUIRED/BEFORE/AFTER dependent resolved against whichever
+    file happened to be kept."""
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-setup.py",
+        _record_step("setup10", results, extra='REQUIRED = ["x"]'),
+    )
+    _write_step(steps, "50-x.py", _record_step("x", results))
+    _write_step(steps, "90-setup.py", _record_step("setup90", results))
+
+    with pytest.raises(ValueError, match="duplicate step name"):
+        _run(steps)
+
+
+def test_duplicate_step_name_errors_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-setup.py", "def main(cmd): pass\n")
+    _write_step(steps, "90-setup.py", "def main(cmd): pass\n")
+
+    with pytest.raises(ValueError, match="duplicate step name"):
+        _run(steps, rcopts=["strict"])
+
+
+def test_disabled_duplicate_never_hides_an_enabled_step_of_the_same_name(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    # The DISABLED file sorts first ("10-" < "20-"); it must not claim the
+    # name "a" and hide the later, enabled file -- a disabled duplicate never
+    # competes for the name at all.
+    _write_step(steps, "!10-a.py", _record_step("a-disabled", results))
+    _write_step(steps, "20-a.py", _record_step("a", results))
+    _write_step(steps, "30-b.py", _record_step("b", results))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["a", "b"]
+    assert not any("duplicate step name" in rec.message for rec in caplog.records)
+
+
+def test_disabled_duplicate_after_an_enabled_step_is_also_silently_ignored(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-a.py", _record_step("a", results))
+    _write_step(steps, "!20-a.py", _record_step("a-disabled", results))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert ran == ["a"]
+    assert not any("duplicate step name" in rec.message for rec in caplog.records)
+
+
+def test_two_enabled_duplicates_still_error_even_with_a_disabled_third(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "!05-a.py", "def main(cmd): pass\n")
+    _write_step(steps, "10-a.py", "def main(cmd): pass\n")
+    _write_step(steps, "20-a.py", "def main(cmd): pass\n")
+
+    with pytest.raises(ValueError, match="duplicate step name"):
+        _run(steps, rcopts=["strict"])
+
+
+# --------------------------------------------------------------------------
+# Step metadata (REQUIRED/BEFORE/AFTER as a bare string, a non-integer
+# PRIORITY) is normalized/validated instead of silently misbehaving.
+# --------------------------------------------------------------------------
+
+
+def test_required_as_bare_string_is_normalized_to_one_name(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "10-deploy.py",
+        _record_step("deploy", results, extra='REQUIRED = "provision"'),
+    )
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    # A single missing dep named "provision" -- not iterated character by
+    # character into "p", "r", "o", ...
+    assert ran == ["deploy"]
+    messages = " ".join(rec.message for rec in caplog.records)
+    assert "provision" in messages
+    assert "'p'" not in messages
+
+
+def test_after_as_bare_string_is_normalized_not_a_silent_noop(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(
+        steps,
+        "90-early.py",
+        _record_step("early", results, extra='AFTER = "provision"'),
+    )
+    _write_step(steps, "10-provision.py", _record_step("provision", results))
+
+    ran, _ = _run(steps)
+    assert ran.index("provision") < ran.index("early")
+
+
+def test_invalid_priority_warns_and_falls_back_to_filename_prefix(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "20-a.py", _record_step("a", results, extra="PRIORITY = 'high'"))
+    _write_step(steps, "10-b.py", _record_step("b", results))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    # `a`'s bad PRIORITY falls back to its filename prefix (20), so `b` (10)
+    # still sorts first.
+    assert ran == ["b", "a"]
+    assert any("PRIORITY" in rec.message for rec in caplog.records)
+
+
+def test_invalid_priority_errors_strict(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "20-a.py", "PRIORITY = 'high'\ndef main(cmd): pass\n")
+
+    with pytest.raises(ValueError, match="PRIORITY"):
+        _run(steps, rcopts=["strict"])
+
+
+# --------------------------------------------------------------------------
+# A dependency-cycle break names only the steps still stuck, not unrelated
+# downstream steps that merely required a cycle member.
+# --------------------------------------------------------------------------
+
+
+def test_cycle_break_does_not_name_an_unrelated_downstream_step(tmp_path, caplog):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-x.py", _record_step("x", results, extra='REQUIRED = ["y"]'))
+    _write_step(steps, "20-y.py", _record_step("y", results, extra='REQUIRED = ["x"]'))
+    _write_step(steps, "30-z.py", _record_step("z", results, extra='REQUIRED = ["x"]'))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert set(ran) == {"x", "y", "z"}
+    cycle_warnings = [
+        rec.message for rec in caplog.records if "dependency cycle" in rec.message
+    ]
+    assert cycle_warnings
+    assert "z" not in cycle_warnings[0]
+
+
+def test_cycle_break_forces_a_step_actually_in_the_cycle_not_a_downstream_one(
+    tmp_path, caplog
+):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    # `x` and `y` REQUIRE each other (the actual cycle); `a` merely REQUIREs
+    # `x` and is the lowest-ranked stuck step overall, but is NOT part of the
+    # cycle. Forcing `a` through (the smallest stuck step overall) would run
+    # it before its own still-unsatisfied REQUIRED dependency `x` -- the
+    # break must instead land on the lowest-ranked step actually IN the
+    # cycle (`x`), so `a` still runs after `x`.
+    _write_step(steps, "01-a.py", _record_step("a", results, extra='REQUIRED = ["x"]'))
+    _write_step(steps, "02-x.py", _record_step("x", results, extra='REQUIRED = ["y"]'))
+    _write_step(steps, "03-y.py", _record_step("y", results, extra='REQUIRED = ["x"]'))
+
+    with caplog.at_level("WARNING", logger="duho"):
+        ran, _ = _run(steps)
+    assert set(ran) == {"a", "x", "y"}
+    assert ran.index("x") < ran.index("a")
+    cycle_warnings = [
+        rec.message for rec in caplog.records if "dependency cycle" in rec.message
+    ]
+    assert cycle_warnings
+    # The cycle itself is only x/y; "a" is downstream and must not be named,
+    # and the break must be reported at "x", not the unrelated "a".
+    assert "among x, y" in cycle_warnings[0]
+    assert "breaking at 'x'" in cycle_warnings[0]
+
+
+# --------------------------------------------------------------------------
+# Async steps/hooks are rejected loudly instead of silently never running.
+# --------------------------------------------------------------------------
+
+
+def test_async_step_raises_type_error_instead_of_silently_not_running(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_step(steps, "10-a.py", "async def main(cmd):\n    pass\n")
+
+    with pytest.raises(TypeError, match="coroutine"):
+        _run(steps)
+
+
+def test_async_init_hook_raises_type_error(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    _write_init(steps, "async def init(cmd, logger):\n    return None\n")
+    _write_step(steps, "10-a.py", "def main(cmd): pass\n")
+
+    with pytest.raises(TypeError, match="coroutine"):
+        _run(steps)
+
+
+# --------------------------------------------------------------------------
+# Filename/pattern grammar edge cases.
+# --------------------------------------------------------------------------
+
+
+def test_is_runpath_dir_does_not_crash_on_a_non_decimal_digit_filename(tmp_path):
+    steps = tmp_path / "steps"
+    steps.mkdir()
+    # U+00B2 SUPERSCRIPT TWO: `.isdigit()` is True but `int()` raises; must
+    # not crash `is_runpath_dir` -- the file is simply not a step.
+    (steps / "²-odd.py").write_text("def main(cmd): pass\n")
+    (steps / "10-real.py").write_text("def main(cmd): pass\n")
+    assert is_runpath_dir(steps) is True
+
+
+def test_uppercase_py_suffix_is_never_treated_as_a_step(tmp_path):
+    register()
+    steps = tmp_path / "steps"
+    results = tmp_path / "results.txt"
+    _write_step(steps, "10-a.PY", _record_step("a", results))
+    _write_step(steps, "20-b.py", _record_step("b", results))
+
+    ran, _ = _run(steps)
+    # `10-a.PY` is never picked up as a step (case-sensitive suffix match),
+    # consistently across platforms.
+    assert ran == ["b"]

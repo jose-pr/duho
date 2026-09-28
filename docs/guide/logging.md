@@ -51,9 +51,15 @@ ends of the scale clamp rather than wrapping or erroring.
 ## Colored output
 
 `duho.init_stderr_logging()` installs a handler with `DefaultFormatter`, which
-colors the level name. If [colorama](https://pypi.org/project/colorama/) is
-installed it's used for Windows compatibility; otherwise duho emits raw ANSI
-codes.
+colors the level name with raw ANSI codes — no dependency required. Color is
+gated the same way duho's `--help` formatters are: only to a TTY, off when
+`NO_COLOR` is set, forced on with `FORCE_COLOR`.
+
+[colorama](https://pypi.org/project/colorama/) is not needed for color itself;
+when it's installed and color is enabled, `colorama.just_fix_windows_console()`
+is called so a legacy Windows console renders the codes instead of showing them
+literally. It's also used to resolve a *named* color (`color="red"`) passed to
+`duho.add_logging_level`, below.
 
 ```bash
 pip install duho[colorama]

@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 
 import duho
@@ -71,7 +73,9 @@ def test_fileinstall_main_install_returns_0():
 def test_mcp_app_describes_fileinstall_as_tools():
     tools = duho.mcp.describe_tools(mcp_app.FileInstall)
     names = {t["name"] for t in tools}
-    assert names == {"FileInstall", "FileInstall.install"}
+    # "FileInstall" itself is a namespace (its own subcommand is mandatory),
+    # so it is not listed as a callable tool.
+    assert names == {"FileInstall.install"}
     install = next(t for t in tools if t["name"] == "FileInstall.install")
     assert "source" in install["inputSchema"]["properties"]
     assert "destination" in install["inputSchema"]["properties"]
@@ -94,6 +98,7 @@ def test_discovery_app_finds_module_and_class_commands():
     assert names >= {"greet", "status", "whoami"}
 
 
+@pytest.mark.requires_toml
 def test_discovery_app_greet_module_command_runs(capsys):
     # Passing DiscoveryAppArgs as root is REQUIRED here: without it args is a
     # bare Args with no _logger_ (greet.py's module command calls
@@ -111,6 +116,7 @@ def test_discovery_app_greet_module_command_runs(capsys):
     assert "HELLO, WORLD!" in capsys.readouterr().out
 
 
+@pytest.mark.requires_toml
 def test_discovery_app_whoami_class_command_runs(capsys):
     exit_code = duho.app(
         discovery_app.DiscoveryAppArgs,

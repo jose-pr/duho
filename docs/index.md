@@ -40,6 +40,7 @@ pip install duho[config]     # TOML config files on Python 3.9/3.10
 
 ## A first CLI
 
+<!-- runnable -->
 ```python
 import duho
 from duho import Args
@@ -89,4 +90,12 @@ options:
   `--version`.
 - **[Configuration layers](guide/config.md)** — env vars and TOML config files.
 - **[Logging](guide/logging.md)** — `LoggingArgs`, `-v`/`-q`, colored output.
-- **[Shell completion](guide/completion.md)** — bash/zsh/fish script generation.
+- **[Shell completion](guide/completion.md)** — bash/zsh/fish/PowerShell script
+  generation.
+- **[Plugins via entry points](guide/plugins.md)** — extending an app with
+  commands from separately-installed packages.
+- **[RunPath step directories](guide/runpath.md)** — turning a directory of
+  numbered `.py` files into one ordered command.
+- **[API reference](api/reference.md)** — the full public surface, generated
+  from docstrings.
+- **[Changelog](changelog.md)** — what changed between releases.

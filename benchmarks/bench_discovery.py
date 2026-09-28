@@ -18,10 +18,13 @@ regression gate).
 
     python benchmarks/bench_discovery.py
     python benchmarks/bench_discovery.py -n 5 --files 25
+    python benchmarks/bench_discovery.py --save   # write benchmarks/results/<name>.json
 
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
+import json
 import shutil
 import statistics
 import sys
@@ -29,7 +32,11 @@ import tempfile
 import time
 from pathlib import Path
 
-import duho
+# benchmarks/ is not a package; make the sibling _bench importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import duho  # noqa: E402
+import _bench  # noqa: E402
 
 # Each generated file is a module command: a top-level ``main`` (the app-style
 # discovery pattern) plus a ``register`` hook that adds one option, so dispatch
@@ -52,9 +59,7 @@ def _make_command_dir(n_files):
     d = Path(tempfile.mkdtemp(prefix="duho_bench_disc_"))
     for i in range(n_files):
         name = "cmd%02d" % i
-        (d / (name + ".py")).write_text(
-            _COMMAND_TEMPLATE.format(i=i, name=name, cls="Cmd%02d" % i)
-        )
+        (d / (name + ".py")).write_text(_COMMAND_TEMPLATE.format(i=i, name=name))
     return d
 
 
@@ -64,7 +69,17 @@ def _timed(fn):
     return (time.perf_counter() - t0) * 1000
 
 
+def _stats(times):
+    return {
+        "min_ms": round(min(times), 3),
+        "median_ms": round(statistics.median(times), 3),
+        "max_ms": round(max(times), 3),
+    }
+
+
 def measure(n_files, samples):
+    """Return the REPO.md-shaped metrics dict: ``discover.<n_files>`` and
+    ``dispatch.1``, each ``{min_ms, median_ms, max_ms}``."""
     discover_times = []
     dispatch_times = []
     for _ in range(samples):
@@ -83,10 +98,8 @@ def measure(n_files, samples):
             shutil.rmtree(d, ignore_errors=True)
 
     return {
-        "discover_%d.min_ms" % n_files: round(min(discover_times), 3),
-        "discover_%d.median_ms" % n_files: round(statistics.median(discover_times), 3),
-        "dispatch_1.min_ms": round(min(dispatch_times), 3),
-        "dispatch_1.median_ms": round(statistics.median(dispatch_times), 3),
+        "discover.%d" % n_files: _stats(discover_times),
+        "dispatch.1": _stats(dispatch_times),
     }
 
 
@@ -94,22 +107,42 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="duho discovery benchmark")
     ap.add_argument("--files", type=int, default=25, help="command files to generate")
     ap.add_argument("-n", type=int, default=5, help="samples per measurement")
+    ap.add_argument("--json", default=None, help="write the metrics JSON to PATH")
+    ap.add_argument(
+        "--save", action="store_true", help="write result to benchmarks/results/"
+    )
+    ap.add_argument(
+        "--name", default=None, help="result name (default discovery-<ver>-py<ver>)"
+    )
     args = ap.parse_args(argv)
 
     m = measure(args.files, args.n)
+    discover = m["discover.%d" % args.files]
+    dispatch = m["dispatch.1"]
     print("=== Duho discovery (%d command files, min-of-%d) ===" % (args.files, args.n))
     print(
         "discover_commands(dir): min %.3f ms  median %.3f ms"
-        % (m["discover_%d.min_ms" % args.files], m["discover_%d.median_ms" % args.files])
+        % (discover["min_ms"], discover["median_ms"])
     )
     print(
         "app() discover+dispatch 1 cmd: min %.3f ms  median %.3f ms"
-        % (m["dispatch_1.min_ms"], m["dispatch_1.median_ms"])
+        % (dispatch["min_ms"], dispatch["median_ms"])
     )
     print(
-        "\nper-file discovery cost ~ %.3f ms/file"
-        % (m["discover_%d.min_ms" % args.files] / args.files)
+        "\nper-file discovery cost ~ %.3f ms/file" % (discover["min_ms"] / args.files)
     )
+
+    pyver = "py%d%d" % (sys.version_info.major, sys.version_info.minor)
+    name = args.name or f"discovery-{duho.__version__}-{pyver}"
+    extra = {"duho_version": duho.__version__, "files": args.files, "samples": args.n}
+
+    if args.save:
+        out = _bench.save_result(_bench.RESULTS_DIR, name, m, **extra)
+        print(f"\nsaved: {out}")
+    if args.json:
+        result = _bench.result_envelope(name, m, **extra)
+        Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        print(f"json: {args.json}")
     return 0
 
 

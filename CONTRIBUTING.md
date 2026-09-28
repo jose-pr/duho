@@ -9,13 +9,22 @@ Thanks for your interest in contributing! Here's how to get started.
 git clone https://github.com/jose-pr/duho.git
 cd duho
 
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create a virtual environment (name it by interpreter/OS/arch so more than
+# one Python can coexist under .venv/, e.g. a 3.9 floor and 3.14 side by side)
+python -m venv .venv/3.14-posix-x86_64
+source .venv/3.14-posix-x86_64/bin/activate  # Windows: .venv\3.14-nt-amd64\Scripts\activate
 
-# Install in development mode with test dependencies
-pip install -e ".[dev]"
+# Install in development mode with test dependencies and the extras the
+# suite exercises -- ".[dev]" alone silently skips the config-file and
+# colorama tests instead of running them
+pip install -e ".[dev,colorama,config]"
 ```
+
+duho targets the latest stable Python as well as the floor declared in
+`pyproject.toml`'s `requires-python` (currently 3.9). Create a second venv for
+the floor version (`.venv/3.9-<os>-<arch>`) and run the suite there too before
+sending a change that touches parsing/typing behavior — some bugs only exist
+on the older end of the supported range.
 
 ## Running Tests
 
@@ -28,6 +37,9 @@ Run with coverage:
 ```bash
 pytest --cov=src/duho tests/
 ```
+
+Missing the `config`/`colorama` extras produces clean, reasoned skips (not
+failures) for the tests that need them.
 
 ## Running Benchmarks
 
@@ -48,10 +60,11 @@ python benchmarks/compare_cache.py
 
 # Discovery + dispatch of a generated 25-command directory
 python benchmarks/bench_discovery.py
-
-# The single-file parse/build micro-bench
-python -m benchmarks.bench_parsing
 ```
+
+Every script supports `--save`/`--json` and writes the same JSON envelope
+shape into `benchmarks/results/<name>.json`, which is tracked and committed —
+that is what makes a before/after comparison recoverable later.
 
 ### Benchmark regression gate
 
@@ -62,7 +75,10 @@ CI (the `benchmark` job in `.github/workflows/test.yml`) runs
 - **warm metrics** (build/parse/tree/field-matrix medians): more than **1.5x**
   the baseline median;
 - **startup deltas** (duho's added cost over bare python): more than **1.3x**
-  the baseline. The delta normalizes out runner speed, so the bound is tighter.
+  the baseline. The delta cancels the fixed per-process overhead shared by
+  both sides of the subtraction (spawn + interpreter bootstrap), not the
+  machine's clock speed — it is meaningful only because a baseline and its
+  comparison run are produced on the same CI runner image.
 
 Thresholds are intentionally generous because CI runner timing is noisy; a trip
 means a real regression, not jitter. The baseline is keyed by Python

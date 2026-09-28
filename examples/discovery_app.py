@@ -52,7 +52,14 @@ Run it::
     # examples/discovery_app.toml ships with `label = "from-config"`.
     python examples/discovery_app.py greet World            # label == "from-config"
     DISCOVERY_APP_LABEL=from-env python examples/discovery_app.py greet World
+
+    # Serve this app's full tool tree (greet/status/whoami) as an MCP server,
+    # either via the env-var launch trigger or the opt-in "mcp" subcommand
+    # this root registers below (`_mcp_command_ = True`):
+    DISCOVERY_APP_MCP=stdio python examples/discovery_app.py
+    python examples/discovery_app.py mcp
 """
+
 import sys
 from pathlib import Path
 
@@ -64,13 +71,9 @@ _CONFIG_PATH = Path(__file__).parent / "discovery_app.toml"
 
 
 class DiscoveryAppArgs(LoggingArgs):
-    """Global options shared by every discovery_app command.
+    """discovery-app: a demo CLI whose commands are discovered from files.
 
-    A data mixin, not the app root itself: ``duho.app(root=DiscoveryAppArgs,
-    ...)`` combines it with ``duho.Cli``-equivalent app-runner behavior.
-    Every command's parsed ``args`` IS (or carries) this instance, so its
-    fields/``_logger_`` are available everywhere without any command
-    redeclaring them.
+    These options are global -- every subcommand below shares them.
     """
 
     #: A TOML/JSON config file, layered under env vars and CLI args -- see
@@ -80,6 +83,11 @@ class DiscoveryAppArgs(LoggingArgs):
     #: absolute (works regardless of the caller's CWD) and the file genuinely
     #: ships alongside this one.
     _config_ = _CONFIG_PATH
+
+    #: Opt-in "mcp" subcommand (serves this app's full tool tree over
+    #: stdio) alongside the always-on DISCOVERY_APP_MCP=stdio env trigger --
+    #: see the module docstring's "Run it" section.
+    _mcp_command_ = True
 
     label: "Arg[str, NS(env='DISCOVERY_APP_LABEL')]" = "discovery-app"
     "A label commands can read off the shared root (e.g. for a log-line tag). Also settable via DISCOVERY_APP_LABEL or discovery_app.toml's `label` key."
@@ -107,7 +115,9 @@ class DiscoveryAppArgs(LoggingArgs):
         if self.format == "json":
             import json
 
-            return json.dumps({"label": self.label, "tags": self.tags, "message": message})
+            return json.dumps(
+                {"label": self.label, "tags": self.tags, "message": message}
+            )
         tag_suffix = f" [{','.join(self.tags)}]" if self.tags else ""
         return f"[{self.label}]{tag_suffix} {message}"
 

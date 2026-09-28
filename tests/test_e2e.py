@@ -1,4 +1,4 @@
-"""Real subprocess end-to-end tests (Plan 03 T2).
+"""Real subprocess end-to-end tests.
 
 Nothing else in the suite runs a duho CLI as an actual child process, so the
 production entry path -- ``sys.argv[1:]`` parsing, ``SystemExit`` propagation to
@@ -14,8 +14,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _EXAMPLES = _REPO_ROOT / "examples"

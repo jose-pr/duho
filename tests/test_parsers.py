@@ -11,8 +11,10 @@ All command classes are defined in this real ``.py`` file so their AST-derived
 flags/docstrings resolve normally (never via ``-c``).
 """
 
+import pytest
+
 import duho
-from duho import Cli, Cmd
+from duho import Cli, Cmd, NS, Arg
 
 
 class _Child(Cmd):
@@ -67,3 +69,77 @@ def test_parse_globals_forwards_parser_kwargs():
     # still succeeds and returns the root instance with globals set.
     parsed = duho.parse_globals(_Root, ["--flag", "kw"], add_help=False)
     assert parsed.flag == "kw"
+
+
+# --------------------------------------------------------------------------
+# parse_globals must apply the same env/config layers duho.main/parse do
+# --------------------------------------------------------------------------
+
+
+class _EnvRoot(Cli):
+    """A root whose global is backed by an env var."""
+
+    cmds_path: "Arg[str, NS(env='DUHO_TEST_GLOBALS_ENV')]" = "builtin"
+    ("--cmds-path",)
+
+    _subcommands_ = [_Child]
+
+
+def test_parse_globals_applies_env_layer(monkeypatch):
+    monkeypatch.setenv("DUHO_TEST_GLOBALS_ENV", "/from/env")
+    parsed = duho.parse_globals(_EnvRoot, [])
+    monkeypatch.delenv("DUHO_TEST_GLOBALS_ENV", raising=False)
+    assert parsed.cmds_path == "/from/env"
+
+
+@pytest.mark.requires_toml
+def test_parse_globals_applies_config_kwarg(tmp_path):
+    cfg = tmp_path / "duho.toml"
+    cfg.write_text('cmds_path = "/from/config"\n')
+    parsed = duho.parse_globals(_EnvRoot, [], config=cfg)
+    assert parsed.cmds_path == "/from/config"
+
+
+class _RequiredEnvRoot(Cli):
+    """A REQUIRED global (no class default) suppliable only via env."""
+
+    token: "Arg[str, NS(env='DUHO_TEST_GLOBALS_TOKEN')]"
+    ("--token",)
+
+    _subcommands_ = [_Child]
+
+
+def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
+    # Pre-fix, parse_globals never applied env/config layers at all, so
+    # a required global suppliable only by env raised SystemExit(2) here even
+    # though the full duho.parse of the same class succeeds.
+    monkeypatch.setenv("DUHO_TEST_GLOBALS_TOKEN", "tok")
+    parsed = duho.parse_globals(_RequiredEnvRoot, ["_Child"])
+    monkeypatch.delenv("DUHO_TEST_GLOBALS_TOKEN", raising=False)
+    assert parsed.token == "tok"
+
+
+# --------------------------------------------------------------------------
+# the EXPORTED duho.parsers.prerun_parse must be safe to call directly
+# on a duho root that still has its own subparsers action -- not just
+# through parse_globals (which used to work around this itself).
+# --------------------------------------------------------------------------
+
+from duho.parsers import prerun_parse  # noqa: E402
+
+
+def test_exported_prerun_parse_on_a_duho_root_with_subcommands():
+    parser = _Root._parser_()
+    # A trailing subcommand name (with the child's own flag after it) used to
+    # raise KeyError('#cls'): the relaxed subparsers action re-entered this
+    # SAME parser's own patched parse_known_args, double-popping the
+    # selection marker. It must now just parse the globals and ignore the
+    # rest, exactly like duho.parse_globals does.
+    parsed = prerun_parse(parser, ["--flag", "x", "_Child", "--target", "here"])
+    assert parsed.flag == "x"
+
+
+def test_exported_prerun_parse_on_a_duho_root_with_subcommands_no_subcommand():
+    parser = _Root._parser_()
+    parsed = prerun_parse(parser, ["--flag", "y"])
+    assert parsed.flag == "y"

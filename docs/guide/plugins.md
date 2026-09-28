@@ -56,11 +56,18 @@ cost.
 
 ## Precedence
 
-`entry_points=` sits in `duho.app`'s command-source precedence:
+`duho.app` picks its **base** command set from the first of these that's given:
 
 ```
-commands=  >  source=  >  entry_points=  >  env (CMDS_PATH)  >  root._subcommands_
+commands=  >  source=  >  entry_points=  >  root._subcommands_
 ```
+
+A `CMDS_PATH` entry from `env=` is not a lower rung on that ladder — it **always**
+layers on top of whichever base was chosen (even when `commands=`/`source=`/
+`entry_points=` was also given), and a discovered command whose name collides
+with a base command **wins** the collision (logged, never silent). `CMDS_PATH`
+is additive: it never removes a base command, it only adds to — and can
+override — it.
 
 ## Getting the list directly
 

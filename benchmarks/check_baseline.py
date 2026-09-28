@@ -8,14 +8,18 @@ Measures this interpreter's gated metrics and compares them to
     median exceeds its baseline by more than ``WARM_THRESHOLD`` (1.5x);
   * **startup deltas** (duho's added cost over bare python, from
     ``bench_startup``): fail if a delta exceeds its baseline by more than
-    ``STARTUP_THRESHOLD`` (1.3x). The delta normalizes out runner speed, so a
-    tighter bound is safe.
+    ``STARTUP_THRESHOLD`` (1.3x). The delta cancels the fixed per-process
+    overhead shared by both sides of the subtraction, not the machine's clock
+    speed -- it is meaningful here only because a baseline and its comparison
+    run are both produced on the same CI runner image (see bench_startup.py).
 
 Thresholds are deliberately generous -- CI runner timing noise is real -- so a
 trip means a structural regression, not jitter. When the baseline has no entry
 for the running Python version, the check is SKIPPED (exit 0) with a note, so a
 version without a committed baseline never spuriously fails; add one with
-``update_baseline.py``.
+``update_baseline.py`` run on the SAME kind of machine that will be compared
+against it (ideally: from the CI benchmark job's own artifacts, not a
+contributor's laptop -- see benchmarks/README.md).
 
     python benchmarks/check_baseline.py
     python benchmarks/check_baseline.py -n 15    # startup samples
@@ -23,6 +27,7 @@ version without a committed baseline never spuriously fails; add one with
 Exit code: 0 = within thresholds (or skipped), 1 = regression detected.
 Requires duho importable (PYTHONPATH=src, or installed).
 """
+
 import argparse
 import json
 import sys
@@ -93,7 +98,9 @@ def main(argv=None):
             ratio = cur / base
             flag = "  <-- REGRESSION" if ratio > WARM_THRESHOLD else ""
             print(f"  {name:22s} base {base:8.4f}  cur {cur:8.4f}  {ratio:5.2f}x{flag}")
-    print(f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms):")
+    print(
+        f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms):"
+    )
     for name, base in sorted(entry.get("startup", {}).items()):
         cur = startup_current.get(name)
         if cur is None:
@@ -101,7 +108,9 @@ def main(argv=None):
         ratio = cur / base if base > 0 else float("nan")
         note = " (below floor; not gated)" if base < STARTUP_FLOOR_MS else ""
         flag = "  <-- REGRESSION" if (name, base, cur, ratio) in startup_reg else ""
-        print(f"  {name:22s} base {base:8.2f}  cur {cur:8.2f}  {ratio:5.2f}x{note}{flag}")
+        print(
+            f"  {name:22s} base {base:8.2f}  cur {cur:8.2f}  {ratio:5.2f}x{note}{flag}"
+        )
 
     regressions = warm_reg + startup_reg
     if regressions:

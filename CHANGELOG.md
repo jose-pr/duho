@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-28
+
 ### Added
 
 - **Launch MCP from the CLI itself, with zero app code.** Every
@@ -1528,7 +1530,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jose-pr/duho/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/jose-pr/duho/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jose-pr/duho/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jose-pr/duho/compare/v0.5.1...v0.5.2

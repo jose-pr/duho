@@ -8,9 +8,34 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-A large internal review pass across the whole library — see `CHANGELOG.md`
-for the full list of fixes and additions. No version number or release date
-is assigned yet.
+**Performance target:** still open from 0.6.0. Regenerate
+`benchmarks/baseline.json`'s `3.9` and `3.13` entries from an actual CI
+benchmark-job run before the next release.
+
+---
+
+## [0.6.0] — 2026-09-28
+
+A large review pass across the whole library, plus launching an MCP server
+from the CLI itself (a `<NAME>_MCP=stdio` environment variable, or an opt-in
+subcommand). This is a minor release because the documented API broke; the
+**[minor]** bullets in `CHANGELOG.md` list each break. Before release, twelve
+downstream projects were run against it: none needed a code change beyond
+their version pin, and the three regressions that run found were fixed.
+
+### Validation evidence
+
+- Test suite: Windows Python 3.9 and 3.14, and Linux (WSL) Python 3.14, all
+  green; the CI test workflow is run at the release commit before tagging.
+- `black --check`, `mkdocs build --strict` and the leak check are clean.
+- Downstream: twelve consumer projects' own test suites passed against the
+  release tree, with results identical to 0.5.4 for every project except
+  the regressions above, which are fixed.
+
+### Performance
+
+No new benchmark evidence for this release. The CI baseline regeneration
+targeted below was **not** done for 0.6.0, so no performance claim is made.
 
 ### Performance evidence gap (0.3.0 – 0.5.4)
 

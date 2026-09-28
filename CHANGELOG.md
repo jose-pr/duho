@@ -26,21 +26,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which serves the CLI currently being dispatched (reading the running
   app's own already-built tree from a context `duho.main`/`duho.app` record
   around their own dispatch step — no rediscovery). Register an `McpCmd`
-  subclass under any name for a self-serving MCP subcommand, or let
-  `duho.app`'s new opt-in **`_mcp_command_`** class attribute (declared on
-  `Cli`, `Union[str, bool]`, default `False`) / **`mcp_command=`** keyword
-  do it for you: `True` registers it as `"mcp"`, a non-empty `str` registers
-  it under that exact name. Requires the app to already have at least one
-  other subcommand, and a name colliding with an existing command/alias is a
-  build-time `ValueError` — both checked before anything is registered. A
-  node whose class is (or subclasses) `McpCmd` is never itself listed as (or
-  callable as) an MCP tool.
+  subclass under any name for a self-serving MCP subcommand, or let the new
+  opt-in **`_mcp_command_`** class attribute (declared on `Cli`,
+  `Union[str, bool]`, default `False`) do it for you under **either**
+  `duho.main` or `duho.app` — `app(..., mcp_command=...)` overrides the
+  class attribute per call (`duho.main` has no such kwarg; it always reads
+  the class attribute). Either way: `True` registers it as `"mcp"`, a
+  non-empty `str` registers it under that exact name, and its `--help` row
+  reads "Serve this CLI as an MCP server". Requires the app/class to
+  already have at least one other subcommand, and a name colliding with an
+  existing command/alias is a build-time `ValueError` — both checked before
+  anything is registered, with the exact same validation and message text
+  under either entry point. A node whose class is (or subclasses) `McpCmd`
+  is never itself listed as (or callable as) an MCP tool.
 - **`duho.mcp.describe_tools`/`call_tool`/`serve` now also accept a full
   `duho.app()`-built tree**, not just a class's static `_subcommands_`: a
   module command — with its own declared `Args`, or none at all — is listed
   **and callable** exactly like a class command, through the same one
   dispatch path and the same security checks (dispatch-path verification,
   safe argv synthesis, schema validation) the static-tree path already had.
+  Tool names now use `app(name=...)` as the root segment when given (falling
+  back to a declared `_parsername_`/the class name otherwise), instead of
+  always the class-derived name — `app(Dotagents, name="dotagents")`
+  produces `dotagents.*` tools, not `Dotagents.*`. `initialize`'s
+  `serverInfo` reports the served app's own resolved name (the same one)
+  and its own `_version_` when one resolves to a string, rather than a
+  fixed `{"name": "duho.mcp", "version": <duho's own version>}` for every
+  app — duho's own version remains the fallback when the app declares none.
+- A command (class or module) can opt itself out of the MCP tool surface
+  entirely with **`_mcp_ = False`** on a NON-root `Cmd`/`Cli` (a module
+  command via a module-level `_mcp_ = False`) — hidden from `tools/list`
+  together with its whole subtree, and refused by `tools/call` the same way
+  an unknown name is, disclosing no existence either way. A subclass of an
+  excluded command is excluded too, without redeclaring it. The ROOT's own
+  `_mcp_` keeps its separate, pre-existing meaning (the launch-trigger
+  opt-out above) and is never treated as this per-command exclusion.
 - **`AGENTS_HELP`** is now accepted alongside `AGENT_HELP` as the env var
   that flips `--help`/agent-help into machine-readable output — either
   truthy triggers it. `duho.agenthelp.DEFAULT_ENVS` is the new

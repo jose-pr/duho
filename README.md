@@ -1630,7 +1630,8 @@ disable it with a root class attribute `_mcp_ = False` (on a `Cli`) or
 
 Prefer a real subcommand instead of an env var? `duho.mcp.McpCmd` is a ready `Cmd`
 (`--transport {stdio}`) that serves the CLI it was dispatched from — register it
-under any name, or let `duho.app` do it for you:
+under any name, or let the class attribute do it for you under **either**
+`duho.main` or `duho.app`:
 
 ```python
 class MyApp(Cli):
@@ -1642,10 +1643,65 @@ class MyApp(Cli):
 $ myapp mcp
 ```
 
-`app(..., mcp_command=...)` overrides the class attribute per call. Either form
+`app(..., mcp_command=...)` overrides the class attribute per call (`duho.main` has
+no such kwarg — it always reads `_mcp_command_` directly). Either entry point
 requires the app to already have at least one OTHER subcommand, and a chosen name
 that collides with an existing command/alias is a build-time error — both checked
 before anything is registered, never silently swallowed.
+
+### Naming and identity
+
+The dotted tool-name namespace, and the `serverInfo` an MCP client sees in its
+`initialize` response, both follow the SAME resolved name — a declared
+`_parsername_`, an explicit `duho.app(name=...)`, or the class name, in that order
+of precedence:
+
+```python
+app(Dotagents, name="dotagents")   # tools come out "dotagents.*", not "Dotagents.*"
+```
+
+`serverInfo.version` reports the served app's own `_version_` when it resolves to a
+string (a literal, `duho.AUTO`, or a class-level `__version__` fallback — see
+"`--version`" above); otherwise it falls back to duho's own version, same as before.
+
+### Excluding a command from the tool surface
+
+A command that should never be reachable over MCP — one that prints secrets, or
+returns something a client has no business asking for — opts out with
+`_mcp_ = False` on that command's own class:
+
+```python
+class Env(Cmd):
+    """Print resolved environment values (may include secrets)."""
+
+    _mcp_ = False
+
+    def __call__(self):
+        ...
+```
+
+The excluded command, and its whole subtree if it has one (a `Cli` with its own
+`_subcommands_`), is left out of `tools/list` entirely; calling it by name (or
+anything nested under it) fails exactly like an unknown tool name — no existence is
+disclosed either way. A subclass of an excluded command inherits the exclusion
+without redeclaring it (plain attribute lookup). A **module command** gets the same
+opt-out via a module-level `_mcp_ = False`:
+
+```python
+# secrets.py
+"""Print resolved secrets."""
+
+_mcp_ = False
+
+
+def main(args=None):
+    ...
+```
+
+`_mcp_` on the ROOT of the tree being served keeps its separate, pre-existing
+meaning (the launch-trigger opt-out above) — it is never treated as this
+per-command exclusion, and `duho.mcp.McpCmd`'s own registered subcommand is always
+excluded regardless of this attribute.
 
 ## Examples
 

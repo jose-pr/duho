@@ -123,6 +123,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `duho.app()` now lists subcommands in alphabetical order in the usage
+  line's `{...}` choices, where 0.5.4 used registration order. Dispatch is
+  unchanged. *(Added after the 0.6.0 release; found by a downstream smoke
+  test that compared the exact usage text.)*
 - **`pyproject.toml`** now declares `license = "MIT"` /
   `license-files = ["LICENSE"]` (PEP 639) instead of the legacy
   `license = {file = "LICENSE"}` table plus classifier; the built wheel's

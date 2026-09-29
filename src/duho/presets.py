@@ -49,7 +49,18 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
             if verbose_loglevel is not None
             else LoggingArgs._verbose_loglevel_(ns)
         )
-    loglevels.setdefault(default_logger, default)
+    # An explicit `--loglevel app:LEVEL` covers the whole `app.*` subtree, so
+    # it must also reach the dispatched command's own logger when that logger
+    # sits inside it (`app.scan`). Injecting the -v/-q default for that logger
+    # here would give it its OWN level, applied after (and overriding) the
+    # ancestor the user actually named.
+    covered = any(
+        default_logger == name or default_logger.startswith(name + ".")
+        for name in explicit_names
+        if name
+    )
+    if not covered:
+        loglevels.setdefault(default_logger, default)
     for name, level in loglevels.items():
         _logging.getLogger(name).setLevel(level)
         if name and name in explicit_names:

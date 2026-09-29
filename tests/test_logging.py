@@ -750,3 +750,61 @@ def test_named_loglevel_subtree_walk_never_promotes_a_placeholder():
         logging.getLogger("duho_test_placeholder").setLevel(logging.NOTSET)
         logging.getLogger("_SubtreeLoggingApp").setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)
+
+
+# --------------------------------------------------------------------------
+# An explicit `--loglevel app:LEVEL` must also reach the DISPATCHED command's
+# own logger when that logger sits inside the named subtree (`app.scan`):
+# the -v/-q default injected for the command's logger must not give it an
+# explicit level of its own that overrides the ancestor the user named.
+# --------------------------------------------------------------------------
+
+
+class _CmdLoggerLeaf(LoggingArgs, Cmd):
+    _logger_name_ = "duho_test_cmdlog.scan"
+
+    def __call__(self):
+        return 0
+
+
+def _reset_cmdlog():
+    for name in ("duho_test_cmdlog", "duho_test_cmdlog.scan", "_CmdLoggerLeaf"):
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    logging.getLogger().setLevel(logging.WARNING)
+
+
+@pytest.mark.parametrize("level", ["DEBUG", "WARNING"])
+def test_named_ancestor_loglevel_reaches_the_commands_own_logger(level):
+    try:
+        ns = _CmdLoggerLeaf._parser_().parse_args(
+            ["--loglevel", "duho_test_cmdlog:" + level]
+        )
+        ns._set_loglevels_()
+        leaf = logging.getLogger("duho_test_cmdlog.scan")
+        assert leaf.getEffectiveLevel() == getattr(logging, level)
+        # Inherits rather than being pinned, so the named ancestor keeps
+        # governing it.
+        assert leaf.level == logging.NOTSET
+    finally:
+        _reset_cmdlog()
+
+
+def test_named_ancestor_loglevel_overrides_a_previously_pinned_command_logger():
+    try:
+        logging.getLogger("duho_test_cmdlog.scan").setLevel(logging.INFO)
+        ns = _CmdLoggerLeaf._parser_().parse_args(
+            ["--loglevel", "duho_test_cmdlog:DEBUG"]
+        )
+        ns._set_loglevels_()
+        assert logging.getLogger("duho_test_cmdlog.scan").level == logging.DEBUG
+    finally:
+        _reset_cmdlog()
+
+
+def test_verbosity_still_sets_the_commands_own_logger_without_a_named_ancestor():
+    try:
+        ns = _CmdLoggerLeaf._parser_().parse_args(["-v"])
+        ns._set_loglevels_()
+        assert logging.getLogger("duho_test_cmdlog.scan").level == logging.DEBUG
+    finally:
+        _reset_cmdlog()

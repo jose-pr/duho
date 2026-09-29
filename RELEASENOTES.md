@@ -14,6 +14,16 @@ benchmark-job run before the next release.
 
 ---
 
+## [0.6.1] — 2026-09-29
+
+A single bug fix, reported by a downstream project the day after 0.6.0:
+`--loglevel app:LEVEL` now reaches the dispatched command's own logger
+(`app.<command>`), as 0.6.0 documented. It adds regression tests. The CI
+test workflow ran at the release commit before tagging. No performance
+claim is made.
+
+---
+
 ## [0.6.0] — 2026-09-28
 
 A large review pass across the whole library, plus launching an MCP server

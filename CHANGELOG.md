@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--loglevel app:LEVEL` now also reaches the dispatched command's own
+  logger when that logger is inside the named subtree (for example
+  `app.scan`). Previously the `-v`/`-q` default applied to the command's
+  logger overrode the ancestor you named, so `--loglevel app:DEBUG scan`
+  still logged `app.scan` at INFO. When no ancestor is named, `-v`/`-q`
+  set the command's logger as before.
+
 ## [0.6.0] - 2026-09-28
 
 ### Added

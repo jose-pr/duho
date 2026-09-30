@@ -343,13 +343,16 @@ class ScaffoldCmd(_Cli):
             # exception message already names the conflict and tells the
             # caller to pass --force, so printing it once is the whole error
             # (a second, separate "pass --force" line duplicated that).
-            print(str(exc), file=_sys.stderr)
+            # `write_human`, not a raw `print(..., file=sys.stderr)`: `exc`'s
+            # message can embed a user-supplied path, which can't raise even
+            # on a stderr this module cannot assume is UTF-8.
+            _compat.write_human(str(exc) + "\n", _sys.stderr)
             return 1
         except OSError as exc:
             # Any other filesystem failure (permission denied, a read-only
             # target, ...) is also an expected, reportable condition for a
             # CLI -- not a 22-line traceback.
-            print("duho.scaffold: %s" % (exc,), file=_sys.stderr)
+            _compat.write_human("duho.scaffold: %s\n" % (exc,), _sys.stderr)
             return 1
         for path in written:
             # Both launchers are already written by this point --

@@ -545,6 +545,40 @@ def _completion_default_prog(root_parser, explicit_prog: bool) -> str:
     return prog
 
 
+class _Utf8SafeVersionAction(_argparse._VersionAction):
+    """Same behavior, text, and exit code as argparse's own ``action="version"``
+    (stdlib ``_VersionAction``, which this subclasses -- unchanged ``__init__``,
+    so a real ``isinstance(action, argparse._VersionAction)`` check, e.g.
+    ``parsers._is_terminal_action``'s, still recognizes it), except the
+    version string is written via :func:`duho._compat.write_human` instead
+    of ``parser._print_message``.
+
+    ``_print_message`` does ``file.write(message)`` directly and only
+    swallows ``(AttributeError, OSError)`` -- a ``UnicodeEncodeError`` from a
+    non-ASCII version/prog string propagates uncaught (empty output, exit 1)
+    on a non-UTF-8 stdout, e.g. Windows' default piped/redirected ``cp1252``.
+    ``write_human`` tries the same plain ``stream.write`` first, so the
+    common (ASCII, or already-UTF-8) case is byte-identical to stock
+    argparse; only a genuinely unrepresentable character falls back to the
+    stream's own encoding with ``errors="backslashreplace"`` instead of
+    raising. This is duho's crash-proofing for ``--version`` when
+    :func:`duho.utf8_stdio` did NOT already make stdout UTF-8 -- opted out
+    via ``_utf8_stdio_ = False``/``utf8_stdio=False``, or a parser built and
+    used outside ``duho.main``/``duho.app`` entirely.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        version = self.version
+        if version is None:
+            version = parser.version
+        formatter = parser._get_formatter()
+        formatter.add_text(version)
+        message = formatter.format_help()
+        if message:
+            _compat.write_human(message, _sys.stdout)
+        parser.exit()
+
+
 class _PrintCompletionAction(_argparse.Action):
     """argparse Action for --print-completion: emits a shell completion
     script for the *root* parser tree and exits 0, mirroring how the
@@ -2543,7 +2577,10 @@ class Args(_argparse.Namespace):
                 # argparse `%`-formats `version=` the same as any other help
                 # text, so `_version_ = "2.0 (100% rewrite)"` crashed
                 # `--version` with a bare `TypeError`.
-                action="version",
+                # `_Utf8SafeVersionAction`, not the stock `action="version"`
+                # (`argparse._VersionAction`): same text/exit code, but
+                # crash-proof on a non-UTF-8 stdout -- see its docstring.
+                action=_Utf8SafeVersionAction,
                 version="%(prog)s " + version.replace("%", "%%"),
             )
 
@@ -3276,9 +3313,14 @@ def _maybe_serve_mcp_trigger(
     if not value:
         return None
     if value != "stdio":
-        print(
-            "unsupported MCP transport %r (supported: stdio)" % (stripped,),
-            file=_sys.stderr,
+        # `stripped` is env-supplied text (the `<PREFIX>MCP`/`<NAME>_MCP`
+        # value itself) -- `write_human` instead of a raw `print(...,
+        # file=sys.stderr)` so a non-ASCII value can't raise even on a
+        # stderr this module cannot assume is UTF-8 (opted out of
+        # `duho.utf8_stdio`, or this trigger reached outside `main`/`app`).
+        _compat.write_human(
+            "unsupported MCP transport %r (supported: stdio)\n" % (stripped,),
+            _sys.stderr,
         )
         return 2
 

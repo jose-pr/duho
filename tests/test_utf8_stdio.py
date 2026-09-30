@@ -10,8 +10,11 @@ Two halves:
   attribute, and let an explicit `utf8_stdio=` kwarg win over it.
 * **Subprocess tests** (real child process, piped output, `PYTHONIOENCODING`/
   `PYTHONUTF8` stripped and -- on POSIX -- the locale forced to plain ``C``)
-  prove the default actually reconfigures a non-UTF-8 child's stdio to
-  UTF-8 with no crash anywhere.
+  prove the actual crash-proofing end to end: the default reconfigures a
+  non-UTF-8 child's stdio to UTF-8 with no crash anywhere; the opt-out (class
+  attribute or kwarg) leaves the child's locale encoding alone but still
+  never crashes on `--version` (duho's own `_Utf8SafeVersionAction`); an
+  explicit `PYTHONIOENCODING` in the child is never overridden.
 """
 
 from __future__ import annotations
@@ -305,3 +308,34 @@ def test_default_print_is_utf8_and_never_crashes(tmp_path):
     proc = _run(app_file, env=env)
     assert proc.returncode == 0, proc.stderr
     assert "\u03b2" in proc.stdout.decode("utf-8")
+
+
+def test_class_attr_opt_out_keeps_locale_encoding_but_never_crashes(tmp_path):
+    app_file = _write_app(tmp_path, opt_out_class_attr=True)
+    env = _non_utf8_child_env()
+    proc = _run(app_file, "--version", env=env)
+    assert proc.returncode == 0, proc.stderr
+    # Beta fits in neither cp1252 nor ASCII -- left alone, `write_human`
+    # falls back to a backslash escape instead of crashing.
+    assert b"\\u03b2" in proc.stdout
+
+
+def test_main_kwarg_opt_out_keeps_locale_encoding_but_never_crashes(tmp_path):
+    app_file = _write_app(tmp_path, opt_out_kwarg=True)
+    env = _non_utf8_child_env()
+    proc = _run(app_file, "--version", env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert b"\\u03b2" in proc.stdout
+
+
+def test_explicit_pythonioencoding_in_child_is_never_overridden(tmp_path):
+    app_file = _write_app(tmp_path)
+    env = subprocess_env()
+    env.pop("PYTHONUTF8", None)
+    env["PYTHONIOENCODING"] = "cp1252"
+    proc = _run(app_file, "--version", env=env)
+    # duho must respect the user's explicit choice (skip rule 1) -- stdio
+    # stays cp1252, which can't represent beta, but `--version` still must
+    # not crash.
+    assert proc.returncode == 0, proc.stderr
+    assert b"\\u03b2" in proc.stdout

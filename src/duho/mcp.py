@@ -2454,17 +2454,21 @@ def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     """
     args = list(argv) if argv is not None else _sys.argv[1:]
     if not args:
-        print("usage: python -m duho.mcp <app>", file=_sys.stderr)
+        _compat.write_human("usage: python -m duho.mcp <app>\n", _sys.stderr)
         return 2
     if args[0] in ("-h", "--help"):
-        print("usage: python -m duho.mcp <app>", file=_sys.stderr)
+        _compat.write_human("usage: python -m duho.mcp <app>\n", _sys.stderr)
         return 0
     stream_in, stream_out = _real_stdio_streams()
     try:
         root_cls = _resolve_app(args[0])
     except Exception as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
-        print(
-            "duho.mcp: could not resolve app %r: %s" % (args[0], exc), file=_sys.stderr
+        # `args[0]`/`exc` can both carry arbitrary (env- or user-supplied)
+        # text -- `write_human`, not a raw `print(..., file=sys.stderr)`,
+        # so a non-ASCII app spec or exception message can't raise even on
+        # a stderr this module cannot assume is UTF-8.
+        _compat.write_human(
+            "duho.mcp: could not resolve app %r: %s\n" % (args[0], exc), _sys.stderr
         )
         return 1
     return serve(root_cls, stdin=stream_in, stdout=stream_out)

@@ -3,8 +3,10 @@
 Centralizes all version-specific logic and fallbacks.
 """
 
+import codecs as _codecs
 import contextvars as _contextvars
 import logging as _logging
+import os as _os
 import sys as _sys
 import types as _types
 import typing as _ty
@@ -172,12 +174,97 @@ def write_human(text: str, stream=None) -> None:
             )
 
 
+def utf8_stdio(
+    streams: "_ty.Optional[_ty.Mapping[str, _ty.Any]]" = None,
+) -> "list[str]":
+    """Reconfigure text streams to UTF-8 in place, so piped/redirected output
+    can never crash with ``UnicodeEncodeError`` for a non-ASCII character the
+    host's default locale encoding (``cp1252`` on Windows, piped/captured)
+    cannot represent. UTF-8 is the only encoding that cannot raise here.
+
+    ``streams`` defaults to ``{"stdout": sys.stdout, "stderr": sys.stderr}``;
+    pass an explicit mapping (e.g. of fake streams) to target something else
+    -- this is how tests exercise the skip/switch rules without touching the
+    real ``sys.stdout``/``sys.stderr``.
+
+    A stream is left ALONE (skipped) when ANY of:
+
+    1. ``PYTHONIOENCODING`` is set (non-empty) in the environment -- the
+       user already made an explicit choice for this process; respect it.
+       Checked once for the whole call (it's a process-wide setting, not
+       per-stream).
+    2. Python's own UTF-8 mode is active (``sys.flags.utf8_mode``) -- every
+       stream is already UTF-8.
+    3. the stream has no ``.reconfigure()`` method -- it was replaced by
+       something else (pytest's capture, a plain ``io.StringIO``, ...) that
+       duho must not assume text-stream-with-encoding semantics for.
+    4. ``stream.isatty()`` is true -- a real terminal already matches the
+       user's own locale (and a modern Windows console is UTF-8-capable
+       already); forcing it here would fight the terminal's own setup.
+    5. its current encoding, normalized via ``codecs.lookup(...).name``, is
+       already ``"utf-8"``.
+
+    Otherwise the stream is switched in place --
+    ``stream.reconfigure(encoding="utf-8", errors=...)`` -- using the same
+    per-stream errors policy Python's own UTF-8 mode uses:
+    ``"surrogateescape"`` for the stream named ``"stdout"``,
+    ``"backslashreplace"`` for every other name (``"stderr"`` included, and
+    the safer default for a caller's own custom stream name -- it can never
+    raise, where ``surrogateescape`` assumes a byte round-trip specifically
+    appropriate to stdout).
+
+    Never raises: an ``OSError``/``ValueError`` a ``reconfigure()`` call
+    itself raises (e.g. an already-closed stream refusing reconfiguration)
+    is swallowed and that one stream is left as-is -- every other stream is
+    still attempted. Idempotent: a stream already switched to UTF-8 matches
+    rule 5 on a later call and is skipped again.
+
+    Returns the list of stream names actually switched (for tests/logging);
+    an empty list means every stream was already fine, opted out via
+    ``PYTHONIOENCODING``/UTF-8 mode, or is not a real reconfigurable stream.
+    """
+    if streams is None:
+        streams = {"stdout": _sys.stdout, "stderr": _sys.stderr}
+
+    if _os.environ.get("PYTHONIOENCODING"):
+        return []
+    if getattr(_sys.flags, "utf8_mode", 0):
+        return []
+
+    switched: "list[str]" = []
+    for stream_name, stream in streams.items():
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            is_tty = stream.isatty()
+        except Exception:
+            is_tty = False
+        if is_tty:
+            continue
+        encoding = getattr(stream, "encoding", None)
+        if encoding:
+            try:
+                if _codecs.lookup(encoding).name == "utf-8":
+                    continue
+            except LookupError:
+                pass
+        errors = "surrogateescape" if stream_name == "stdout" else "backslashreplace"
+        try:
+            reconfigure(encoding="utf-8", errors=errors)
+        except (OSError, ValueError):
+            continue
+        switched.append(stream_name)
+    return switched
+
+
 __all__ = [
     "UNION_ORIGINS",
     "BOOL_TRUE",
     "BOOL_FALSE",
     "get_level_names_mapping",
     "iter_entry_points",
+    "utf8_stdio",
     "write_machine",
     "write_human",
 ]

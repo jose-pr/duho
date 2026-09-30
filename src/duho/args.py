@@ -2763,6 +2763,20 @@ class Cli(Cmd):
     #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
     _exit_codes_: "_ty.Optional[_ty.Mapping[_ty.Any, str]]" = None
 
+    #: When ``True`` (the default), ``duho.main``/``duho.app`` call
+    #: :func:`duho.utf8_stdio` FIRST thing -- before the MCP launch trigger,
+    #: before ``argv`` is parsed, before anything else -- so piped/redirected
+    #: stdout/stderr on a non-UTF-8 host locale (``cp1252`` on Windows) become
+    #: UTF-8 and stop being able to crash on a non-ASCII character at all.
+    #: ``False`` opts the app out entirely: duho leaves stdio completely
+    #: alone, and the app may call :func:`duho.utf8_stdio` itself (with its
+    #: own choice of streams/policy) or do nothing. Read via ``getattr``, so
+    #: any class works, not just a ``Cli``. ``duho.main(..., utf8_stdio=...)``/
+    #: ``duho.app(..., utf8_stdio=...)`` accept the same tri-state as
+    #: ``mcp=``: an explicit ``True``/``False`` wins over this class
+    #: attribute; ``None`` (the default kwarg value) defers to it.
+    _utf8_stdio_: bool = True
+
     #: On the ROOT class of the tree being served, ``False`` disables the
     #: ``<PREFIX>MCP``/``<NAME>_MCP`` environment trigger (see
     #: ``duho.main``/``duho.app``'s own docs) for this app entirely -- the
@@ -3280,6 +3294,7 @@ def main(
     *,
     setup_logging: bool = True,
     config: "str | _pathlib.Path | None" = None,
+    utf8_stdio: "bool | None" = None,
 ) -> "_ty.Any":
     """Build a parser for cls, parse argv, and dispatch the selected Cmd.
 
@@ -3304,7 +3319,13 @@ def main(
     ``object``) keeps ``sys.exit(duho.main(...))`` clean under a strict-mypy
     consumer, since ``sys.exit`` does not accept ``object``.
 
-    **MCP launch trigger**: checked FIRST, before ``argv``
+    **UTF-8 stdio**: :func:`duho.utf8_stdio` runs FIRST, before the MCP
+    launch trigger and before ``argv`` is parsed, unless opted out --
+    ``utf8_stdio=False`` here, or ``cls``'s own ``_utf8_stdio_ = False``
+    when the kwarg is left at its default ``None``. Opted out, duho does not
+    touch stdio at all (the app may call :func:`duho.utf8_stdio` itself).
+
+    **MCP launch trigger**: checked next, before ``argv``
     is even parsed -- see :func:`_maybe_serve_mcp_trigger`. When the trigger
     fires this returns the MCP server's own exit code instead of running any
     command; otherwise nothing about the rest of this function changes.
@@ -3323,6 +3344,9 @@ def main(
     stdio via :func:`duho.mcp.serve_running_app`, through the same
     ``_MCP_CONTEXT`` ContextVar ``app()`` sets.
     """
+    if utf8_stdio if utf8_stdio is not None else getattr(cls, "_utf8_stdio_", True):
+        _compat.utf8_stdio()
+
     served = _maybe_serve_mcp_trigger(cls)
     if served is not None:
         return served

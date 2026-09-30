@@ -1566,6 +1566,7 @@ def app(
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
     mcp: "bool | None" = None,
     mcp_command: "str | bool | None" = None,
+    utf8_stdio: "bool | None" = None,
 ) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
@@ -1674,8 +1675,22 @@ def app(
     one other subcommand (a subparsers action that would ONLY ever offer
     ``mcp`` is not a meaningful CLI). ``duho.mcp`` is imported only once a
     name is actually resolved.
+
+    **UTF-8 stdio.** :func:`duho.utf8_stdio` runs FIRST, before the MCP
+    launch trigger and before anything else here, unless opted out --
+    ``utf8_stdio=False`` here, or ``root``'s own ``_utf8_stdio_ = False``
+    when this kwarg is left at its default ``None`` (a bare ``root=None``
+    root is treated as opted in, matching ``_mcp_``'s own default-root
+    handling). Opted out, duho does not touch stdio at all.
     """
     root_cls_for_mcp = root if root is not None else _Args
+    if (
+        utf8_stdio
+        if utf8_stdio is not None
+        else getattr(root_cls_for_mcp, "_utf8_stdio_", True)
+    ):
+        _compat.utf8_stdio()
+
     mcp_enabled = mcp if mcp is not None else getattr(root_cls_for_mcp, "_mcp_", True)
     if mcp_enabled:
 

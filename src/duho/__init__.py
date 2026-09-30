@@ -6,6 +6,7 @@ your arguments and commands as Python classes.
 
 import typing as _ty
 
+from ._compat import utf8_stdio
 from .args import (
     Append,
     Args,
@@ -140,6 +141,7 @@ __all__ = [
     "register_command_provider",
     "run_command",
     "snakecase",
+    "utf8_stdio",
     "UpdateAction",
     "value_sources",
     "add_logging_level",

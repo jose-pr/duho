@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`duho.utf8_stdio(streams=None) -> list[str]`** — reconfigures
+  `sys.stdout`/`sys.stderr` (or an explicit `streams=` mapping) to UTF-8 in
+  place, skipping a real terminal, a stream already UTF-8, a stream with no
+  `.reconfigure()`, Python's own UTF-8 mode, or an explicit
+  `PYTHONIOENCODING`. Never raises; idempotent. `duho.main`/`duho.app` call
+  it first thing, before the MCP launch trigger and before `argv` is parsed.
+  Opt out with a root class attribute `_utf8_stdio_ = False` (declared on
+  `Cli`, default `True`) or a `main(..., utf8_stdio=...)`/
+  `app(..., utf8_stdio=...)` kwarg (wins over the class attribute).
+
+### Changed
+
+- Piped/redirected stdout and stderr on a non-UTF-8 host locale (Windows'
+  default `cp1252` for captured output, most notably) are now reconfigured
+  to UTF-8 by default instead of raising `UnicodeEncodeError` on the first
+  non-ASCII character. See `duho.utf8_stdio` above for the opt-out.
+
+### Fixed
+
+- `--version` no longer crashes with `UnicodeEncodeError` when the resolved
+  version or program name contains a character outside the stdout stream's
+  encoding and UTF-8 stdio wasn't already in effect (opted out, or a
+  duho-built parser used outside `main`/`app`). The injected `--version`
+  action now writes through the same crash-proof path `--help` already
+  used, falling back to `errors="backslashreplace"` instead of raising.
+  duho's own stderr messages (an unsupported MCP transport, a `duho.mcp`/
+  `duho.scaffold` CLI error) go through the same path instead of a raw
+  `print(..., file=sys.stderr)`.
+
 ## [0.6.1] - 2026-09-29
 
 ### Fixed

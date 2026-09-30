@@ -260,6 +260,42 @@ name to the class's top-level import package. If the distribution isn't installe
 (a source checkout, say), duho adds **no** `--version` flag at all and logs a
 debug message — rather than printing a bogus version or crashing.
 
+## Output encoding
+
+`duho.main`/`duho.app` call `duho.utf8_stdio()` before anything else runs. It
+reconfigures `sys.stdout`/`sys.stderr` to UTF-8 in place unless one of a few
+conditions already guarantees correct encoding: a real terminal (`isatty()`),
+a stream already UTF-8, a stream with no `.reconfigure()` (pytest's capture,
+`io.StringIO`), Python's own UTF-8 mode, or an explicit `PYTHONIOENCODING`.
+
+This mainly targets Windows, where piped/redirected output defaults to the
+console's ANSI code page (`cp1252`) with strict errors — printing (or
+`--version`-ing) a non-ASCII character used to raise `UnicodeEncodeError`,
+producing empty output and exit code 1. UTF-8 can't raise, so this default
+removes that failure mode entirely.
+
+Opt out with `_utf8_stdio_ = False` on the root class, or `utf8_stdio=False`
+passed to `main`/`app` (the kwarg wins over the class attribute):
+
+```python
+class App(duho.Cli):
+    _utf8_stdio_ = False  # duho leaves stdio alone; call duho.utf8_stdio()
+                          # yourself, or do nothing
+```
+
+Even opted out (or when a duho-built parser is driven outside `main`/`app`),
+`--version` and duho's own error messages can't crash: they fall back to
+`errors="backslashreplace"` instead of raising when a character doesn't fit
+the stream's encoding.
+
+If you're inspecting piped UTF-8 output from PowerShell, set the console
+itself to UTF-8 too, or `Select-String`/`> file`/capture will still decode
+using the console's own (non-UTF-8) code page:
+
+```powershell
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+```
+
 ## Prettier help: defaults & color
 
 Opt into a richer `--help` by setting a class-level `_help_formatter_`. duho ships

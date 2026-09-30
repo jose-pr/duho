@@ -52,7 +52,9 @@ regardless of which internal module implements it:
   naming the class.
 - **`Cli(Cmd)`** — application-root mixin. Declares (as typed sandwich attrs) `_version_`,
   `_distribution_`, `_completion_` (default `False`), `_config_`, `_subcommands_` (default
-  `None`). Adds no run behavior of its own. Self-registration: `Cli._register_subcmd_(child)` /
+  `None`), `_utf8_stdio_` (default `True` — see "Output encoding" below), `_mcp_`
+  (default `True`), `_mcp_command_` (default `False`). Adds no run behavior of its own.
+  Self-registration: `Cli._register_subcmd_(child)` /
   `@Root.subcommand` attaches a child to the root's `_subcommands_` (copy-on-write per
   class — never mutates a parent's list). Recommended base order `class App(LoggingArgs, Cli)`.
   **Gotcha**: `subcommand` is `Cli`'s one reserved plain attribute name — a CLI field
@@ -148,6 +150,47 @@ just its annotation.
   a declared `env=`, OR the owning class having any `_config_` set at all (not
   necessarily that specific field appearing in the config file).
 
+## Output encoding
+
+- **`utf8_stdio(streams=None) -> list[str]`** (`duho._compat`, re-exported at
+  the top level) — reconfigure text streams to UTF-8 in place. `streams`
+  defaults to `{"stdout": sys.stdout, "stderr": sys.stderr}`; pass a mapping
+  of fake streams to target something else (this is how tests exercise it
+  without touching the real ones). A stream is left alone when ANY of: (1)
+  `PYTHONIOENCODING` is set (non-empty) in the environment; (2) Python's own
+  UTF-8 mode is active (`sys.flags.utf8_mode`); (3) it has no
+  `.reconfigure()` (pytest's capture, `io.StringIO`); (4) `stream.isatty()`
+  is true; (5) its encoding, normalized via `codecs.lookup(...).name`, is
+  already `"utf-8"`. Otherwise it's switched via
+  `stream.reconfigure(encoding="utf-8", errors=...)` — `"surrogateescape"`
+  for the stream named `"stdout"`, `"backslashreplace"` for every other
+  name. Never raises (`OSError`/`ValueError` from `reconfigure()` itself is
+  swallowed, that one stream left as-is); idempotent (a stream already
+  switched matches rule 5 on a later call). Returns the names actually
+  switched.
+- **`duho.main`/`duho.app` call `utf8_stdio()` FIRST**, before the MCP launch
+  trigger and before `argv` is parsed, unless opted out: a root class
+  attribute **`_utf8_stdio_ = False`** (declared on `Cli`, default `True`;
+  read via `getattr` so any class works), or the `main(..., utf8_stdio=...)`/
+  `app(..., utf8_stdio=...)` kwarg (`None` — the default — defers to the
+  class attribute; an explicit `True`/`False` wins). Opted out, duho does
+  not touch stdio at all; the app may call `utf8_stdio()` itself or do
+  nothing. This targets Windows specifically: piped/redirected stdio there
+  defaults to the console's ANSI code page (`cp1252`) with strict errors, so
+  a non-ASCII character used to raise `UnicodeEncodeError` (empty output,
+  exit 1) from `print()` or `--version`. UTF-8 is the one encoding that
+  can't raise, so the default removes that failure mode entirely.
+- **Crash-proofing when NOT UTF-8** (opted out, or a duho parser used outside
+  `main`/`app` entirely): `--version` is implemented by
+  `_Utf8SafeVersionAction` (a subclass of stdlib `argparse._VersionAction` —
+  same text/exit code, same `isinstance` recognition anywhere the stdlib
+  class is checked for, e.g. `parsers._is_terminal_action`) which writes via
+  `write_human` instead of `parser._print_message`, so a non-ASCII
+  version/prog string falls back to `errors="backslashreplace"` instead of
+  raising. duho's own stderr messages (an unsupported MCP transport, a
+  `duho.mcp`/`duho.scaffold` CLI error) are written the same way, not via a
+  raw `print(..., file=sys.stderr)`.
+
 ## Build / parse / run
 
 - **`parser(cls, ...) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
@@ -169,8 +212,8 @@ just its annotation.
 - **`parse_globals(cls, argv=None, *, config=None, **parser_kwargs)`** — parse only the
   root globals, ignoring subcommands (drops the subparsers action before a
   help-suppressed parse). Accepts `config=` mirroring `parse`/`main`.
-- **`main(cls, argv=None, *, setup_logging=True, config=None) -> Any`** — build →
-  parse → optional logging setup → run the selected command. Return type is `Any`,
+- **`main(cls, argv=None, *, setup_logging=True, config=None, utf8_stdio=None) -> Any`** —
+  build → parse → optional logging setup → run the selected command. Return type is `Any`,
   not `int`: a `None` command result maps to exit code `0`, but any other value the
   command returns passes straight through unchanged (an `IntEnum` member works
   directly as a distinct exit code). `Any` (not `object`) keeps `sys.exit(duho.main(...))`
@@ -183,9 +226,15 @@ just its annotation.
   has no handler other than duho's own previously-installed one — an app/harness
   that already owns logging (`basicConfig`, pytest's capture handler) never gets
   a second, unrequested handler; `setter()` (verbosity) still always runs.
+  **`utf8_stdio`** (`bool | None`, default `None`): FIRST thing this function
+  does, before the MCP launch trigger and before `argv` is parsed, is call
+  `duho.utf8_stdio()` unless opted out — `utf8_stdio=False` here, or `cls`'s
+  own `_utf8_stdio_ = False` when this kwarg is left `None`. See "Output
+  encoding" below.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
-  dispatch=None) -> Any`** — multi-command runner (return type is `Any`, not `int`,
+  dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None) -> Any`** —
+  multi-command runner (return type is `Any`, not `int`,
   for the same reason as `main`: a command's non-`None`, non-`int` return value
   passes straight through). Base command-set precedence:
   `commands` > `discover_commands(source)` > `discover_entry_points(entry_points)` >

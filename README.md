@@ -465,6 +465,50 @@ isn't installed), duho does **not** add a `--version` flag at all — it logs a
 debug message via `logging.getLogger("duho")` instead of printing a bogus
 `0.0.0+unknown`-style version or raising.
 
+### Output encoding
+
+`duho.main`/`duho.app` call `duho.utf8_stdio()` first thing, before anything
+else runs. It reconfigures `sys.stdout`/`sys.stderr` to UTF-8 whenever nothing
+already guarantees correct encoding — skipping a real terminal (`isatty()`),
+an already-UTF-8 stream, a stream with no `.reconfigure()` (pytest's capture,
+`io.StringIO`), Python's own UTF-8 mode, and an explicit `PYTHONIOENCODING`.
+This matters most on Windows: piped or redirected output there defaults to
+the console's ANSI code page (`cp1252`) with strict error handling, so
+`print()`-ing (or `--version`-ing) a non-ASCII character used to raise
+`UnicodeEncodeError` — empty output, exit 1. UTF-8 is the only encoding that
+can't raise, so the default makes that whole class of crash impossible.
+
+**Opt-out**, for an app that wants to manage its own stdio: set
+`_utf8_stdio_ = False` on the root class, or pass `utf8_stdio=False` to
+`main`/`app` (an explicit kwarg always wins over the class attribute):
+
+```python
+class MyApp(Cli):
+    _utf8_stdio_ = False  # duho leaves stdio completely alone
+```
+
+```python
+main(MyApp, utf8_stdio=False)      # same, for one call
+app(MyApp, utf8_stdio=False)
+```
+
+Opted out (or when a parser built by duho is used outside `main`/`app`
+entirely), duho's own writes still can't crash: `--version` and duho's
+internal error messages go through a write helper that falls back to
+`errors="backslashreplace"` instead of raising when the stream's own
+encoding can't represent a character. The app may call `duho.utf8_stdio()`
+itself — it accepts an optional `streams=` mapping for reconfiguring
+something other than the real `sys.stdout`/`sys.stderr` — or do anything else.
+
+**PowerShell tip**: capturing/piping a Python process's UTF-8 output through
+PowerShell still needs the *console itself* set to UTF-8 for the text to
+*display* correctly (`Select-String`, `> file`, etc. all decode using
+`[Console]::OutputEncoding`):
+
+```powershell
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+```
+
 ### Build and Parse
 
 ```python

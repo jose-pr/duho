@@ -32,6 +32,7 @@ from pathlib import Path
 import duho
 from duho import Args, Cli, Cmd
 from duho import _introspect
+from duho.text import kebabcase
 
 # ---------------------------------------------------------------------------
 # Sample workloads
@@ -256,7 +257,18 @@ def warm_metrics() -> "dict":
         duho.parser(root)  # warm
         metrics["tree.build.%d" % n] = sample(lambda r=root: duho.parser(r), 50)
         parser = duho.parser(root)
-        argv = ["Sub%d_0" % n, "--alpha", "x", "--beta", "9"]
+        # Plan 38: a subcommand with no own `_parsername_` is now named the
+        # kebab-case of its class name -- read the real resolved name off
+        # the class itself rather than hand-reconstructing the old
+        # exact-class-name spelling, so this stays correct if `make_tree`'s
+        # naming scheme ever changes.
+        argv = [
+            kebabcase(root._subcommands_[0].__name__),
+            "--alpha",
+            "x",
+            "--beta",
+            "9",
+        ]
         metrics["tree.parse.%d" % n] = sample(
             lambda p=parser, a=argv: p.parse_args(a), PARSE_INNER
         )

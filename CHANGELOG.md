@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`duho.text.kebabcase(s) -> str`** (also `duho.kebabcase`) — acronym-aware
+  kebab-case: splits on a lower/digit→Upper boundary, on an Upper letter
+  followed by Upper+lower (an acronym run stays together up to its last
+  letter: `ShowHTTPStatus` → `show-http-status`, unlike `snakecase`'s
+  letter-by-letter handling), and on one or more `_` (never a leading,
+  trailing, or doubled `-`: `_Private` → `private`). This is the rule now
+  behind a class-derived command name and a field's default long flag (see
+  Fixed, below).
+- A flag tuple may use `"--"` as shorthand for a field's own default long
+  flag: `("--",)` → `("--dry-run",)`, `("-n", "--")` → `("-n", "--name")`.
+  Any other entry passes through unchanged. A tuple with `"--"` more than
+  once raises a build-time `ValueError` naming the field.
 - **`duho.utf8_stdio(streams=None) -> list[str]`** — reconfigures
   `sys.stdout`/`sys.stderr` (or an explicit `streams=` mapping) to UTF-8 in
   place, skipping a real terminal, a stream already UTF-8, a stream with no
@@ -28,6 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A class with no own `_parsername_` is now named with the kebab-case of its
+  class name, as intended, instead of the exact (mixed-case) class name:
+  `BuildPyz` → `build-pyz`. Visible everywhere a resolved command name is
+  used — the `--help` usage/`prog`, the subcommand name on the CLI, and
+  `LoggingArgs`'s default logger name. An explicit `_parsername_`, an
+  `app(name=...)`, a `_parseraliases_` alias, and a discovered MODULE
+  command's own file-stem name are unaffected — only the bare class-name
+  fallback was ever wrong. Two sibling commands whose names now collide
+  (`FooBar` and `Foo_Bar` both kebab to `foo-bar`) raise a clear build-time
+  `ValueError` naming both classes, the same as an explicit duplicate
+  `_parsername_` on two siblings does.
+- A field's default long flag (no declared flag tuple) is likewise
+  kebab-case of the field name, not the older plain `name.replace("_", "-")`:
+  `testMe` → `--test-me`, `HTTPPort` → `--http-port`. An already-snake_case
+  name is unaffected (`dry_run` → `--dry-run`, same as before), and an
+  explicitly spelled flag, the field's own attribute/dest name, a config/env
+  key, and a positional name are all untouched.
 - `--version` no longer crashes with `UnicodeEncodeError` when the resolved
   version or program name contains a character outside the stdout stream's
   encoding and UTF-8 stdio wasn't already in effect (opted out, or a

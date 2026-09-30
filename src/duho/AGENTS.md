@@ -31,8 +31,16 @@ regardless of which internal module implements it:
 
 - **`Args`** — base declarative data class. Annotated non-`_` class attrs become CLI
   fields; an adjacent string literal is help text, an adjacent tuple literal is the flag
-  set (`("--env","-e")`; omit → positional named after the field). Not runnable on its own.
-  Classmethods:
+  set (`("--env","-e")`; omit → positional named after the field). A field with no
+  declared flag tuple at all defaults to one long flag, `"--" + kebabcase(field_name)`
+  (`duho.text.kebabcase` — see "Text / names" below): `dry_run` → `--dry-run` (unchanged
+  from before), `testMe` → `--test-me`, `HTTPPort` → `--http-port`. This is the DEFAULT
+  flag only — an explicitly spelled flag, the field's own attribute/dest name, and any
+  config/env key are never touched. Inside a DECLARED flag tuple, an entry that is
+  exactly `"--"` expands to that same default long flag: `("--",)` → `("--dry-run",)`,
+  `("-n", "--")` → `("-n", "--name")`; any other entry passes through unchanged. A tuple
+  containing `"--"` more than once is a build-time `ValueError` naming the field. Not
+  runnable on its own. Classmethods:
   - `_parser_(subparser=None, name=None, parents=(), **kw) -> ArgumentParser` — build
     this class's (sub)parser.
   - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None)` —
@@ -62,7 +70,16 @@ regardless of which internal module implements it:
   raising; avoid that field name on a `Cli` subclass.
   A subclass's derived `_parsername_` is never written back onto the class: each
   subclass gets its own name from its own class name unless it declares `_parsername_`
-  itself (a base class's build never leaks its derived name to a subclass).
+  itself (a base class's build never leaks its derived name to a subclass). A class with
+  no OWN `_parsername_` is named with the KEBAB-CASE (`duho.text.kebabcase`) of its class
+  name, not the exact class name: `BuildPyz` → `build-pyz`, `ShowHTTPStatus` →
+  `show-http-status`. This is visible everywhere a resolved command name is used — the
+  parser `prog`, the subcommand name, `LoggingArgs`'s default logger name, the MCP tool
+  name and the `<NAME>_MCP` env var's class-name fallback, and agent-help/completion —
+  since every one of those reads the single `duho.args._command_name` rule. An explicit
+  `_parsername_`, an `app(name=...)`, a `_parseraliases_` alias, and a discovered MODULE
+  command's own file-stem name (`_` → `-`, unrelated to a class) are never kebab-cased —
+  only a bare class-name fallback is.
 - **`command(args_cls, func, *, name=None, module=None) -> type[Cmd]`** — build a `Cmd`
   subclass from a data `Args` + a callable; the built `__call__` calls `func(self)`.
   `name` sets `_parsername_`. `module=` overrides the built class's `__module__`
@@ -521,8 +538,15 @@ runtime dependency and zero per-invocation overhead.
   lower-cased WITHOUT an extra inserted underscore, so `snakecase("My-App")` correctly
   gives `"my_app"` (not `"my__app"`), and `snakecase("CamelCaseName")` gives
   `"camel_case_name"`; an acronym run lowers letter-by-letter (`"HTTPServer"` →
-  `"h_t_t_p_server"`). **`gettext`** / **`ngettext`** — translation shims (stdlib
-  `gettext` re-exports, with a no-op fallback if unavailable).
+  `"h_t_t_p_server"`). **`kebabcase(s)`** — acronym-aware kebab-case: splits on a
+  lower/digit→Upper boundary, on an Upper letter followed by Upper+lower (an acronym run
+  stays together up to its last letter: `"ShowHTTPStatus"` → `"show-http-status"`, unlike
+  `snakecase`'s letter-by-letter acronym handling), and on one or more `_` (never yields a
+  leading/trailing/doubled `-`: `"_Private"` → `"private"`). Text with no such boundary,
+  including an already-hyphenated name, passes through unchanged (lower-cased). This is
+  the rule behind a class-derived command name (below) and a field's default long flag
+  (see "Declaring commands" → field defaults). **`gettext`** / **`ngettext`** —
+  translation shims (stdlib `gettext` re-exports, with a no-op fallback if unavailable).
   `duho.text.range`/`duho.text.unicode_range` are real module functions but are
   deliberately excluded from `duho.text.__all__`, so `from duho.text import *` cannot
   shadow a caller's own `range` builtin — access them as `duho.text.range(...)`.

@@ -156,7 +156,7 @@ if __name__ == "__main__":
 ```
 
 ```bash
-$ python app.py Serve --port 3000
+$ python app.py serve --port 3000
 serving on 3000
 ```
 
@@ -166,7 +166,7 @@ trees; `main` always dispatches to the **deepest** selected class.
 **Global options go before the subcommand here.** With this static
 `_subcommands_` tree (whether run through `duho.main` or through `duho.app`
 with no `commands=`/`source=`/`entry_points=` given), a root/global option must
-be given *before* the subcommand name — `myapp -v Serve` works, `myapp Serve -v`
+be given *before* the subcommand name — `myapp -v serve` works, `myapp serve -v`
 does not. `duho.app` resolving its commands through `commands=`/`source=`/
 `entry_points=` is more permissive: a root option (required or not) is accepted
 either before or after the subcommand — see
@@ -177,10 +177,12 @@ in the README.
 Options
 declared on a parent (say `-v` from `LoggingArgs`) remain available.
 
-To name a command something other than its class name, pass `name=`:
+A class with no own `_parsername_` is named after the kebab-case of its class
+name (`Serve` → `serve`, `BuildPyz` → `build-pyz`). To name a command something
+else entirely, pass `name=`:
 
 ```python
-Serve._parser_(subparsers, name="serve")
+Serve._parser_(subparsers, name="run-server")
 ```
 
 ### Mode flags instead of positional commands

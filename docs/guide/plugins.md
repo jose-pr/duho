@@ -37,8 +37,9 @@ bye   = "myapp_hello.bye"               # a module with main() -> module command
 An entry point may resolve to either command shape, coerced through the same path
 as every other source:
 
-- a **`Cmd` subclass** → a class command (its `_parsername_`/class name is the
-  subcommand name);
+- a **`Cmd` subclass** → a class command (its `_parsername_`, or the
+  kebab-case of its class name when it declares none, is the subcommand
+  name);
 - a **command module** (a module whose top-level `main`/`run`/`call` is the
   entrypoint) → a module command (the entry-point name is used as the subcommand
   name when the module declares no `_parsername_`).

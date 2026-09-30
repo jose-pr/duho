@@ -1053,8 +1053,10 @@ list(duho.expand("x[1-2]y[1-2]"))   # multiple ranges -> cartesian product
 ```
 
 Companion helpers `duho.pysafe` (coerce text to a Python-safe dotted identifier),
-`duho.snakecase`/`duho.camelcase` (case conversion), and `duho.gettext` (a
-`gettext` shim) round out the text utilities.
+`duho.snakecase`/`duho.camelcase`/`duho.kebabcase` (case conversion — `kebabcase`
+is acronym-aware and is the rule behind a class-derived command name and a
+field's default flag, both above), and `duho.gettext` (a `gettext` shim) round
+out the text utilities.
 
 ## Dynamic command discovery
 
@@ -1103,9 +1105,11 @@ raise SystemExit(duho.app(CLI, source="myapp.cmds"))
 raise SystemExit(duho.app(CLI, source=Path("myapp/cmds")))
 ```
 
-The subcommand name is the class's `_parsername_`/class name for class commands,
-and the file **stem with `_`→`-`** for module commands (`deploy_all.py` →
-`deploy-all`; override with a module-level `_parsername_`). You can
+The subcommand name is the class's `_parsername_`, or the **kebab-case of its
+class name** when it declares none (`BuildPyz` → `build-pyz`), for class
+commands; and the file **stem with `_`→`-`** for module commands
+(`deploy_all.py` → `deploy-all`; override with a module-level `_parsername_`).
+You can
 also call `duho.discover_commands(source)` directly to get the `list[Command]`.
 
 Discovery is **resilient**: a command that can't be imported (a missing optional
@@ -1605,15 +1609,17 @@ newline-delimited JSON-RPC 2.0 over stdin/stdout — wire it into any MCP client
 stdio server.
 
 Every `Cmd` reachable from your root — the root itself, and every `_subcommands_`
-node, recursively — becomes one tool, named after its own `_parsername_`/class name
-(`parent.child` when nested, e.g. `MyApp.Deploy`). A tool's `inputSchema` is a real
-JSON Schema built from the same field declarations that already drive your `--help`:
+node, recursively — becomes one tool, named after its own `_parsername_`, or the
+kebab-case of its class name when it declares none (`parent.child` when nested,
+e.g. `MyApp` (no `_parsername_`) with a `Deploy` child → `my-app.deploy`). A tool's
+`inputSchema` is a real JSON Schema built from the same field declarations that
+already drive your `--help`:
 
 ```python
 from duho.mcp import describe_tools, call_tool
 
 tools = describe_tools(MyApp)   # -> [{"name", "description", "inputSchema"}, ...]
-result = call_tool(MyApp, "MyApp.Deploy", {"environment": "prod", "replicas": 3})
+result = call_tool(MyApp, "my-app.deploy", {"environment": "prod", "replicas": 3})
 ```
 
 `str`/`int`/`float`/`bool` map to `string`/`integer`/`number`/`boolean`;
@@ -1663,8 +1669,9 @@ $ MYAPP_MCP=stdio myapp
 
 The variable name is `<PREFIX>MCP` when the app supplies an `Env` (`app(env=Env
 ("myapp"))` → `MYAPP_MCP`), else `<NAME>_MCP` derived from a declared
-`_parsername_`, `app(name=...)`, the program name, or the class name (upper-cased,
-every character outside `[A-Z0-9]` replaced by `_`). Set to `stdio`, it serves the
+`_parsername_`, `app(name=...)`, the program name, or the kebab-case of the class
+name when none of those apply (upper-cased, every character outside `[A-Z0-9]`
+replaced by `_`) — e.g. `SomeApp` → `SOME_APP_MCP`. Set to `stdio`, it serves the
 app's full tool tree over stdio instead of running any command; set to anything
 else, the process exits `2` naming the unsupported transport. The variable is
 always removed from `os.environ` the moment it's seen — present or not — so a
@@ -1697,11 +1704,12 @@ before anything is registered, never silently swallowed.
 
 The dotted tool-name namespace, and the `serverInfo` an MCP client sees in its
 `initialize` response, both follow the SAME resolved name — a declared
-`_parsername_`, an explicit `duho.app(name=...)`, or the class name, in that order
-of precedence:
+`_parsername_`, an explicit `duho.app(name=...)`, or the kebab-case of the class
+name, in that order of precedence:
 
 ```python
-app(Dotagents, name="dotagents")   # tools come out "dotagents.*", not "Dotagents.*"
+app(Dotagents, name="dotagents")   # tools come out "dotagents.*"
+app(Dotagents)                     # same result: kebab-case of the class name
 ```
 
 `serverInfo.version` reports the served app's own `_version_` when it resolves to a

@@ -26,7 +26,7 @@ Generated from docstrings, organized by area:
   (`AGENT_HELP`/`--help-agents`, `describe`, `print_agent_help`).
 - **[Completion](completion.md)** — bash/zsh/fish/PowerShell completion-script
   generation.
-- **[Text](text.md)** — `expand`, `pysafe`, `snakecase`/`camelcase`, `gettext`.
+- **[Text](text.md)** — `expand`, `pysafe`, `snakecase`/`camelcase`/`kebabcase`, `gettext`.
 - **[QualName](qualname.md)** — dotted-name algebra for command qualnames.
 - **[Fanout](fanout.md)** *(opt-in, `import duho.fanout`)* — run one command
   against many targets and roll their exit codes into one.

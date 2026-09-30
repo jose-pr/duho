@@ -1,6 +1,6 @@
 # Text
 
 Zero-dependency string and name utilities: `expand`, `pysafe`, `snakecase`,
-`camelcase`, and `gettext`.
+`camelcase`, `kebabcase`, and `gettext`.
 
 ::: duho.text

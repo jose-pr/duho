@@ -93,18 +93,18 @@ def test_positional_value_that_looks_like_a_flag_is_refused():
     # all), so `call_tool` raises `InvalidArgumentsError` rather than
     # returning a tool result.
     with pytest.raises(InvalidArgumentsError):
-        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a", "--force"]})
-    result = call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"], "force": True})
+        call_tool(InjectRoot, "inject-root.rm", {"files": ["a", "--force"]})
+    result = call_tool(InjectRoot, "inject-root.rm", {"files": ["a"], "force": True})
     assert result.get("isError") is not True
 
 
 def test_positional_double_dash_does_not_leak_into_passthrough():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a", "--"], "force": False})
+        call_tool(InjectRoot, "inject-root.rm", {"files": ["a", "--"], "force": False})
 
 
 def test_option_value_starting_with_dash_is_not_reparsed_as_a_flag():
-    result = call_tool(InjectRoot, "InjectRoot.Note", {"text": "a", "title": "-x"})
+    result = call_tool(InjectRoot, "inject-root.note", {"text": "a", "title": "-x"})
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
     assert payload["title"] == "-x"
@@ -112,12 +112,12 @@ def test_option_value_starting_with_dash_is_not_reparsed_as_a_flag():
 
 def test_option_value_equal_to_double_dash_is_refused():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(InjectRoot, "InjectRoot.Note", {"text": "a", "title": "--"})
+        call_tool(InjectRoot, "inject-root.note", {"text": "a", "title": "--"})
 
 
 def test_dict_field_key_and_value_survive_verbatim():
     result = call_tool(
-        InjectRoot, "InjectRoot.LabelSet", {"labels": {"env": "prod-1", "tier": "-x"}}
+        InjectRoot, "inject-root.label-set", {"labels": {"env": "prod-1", "tier": "-x"}}
     )
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
@@ -133,20 +133,20 @@ def test_dict_field_key_and_value_survive_verbatim():
 
 def test_oversized_list_argument_is_refused_before_dispatch():
     with pytest.raises(InvalidArgumentsError, match="maxItems"):
-        call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"] * 1001})
+        call_tool(InjectRoot, "inject-root.rm", {"files": ["a"] * 1001})
 
 
 def test_oversized_dict_argument_is_refused_before_dispatch():
     with pytest.raises(InvalidArgumentsError, match="maxProperties"):
         call_tool(
             InjectRoot,
-            "InjectRoot.LabelSet",
+            "inject-root.label-set",
             {"labels": {str(i): "v" for i in range(1001)}},
         )
 
 
 def test_list_argument_at_exactly_the_cap_is_accepted():
-    result = call_tool(InjectRoot, "InjectRoot.Rm", {"files": ["a"] * 1000})
+    result = call_tool(InjectRoot, "inject-root.rm", {"files": ["a"] * 1000})
     assert result.get("isError") is not True
 
 
@@ -233,7 +233,9 @@ def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
     # `InvalidArgumentsError` outright (before parsing) rather than letting
     # it reach the dispatch-identity check.
     with pytest.raises(InvalidArgumentsError):
-        call_tool(HijackOptRoot, "HijackOptRoot.HijackLeaf", {"name": "HijackDanger"})
+        call_tool(
+            HijackOptRoot, "hijack-opt-root.hijack-leaf", {"name": "hijack-danger"}
+        )
 
 
 def test_variadic_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
@@ -241,7 +243,9 @@ def test_variadic_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
     # greedily ate the separator token the same way, dispatching
     # HijackDanger (with ITS OWN default field) instead of HijackLeaf.
     with pytest.raises(InvalidArgumentsError):
-        call_tool(HijackTagsRoot, "HijackTagsRoot.HijackLeaf", {"name": "HijackDanger"})
+        call_tool(
+            HijackTagsRoot, "hijack-tags-root.hijack-leaf", {"name": "hijack-danger"}
+        )
 
 
 def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
@@ -253,8 +257,8 @@ def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
     with pytest.raises(InvalidArgumentsError):
         call_tool(
             HijackCollisionRoot,
-            "HijackCollisionRoot.HijackLeaf",
-            {"path": "HijackDanger", "name": "x"},
+            "hijack-collision-root.hijack-leaf",
+            {"path": "hijack-danger", "name": "x"},
         )
 
 
@@ -263,7 +267,9 @@ def test_normal_dispatch_through_an_optional_ancestor_positional_still_works():
     # harmless value for the ancestor's own optional positional still
     # dispatches the requested leaf correctly.
     result = call_tool(
-        HijackOptRoot, "HijackOptRoot.HijackLeaf", {"path": "somewhere", "name": "ok"}
+        HijackOptRoot,
+        "hijack-opt-root.hijack-leaf",
+        {"path": "somewhere", "name": "ok"},
     )
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
@@ -317,7 +323,9 @@ def test_shared_class_reached_via_the_wrong_nesting_is_refused():
     # node.cls` alone would pass (SharedLeaf either way); only the
     # dispatch-path marker distinguishes "ran via SharedGroup" from "ran
     # directly at the root".
-    result = call_tool(SharedClassRoot, "SharedClassRoot.SharedGroup.SharedLeaf", {})
+    result = call_tool(
+        SharedClassRoot, "shared-class-root.shared-group.shared-leaf", {}
+    )
     assert result.get("isError") is True
     assert "did not resolve to the requested command" in result["content"][0]["text"]
 
@@ -326,7 +334,7 @@ def test_shared_class_reached_via_the_right_nesting_still_works():
     # The fix must not break the legitimate path to the SAME shared class.
     result = call_tool(
         SharedClassRoot,
-        "SharedClassRoot.SharedGroup.SharedLeaf",
+        "shared-class-root.shared-group.shared-leaf",
         {"gflag": "x"},
     )
     assert result.get("isError") is not True
@@ -362,7 +370,7 @@ class ShadowRoot(Cli):
 
 
 def test_shadowed_ancestor_bool_is_not_flipped_by_the_childs_own_field():
-    result = call_tool(ShadowRoot, "ShadowRoot.ShadowChild", {"force": "no"})
+    result = call_tool(ShadowRoot, "shadow-root.shadow-child", {"force": "no"})
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
     # The child's own string field received the value...
@@ -379,7 +387,7 @@ def test_synthesize_argv_skip_omits_a_shadowed_fields_own_level_entirely():
     from duho.mcp import _synthesize_argv
 
     _, nodes = _tree_for(ShadowRoot)
-    root_node = nodes["ShadowRoot"]
+    root_node = nodes["shadow-root"]
     root_argv = _synthesize_argv(
         ShadowRoot, {"force": "no"}, root_node.parser, skip=frozenset({"force"})
     )
@@ -407,17 +415,17 @@ class LoudRoot(Cli):
 def test_count_schema_publishes_a_maximum():
     tools = {t["name"]: t for t in describe_tools(LoudRoot)}
     assert (
-        tools["LoudRoot.Loud"]["inputSchema"]["properties"]["verbose"]["maximum"] == 10
+        tools["loud-root.loud"]["inputSchema"]["properties"]["verbose"]["maximum"] == 10
     )
 
 
 def test_count_value_over_the_maximum_is_rejected_not_synthesized():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(LoudRoot, "LoudRoot.Loud", {"verbose": 1000000})
+        call_tool(LoudRoot, "loud-root.loud", {"verbose": 1000000})
 
 
 def test_count_value_at_the_maximum_still_dispatches():
-    result = call_tool(LoudRoot, "LoudRoot.Loud", {"verbose": 10})
+    result = call_tool(LoudRoot, "loud-root.loud", {"verbose": 10})
     assert result.get("isError") is not True
 
 
@@ -455,13 +463,13 @@ class BoolRoot(Cli):
 
 
 def test_false_for_true_default_bool_with_long_flag_last_is_honored():
-    result = call_tool(BoolRoot, "BoolRoot.LongFirst", {"color": False})
+    result = call_tool(BoolRoot, "bool-root.long-first", {"color": False})
     assert result.get("isError") is not True
     assert json.loads(result["content"][0]["text"]) == {"color": False}
 
 
 def test_false_for_true_default_bool_with_no_long_flag_is_a_clear_error():
-    result = call_tool(BoolRoot, "BoolRoot.ShortOnly", {"color": False})
+    result = call_tool(BoolRoot, "bool-root.short-only", {"color": False})
     assert result["isError"] is True
     assert "long flag" in result["content"][0]["text"]
 
@@ -498,19 +506,19 @@ class ActionRoot(Cli):
 def test_count_action_field_repeats_the_flag():
     import logging
 
-    result = call_tool(ActionRoot, "ActionRoot.Verbosity", {"verbose": 2})
+    result = call_tool(ActionRoot, "action-root.verbosity", {"verbose": 2})
     assert result.get("isError") is not True
     payload = json.loads(result["content"][0]["text"])
     assert payload["level"] <= logging.INFO  # -vv makes it more verbose than default
 
 
 def test_count_action_field_of_zero_emits_nothing_and_still_succeeds():
-    result = call_tool(ActionRoot, "ActionRoot.Verbosity", {"verbose": 0})
+    result = call_tool(ActionRoot, "action-root.verbosity", {"verbose": 0})
     assert result.get("isError") is not True
 
 
 def test_literal_true_false_field_is_not_forced_through_bare_flag_synthesis():
-    result = call_tool(ActionRoot, "ActionRoot.LitBool", {"strict": True})
+    result = call_tool(ActionRoot, "action-root.lit-bool", {"strict": True})
     assert result.get("isError") is not True
     assert json.loads(result["content"][0]["text"]) == {"strict": True}
 
@@ -522,17 +530,17 @@ def test_literal_true_false_field_is_not_forced_through_bare_flag_synthesis():
 
 def test_unknown_argument_key_is_rejected():
     with pytest.raises(InvalidArgumentsError, match="unknown argument"):
-        call_tool(InjectRoot, "InjectRoot.Note", {"text": "a", "dry-run": True})
+        call_tool(InjectRoot, "inject-root.note", {"text": "a", "dry-run": True})
 
 
 def test_wrong_json_type_for_a_boolean_field_is_rejected():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(BoolRoot, "BoolRoot.LongFirst", {"color": "false"})
+        call_tool(BoolRoot, "bool-root.long-first", {"color": "false"})
 
 
 def test_wrong_json_type_for_a_dict_field_is_rejected():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(InjectRoot, "InjectRoot.LabelSet", {"labels": "a=b"})
+        call_tool(InjectRoot, "inject-root.label-set", {"labels": "a=b"})
 
 
 def test_null_argument_means_field_omitted_not_the_string_none():
@@ -546,7 +554,7 @@ def test_null_argument_means_field_omitted_not_the_string_none():
         def __call__(self):
             return {"owner": self.owner}
 
-    result = call_tool(Owner, "Owner", {"owner": None})
+    result = call_tool(Owner, "owner", {"owner": None})
     assert result.get("isError") is not True
     assert json.loads(result["content"][0]["text"])["owner"] == "root"
 
@@ -568,14 +576,14 @@ class ProfileRoot(Cli):
 
 def test_nested_tool_schema_includes_ancestor_fields():
     tools = {t["name"]: t for t in describe_tools(ProfileRoot)}
-    note = tools["ProfileRoot.Note"]
+    note = tools["profile-root.note"]
     assert "profile" in note["inputSchema"]["properties"]
     assert "text" in note["inputSchema"]["properties"]
 
 
 def test_nested_tool_call_can_supply_a_root_global():
     result = call_tool(
-        ProfileRoot, "ProfileRoot.Note", {"text": "hi", "profile": "staging"}
+        ProfileRoot, "profile-root.note", {"text": "hi", "profile": "staging"}
     )
     assert result.get("isError") is not True
 
@@ -599,7 +607,7 @@ class ProfileReaderRoot(Cli):
 
 def test_leaf_command_can_read_a_root_field_without_raising():
     result = call_tool(
-        ProfileReaderRoot, "ProfileReaderRoot.ReadsRootProfile", {"profile": "prod"}
+        ProfileReaderRoot, "profile-reader-root.reads-root-profile", {"profile": "prod"}
     )
     assert result.get("isError") is not True
     assert json.loads(result["content"][0]["text"]) == {"profile": "prod"}
@@ -625,7 +633,7 @@ def test_env_bound_required_field_is_satisfied_without_an_explicit_argument(
     monkeypatch,
 ):
     monkeypatch.setenv("DUHO_MCP_TEST_TOKEN", "from-env")
-    result = call_tool(EnvTool, "EnvTool", {})
+    result = call_tool(EnvTool, "env-tool", {})
     assert result.get("isError") is not True
     assert json.loads(result["content"][0]["text"]) == {"token": "from-env"}
 
@@ -633,7 +641,7 @@ def test_env_bound_required_field_is_satisfied_without_an_explicit_argument(
 def test_env_bound_field_is_dropped_from_required_when_env_is_set(monkeypatch):
     monkeypatch.setenv("DUHO_MCP_TEST_TOKEN", "from-env")
     tools = {t["name"]: t for t in describe_tools(EnvTool)}
-    assert "token" not in tools["EnvTool"]["inputSchema"]["required"]
+    assert "token" not in tools["env-tool"]["inputSchema"]["required"]
 
 
 class ConfigTool(Cmd):
@@ -658,7 +666,7 @@ def test_config_bound_field_is_satisfied_without_an_explicit_argument(tmp_path):
     ConfigTool._config_ = str(cfg)
     _TREE_CACHE.pop(ConfigTool, None)
     try:
-        result = call_tool(ConfigTool, "ConfigTool", {})
+        result = call_tool(ConfigTool, "config-tool", {})
     finally:
         ConfigTool._config_ = None
         _TREE_CACHE.pop(ConfigTool, None)
@@ -715,7 +723,7 @@ def test_mcp_result_never_leaks_a_secret_from_a_keyerror_factory(monkeypatch):
     # THAT handler formatted the raw exception (secret included) straight
     # into the `isError` text.
     monkeypatch.setenv("DUHO_MCP_TEST_KEYERROR_REGION", "hunter2-PASSWORD")
-    result = call_tool(KeyErrorFactoryTool, "KeyErrorFactoryTool", {})
+    result = call_tool(KeyErrorFactoryTool, "key-error-factory-tool", {})
     assert result["isError"] is True
     text = result["content"][0]["text"]
     assert "hunter2-PASSWORD" not in text
@@ -728,7 +736,9 @@ def test_mcp_result_never_leaks_a_secret_from_an_argumenttypeerror_factory(
 ):
     # Mirrors the reviewer's `ate_app.py`/`ate_run.py`.
     monkeypatch.setenv("DUHO_MCP_TEST_ARGTYPEERROR_TOKEN", "S3CRET-ENV-VALUE")
-    result = call_tool(ArgumentTypeErrorFactoryTool, "ArgumentTypeErrorFactoryTool", {})
+    result = call_tool(
+        ArgumentTypeErrorFactoryTool, "argument-type-error-factory-tool", {}
+    )
     assert result["isError"] is True
     text = result["content"][0]["text"]
     assert "S3CRET-ENV-VALUE" not in text
@@ -771,20 +781,20 @@ class ExitRoot(Cli):
 
 
 def test_command_sys_exit_int_becomes_an_error_result_not_a_crash():
-    result = call_tool(ExitRoot, "ExitRoot.ExitsInt", {})
+    result = call_tool(ExitRoot, "exit-root.exits-int", {})
     assert result["isError"] is True
     assert "bye" in result["content"][0]["text"]
     assert result["content"][0]["text"].strip().endswith("exit code: 4")
 
 
 def test_command_sys_exit_zero_is_a_success_result():
-    result = call_tool(ExitRoot, "ExitRoot.ExitsZero", {})
+    result = call_tool(ExitRoot, "exit-root.exits-zero", {})
     assert result.get("isError") is not True
     assert "done" in result["content"][0]["text"]
 
 
 def test_command_system_exit_with_message_is_an_error_result():
-    result = call_tool(ExitRoot, "ExitRoot.ExitsMessage", {})
+    result = call_tool(ExitRoot, "exit-root.exits-message", {})
     assert result["isError"] is True
     assert "config file missing" in result["content"][0]["text"]
 
@@ -798,7 +808,7 @@ def test_serve_survives_a_command_that_calls_sys_exit():
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "tools/call",
-                    "params": {"name": "ExitRoot.ExitsInt", "arguments": {}},
+                    "params": {"name": "exit-root.exits-int", "arguments": {}},
                 },
                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             )
@@ -900,7 +910,7 @@ def test_batch_dispatches_each_request_and_collects_the_responses():
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "EchoRoot.Echo", "arguments": {}},
+                "params": {"name": "echo-root.echo", "arguments": {}},
             },
         ]
     )
@@ -949,7 +959,7 @@ def test_non_object_arguments_is_reported_not_crashed():
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "EchoRoot.Echo", "arguments": "word"},
+                "params": {"name": "echo-root.echo", "arguments": "word"},
             }
         )
     )
@@ -1084,7 +1094,7 @@ def test_subprocess_child_output_does_not_corrupt_the_protocol_stream(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "App.Noisy", "arguments": {}},
+                "params": {"name": "app.noisy", "arguments": {}},
             },
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         ],
@@ -1124,7 +1134,7 @@ def test_subprocess_command_reading_stdin_gets_eof_not_the_next_request(tmp_path
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "App.ReadsStdin", "arguments": {}},
+                "params": {"name": "app.reads-stdin", "arguments": {}},
             },
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         ],
@@ -1168,7 +1178,7 @@ def test_subprocess_non_ascii_argument_round_trips_as_utf8(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "App.Show", "arguments": {"text": "café"}},
+                "params": {"name": "app.show", "arguments": {"text": "café"}},
             },
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         ],
@@ -1213,7 +1223,7 @@ def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "App.Hi", "arguments": {}},
+                "params": {"name": "app.hi", "arguments": {}},
             },
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
         ],
@@ -1280,7 +1290,7 @@ def test_subprocess_thread_still_running_after_import_does_not_corrupt_the_proto
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "App.Hi", "arguments": {}},
+                "params": {"name": "app.hi", "arguments": {}},
             },
         ],
     )
@@ -1317,7 +1327,7 @@ def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
                 "jsonrpc": "2.0",
                 "id": 51,
                 "method": "tools/call",
-                "params": {"name": "App.Ping", "arguments": {}},
+                "params": {"name": "app.ping", "arguments": {}},
             }
         ).encode("utf-8")
         + b"\n"
@@ -1403,7 +1413,7 @@ def test_argument_error_text_has_no_ansi_escapes_under_force_color(monkeypatch):
     # PARSE time, not by `_validate_arguments` -- still exercising the
     # ANSI-color-muting path this test is actually about.
     result = call_tool(
-        ConflictingFlags, "ConflictingFlags", {"gzip": True, "zstd": True}
+        ConflictingFlags, "conflicting-flags", {"gzip": True, "zstd": True}
     )
     assert result["isError"] is True
     assert "\x1b" not in result["content"][0]["text"]

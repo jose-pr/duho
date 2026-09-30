@@ -33,7 +33,7 @@ def test_subcommand_subclassing_its_root_does_not_recurse_forever():
 
     # Previously: RecursionError (Build inherits App._subcommands_, which
     # contains Build itself, so building it recurses without end).
-    rc = duho.main(App, ["Build"], setup_logging=False)
+    rc = duho.main(App, ["build"], setup_logging=False)
     assert rc == 1
 
 
@@ -148,7 +148,7 @@ def test_missing_subcommand_error_does_not_leak_the_private_dest(capsys):
         duho.main(Root, [], setup_logging=False)
     err = capsys.readouterr().err
     assert "_duho_command_" not in err
-    assert "required: {Deploy}" in err
+    assert "required: {deploy}" in err
 
 
 def test_invalid_subcommand_choice_error_does_not_leak_the_private_dest(capsys):
@@ -166,4 +166,4 @@ def test_invalid_subcommand_choice_error_does_not_leak_the_private_dest(capsys):
         duho.main(Root, ["zz"], setup_logging=False)
     err = capsys.readouterr().err
     assert "_duho_command_" not in err
-    assert "argument {Deploy}: invalid choice: 'zz'" in err
+    assert "argument {deploy}: invalid choice: 'zz'" in err

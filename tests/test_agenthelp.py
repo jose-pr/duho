@@ -111,7 +111,7 @@ class PlainApp(Cli):
 
 
 def _deploy_spec(doc):
-    return next(s for s in doc["subcommands"] if s["name"] == "Deploy")
+    return next(s for s in doc["subcommands"] if s["name"] == "deploy")
 
 
 def _opt(spec, dest):
@@ -194,10 +194,10 @@ def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secr
     monkeypatch.setenv("AGENT_HELP", "1")
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_SECRET", "s3cr3t-api-key")
     cfg = tmp_path / "cfg.toml"
-    cfg.write_text('[SecretDeploy]\npassword = "cfg-db-password"\n')
+    cfg.write_text('[secret-deploy]\npassword = "cfg-db-password"\n')
 
     with pytest.raises(SystemExit):
-        duho.main(SecretApp, ["SecretDeploy", "--help"], config=cfg)
+        duho.main(SecretApp, ["secret-deploy", "--help"], config=cfg)
     out = capsys.readouterr().out
 
     assert "s3cr3t-api-key" not in out
@@ -250,7 +250,7 @@ def test_agent_help_placeholder_in_help_text_never_shows_live_env_value(
     monkeypatch.setenv("AGENT_HELP", "1")
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET", "placeholder-s3cr3t")
     with pytest.raises(SystemExit):
-        duho.main(PlaceholderApp, ["PlaceholderDeploy", "--help"])
+        duho.main(PlaceholderApp, ["placeholder-deploy", "--help"])
     out = capsys.readouterr().out
     assert "placeholder-s3cr3t" not in out
     doc = json.loads(out)
@@ -267,7 +267,7 @@ def test_human_help_placeholder_in_help_text_never_shows_live_env_value(
     monkeypatch.delenv("AGENT_HELP", raising=False)
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET", "placeholder-s3cr3t")
     with pytest.raises(SystemExit):
-        duho.main(PlaceholderApp, ["PlaceholderDeploy", "--help"])
+        duho.main(PlaceholderApp, ["placeholder-deploy", "--help"])
     out = capsys.readouterr().out
     assert "placeholder-s3cr3t" not in out
     # The plain field's declared default keeps rendering normally in human
@@ -283,10 +283,10 @@ def test_human_help_placeholder_in_help_text_never_shows_live_env_value(
 def test_root_document_has_schema_version_and_tree():
     doc = describe(App)
     assert doc["schema"] == SCHEMA
-    assert doc["prog"] == "App"
+    assert doc["prog"] == "app"
     assert doc["version"] == "9.9.9"
     assert doc["description"] == "My multi-command app."
-    assert [s["name"] for s in doc["subcommands"]] == ["Deploy"]
+    assert [s["name"] for s in doc["subcommands"]] == ["deploy"]
 
 
 def test_document_is_valid_json_roundtrip():
@@ -344,7 +344,7 @@ def test_positionals_required_and_optional():
 
 def test_subcommand_aliases_described_once():
     doc = describe(App)
-    deploys = [s for s in doc["subcommands"] if s["name"] == "Deploy"]
+    deploys = [s for s in doc["subcommands"] if s["name"] == "deploy"]
     assert len(deploys) == 1
     assert set(deploys[0]["aliases"]) == {"d", "dep"}
 
@@ -367,7 +367,7 @@ def test_examples_synthesized_when_undeclared():
     # PlainApp declares no _examples_; a minimal line is synthesized.
     doc = describe(PlainApp)
     assert len(doc["examples"]) == 1
-    assert doc["examples"][0]["command"].startswith("PlainApp")
+    assert doc["examples"][0]["command"].startswith("plain-app")
 
 
 # --------------------------------------------------------------------------
@@ -383,7 +383,7 @@ def test_help_agents_flag_emits_json_and_exits(capsys):
     out = capsys.readouterr().out
     doc = json.loads(out)
     assert doc["schema"] == SCHEMA
-    assert doc["prog"] == "App"
+    assert doc["prog"] == "app"
 
 
 def test_help_agents_flag_absent_without_optin():
@@ -417,10 +417,10 @@ def test_env_trigger_scopes_to_subcommand(monkeypatch, capsys):
     monkeypatch.setenv("AGENT_HELP", "1")
     parser = App._parser_()
     with pytest.raises(SystemExit):
-        parser.parse_args(["Deploy", "--help"])
+        parser.parse_args(["deploy", "--help"])
     doc = json.loads(capsys.readouterr().out)
     # Subcommand help under the env trigger describes that subcommand as root.
-    assert doc["prog"] == "App Deploy"
+    assert doc["prog"] == "app deploy"
     assert any(o["dest"] == "environment" for o in doc["options"])
 
 
@@ -524,7 +524,7 @@ def test_custom_env_var_name(monkeypatch, capsys):
     parser = CustomApp._parser_()
     with pytest.raises(SystemExit):
         parser.parse_args(["--help"])
-    assert json.loads(capsys.readouterr().out)["prog"] == "CustomApp"
+    assert json.loads(capsys.readouterr().out)["prog"] == "custom-app"
 
 
 # --------------------------------------------------------------------------
@@ -666,9 +666,9 @@ def test_synthesized_example_keeps_command_with_required_root_option():
     # `<command>` survives even though a root option is also required
     # (duho's subparsers are always `required=True`, independent of that);
     # the long flag is preferred over the short alias.
-    assert example == "ReqRootApp --region REGION <command>"
+    assert example == "req-root-app --region REGION <command>"
     parser = ReqRootApp._parser_()
-    parsed = parser.parse_args(["--region", "x", "ReqRootSub"])
+    parsed = parser.parse_args(["--region", "x", "req-root-sub"])
     assert parsed is not None
 
 
@@ -684,14 +684,14 @@ def test_env_trigger_scoped_help_reports_root_version_and_exit_codes(
     monkeypatch.setenv("AGENT_HELP", "1")
     parser = App._parser_()
     with pytest.raises(SystemExit):
-        parser.parse_args(["Deploy", "--help"])
+        parser.parse_args(["deploy", "--help"])
     doc = json.loads(capsys.readouterr().out)
-    assert doc["prog"] == "App Deploy"
+    assert doc["prog"] == "app deploy"
     assert doc["version"] == "9.9.9"
     assert doc["exit_codes"]["3"] == "Custom failure."
     # Deploy declares no `_examples_` of its own: a Deploy-scoped example is
     # synthesized, not the app's unrelated root-level declared example.
-    assert doc["examples"][0]["command"].startswith("App Deploy")
+    assert doc["examples"][0]["command"].startswith("app deploy")
     assert doc["examples"][0]["command"] != "myapp Deploy --env prod ./src"
 
 

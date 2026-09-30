@@ -199,7 +199,7 @@ def test_self_registered_child_appears_in_parser_tree():
     sub_action = next(
         a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
     )
-    assert "Foo" in sub_action.choices
+    assert "foo" in sub_action.choices
 
 
 def test_per_class_isolation_no_cross_contamination():
@@ -307,7 +307,7 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "eu-west"\nreplicas = 5\n')
+    (tmp_path / "app.toml").write_text('[deploy]\nregion = "eu-west"\nreplicas = 5\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")
@@ -316,7 +316,7 @@ def test_app_threads_config_and_env_to_subcommand(tmp_path):
     rc = app(
         MyApp,
         source=str(cmds),
-        argv=["Deploy"],
+        argv=["deploy"],
         env=env,
         setup_logging=False,
     )
@@ -332,8 +332,8 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "class-attr.toml").write_text('[Deploy]\nregion = "from-class-attr"\n')
-    (tmp_path / "override.toml").write_text('[Deploy]\nregion = "us-east"\n')
+    (tmp_path / "class-attr.toml").write_text('[deploy]\nregion = "from-class-attr"\n')
+    (tmp_path / "override.toml").write_text('[deploy]\nregion = "us-east"\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "class-attr.toml")
@@ -344,7 +344,7 @@ def test_app_config_kwarg_overrides_cli_config_attr(tmp_path):
     rc = app(
         MyApp,
         source=str(cmds),
-        argv=["Deploy"],
+        argv=["deploy"],
         config=str(tmp_path / "override.toml"),
         setup_logging=False,
     )
@@ -358,7 +358,7 @@ def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
     cmds = tmp_path / "cmds"
     cmds.mkdir()
     _write(cmds, "deploy.py", _CLASS_CMD_DEPLOY)
-    (tmp_path / "app.toml").write_text('[Deploy]\nregion = "cfg"\n')
+    (tmp_path / "app.toml").write_text('[deploy]\nregion = "cfg"\n')
 
     class MyApp(Cli):
         _config_ = str(tmp_path / "app.toml")
@@ -367,7 +367,7 @@ def test_app_cli_dispatches_discovered_command_with_cli_override(tmp_path):
     rc = app(
         MyApp,
         source=str(cmds),
-        argv=["Deploy", "--region", "cli"],
+        argv=["deploy", "--region", "cli"],
         setup_logging=False,
     )
     assert rc == "region=cli replicas=1 env=False"
@@ -400,14 +400,14 @@ def test_global_option_before_subcommand_survives():
     parser = _GlobalOptionApp._parser_()
     # Given BEFORE the subcommand -- previously clobbered to None by the
     # child's inherited --db default. Now preserved.
-    assert parser.parse_args(["--db", "X", "_GlobalOptionSub"]).db == "X"
+    assert parser.parse_args(["--db", "X", "global-option-sub"]).db == "X"
 
 
 def test_global_option_after_subcommand_still_works():
     parser = _GlobalOptionApp._parser_()
-    assert parser.parse_args(["_GlobalOptionSub", "--db", "Y"]).db == "Y"
+    assert parser.parse_args(["global-option-sub", "--db", "Y"]).db == "Y"
 
 
 def test_global_option_absent_uses_root_default():
     parser = _GlobalOptionApp._parser_()
-    assert parser.parse_args(["_GlobalOptionSub"]).db is None
+    assert parser.parse_args(["global-option-sub"]).db is None

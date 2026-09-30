@@ -124,7 +124,9 @@ class Toolbox(Cli):
 
 
 def _call(name, arguments=None):
-    return call_tool(Toolbox, "Toolbox." + name, arguments or {})
+    from duho.text import kebabcase
+
+    return call_tool(Toolbox, "toolbox." + kebabcase(name), arguments or {})
 
 
 # --------------------------------------------------------------------------
@@ -242,7 +244,7 @@ def test_calling_a_namespace_node_raises_unknown_tool_error():
     # Toolbox itself always requires a subcommand -- it can never dispatch,
     # so it is refused the same way an unknown name is.
     with pytest.raises(UnknownToolError):
-        call_tool(Toolbox, "Toolbox", {})
+        call_tool(Toolbox, "toolbox", {})
 
 
 def test_calling_an_excluded_command_raises_unknown_tool_error():
@@ -262,7 +264,7 @@ def test_calling_an_excluded_command_raises_unknown_tool_error():
         _subcommands_ = [Secret]
 
     with pytest.raises(UnknownToolError, match="unknown tool"):
-        call_tool(Root, "Root.Secret", {})
+        call_tool(Root, "root.secret", {})
 
 
 # --------------------------------------------------------------------------
@@ -333,7 +335,7 @@ class BoolRoot(Cli):
 
 
 def _call_bool(arguments):
-    result = call_tool(BoolRoot, "BoolRoot.BoolShapes", arguments)
+    result = call_tool(BoolRoot, "bool-root.bool-shapes", arguments)
     assert result.get("isError") is not True, result
     import json
 
@@ -386,7 +388,7 @@ def test_loglevels_dict_field_uses_its_own_name_colon_level_grammar():
         _subcommands_ = [Works]
 
     result = call_tool(
-        LogToolbox, "LogToolbox.Works", {"loglevels": {"synapp": "DEBUG"}}
+        LogToolbox, "log-toolbox.works", {"loglevels": {"synapp": "DEBUG"}}
     )
     assert result.get("isError") is not True, result
     import json
@@ -431,8 +433,8 @@ def test_logging_handler_is_rebound_to_each_calls_own_capture():
     root_logger = logging.getLogger()
     root_logger.handlers[:] = []
 
-    call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
-    call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": 1})
+    call_tool(LoudToolbox, "loud-toolbox.loud", {"verbose": 1})
+    call_tool(LoudToolbox, "loud-toolbox.loud", {"verbose": 1})
 
     from duho.logging import _STDERR_HANDLER_TAG
 
@@ -472,7 +474,7 @@ def test_negative_count_raises_invalid_arguments_error():
         _subcommands_ = [Loud]
 
     with pytest.raises(InvalidArgumentsError, match="verbose"):
-        call_tool(LoudToolbox, "LoudToolbox.Loud", {"verbose": -1})
+        call_tool(LoudToolbox, "loud-toolbox.loud", {"verbose": -1})
 
 
 # --------------------------------------------------------------------------
@@ -498,7 +500,7 @@ class PasserToolbox(Cli):
 
 def test_passthrough_key_reaches_the_command_as_passthrough():
     result = call_tool(
-        PasserToolbox, "PasserToolbox.Passer", {"--": ["-k", "test_foo", "-x"]}
+        PasserToolbox, "passer-toolbox.passer", {"--": ["-k", "test_foo", "-x"]}
     )
     assert result.get("isError") is not True
     import json
@@ -508,7 +510,7 @@ def test_passthrough_key_reaches_the_command_as_passthrough():
 
 
 def test_omitted_passthrough_key_is_an_empty_list():
-    result = call_tool(PasserToolbox, "PasserToolbox.Passer", {})
+    result = call_tool(PasserToolbox, "passer-toolbox.passer", {})
     import json
 
     assert json.loads(result["content"][0]["text"])["passthrough"] == []
@@ -525,4 +527,4 @@ def test_passthrough_key_is_published_on_every_tool_and_never_required():
 
 def test_passthrough_items_must_be_strings():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(PasserToolbox, "PasserToolbox.Passer", {"--": [1, 2]})
+        call_tool(PasserToolbox, "passer-toolbox.passer", {"--": [1, 2]})

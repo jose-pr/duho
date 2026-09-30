@@ -417,7 +417,7 @@ def test_command_name_matches_the_canonical_args_rule():
 
     assert command_name(Named) == args_mod._command_name(Named) == "my-name"
     assert (
-        command_name(Undeclared) == args_mod._command_name(Undeclared) == "Undeclared"
+        command_name(Undeclared) == args_mod._command_name(Undeclared) == "undeclared"
     )
 
 
@@ -443,8 +443,8 @@ def test_unique_subcommands_dedups_aliases_by_identity():
     results = list(unique_subcommands(parser))
     by_name = {canonical: aliases for canonical, aliases, _sub in results}
     assert len(results) == 2
-    assert set(by_name["Deploy"]) == {"d", "dep"}
-    assert by_name["Rollback"] == ()
+    assert set(by_name["deploy"]) == {"d", "dep"}
+    assert by_name["rollback"] == ()
 
 
 def test_unique_subcommands_seen_set_prevents_double_yield_across_calls():

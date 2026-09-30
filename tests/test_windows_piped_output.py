@@ -77,7 +77,7 @@ def test_agent_help_json_survives_piped_non_ascii_docstring(tmp_path):
     # Valid, UTF-8-decodable JSON straight off the wire -- no UnicodeEncodeError,
     # no console-code-page mangling.
     doc = json.loads(proc.stdout)
-    dep = next(s for s in doc["subcommands"] if s["name"] == "Deploy")
+    dep = next(s for s in doc["subcommands"] if s["name"] == "deploy")
     assert "\u2192" in dep["description"]
 
 

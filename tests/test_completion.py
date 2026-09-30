@@ -79,9 +79,9 @@ def test_walk_captures_subcommand_choices_and_path():
     parser = App._parser_()
     spec = completion.spec(parser)
 
-    assert "Deploy" in spec.subcommands
-    deploy_spec = spec.subcommands["Deploy"]
-    assert deploy_spec.path == ("Deploy",)
+    assert "deploy" in spec.subcommands
+    deploy_spec = spec.subcommands["deploy"]
+    assert deploy_spec.path == ("deploy",)
 
     mode_opt = next(o for o in deploy_spec.options if "--mode" in o.flags)
     assert mode_opt.choices == ("fast", "slow", "auto")
@@ -145,13 +145,13 @@ def test_walk_skips_suppressed_option_and_subcommand():
             action.help = argparse.SUPPRESS
         if isinstance(action, argparse._SubParsersAction):
             for pseudo in action._choices_actions:
-                if pseudo.dest == "Hidden":
+                if pseudo.dest == "hidden":
                     pseudo.help = argparse.SUPPRESS
 
     top = completion.spec(parser)
     assert "--secret" not in {f for o in top.options for f in o.flags}
-    assert "Hidden" not in top.subcommands
-    assert "Visible" in top.subcommands
+    assert "hidden" not in top.subcommands
+    assert "visible" in top.subcommands
 
 
 def test_walk_hides_an_alias_of_a_suppressed_subcommand_too():
@@ -233,8 +233,8 @@ def test_emitters_render_nonempty_script_with_expected_content(shell):
 
     assert isinstance(script, str)
     assert script.strip()
-    assert "App" in script
-    assert "Deploy" in script
+    assert "app" in script
+    assert "deploy" in script
     assert "fast" in script  # a choice value from the Literal field
     # No unrendered Python format-string placeholders left in the output.
     assert "{choices}" not in script
@@ -553,7 +553,7 @@ def test_print_completion_flag_prints_script_and_exits_zero(capsys):
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     assert "complete" in captured.out
-    assert "CompletionApp" in captured.out
+    assert "completion-app" in captured.out
 
 
 def test_print_completion_flag_absent_without_opt_in():
@@ -569,7 +569,7 @@ def test_print_completion_standalone_function():
     duho.print_completion(CompletionApp, "zsh", file=buf)
     out = buf.getvalue()
     assert "complete" in out.lower() or "compdef" in out
-    assert "CompletionApp" in out
+    assert "completion-app" in out
 
 
 # --- stale-docs regression --------------------------------------------------

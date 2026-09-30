@@ -144,12 +144,12 @@ class App(Args):
 
 @pytest.mark.requires_toml
 def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
-    """A `[Install]` table (subcommand name = its _parsername_, which
-    defaults to the class name) applies only to the Install subcommand's
-    fields, not to the root App's fields."""
+    """A `[install]` table (subcommand name = the kebab-case of its class
+    name, since it declares no own `_parsername_`) applies only to the
+    install subcommand's fields, not to the root App's fields."""
     cfg = tmp_path / "duho.toml"
-    cfg.write_text("verbose = true\n" "\n" "[Install]\n" 'target = "from-config"\n')
-    result = duho.parse(App, ["Install"], config=cfg)
+    cfg.write_text("verbose = true\n" "\n" "[install]\n" 'target = "from-config"\n')
+    result = duho.parse(App, ["install"], config=cfg)
     assert result.target == "from-config"
     # Root-level key still applies via the top-level table.
     assert result.verbose is True
@@ -158,8 +158,8 @@ def test_subcommand_config_table_scoped_to_subcommand(tmp_path):
 @pytest.mark.requires_toml
 def test_subcommand_config_table_does_not_leak_to_root(tmp_path):
     cfg = tmp_path / "duho.toml"
-    cfg.write_text("[Install]\n" 'target = "from-config"\n')
-    result = duho.parse(App, ["Install"], config=cfg)
+    cfg.write_text("[install]\n" 'target = "from-config"\n')
+    result = duho.parse(App, ["install"], config=cfg)
     assert result.target == "from-config"
 
 
@@ -219,8 +219,8 @@ class _ValueSourcesRoot(duho.Cli):
 @pytest.mark.requires_toml
 def test_value_sources_subcommand_config(tmp_path):
     cfg = tmp_path / "c.toml"
-    cfg.write_text('[_ValueSourcesSub]\ntarget = "prod"\n')
-    result = duho.parse(_ValueSourcesRoot, ["_ValueSourcesSub"], config=cfg)
+    cfg.write_text('[value-sources-sub]\ntarget = "prod"\n')
+    result = duho.parse(_ValueSourcesRoot, ["value-sources-sub"], config=cfg)
     assert result.target == "prod"
     assert duho.value_sources(result)["target"] == "config"
 
@@ -248,7 +248,7 @@ class _ChildOverrideRoot(duho.Cli):
 def test_child_override_default_wins():
     """A subcommand's own default for a field it re-declares wins over the
     root's default for that same field name."""
-    r = duho.parse(_ChildOverrideRoot, ["_ChildOverrideSub"])
+    r = duho.parse(_ChildOverrideRoot, ["child-override-sub"])
     assert r.verbose == 3
 
 
@@ -637,13 +637,13 @@ class _RootLayeredVerbose(duho.Cli):
 
 def test_cli_flag_before_subcommand_survives_env(monkeypatch):
     monkeypatch.setenv("DUHO_A2_VERBOSE", "5")
-    result = duho.parse(_RootLayeredVerbose, ["--verbose", "3", "_SubLayeredVerbose"])
+    result = duho.parse(_RootLayeredVerbose, ["--verbose", "3", "sub-layered-verbose"])
     assert result.verbose == 3
 
 
 def test_env_applies_when_no_cli_flag(monkeypatch):
     monkeypatch.setenv("DUHO_A2_VERBOSE", "5")
-    result = duho.parse(_RootLayeredVerbose, ["_SubLayeredVerbose"])
+    result = duho.parse(_RootLayeredVerbose, ["sub-layered-verbose"])
     assert result.verbose == 5
 
 

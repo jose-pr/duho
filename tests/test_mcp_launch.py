@@ -68,11 +68,12 @@ def test_env_var_name_from_class_name_fallback(monkeypatch):
         """No _parsername_, no name kwarg, and no usable argv[0]."""
 
     # An empty/absent argv[0] (never usable as a program name) falls all the
-    # way through to the class name.
+    # way through to the class name -- kebab-cased (plan 38), so a multi-word
+    # class name gets a real separator in the env var too.
     monkeypatch.setattr(sys, "argv", [""])
-    assert _mcp_env_var_name(SomeApp) == "SOMEAPP_MCP"
+    assert _mcp_env_var_name(SomeApp) == "SOME_APP_MCP"
     monkeypatch.setattr(sys, "argv", [])
-    assert _default_mcp_app_name(SomeApp) == "SomeApp"
+    assert _default_mcp_app_name(SomeApp) == "some-app"
 
 
 def test_env_var_name_normalizes_hyphen_to_underscore():
@@ -203,7 +204,7 @@ def test_app_name_kwarg_is_the_root_tool_name_segment():
 
     core = _core_for_app_helper(Dotagents, name="dotagents")
     names = {t["name"] for t in describe_tools(core)}
-    assert names == {"dotagents.Env"}
+    assert names == {"dotagents.env"}
 
 
 def _core_for_app_helper(root, **kwargs):
@@ -269,7 +270,7 @@ def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
     stdout = io.StringIO()
     serve(core, stdin=stdin, stdout=stdout)
     response = _json.loads(stdout.getvalue().splitlines()[0])
-    assert response["result"]["serverInfo"]["name"] == "Plain"
+    assert response["result"]["serverInfo"]["name"] == "plain"
     assert response["result"]["serverInfo"]["version"] == duho.__version__
 
 
@@ -296,7 +297,7 @@ def test_main_mcp_command_true_registers_mcp_subcommand():
         _subcommands_ = [Show]
         _mcp_command_ = True
 
-    assert duho.main(Root, ["Show"], setup_logging=False) == 0
+    assert duho.main(Root, ["show"], setup_logging=False) == 0
     with pytest.raises(SystemExit):
         duho.main(Root, ["mcp", "--help"], setup_logging=False)
 
@@ -335,7 +336,7 @@ def test_main_mcp_command_false_is_unchanged(capsys):
 
         _subcommands_ = [Show]
 
-    assert duho.main(Root, ["Show"], setup_logging=False) == 0
+    assert duho.main(Root, ["show"], setup_logging=False) == 0
     assert "shown" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         duho.main(Root, ["mcp"], setup_logging=False)
@@ -358,7 +359,7 @@ def test_main_mcp_command_rejects_invalid_names(bad):
         _mcp_command_ = bad
 
     with pytest.raises(ValueError):
-        duho.main(Root, ["Show"], setup_logging=False)
+        duho.main(Root, ["show"], setup_logging=False)
 
 
 def test_main_mcp_command_without_other_subcommands_raises():
@@ -447,7 +448,7 @@ def test_root_mcp_false_does_not_disable_the_mcp_command_subcommand():
     from duho.mcp import describe_tools
 
     names = {t["name"] for t in describe_tools(Root)}
-    assert names == {"Root.Show"}
+    assert names == {"root.show"}
 
 
 # --------------------------------------------------------------------------
@@ -491,7 +492,7 @@ def test_app_mcp_false_kwarg_leaves_env_var_untouched(monkeypatch):
         _parsername_ = "optoutapp2"
 
     monkeypatch.setenv("OPTOUTAPP2_MCP", "stdio")
-    rc = app(Root, mcp=False, commands=[Dummy], argv=["Dummy"], setup_logging=False)
+    rc = app(Root, mcp=False, commands=[Dummy], argv=["dummy"], setup_logging=False)
     assert rc == 0
     assert os.environ.get("OPTOUTAPP2_MCP") == "stdio"
 
@@ -565,7 +566,7 @@ def test_mcp_command_not_listed_as_a_tool():
     mcp_cls = type("_McpCmd", (McpCmd,), {"_parsername_": "mcp"})
     core = _core_for_app(Root, commands=[Greet, mcp_cls], argv=[])
     names = {t["name"] for t in describe_tools(core)}
-    assert "Root.Greet" in names
+    assert "root.greet" in names
     assert not any("mcp" in n.lower() for n in names)
 
 
@@ -585,7 +586,7 @@ def test_normal_main_run_does_not_import_duho_mcp():
         "class App(Cli):\n"
         '    """App."""\n'
         "    _subcommands_ = [Ping]\n"
-        "main(App, ['Ping'], setup_logging=False)\n"
+        "main(App, ['ping'], setup_logging=False)\n"
         "print('duho.mcp' in sys.modules)\n"
     )
     out = subprocess.check_output(
@@ -612,7 +613,7 @@ def test_main_mcp_command_explicit_false_does_not_import_duho_mcp():
         '    """App."""\n'
         "    _subcommands_ = [Ping]\n"
         "    _mcp_command_ = False\n"
-        "main(App, ['Ping'], setup_logging=False)\n"
+        "main(App, ['ping'], setup_logging=False)\n"
         "print('duho.mcp' in sys.modules)\n"
     )
     out = subprocess.check_output(
@@ -688,7 +689,7 @@ def test_env_trigger_serves_a_class_tree(tmp_path):
                     "jsonrpc": "2.0",
                     "id": 3,
                     "method": "tools/call",
-                    "params": {"name": "App.Ping", "arguments": {}},
+                    "params": {"name": "app.ping", "arguments": {}},
                 }
             ),
         ]
@@ -707,9 +708,9 @@ def test_env_trigger_serves_a_class_tree(tmp_path):
     # "duho.mcp" -- App declares no _parsername_/_version_, so its name
     # resolves to its class name and its version falls back to duho's own
     # (never asserted here; only the name is app-specific).
-    assert responses[0]["result"]["serverInfo"]["name"] == "App"
+    assert responses[0]["result"]["serverInfo"]["name"] == "app"
     names = {t["name"] for t in responses[1]["result"]["tools"]}
-    assert names == {"App.Ping"}
+    assert names == {"app.ping"}
     call_text = responses[2]["result"]["content"][0]["text"]
     assert "pong" in call_text
     # (c) a tool that spawns/inspects a child sees the variable unset -- here
@@ -769,7 +770,7 @@ def test_env_trigger_serves_an_app_tree_with_module_commands(tmp_path):
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "Root.greet", "arguments": {}},
+                    "params": {"name": "root.greet", "arguments": {}},
                 }
             ),
         ]
@@ -785,7 +786,7 @@ def test_env_trigger_serves_an_app_tree_with_module_commands(tmp_path):
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert names == {"Root.greet"}
+    assert names == {"root.greet"}
     assert "hello from module command" in responses[1]["result"]["content"][0]["text"]
 
 
@@ -853,7 +854,7 @@ def test_mcp_command_subcommand_serves_over_stdio(tmp_path, runner_source, subco
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "Root.greet", "arguments": {}},
+                    "params": {"name": "root.greet", "arguments": {}},
                 }
             ),
         ]
@@ -869,7 +870,7 @@ def test_mcp_command_subcommand_serves_over_stdio(tmp_path, runner_source, subco
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert names == {"Root.greet"}
+    assert names == {"root.greet"}
     assert "hello from module command" in responses[1]["result"]["content"][0]["text"]
 
 
@@ -931,7 +932,7 @@ def test_main_mcp_command_subcommand_serves_over_stdio(tmp_path):
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "Root.Greet", "arguments": {}},
+                    "params": {"name": "root.greet", "arguments": {}},
                 }
             ),
         ]
@@ -948,7 +949,7 @@ def test_main_mcp_command_subcommand_serves_over_stdio(tmp_path):
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
     # The serving subcommand ("mcp") itself must never appear as a tool.
-    assert names == {"Root.Greet"}
+    assert names == {"root.greet"}
     assert "hello from main" in responses[1]["result"]["content"][0]["text"]
 
 

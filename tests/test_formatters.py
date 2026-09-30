@@ -293,7 +293,7 @@ def test_formatter_inherited_by_subcommands():
     subparsers_action = next(
         a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
     )
-    sub_parser = subparsers_action.choices["Sub"]
+    sub_parser = subparsers_action.choices["sub"]
     assert "(default: x)" in sub_parser.format_help()
 
 

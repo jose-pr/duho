@@ -278,7 +278,7 @@ def test_verbose_before_class_subcommand_survives(tmp_path):
     app(
         Root,
         source=tmp_path,
-        argv=["-v", "Deploy", "--name", "x"],
+        argv=["-v", "deploy", "--name", "x"],
         setup_logging=False,
         dispatch=capture,
     )
@@ -308,7 +308,7 @@ def test_root_env_survives_through_subcommand(tmp_path, monkeypatch):
     app(
         _RootEnv,
         source=tmp_path,
-        argv=["Deploy", "--name", "x"],
+        argv=["deploy", "--name", "x"],
         setup_logging=False,
         dispatch=capture,
     )
@@ -387,7 +387,7 @@ def test_name_collision_last_wins_and_dispatch_agrees(tmp_path, caplog):
 def test_class_command_dispatches(tmp_path):
     """app(root, source=dir, argv=[name, ...]) runs the Cmd's __call__()."""
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
-    rc = app(Root, source=tmp_path, argv=["Deploy", "--name", "x"], setup_logging=False)
+    rc = app(Root, source=tmp_path, argv=["deploy", "--name", "x"], setup_logging=False)
     # Deploy.__call__ returns a string; run_command propagates a non-None return.
     assert rc == "deployed x"
 
@@ -515,7 +515,7 @@ def test_register_hook_3arg_gets_logger_and_adds_flag(tmp_path):
     assert discovered.SEEN["logger_is_logger"] is True
     # ...and (Root is LoggingArgs-based) it is the args instance's own _logger_,
     # whose name is the root parser's name ("Root"), not the fallback "duho".
-    assert discovered.SEEN["logger_name"] == "Root"
+    assert discovered.SEEN["logger_name"] == "root"
     # ...and the flag it added parsed into the instance.
     assert discovered.SEEN["flag"] == "three"
 
@@ -827,7 +827,7 @@ def test_passthrough_reaches_class_command(tmp_path):
     rc = app(
         Root,
         source=tmp_path,
-        argv=["Echo", "--", "a", "b"],
+        argv=["echo", "--", "a", "b"],
         setup_logging=False,
     )
     assert rc == ["a", "b"]
@@ -843,7 +843,7 @@ def test_resilient_discovery_skips_bad_command(tmp_path):
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
     _write(tmp_path, "broken.py", _BAD_IMPORT_CMD)
     # The bad file is skipped during discovery (ImportError); Deploy still runs.
-    rc = app(Root, source=tmp_path, argv=["Deploy", "--name", "z"], setup_logging=False)
+    rc = app(Root, source=tmp_path, argv=["deploy", "--name", "z"], setup_logging=False)
     assert rc == "deployed z"
 
 
@@ -884,7 +884,7 @@ def test_commands_arg_class_command(tmp_path):
         rc = app(
             Root,
             commands=[mod.Deploy],
-            argv=["Deploy", "--name", "direct"],
+            argv=["deploy", "--name", "direct"],
             setup_logging=False,
         )
         assert rc == "deployed direct"
@@ -912,17 +912,20 @@ def test_dynamic_commands_bool_field_gets_reversible_no_flag(tmp_path):
     unrecognized argument.
     """
     cfg = tmp_path / "app.json"
-    cfg.write_text('{"ServeBoolCmd": {"reload": true}}')
+    cfg.write_text('{"serve-bool-cmd": {"reload": true}}')
     # The config-supplied True still applies with no flag at all.
     rc = app(
-        commands=[ServeBoolCmd], config=cfg, argv=["ServeBoolCmd"], setup_logging=False
+        commands=[ServeBoolCmd],
+        config=cfg,
+        argv=["serve-bool-cmd"],
+        setup_logging=False,
     )
     assert rc is True
     # --no-reload overrides it back to False.
     rc = app(
         commands=[ServeBoolCmd],
         config=cfg,
-        argv=["ServeBoolCmd", "--no-reload"],
+        argv=["serve-bool-cmd", "--no-reload"],
         setup_logging=False,
     )
     assert rc is False
@@ -944,9 +947,9 @@ def test_source_discovered_commands_bool_field_gets_reversible_no_flag(tmp_path)
         "        return self.reload\n",
     )
     cfg = tmp_path / "app.json"
-    cfg.write_text('{"Serve": {"reload": true}}')
+    cfg.write_text('{"serve": {"reload": true}}')
     rc = app(
-        source=tmp_path, config=cfg, argv=["Serve", "--no-reload"], setup_logging=False
+        source=tmp_path, config=cfg, argv=["serve", "--no-reload"], setup_logging=False
     )
     assert rc is False
 
@@ -1210,7 +1213,7 @@ def test_dispatch_seam_invoked_with_command_and_instance(tmp_path):
     rc = app(
         Root,
         source=tmp_path,
-        argv=["Deploy", "--name", "x"],
+        argv=["deploy", "--name", "x"],
         setup_logging=False,
         dispatch=my_dispatch,
     )
@@ -1258,12 +1261,12 @@ def test_dispatch_none_is_identical_to_default(tmp_path):
     """dispatch=None behaves exactly as omitting it (default run_command path)."""
     _write(tmp_path, "deploy.py", _CLASS_CMD_DEPLOY)
     rc_default = app(
-        Root, source=tmp_path, argv=["Deploy", "--name", "d"], setup_logging=False
+        Root, source=tmp_path, argv=["deploy", "--name", "d"], setup_logging=False
     )
     rc_none = app(
         Root,
         source=tmp_path,
-        argv=["Deploy", "--name", "d"],
+        argv=["deploy", "--name", "d"],
         setup_logging=False,
         dispatch=None,
     )
@@ -1313,7 +1316,7 @@ def test_dispatch_can_fan_out_over_targets(tmp_path):
     rc = app(
         Root,
         source=tmp_path,
-        argv=["Deploy", "--name", "x"],
+        argv=["deploy", "--name", "x"],
         setup_logging=False,
         dispatch=my_dispatch,
     )
@@ -1903,7 +1906,7 @@ class Remote(Cmd):
 def test_app_threads_env_to_nested_class_subcommand(tmp_path, monkeypatch):
     _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
     monkeypatch.setenv("DUHO_TEST_D021_URL", "from-env")
-    rc = app(Root, source=tmp_path, argv=["Remote", "Push"], setup_logging=False)
+    rc = app(Root, source=tmp_path, argv=["remote", "push"], setup_logging=False)
     monkeypatch.delenv("DUHO_TEST_D021_URL", raising=False)
     assert rc == "push from-env"
 
@@ -1912,11 +1915,11 @@ def test_app_threads_env_to_nested_class_subcommand(tmp_path, monkeypatch):
 def test_app_threads_config_to_nested_class_subcommand(tmp_path):
     _write(tmp_path, "remote.py", _CLASS_CMD_NESTED_D021)
     cfg = tmp_path / "app.toml"
-    cfg.write_text('[Remote.Push]\nurl = "from-config"\n')
+    cfg.write_text('[remote.push]\nurl = "from-config"\n')
     rc = app(
         Root,
         source=tmp_path,
-        argv=["Remote", "Push"],
+        argv=["remote", "push"],
         config=str(cfg),
         setup_logging=False,
     )
@@ -2071,7 +2074,7 @@ def test_dynamically_registered_class_command_help_survives_percent_default(caps
         app(
             _RootWithPercentDefaultGlobal,
             commands=[_ClassCmdWithPercentDefault],
-            argv=["_ClassCmdWithPercentDefault", "-h"],
+            argv=["class-cmd-with-percent-default", "-h"],
             setup_logging=False,
         )
     assert excinfo.value.code == 0
@@ -2181,7 +2184,7 @@ class _RegionRootBuiltinD022(duho.Cli):
 
 
 def test_app_builtin_subcommand_keeps_redeclared_default():
-    rc = app(_RegionRootBuiltinD022, argv=["_DeployBuiltinD022"], setup_logging=False)
+    rc = app(_RegionRootBuiltinD022, argv=["deploy-builtin-d022"], setup_logging=False)
     assert rc == "region=eu"
 
 
@@ -2214,7 +2217,7 @@ class Deploy(Cmd):
 
 def test_app_discovered_class_command_keeps_redeclared_default(tmp_path):
     _write(tmp_path, "deploy.py", _CLASS_CMD_REGION_OVERRIDE_D022)
-    rc = app(_RegionRootD022, source=tmp_path, argv=["Deploy"], setup_logging=False)
+    rc = app(_RegionRootD022, source=tmp_path, argv=["deploy"], setup_logging=False)
     assert rc == "region=eu"
 
 
@@ -2272,7 +2275,7 @@ def test_app_required_global_after_class_subcommand(tmp_path):
     rc = app(
         _TokenRootD023,
         source=tmp_path,
-        argv=["BackupCls", "--token", "5"],
+        argv=["backup-cls", "--token", "5"],
         setup_logging=False,
     )
     assert rc == "token=5"
@@ -2373,7 +2376,7 @@ def test_app_dispatches_command_from_cmds_path_env(tmp_path, monkeypatch):
     monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmd_dir))
     env = Env("myapp")
 
-    rc = app(Root, env=env, argv=["Deploy", "--name", "x"], setup_logging=False)
+    rc = app(Root, env=env, argv=["deploy", "--name", "x"], setup_logging=False)
     assert rc == "deployed x"
 
 
@@ -2570,7 +2573,7 @@ def test_non_cmd_leaf_raises_not_implemented():
         app(
             Root,
             commands=[_CmdParent],
-            argv=["parent", "_DataLeaf"],
+            argv=["parent", "data-leaf"],
             setup_logging=False,
         )
 
@@ -2746,7 +2749,7 @@ def test_non_dict_subcommand_config_table_tolerated(tmp_path):
     rc = app(
         Root,
         source=tmp_path,
-        argv=["Deploy", "--name", "z"],
+        argv=["deploy", "--name", "z"],
         config=config,
         setup_logging=False,
     )

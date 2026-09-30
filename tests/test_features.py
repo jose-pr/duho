@@ -344,13 +344,13 @@ class DispatchApp(Args):
 
 def test_main_dispatch_first_subcommand():
     """duho.main dispatches to the selected subcommand's __call__()."""
-    rc = duho.main(DispatchApp, ["ServeCmd", "--port", "9000"], setup_logging=False)
+    rc = duho.main(DispatchApp, ["serve-cmd", "--port", "9000"], setup_logging=False)
     assert rc == 11
 
 
 def test_main_dispatch_second_subcommand():
     """A different subcommand selection dispatches to its own __call__."""
-    rc = duho.main(DispatchApp, ["BuildCmd", "--output", "dist"], setup_logging=False)
+    rc = duho.main(DispatchApp, ["build-cmd", "--output", "dist"], setup_logging=False)
     assert rc == 22
 
 
@@ -388,7 +388,7 @@ def test_subcommand_alias_dispatches_to_same_run():
 
 def test_subcommand_without_aliases_still_works():
     """Absence of `_parseraliases_` is the unchanged default (no aliases added)."""
-    rc = duho.main(DispatchApp, ["ServeCmd", "--port", "9000"], setup_logging=False)
+    rc = duho.main(DispatchApp, ["serve-cmd", "--port", "9000"], setup_logging=False)
     assert rc == 11
 
 
@@ -418,7 +418,7 @@ class NestedApp(Args):
 def test_main_dispatch_nested_subcommands():
     """A 2-level nested subcommand tree dispatches to the deepest command."""
     rc = duho.main(
-        NestedApp, ["MidCmd", "InnerCmd", "--value", "7"], setup_logging=False
+        NestedApp, ["mid-cmd", "inner-cmd", "--value", "7"], setup_logging=False
     )
     assert rc == 33
 

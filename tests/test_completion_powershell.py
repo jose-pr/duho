@@ -48,8 +48,8 @@ def test_powershell_script_content():
     assert "Register-ArgumentCompleter" in script
     assert "-Native" in script
     assert "CompletionResult" in script
-    assert "PShellApp" in script
-    assert "Deploy" in script
+    assert "p-shell-app" in script
+    assert "deploy" in script
     assert "fast" in script  # a Literal choice value
     # No unrendered Python placeholders leaked into the output.
     assert "{prog}" not in script
@@ -153,7 +153,7 @@ def test_print_completion_flag_accepts_powershell(capsys):
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
     assert "Register-ArgumentCompleter" in out
-    assert "PShellCompletionApp" in out
+    assert "p-shell-completion-app" in out
 
 
 def test_print_completion_lists_powershell_choice():
@@ -169,7 +169,7 @@ def test_print_completion_standalone_powershell():
     duho.print_completion(PShellCompletionApp, "powershell", file=buf)
     out = buf.getvalue()
     assert "Register-ArgumentCompleter" in out
-    assert "PShellCompletionApp" in out
+    assert "p-shell-completion-app" in out
 
 
 def test_powershell_script_syntax_if_pwsh_available():

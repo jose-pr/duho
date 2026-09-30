@@ -156,7 +156,7 @@ class App33(Args):
 
 def test_bad_env_for_unselected_subcommand_does_not_crash(monkeypatch):
     monkeypatch.setenv("DUHO_TEST_A33_PORT", "eighty")
-    result = duho.parse(App33, ["Status33"])
+    result = duho.parse(App33, ["status33"])
     monkeypatch.delenv("DUHO_TEST_A33_PORT", raising=False)
     assert isinstance(result, Status33)
 
@@ -205,13 +205,13 @@ class App37(Args):
 @pytest.mark.requires_toml
 def test_sibling_subcommand_config_does_not_leak_provenance(tmp_path):
     cfg = tmp_path / "duho.toml"
-    cfg.write_text("[SiblingA37]\nport = 10\n\n[SiblingB37]\nport = 20\n")
+    cfg.write_text("[sibling-a37]\nport = 10\n\n[sibling-b37]\nport = 20\n")
 
-    result_a = duho.parse(App37, ["SiblingA37"], config=cfg)
+    result_a = duho.parse(App37, ["sibling-a37"], config=cfg)
     assert result_a.port == 10
     assert duho.value_sources(result_a)["port"] == "config"
 
-    result_b = duho.parse(App37, ["SiblingB37"], config=cfg)
+    result_b = duho.parse(App37, ["sibling-b37"], config=cfg)
     assert result_b.port == 20
     assert duho.value_sources(result_b)["port"] == "config"
 
@@ -219,9 +219,9 @@ def test_sibling_subcommand_config_does_not_leak_provenance(tmp_path):
 @pytest.mark.requires_toml
 def test_unselected_sibling_config_does_not_apply_to_selected_one(tmp_path):
     cfg = tmp_path / "duho.toml"
-    cfg.write_text("[SiblingB37]\nport = 20\n")
+    cfg.write_text("[sibling-b37]\nport = 20\n")
 
-    result = duho.parse(App37, ["SiblingA37"], config=cfg)
+    result = duho.parse(App37, ["sibling-a37"], config=cfg)
     assert result.port == 1
     assert duho.value_sources(result)["port"] == "default"
 
@@ -275,9 +275,9 @@ class RootR21(Args):
 def test_value_sources_on_subcommand_includes_root_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("DUHO_TEST_R21_TOKEN", "envtok")
     cfg = tmp_path / "duho.toml"
-    cfg.write_text('verbose = true\n\n[InstallR21]\ntarget = "from-config"\n')
+    cfg.write_text('verbose = true\n\n[install-r21]\ntarget = "from-config"\n')
 
-    result = duho.parse(RootR21, ["InstallR21"], config=cfg)
+    result = duho.parse(RootR21, ["install-r21"], config=cfg)
     monkeypatch.delenv("DUHO_TEST_R21_TOKEN", raising=False)
 
     assert isinstance(result, InstallR21)

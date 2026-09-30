@@ -75,8 +75,8 @@ def test_mcp_app_describes_fileinstall_as_tools():
     names = {t["name"] for t in tools}
     # "FileInstall" itself is a namespace (its own subcommand is mandatory),
     # so it is not listed as a callable tool.
-    assert names == {"FileInstall.install"}
-    install = next(t for t in tools if t["name"] == "FileInstall.install")
+    assert names == {"file-install.install"}
+    install = next(t for t in tools if t["name"] == "file-install.install")
     assert "source" in install["inputSchema"]["properties"]
     assert "destination" in install["inputSchema"]["properties"]
 
@@ -84,7 +84,7 @@ def test_mcp_app_describes_fileinstall_as_tools():
 def test_mcp_app_call_tool_dispatches_install():
     result = duho.mcp.call_tool(
         mcp_app.FileInstall,
-        "FileInstall.install",
+        "file-install.install",
         {"source": "a.txt", "destination": "b.txt"},
     )
     assert result.get("isError") is not True

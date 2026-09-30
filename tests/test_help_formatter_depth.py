@@ -54,16 +54,16 @@ def test_grandchild_inherits_the_roots_help_formatter():
     mid_parser = None
     for action in parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "_Mid" in choices:
-            mid_parser = choices["_Mid"]
+        if choices and "mid" in choices:
+            mid_parser = choices["mid"]
     assert mid_parser is not None
     assert _formatter_of(mid_parser) is DefaultsFormatter
 
     leaf_parser = None
     for action in mid_parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "_Leaf" in choices:
-            leaf_parser = choices["_Leaf"]
+        if choices and "leaf" in choices:
+            leaf_parser = choices["leaf"]
     assert leaf_parser is not None
     assert _formatter_of(leaf_parser) is DefaultsFormatter, (
         "grandchild must inherit the root's _help_formatter_, not argparse's "
@@ -75,12 +75,12 @@ def test_grandchild_help_shows_defaults():
     parser = _Root._parser_()
     for action in parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "_Mid" in choices:
-            mid_parser = choices["_Mid"]
+        if choices and "mid" in choices:
+            mid_parser = choices["mid"]
     for action in mid_parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "_Leaf" in choices:
-            leaf_parser = choices["_Leaf"]
+        if choices and "leaf" in choices:
+            leaf_parser = choices["leaf"]
     text = leaf_parser.format_help()
     assert "(default: 3)" in text
 
@@ -105,14 +105,14 @@ def test_a_middle_command_with_its_own_formatter_overrides_for_its_subtree():
     parser = RootPlain._parser_()
     for action in parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "MidWithOwn" in choices:
-            mid_parser = choices["MidWithOwn"]
+        if choices and "mid-with-own" in choices:
+            mid_parser = choices["mid-with-own"]
     assert _formatter_of(mid_parser) is formatters.ColorHelpFormatter
 
     for action in mid_parser._actions:
         choices = getattr(action, "choices", None)
-        if choices and "_Leaf" in choices:
-            leaf_parser = choices["_Leaf"]
+        if choices and "leaf" in choices:
+            leaf_parser = choices["leaf"]
     assert _formatter_of(leaf_parser) is formatters.ColorHelpFormatter, (
         "a middle command's OWN _help_formatter_ must win for its subtree, "
         "not the root's"

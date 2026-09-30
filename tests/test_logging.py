@@ -308,13 +308,13 @@ def test_main_sets_up_logging_for_a_plain_cmd_leaf_under_a_loggingargs_root(
 ):
     root = _clean_root_logger
     root.handlers[:] = []
-    logging.getLogger("_A012App").setLevel(logging.WARNING)
+    logging.getLogger("a012-app").setLevel(logging.WARNING)
 
-    rc = duho.main(_A012App, ["-vv", "_A012Deploy"])
+    rc = duho.main(_A012App, ["-vv", "a012-deploy"])
 
     assert rc == 0
     assert len(root.handlers) == 1
-    assert logging.getLogger("_A012App").getEffectiveLevel() == _expected_verbose_level(
+    assert logging.getLogger("a012-app").getEffectiveLevel() == _expected_verbose_level(
         verbose=2
     )
 
@@ -325,13 +325,13 @@ def test_app_sets_up_logging_for_a_plain_cmd_leaf_under_a_loggingargs_root(
     """Same shape through duho.app -- runtime.py's identical logging tail."""
     root = _clean_root_logger
     root.handlers[:] = []
-    logging.getLogger("_A012App").setLevel(logging.WARNING)
+    logging.getLogger("a012-app").setLevel(logging.WARNING)
 
-    rc = duho.app(_A012App, commands=[_A012Deploy], argv=["-vv", "_A012Deploy"])
+    rc = duho.app(_A012App, commands=[_A012Deploy], argv=["-vv", "a012-deploy"])
 
     assert rc == 0
     assert len(root.handlers) == 1
-    assert logging.getLogger("_A012App").getEffectiveLevel() == _expected_verbose_level(
+    assert logging.getLogger("a012-app").getEffectiveLevel() == _expected_verbose_level(
         verbose=2
     )
 
@@ -356,9 +356,9 @@ def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
     try:
         # -v/-q are declared on the LEAF here (it IS the LoggingArgs), not
         # the root, so they must follow the subcommand name.
-        duho.main(_A012Root, ["_A012LoggingLeaf", "-vv"])
+        duho.main(_A012Root, ["a012-logging-leaf", "-vv"])
         assert logging.getLogger(
-            "_A012LoggingLeaf"
+            "a012-logging-leaf"
         ).getEffectiveLevel() == _expected_verbose_level(verbose=2)
     finally:
         root.handlers[:] = saved
@@ -382,10 +382,10 @@ def test_bare_loglevel_also_raises_the_apps_own_logger():
     ns = parser.parse_args(["--loglevel", "DEBUG"])
     ns._set_loglevels_()
     try:
-        assert logging.getLogger("_C006App").isEnabledFor(logging.DEBUG)
+        assert logging.getLogger("c006-app").isEnabledFor(logging.DEBUG)
         assert logging.getLogger().isEnabledFor(logging.DEBUG)
     finally:
-        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger("c006-app").setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)
 
 
@@ -398,20 +398,20 @@ def test_explicit_verbose_flag_wins_over_a_bare_loglevel_default():
         # -v was given, so it decides the app's OWN level, not the bare ""
         # entry (ERROR) -- the bare entry still applies to root.
         assert loglevels[""] == logging.ERROR
-        assert logging.getLogger("_C006App").getEffectiveLevel() == expected
+        assert logging.getLogger("c006-app").getEffectiveLevel() == expected
     finally:
-        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger("c006-app").setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)
 
 
 def test_named_loglevel_entry_still_wins_over_the_bare_default():
     parser = _C006App._parser_()
-    ns = parser.parse_args(["--loglevel", "ERROR,_C006App:DEBUG"])
+    ns = parser.parse_args(["--loglevel", "ERROR,c006-app:DEBUG"])
     ns._set_loglevels_()
     try:
-        assert logging.getLogger("_C006App").isEnabledFor(logging.DEBUG)
+        assert logging.getLogger("c006-app").isEnabledFor(logging.DEBUG)
     finally:
-        logging.getLogger("_C006App").setLevel(logging.NOTSET)
+        logging.getLogger("c006-app").setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)
 
 
@@ -604,14 +604,14 @@ def test_main_does_not_add_a_stderr_handler_when_the_root_already_owns_logging(
     root = _clean_root_logger
     foreign = logging.Handler()
     root.handlers[:] = [foreign]
-    logging.getLogger("_C040App").setLevel(logging.WARNING)
+    logging.getLogger("c040-app").setLevel(logging.WARNING)
 
     rc = duho.main(_C040App, ["-v"])
 
     assert rc == 0
     assert root.handlers == [foreign]
     assert not any(getattr(h, "_duho_stderr_handler_", False) for h in root.handlers)
-    assert logging.getLogger("_C040App").getEffectiveLevel() == _expected_verbose_level(
+    assert logging.getLogger("c040-app").getEffectiveLevel() == _expected_verbose_level(
         verbose=1
     )
 

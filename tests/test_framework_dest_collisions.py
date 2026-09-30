@@ -112,7 +112,7 @@ def test_root_field_named_command_is_not_clobbered_by_app_dispatch():
     duho.app(
         Root,
         commands=[Backup],
-        argv=["--command", "custom", "Backup"],
+        argv=["--command", "custom", "backup"],
         setup_logging=False,
         dispatch=dispatch,
     )

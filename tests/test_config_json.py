@@ -82,8 +82,8 @@ class RootApp(Cli):
 
 def test_json_subcommand_table_layers(tmp_path):
     cfg = tmp_path / "app.json"
-    cfg.write_text(json.dumps({"verbose": True, "Deploy": {"region": "eu-west"}}))
-    result = duho.parse(RootApp, ["Deploy"], config=cfg)
+    cfg.write_text(json.dumps({"verbose": True, "deploy": {"region": "eu-west"}}))
+    result = duho.parse(RootApp, ["deploy"], config=cfg)
     assert result.region == "eu-west"
     assert result.verbose is True
 

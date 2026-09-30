@@ -84,13 +84,13 @@ def _build(tmp_path):
 def test_class_and_module_commands_all_listed(tmp_path):
     core = _build(tmp_path)
     tools = {t["name"]: t for t in describe_tools(core)}
-    assert set(tools) == {"Root.Deploy", "Root.greet", "Root.ping"}
+    assert set(tools) == {"root.deploy", "root.greet", "root.ping"}
 
 
 def test_class_command_schema_has_its_own_field(tmp_path):
     core = _build(tmp_path)
     tools = {t["name"]: t for t in describe_tools(core)}
-    props = tools["Root.Deploy"]["inputSchema"]["properties"]
+    props = tools["root.deploy"]["inputSchema"]["properties"]
     assert props["name"]["type"] == "string"
     assert props["name"]["default"] == "world"
 
@@ -98,7 +98,7 @@ def test_class_command_schema_has_its_own_field(tmp_path):
 def test_module_command_with_declared_args_schema(tmp_path):
     core = _build(tmp_path)
     tools = {t["name"]: t for t in describe_tools(core)}
-    props = tools["Root.greet"]["inputSchema"]["properties"]
+    props = tools["root.greet"]["inputSchema"]["properties"]
     assert props["name"]["type"] == "string"
     assert props["shout"]["type"] == "boolean"
 
@@ -111,27 +111,27 @@ def test_module_command_without_fields_schema_has_only_ancestor_and_passthrough(
     # `ping` itself declares no fields at all -- everything in its schema
     # besides "--" comes from the ROOT ancestor (LoggingArgs' own globals),
     # never something invented for a fieldless module command.
-    props = tools["Root.ping"]["inputSchema"]["properties"]
+    props = tools["root.ping"]["inputSchema"]["properties"]
     assert set(props) == {"--", "verbose", "quiet", "loglevels"}
 
 
 def test_class_command_is_callable_over_mcp(tmp_path):
     core = _build(tmp_path)
-    result = call_tool(core, "Root.Deploy", {"name": "prod"})
+    result = call_tool(core, "root.deploy", {"name": "prod"})
     assert result.get("isError") is not True
     assert "deployed prod" in result["content"][0]["text"]
 
 
 def test_module_command_with_declared_args_is_callable_over_mcp(tmp_path):
     core = _build(tmp_path)
-    result = call_tool(core, "Root.greet", {"name": "duho", "shout": True})
+    result = call_tool(core, "root.greet", {"name": "duho", "shout": True})
     assert result.get("isError") is not True
     assert "hello DUHO" in result["content"][0]["text"]
 
 
 def test_module_command_without_fields_is_callable_over_mcp(tmp_path):
     core = _build(tmp_path)
-    result = call_tool(core, "Root.ping", {})
+    result = call_tool(core, "root.ping", {})
     assert result.get("isError") is not True
     assert "pong" in result["content"][0]["text"]
 
@@ -141,7 +141,7 @@ def test_module_command_env_field_still_works_over_cli_layering(tmp_path, monkey
     # real env/config layering pipeline when the MCP call omits it.
     monkeypatch.setenv("DUHO_TEST_MCP_APP_TREE_SHOUT", "1")
     core = _build(tmp_path)
-    result = call_tool(core, "Root.greet", {"name": "duho"})
+    result = call_tool(core, "root.greet", {"name": "duho"})
     assert result.get("isError") is not True
     assert "hello DUHO" in result["content"][0]["text"]
 
@@ -153,13 +153,13 @@ def test_unknown_module_command_field_rejected(tmp_path):
     from duho.mcp import InvalidArgumentsError
 
     with pytest.raises(InvalidArgumentsError):
-        call_tool(core, "Root.greet", {"bogus": "x"})
+        call_tool(core, "root.greet", {"bogus": "x"})
 
 
 def test_root_is_a_namespace_and_not_listed(tmp_path):
     core = _build(tmp_path)
     tools = {t["name"] for t in describe_tools(core)}
-    assert "Root" not in tools
+    assert "root" not in tools
 
 
 # --------------------------------------------------------------------------
@@ -188,6 +188,6 @@ def test_module_command_opted_out_is_not_listed_or_callable(tmp_path):
     core = _core_for_app(Root, source=tmp_path, argv=[])
 
     tools = {t["name"] for t in describe_tools(core)}
-    assert tools == {"Root.Deploy"}
+    assert tools == {"root.deploy"}
     with pytest.raises(UnknownToolError, match="unknown tool"):
-        call_tool(core, "Root.secret", {})
+        call_tool(core, "root.secret", {})

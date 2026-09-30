@@ -71,7 +71,7 @@ def test_initialize_responds_with_protocol_and_server_info():
     # "duho.mcp"/duho version: Server declares no _parsername_ (so its
     # name resolves to its class name) but DOES declare its own
     # _version_, which must be reported verbatim.
-    assert result["serverInfo"]["name"] == "Server"
+    assert result["serverInfo"]["name"] == "server"
     assert result["serverInfo"]["version"] == "0.0.1"
 
 
@@ -94,7 +94,7 @@ def test_tools_list_returns_the_describe_tools_shape():
     names = {t["name"] for t in tools}
     # "Server" itself is a namespace (its own subcommand is mandatory), so it
     # is not listed as a callable tool.
-    assert names == {"Server.Ping"}
+    assert names == {"server.ping"}
     for tool in tools:
         assert set(tool) == {"name", "description", "inputSchema"}
 
@@ -105,7 +105,7 @@ def test_tools_call_dispatches_and_returns_call_tool_result():
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "Server.Ping", "arguments": {}},
+            "params": {"name": "server.ping", "arguments": {}},
         },
     )
     result = responses[0]["result"]
@@ -127,7 +127,7 @@ def test_full_scripted_conversation():
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/call",
-            "params": {"name": "Server.Ping", "arguments": {}},
+            "params": {"name": "server.ping", "arguments": {}},
         },
     )
     assert rc == 0
@@ -252,7 +252,7 @@ def test_python_dash_m_end_to_end(tmp_path):
     assert proc.returncode == 0, proc.stderr
     responses = _lines(proc.stdout)
     names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert names == {"App.Ping"}
+    assert names == {"app.ping"}
 
 
 # --------------------------------------------------------------------------

@@ -81,7 +81,7 @@ def test_app_dispatches_an_async_class_command():
         def __call__(self):  # pragma: no cover - root is not dispatched here
             return 0
 
-    assert duho.app(Root, argv=["AsyncReturn"], setup_logging=False) == 3
+    assert duho.app(Root, argv=["async-return"], setup_logging=False) == 3
 
 
 def test_async_run_command_drives_coroutine():

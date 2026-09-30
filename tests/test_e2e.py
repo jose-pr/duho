@@ -66,7 +66,7 @@ def test_version_exits_zero_and_prints_prog_and_version():
     import duho
 
     combined = result.stdout + result.stderr
-    assert "Dotagents" in combined
+    assert "dotagents" in combined
     assert duho.__version__ in combined
 
 
@@ -134,5 +134,5 @@ def test_version_on_version_carrying_root(tmp_path):
     result = _run([str(cli), "--version"])
     assert result.returncode == 0, result.stderr
     combined = result.stdout + result.stderr
-    assert "Root" in combined
+    assert "root" in combined
     assert "9.9.9" in combined

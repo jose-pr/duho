@@ -203,7 +203,7 @@ def _bash_func(parser) -> str:
 
 def test_walk_captures_positionals():
     spec = completion.spec(Tool._parser_())
-    convert = spec.subcommands["Convert"]
+    convert = spec.subcommands["convert"]
     names = {p.name for p in convert.positionals}
     assert {"source", "fmt", "extras"} <= names
     src = next(p for p in convert.positionals if p.name == "source")
@@ -311,7 +311,7 @@ def test_bash_completes_root_subcommand_names():
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(script, _bash_func(parser), ["tool", ""], 1)
-    assert "Convert" in reply
+    assert "convert" in reply
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
@@ -319,7 +319,7 @@ def test_bash_completes_flags():
     parser = _tool_parser()
     script = completion.bash(parser)
     # `tool Convert --e<TAB>` -> the --env flag.
-    reply = _complete_bash(script, _bash_func(parser), ["tool", "Convert", "--e"], 2)
+    reply = _complete_bash(script, _bash_func(parser), ["tool", "convert", "--e"], 2)
     assert "--env" in reply
 
 
@@ -329,7 +329,7 @@ def test_bash_completes_choice_values_after_flag():
     script = completion.bash(parser)
     # `tool Convert --env <TAB>` -> the choice values for --env.
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "--env", ""], 3
+        script, _bash_func(parser), ["tool", "convert", "--env", ""], 3
     )
     assert "prod" in reply and "dev" in reply
 
@@ -347,7 +347,7 @@ def test_bash_after_flag_value_does_not_break_subcommand():
     reply = _complete_bash(
         script, _bash_func(parser), ["tool", "--verbose", "2", ""], 3
     )
-    assert "Convert" in reply
+    assert "convert" in reply
 
 
 # --- Positional-then-flag / opt=value / free & Path flags -------------------
@@ -360,7 +360,7 @@ def test_bash_completes_after_a_positional_value():
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "in.txt", ""], 3
+        script, _bash_func(parser), ["tool", "convert", "in.txt", ""], 3
     )
     assert set(reply) == {"json", "yaml", "toml"}
 
@@ -372,7 +372,7 @@ def test_bash_completes_flags_after_all_positionals_consumed():
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "in.txt", "yaml", "--"], 4
+        script, _bash_func(parser), ["tool", "convert", "in.txt", "yaml", "--"], 4
     )
     assert "--env" in reply and "--color" in reply
 
@@ -405,7 +405,7 @@ def test_bash_free_value_flag_offers_nothing():
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "--name", ""], 3
+        script, _bash_func(parser), ["tool", "convert", "--name", ""], 3
     )
     assert reply == []
 
@@ -418,7 +418,7 @@ def test_bash_path_flag_completes_files(tmp_path):
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "--out", "af"], 3, cwd=tmp_path
+        script, _bash_func(parser), ["tool", "convert", "--out", "af"], 3, cwd=tmp_path
     )
     assert any("afile.txt" in c for c in reply)
 
@@ -435,7 +435,7 @@ def test_bash_completes_split_opt_equals_value():
     reply = _complete_bash(
         script,
         _bash_func(parser),
-        ["tool", "--verbose", "=", "2", "Convert", "--"],
+        ["tool", "--verbose", "=", "2", "convert", "--"],
         5,
     )
     assert "--color" in reply
@@ -443,7 +443,7 @@ def test_bash_completes_split_opt_equals_value():
     reply = _complete_bash(
         script,
         _bash_func(parser),
-        ["tool", "Convert", "--env", "=", ""],
+        ["tool", "convert", "--env", "=", ""],
         4,
     )
     assert "prod" in reply and "dev" in reply
@@ -476,10 +476,10 @@ def test_bash_value_flag_scoped_per_command_path():
     # At the root, -n is boolean: the word after it is NOT swallowed, so
     # `Deploy` is still recognised as the subcommand and its OWN flags
     # (including its value-taking -n/--name) are offered.
-    reply = _complete_bash(script, func, ["r3", "-n", "Deploy", "-"], 3)
+    reply = _complete_bash(script, func, ["r3", "-n", "deploy", "-"], 3)
     assert {"-n", "--name", "--help"} <= set(reply)
     reply = _complete_bash(script, func, ["r3", "-n", ""], 2)
-    assert "Deploy" in reply
+    assert "deploy" in reply
 
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
@@ -691,7 +691,7 @@ def test_bash_opt_equals_with_nothing_typed_yet_offers_choices():
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
-        script, _bash_func(parser), ["tool", "Convert", "--env", "="], 3
+        script, _bash_func(parser), ["tool", "convert", "--env", "="], 3
     )
     assert set(reply) == {"prod", "dev"}
 
@@ -858,7 +858,7 @@ def test_zsh_positional_completion_does_not_error(tmp_path):
     script = completion.zsh(parser)
     fpath_dir = tmp_path / "comp"
     _write_zsh_script(fpath_dir, "_Tool", script)
-    out = _zsh_drive(_ZSH, str(fpath_dir), "_Tool", "Tool", "Tool Convert ")
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Tool", "Tool", "Tool convert ")
     assert "invalid argument" not in out
 
 
@@ -1134,7 +1134,7 @@ def test_powershell_completes_after_a_positional_value(tmp_path):
     a subcommand word."""
     parser = _tool_parser()
     script = completion.powershell(parser)
-    reply = _pwsh_complete(script, "tool Convert in.txt ", tmp_path)
+    reply = _pwsh_complete(script, "tool convert in.txt ", tmp_path)
     # Every inserted candidate is now always single-quoted (see
     # test_powershell_quotes_every_candidate_unconditionally), including
     # these plain, metacharacter-free choices.
@@ -1147,8 +1147,8 @@ def test_powershell_free_value_flag_offers_nothing(tmp_path):
     file completion (no candidates of our own), not the flag/subcommand list."""
     parser = _tool_parser()
     script = completion.powershell(parser)
-    reply = _pwsh_complete(script, "tool Convert --name ", tmp_path)
-    assert "--help" not in reply and "Convert" not in reply
+    reply = _pwsh_complete(script, "tool convert --name ", tmp_path)
+    assert "--help" not in reply and "convert" not in reply
 
 
 @pytest.mark.skipif(_PWSH is None, reason="pwsh not available")

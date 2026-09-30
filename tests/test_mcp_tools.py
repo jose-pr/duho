@@ -64,21 +64,21 @@ def test_every_node_gets_a_tool_namespaced_parent_child():
     names = {t["name"] for t in tools}
     # "App" itself is a namespace: it always requires a subcommand, so it can
     # never be dispatched and is not listed as a callable tool.
-    assert names == {"App.Deploy", "App.Rollback"}
+    assert names == {"app.deploy", "app.rollback"}
 
 
 def test_flat_app_with_no_subcommands_has_one_tool():
     tools = describe_tools(Flat)
-    assert [t["name"] for t in tools] == ["Flat"]
+    assert [t["name"] for t in tools] == ["flat"]
 
 
 def test_aliases_do_not_produce_duplicate_tools():
     tools = describe_tools(App)
     # Deploy has aliases "d"/"dep" registered on the same subparser object;
-    # alias-dedup-by-identity must yield exactly one "App.Deploy" tool, never
-    # "App.d"/"App.dep" as separate entries.
+    # alias-dedup-by-identity must yield exactly one "app.deploy" tool, never
+    # "app.d"/"app.dep" as separate entries.
     names = [t["name"] for t in tools]
-    assert names.count("App.Deploy") == 1
+    assert names.count("app.deploy") == 1
     assert "App.d" not in names
     assert "App.dep" not in names
 
@@ -90,7 +90,7 @@ def test_aliases_do_not_produce_duplicate_tools():
 
 def test_tool_spec_has_name_description_input_schema():
     tools = _by_name(describe_tools(App))
-    deploy = tools["App.Deploy"]
+    deploy = tools["app.deploy"]
     assert deploy["description"] == "Deploy the app to a target."
     assert deploy["inputSchema"]["type"] == "object"
     assert "environment" in deploy["inputSchema"]["properties"]
@@ -99,20 +99,20 @@ def test_tool_spec_has_name_description_input_schema():
 
 def test_namespace_root_is_not_listed_but_its_fields_reach_children():
     tools = _by_name(describe_tools(App))
-    assert "App" not in tools
+    assert "app" not in tools
     # A namespace root (its own subcommand is mandatory) is not itself a
     # callable tool, but its own fields -- here LoggingArgs' verbose/quiet/
     # loglevels -- must still be reachable: they are merged into every
     # descendant's own schema, since MCP has no separate way to call the
     # root first and supply them.
-    deploy = tools["App.Deploy"]
+    deploy = tools["app.deploy"]
     assert "verbose" in deploy["inputSchema"]["properties"]
     assert "environment" in deploy["inputSchema"]["properties"]
 
 
 def test_leaf_tool_with_no_fields_of_its_own_inherits_ancestor_fields():
     tools = _by_name(describe_tools(App))
-    rollback = tools["App.Rollback"]
+    rollback = tools["app.rollback"]
     # Rollback declares no fields of its own, but its namespace ancestor
     # App's own (LoggingArgs) fields are merged in.
     assert set(rollback["inputSchema"]["properties"]) == {
@@ -152,8 +152,8 @@ def test_conflict_groups_noted_in_description():
         _subcommands_ = [Compressed]
 
     tools = _by_name(describe_tools(Root))
-    assert "Mutually exclusive" in tools["Root.Compressed"]["description"]
-    assert "gzip" in tools["Root.Compressed"]["description"]
+    assert "Mutually exclusive" in tools["root.compressed"]["description"]
+    assert "gzip" in tools["root.compressed"]["description"]
 
 
 # --------------------------------------------------------------------------
@@ -182,7 +182,7 @@ def test_excluded_leaf_is_not_listed():
         _subcommands_ = [Secret, Visible]
 
     names = {t["name"] for t in describe_tools(Root)}
-    assert names == {"Root.Visible"}
+    assert names == {"root.visible"}
 
 
 def test_excluded_namespace_hides_its_whole_subtree():
@@ -213,7 +213,7 @@ def test_excluded_namespace_hides_its_whole_subtree():
         _subcommands_ = [SecretNS, Visible]
 
     names = {t["name"] for t in describe_tools(Root)}
-    assert names == {"Root.Visible"}
+    assert names == {"root.visible"}
 
 
 def test_excluded_command_inherited_by_subclass():
@@ -260,4 +260,4 @@ def test_root_own_mcp_false_does_not_exclude_its_own_tree():
         _subcommands_ = [Visible]
 
     names = {t["name"] for t in describe_tools(Root)}
-    assert names == {"Root.Visible"}
+    assert names == {"root.visible"}

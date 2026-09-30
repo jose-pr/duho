@@ -828,7 +828,7 @@ def test_zsh_completes_at_depth_three(tmp_path):
     script = completion.zsh(parser)
     fpath_dir = tmp_path / "comp"
     _write_zsh_script(fpath_dir, "_Nest", script)
-    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest Db Migrate Up -")
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest db migrate up -")
     assert "invalid argument" not in out
     assert "command not found" not in out
     assert "--steps" in out
@@ -844,9 +844,9 @@ def test_zsh_completes_root_subcommands_and_does_not_leak_siblings(tmp_path):
     script = completion.zsh(parser)
     fpath_dir = tmp_path / "comp"
     _write_zsh_script(fpath_dir, "_Nest", script)
-    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest Db ")
+    out = _zsh_drive(_ZSH, str(fpath_dir), "_Nest", "Nest", "Nest db ")
     assert "invalid argument" not in out
-    assert "Migrate" in out
+    assert "migrate" in out
 
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
@@ -974,14 +974,14 @@ def test_fish_completes_at_depth_two_without_leaking(tmp_path):
     script = completion.fish(parser)
     script_path = tmp_path / "nest.fish"
     script_path.write_bytes(script.encode("utf-8"))
-    out, err = _fish_drive(_FISH, script_path, "Nest Db ", tmp_path)
+    out, err = _fish_drive(_FISH, script_path, "Nest db ", tmp_path)
     assert err == ""
     names = {
         line.split("\t")[0]
         for line in out.splitlines()
         if line and not line.startswith("-")
     }
-    assert names == {"Migrate"}
+    assert names == {"migrate"}
 
 
 @pytest.mark.skipif(_FISH is None, reason="fish not available")

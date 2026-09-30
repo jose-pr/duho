@@ -59,7 +59,6 @@ class Install(LoggingArgs, Cmd):
 
     type: Arg[Union[FileType, str], NS(conflicts="type")] = "-"
     "Install type ('dir'/'file'/'link'); '-' autodetects from the source."
-    ("--type",)
 
     decompress: Arg[Union[str, bool], NS(nargs="?")] = False
     "Decompress the source; bare flag autodetects from its suffix."

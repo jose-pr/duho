@@ -91,15 +91,12 @@ class DiscoveryAppArgs(LoggingArgs):
 
     label: "Arg[str, NS(env='DISCOVERY_APP_LABEL')]" = "discovery-app"
     "A label commands can read off the shared root (e.g. for a log-line tag). Also settable via DISCOVERY_APP_LABEL or discovery_app.toml's `label` key."
-    ("--label",)
 
     tags: "Arg[list, Append()]" = []
     "Repeatable free-form tags -- --tags a --tags b -> ['a', 'b']."
-    ("--tags",)
 
     format: "Arg[str, Choice('text', 'json')]" = "text"
     "Output format commands may honor."
-    ("--format",)
 
     retries: "Arg[int, Count()]" = 0
     "Retry-count knob; repeat the flag to increase (-r -r -r -> 3), same style as -v/-vv."

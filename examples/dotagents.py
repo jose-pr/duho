@@ -23,15 +23,12 @@ class Install(LoggingArgs, Cmd):
 
     dest: Path = Path.home() / ".agents"
     "Destination directory for the installed config."
-    ("--dest",)
 
     dry_run: bool = False
     "Show what would be installed/backed up without writing anything."
-    ("--dry-run",)
 
     with_examples: bool = False
     "Additionally copy the opt-in examples/ payload (never overwrites)."
-    ("--with-examples",)
 
     def __call__(self) -> int:
         self._logger_.info("would install payload into %s", self.dest)

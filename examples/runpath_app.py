@@ -89,11 +89,9 @@ class RunpathAppArgs(LoggingArgs):
 
     label: str = "runpath-app"
     "A label steps can read off the shared root (e.g. for a log-line tag)."
-    ("--label",)
 
     dry_run: bool = False
     "Steps may check this and skip side effects (none of these example steps have real ones)."
-    ("--dry-run",)
 
     def _tag_line_(self, message: str) -> str:
         """Format ``message`` tagged with this instance's own ``label`` field.

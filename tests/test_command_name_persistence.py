@@ -14,6 +14,8 @@ subcommands is exactly "subclass a shared base").
 
 import argparse
 
+import pytest
+
 import duho
 from duho import Cli, Cmd, LoggingArgs
 
@@ -56,8 +58,11 @@ def test_building_base_first_does_not_rename_subclasses():
 
     push_parser = duho.parser(_Push)
     pull_parser = duho.parser(_Pull)
-    assert push_parser.prog == "_Push"
-    assert pull_parser.prog == "_Pull"
+    # Class-derived names are kebab-case (plan 38); a leading `_` (used here
+    # only to avoid colliding with a real top-level test name) is a split
+    # point too and disappears, same as `_Private` -> `private`.
+    assert push_parser.prog == "push"
+    assert pull_parser.prog == "pull"
 
 
 def test_siblings_in_static_subcommands_tree_keep_their_own_names():
@@ -72,12 +77,12 @@ def test_siblings_in_static_subcommands_tree_keep_their_own_names():
             return 0
 
     parser = App._parser_()
-    assert _subcommand_choices(parser) == {"_Base", "_Push"}
+    assert _subcommand_choices(parser) == {"base", "push"}
 
-    pushed = duho.parse(App, ["_Push"])
+    pushed = duho.parse(App, ["push"])
     assert type(pushed).__name__ == "_Push"
 
-    based = duho.parse(App, ["_Base"])
+    based = duho.parse(App, ["base"])
     assert type(based).__name__ == "_Base"
 
 
@@ -100,8 +105,8 @@ def test_app_with_class_commands_sharing_a_base_keeps_both_names():
         def __call__(self):
             return 2
 
-    assert duho.app(Root, commands=[Deploy, Status], argv=["Deploy"]) == 1
-    assert duho.app(Root, commands=[Deploy, Status], argv=["Status"]) == 2
+    assert duho.app(Root, commands=[Deploy, Status], argv=["deploy"]) == 1
+    assert duho.app(Root, commands=[Deploy, Status], argv=["status"]) == 2
 
 
 def test_undeclared_subclass_gets_its_own_name_not_the_bases():
@@ -121,7 +126,7 @@ def test_undeclared_subclass_gets_its_own_name_not_the_bases():
         pass
 
     assert duho.parser(WithName).prog == "shared-name"
-    assert duho.parser(UndeclaredSubclass).prog == "UndeclaredSubclass"
+    assert duho.parser(UndeclaredSubclass).prog == "undeclared-subclass"
 
 
 def test_subclass_declaring_its_own_parsername_wins():
@@ -169,7 +174,7 @@ def test_explicit_parsername_on_a_base_is_not_inherited_by_a_plain_subclass():
     exactly like any other subclass (see the sibling test above).
     """
     assert duho.parser(_NamedBase).prog == "base-cmd"
-    assert duho.parser(_UndeclaredChild).prog == "_UndeclaredChild"
+    assert duho.parser(_UndeclaredChild).prog == "undeclared-child"
 
 
 class _LoggedBase(LoggingArgs, Cmd):
@@ -188,10 +193,10 @@ def test_child_logger_name_is_its_own_not_the_built_parents(caplog):
     duho.parser(_LoggedBase)  # build the base first
 
     child = duho.parse(_LoggedChild, [])
-    assert child._logger_.name == "_LoggedChild"
+    assert child._logger_.name == "logged-child"
 
     base = duho.parse(_LoggedBase, [])
-    assert base._logger_.name == "_LoggedBase"
+    assert base._logger_.name == "logged-base"
 
 
 def test_directly_constructed_logging_args_command_has_a_working_logger():
@@ -211,7 +216,56 @@ def test_directly_constructed_logging_args_command_has_a_working_logger():
 
 def test_directly_constructed_command_without_logger_name_falls_back_to_class_name():
     instance = _LoggedChild()
-    assert instance._logger_.name == "_LoggedChild"
+    assert instance._logger_.name == "logged-child"
+
+
+def test_kebab_collision_between_siblings_raises_a_clear_build_time_error():
+    """Two sibling classes whose kebab-cased names collide (`FooBar` and
+    `Foo_Bar` both resolve to `foo-bar`) must raise a clear, build-time
+    `ValueError` naming both classes -- the same guard an explicit duplicate
+    `_parsername_` on two siblings triggers too -- rather than silently
+    misrouting dispatch or letting argparse raise its own unrelated
+    "conflicting subparser" error."""
+
+    class FooBar(Cmd):
+        def __call__(self):
+            return 0
+
+    class Foo_Bar(Cmd):  # noqa: N801 -- deliberately kebabs to the same name
+        def __call__(self):
+            return 1
+
+    class KebabCollisionApp(Cli):
+        _subcommands_ = [FooBar, Foo_Bar]
+
+        def __call__(self):
+            return 0
+
+    with pytest.raises(ValueError, match="FooBar.*Foo_Bar|Foo_Bar.*FooBar"):
+        KebabCollisionApp._parser_()
+
+
+def test_explicit_duplicate_parsername_between_siblings_also_raises():
+    class A(Cmd):
+        _parsername_ = "dup"
+
+        def __call__(self):
+            return 0
+
+    class B(Cmd):
+        _parsername_ = "dup"
+
+        def __call__(self):
+            return 1
+
+    class DupApp(Cli):
+        _subcommands_ = [A, B]
+
+        def __call__(self):
+            return 0
+
+    with pytest.raises(ValueError, match="dup"):
+        DupApp._parser_()
 
 
 def test_command_name_helper_is_shared_not_duplicated():

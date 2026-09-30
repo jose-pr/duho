@@ -1,10 +1,10 @@
-"""Tests for duho.text (expand, pysafe, snakecase, camelcase)."""
+"""Tests for duho.text (expand, pysafe, snakecase, camelcase, kebabcase)."""
 
 import keyword
 
 import duho.text as text
 import pytest
-from duho.text import camelcase, expand, pysafe, snakecase
+from duho.text import camelcase, expand, kebabcase, pysafe, snakecase
 
 
 class TestExpand:
@@ -296,6 +296,53 @@ class TestCamelCase:
     def test_doubled_and_leading_separator(self):
         assert camelcase("a__b") == "AB"
         assert camelcase("_a") == "A"
+
+
+class TestKebabCase:
+    """Plan 38's acronym-aware kebab-case rule -- the one behind duho's
+    class-derived command names and a field's default long flag."""
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("BuildPyz", "build-pyz"),
+            ("ShowHTTPStatus", "show-http-status"),
+            ("PyTrueNAS", "py-true-nas"),
+            ("Ipv4Tool", "ipv4-tool"),
+            ("LeakCheck", "leak-check"),
+            ("Convert", "convert"),
+            ("_Private", "private"),
+            ("already-kebab", "already-kebab"),
+        ],
+    )
+    def test_known_mappings(self, value, expected):
+        assert kebabcase(value) == expected
+
+    def test_empty_returns_empty(self):
+        assert kebabcase("") == ""
+
+    def test_unlike_snakecase_an_acronym_run_stays_together(self):
+        # snakecase lowers an acronym letter-by-letter; kebabcase keeps the
+        # run together up to its last letter.
+        assert snakecase("HTTPServer") == "h_t_t_p_server"
+        assert kebabcase("HTTPServer") == "http-server"
+
+    def test_collision_sibling_classes_kebab_to_the_same_name(self):
+        # `FooBar` and `Foo_Bar` are meant to collide (see args.py's build-time
+        # duplicate-name guard) -- both must resolve to the identical string.
+        assert kebabcase("FooBar") == kebabcase("Foo_Bar") == "foo-bar"
+
+    def test_already_lowercase_snake_case_is_unaffected(self):
+        assert kebabcase("dry_run") == "dry-run"
+
+    def test_leading_and_trailing_underscores_never_leak_a_dash(self):
+        assert kebabcase("_Leading") == "leading"
+        assert kebabcase("Trailing_") == "trailing"
+        assert kebabcase("__Both__") == "both"
+
+    def test_acronym_then_word_and_lower_then_upper_boundaries(self):
+        assert kebabcase("HTTPPort") == "http-port"
+        assert kebabcase("testMe") == "test-me"
 
 
 class TestModuleAll:

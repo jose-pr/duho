@@ -182,14 +182,11 @@ def package_cmds(tmp_path, monkeypatch):
 
 
 def _names(commands):
-    return [
-        (
-            c._parsername_
-            if is_module_command(c)
-            else (getattr(c, "_parsername_", None) or c.__name__)
-        )
-        for c in commands
-    ]
+    # The one canonical naming rule (kebab-cases a class-derived fallback;
+    # see duho.args._command_name) -- not a hand-rolled copy of the old,
+    # pre-kebab rule, which would silently drift from what discovery itself
+    # actually sorts and dispatches by.
+    return [_discovery._command_name(c) for c in commands]
 
 
 # --------------------------------------------------------------------------
@@ -313,7 +310,7 @@ def test_discover_from_package(package_cmds):
     commands = discover_commands(package_cmds)
     names = _names(commands)
     # Deploy + Status (class commands), runme (module command). _helpers skipped.
-    assert names == ["Deploy", "Status", "runme"]
+    assert names == ["deploy", "runme", "status"]
     # Sorted deterministically.
     assert names == sorted(names)
 
@@ -336,18 +333,18 @@ def test_discover_from_package_module_not_package_raises(tmp_path, monkeypatch):
 
 def test_discover_from_path_object(flat_cmds):
     commands = discover_commands(flat_cmds)
-    assert _names(commands) == ["Deploy", "Status", "runme"]
+    assert _names(commands) == ["deploy", "runme", "status"]
 
 
 def test_discover_from_path_string(flat_cmds):
     commands = discover_commands(str(flat_cmds))
-    assert _names(commands) == ["Deploy", "Status", "runme"]
+    assert _names(commands) == ["deploy", "runme", "status"]
 
 
 def test_path_and_package_forms_agree(flat_cmds, package_cmds):
     from_path = _names(discover_commands(flat_cmds))
     from_pkg = _names(discover_commands(package_cmds))
-    assert from_path == from_pkg == ["Deploy", "Status", "runme"]
+    assert from_path == from_pkg == ["deploy", "runme", "status"]
 
 
 def test_underscore_files_skipped(tmp_path):
@@ -355,7 +352,7 @@ def test_underscore_files_skipped(tmp_path):
     _write(tmp_path, "_private.py", _CLASS_CMD_DEPLOY)
     _write(tmp_path, "__init__.py", _CLASS_CMD_DEPLOY)
     commands = discover_commands(tmp_path)
-    assert _names(commands) == ["Status"]
+    assert _names(commands) == ["status"]
 
 
 # --------------------------------------------------------------------------
@@ -366,7 +363,7 @@ def test_underscore_files_skipped(tmp_path):
 def test_multiple_commands_per_module(tmp_path):
     _write(tmp_path, "multi.py", _MULTI)
     commands = discover_commands(tmp_path)
-    assert _names(commands) == ["Alpha", "Beta"]
+    assert _names(commands) == ["alpha", "beta"]
 
 
 def test_module_with_both_class_and_module_command(tmp_path):
@@ -379,14 +376,14 @@ def test_module_with_both_class_and_module_command(tmp_path):
     commands = discover_commands(tmp_path)
     names = sorted(_names(commands))
     # One class command (Deploy) + one module command (stem "both").
-    assert names == ["Deploy", "both"]
+    assert names == ["both", "deploy"]
 
 
 def test_empty_module_contributes_nothing(tmp_path):
     _write(tmp_path, "empty.py", _HELPERS)
     _write(tmp_path, "real.py", _CLASS_CMD_STATUS)
     commands = discover_commands(tmp_path)
-    assert _names(commands) == ["Status"]
+    assert _names(commands) == ["status"]
 
 
 def test_reexported_class_is_deduped(tmp_path, caplog):
@@ -400,7 +397,7 @@ def test_reexported_class_is_deduped(tmp_path, caplog):
     _write(tmp_path, "reexport.py", _REEXPORT)
     with caplog.at_level("WARNING", logger="duho"):
         commands = discover_commands(tmp_path)
-    assert _names(commands).count("Deploy") == 1
+    assert _names(commands).count("deploy") == 1
     assert not any("reexport" in rec.message for rec in caplog.records)
 
 
@@ -415,7 +412,7 @@ def test_missing_optional_dep_is_skipped_others_survive(tmp_path):
     _write(tmp_path, "status.py", _CLASS_CMD_STATUS)
     commands = discover_commands(tmp_path)
     # needy.py raised ImportError -> skipped; the other two survive.
-    assert _names(commands) == ["Deploy", "Status"]
+    assert _names(commands) == ["deploy", "status"]
 
 
 def test_missing_optional_dep_skipped_in_package(package_cmds, tmp_path):
@@ -423,8 +420,8 @@ def test_missing_optional_dep_skipped_in_package(package_cmds, tmp_path):
     cmds_dir = tmp_path / "pkg_under_test" / "cmds"
     _write(cmds_dir, "needy.py", _MISSING_DEP)
     commands = discover_commands(package_cmds)
-    assert "Needy" not in _names(commands)
-    assert set(_names(commands)) >= {"Deploy", "Status", "runme"}
+    assert "needy" not in _names(commands)
+    assert set(_names(commands)) >= {"deploy", "status", "runme"}
 
 
 def test_syntax_error_is_not_swallowed(tmp_path):
@@ -722,7 +719,7 @@ def test_discovered_commands_usable_as_subcommands(flat_cmds):
             return None
 
     # The discovered class commands register as real subcommands and dispatch.
-    assert duho.main(CLI, ["Deploy", "--env", "x"], setup_logging=False) == "deployed x"
+    assert duho.main(CLI, ["deploy", "--env", "x"], setup_logging=False) == "deployed x"
 
 
 # --------------------------------------------------------------------------
@@ -770,7 +767,7 @@ def test_imported_run_does_not_shadow_sibling_class_command(tmp_path):
     commands = discover_commands(tmp_path)
     # Only the REAL class command "Deploy" -- the imported `run` must not
     # ALSO register a bogus "deploy" ModuleCommand that could shadow it.
-    assert _names(commands) == ["Deploy"]
+    assert _names(commands) == ["deploy"]
 
 
 def test_imported_hook_is_not_bound_falls_back_to_noop(tmp_path):
@@ -1098,7 +1095,7 @@ def test_bare_name_prefers_importable_package_over_cwd_shadow(tmp_path, monkeypa
             del sys.modules[name]
     try:
         names = _names(discover_commands("d019cmds"))
-        assert "Status" in names  # from the real, importable package
+        assert "status" in names  # from the real, importable package
         assert "Deploy" not in names  # the CWD shadow must NOT be used
     finally:
         for name in list(sys.modules):
@@ -1113,7 +1110,7 @@ def test_bare_name_falls_back_to_cwd_dir_when_not_importable(tmp_path, monkeypat
     d = tmp_path / "d019loose"
     d.mkdir()
     _write(d, "deploy.py", _CLASS_CMD_DEPLOY)
-    assert "Deploy" in _names(discover_commands("d019loose"))
+    assert "deploy" in _names(discover_commands("d019loose"))
 
 
 # --------------------------------------------------------------------------
@@ -1143,7 +1140,7 @@ class Push(_RemoteBase):
 def test_private_prefixed_class_is_not_discovered(tmp_path):
     _write(tmp_path, "remote.py", _PRIVATE_BASE_AND_SUBCLASS)
     names = _names(discover_commands(tmp_path))
-    assert names == ["Push"]
+    assert names == ["push"]
     assert "_RemoteBase" not in names
 
 

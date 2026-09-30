@@ -19,6 +19,7 @@ __all__ = [
     "ngettext",
     "snakecase",
     "camelcase",
+    "kebabcase",
     "pysafe",
     "expand",
     "PYREPLACE",
@@ -58,6 +59,40 @@ def snakecase(name: str) -> str:
         return prefix + match.group(0).lower()
 
     return _re.sub(r"[A-Z]", _lower, std)
+
+
+#: Boundary positions :func:`kebabcase` splits on: a lower/digit char
+#: immediately followed by an upper char (``fooBar``/``ipv4Tool``), an upper
+#: char immediately followed by an upper+lower pair -- the LAST letter of an
+#: acronym run, so ``HTTPStatus`` splits as ``HTTP`` | ``Status`` rather than
+#: letter-by-letter -- and one or more ``_`` (consumed, not just a boundary).
+_KEBAB_BOUNDARY = _re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|_+")
+
+
+def kebabcase(name: str) -> str:
+    """Coerce ``name`` to acronym-aware ``kebab-case``.
+
+    Unlike :func:`snakecase` (which lowers an acronym run letter-by-letter,
+    ``HTTPServer`` -> ``h_t_t_p_server``), an acronym run is kept together up
+    to its last letter: ``ShowHTTPStatus`` -> ``show-http-status``,
+    ``PyTrueNAS`` -> ``py-true-nas``. Splits also occur at a digit->Upper
+    boundary (``Ipv4Tool`` -> ``ipv4-tool``) and at one or more ``_``
+    (``_Private`` -> ``private``; a leading/trailing/doubled ``_`` never
+    yields a leading/trailing/doubled ``-``, since an empty split part is
+    dropped). Text with no such boundary -- including one already
+    hyphenated, e.g. ``"already-kebab"`` -- passes through unchanged (lower-
+    cased, though it already is in that case). Every part is lower-cased
+    independently, so mixed case elsewhere in a part (e.g. inside an existing
+    hyphenated word) is preserved verbatim other than casing. An empty string
+    returns ``""``.
+
+    This is the one rule behind duho's own kebab-case derived names (a
+    command's default subcommand name, the default long flag of a field) --
+    see ``duho.args._command_name`` / the field-flag default in ``args.py``.
+    """
+    if not name:
+        return ""
+    return "-".join(part.lower() for part in _KEBAB_BOUNDARY.split(name) if part)
 
 
 #: Symbol -> word replacements applied by :func:`pysafe`.

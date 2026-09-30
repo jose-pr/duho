@@ -192,7 +192,7 @@ def test_union_enum_resolves_by_name():
 def test_parser_name():
     """Test that parser inherits class name."""
     parser = SimpleArgs._parser_()
-    assert parser.prog == "SimpleArgs"
+    assert parser.prog == "simple-args"
 
 
 class _StickyName(Args):
@@ -549,6 +549,110 @@ def test_implicit_flag_underscore_to_dash():
 
     args = parser.parse_args(["--dry-run"])
     assert args.dry_run is True
+
+
+class CamelCaseDefaultFlagArgs(Args):
+    """Fields with no declared flag tuple: the default long flag is now
+    kebab-case (plan 38), not the older plain ``name.replace("_", "-")`` --
+    so a camelCase/acronym field name gets a real kebab flag too."""
+
+    testMe: bool = False
+    HTTPPort: int = 0
+    dry_run: bool = False
+
+
+def test_default_flag_is_kebab_case_of_the_field_name():
+    parser = CamelCaseDefaultFlagArgs._parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--test-me" in flags
+    assert "--http-port" in flags
+    # An already-snake_case name is unaffected (unchanged from before).
+    assert "--dry-run" in flags
+
+    args = parser.parse_args(["--test-me", "--http-port", "8080"])
+    assert args.testMe is True
+    assert args.HTTPPort == 8080
+
+    # The attribute/dest name itself is untouched by the kebab default --
+    # only the derived FLAG spelling changes.
+    assert "testMe" in vars(args)
+    assert "HTTPPort" in vars(args)
+
+
+class ExplicitFlagArgs(Args):
+    """An explicitly spelled flag tuple is never touched by the kebab
+    default, camelCase field name or not."""
+
+    testMe: bool = False
+    "explicit flag"
+    ("--explicit-name",)
+
+
+def test_explicit_flag_tuple_is_left_untouched():
+    parser = ExplicitFlagArgs._parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--explicit-name" in flags
+    assert "--test-me" not in flags
+
+
+class DashShorthandArgs(Args):
+    """The `("--",)` shorthand expands to the field's default (kebab) long
+    flag -- including on a camelCase field name."""
+
+    dry_run: bool = False
+    "bare shorthand"
+    ("--",)
+
+    name: str = ""
+    "short + shorthand"
+    ("-n", "--")
+
+    testMe: bool = False
+    "shorthand on a camelCase field -> the kebab default flag"
+    ("--",)
+
+
+def test_dash_shorthand_expands_to_the_default_long_flag():
+    parser = DashShorthandArgs._parser_()
+    flags = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--dry-run" in flags
+    assert "--name" in flags and "-n" in flags
+    assert "--test-me" in flags
+
+    args = parser.parse_args(["--dry-run", "-n", "x", "--test-me"])
+    assert args.dry_run is True
+    assert args.name == "x"
+    assert args.testMe is True
+
+
+def test_dash_shorthand_builds_a_parser_identical_to_the_spelled_out_form():
+    class Spelled(Args):
+        dry_run: bool = False
+        ("--dry-run",)
+
+    class Shorthand(Args):
+        dry_run: bool = False
+        ("--",)
+
+    spelled_flags = {
+        flag for action in Spelled._parser_()._actions for flag in action.option_strings
+    }
+    shorthand_flags = {
+        flag
+        for action in Shorthand._parser_()._actions
+        for flag in action.option_strings
+    }
+    assert spelled_flags == shorthand_flags
+
+
+def test_double_dash_shorthand_twice_in_one_tuple_is_a_build_time_error():
+    class DoubledShorthand(Args):
+        dry_run: bool = False
+        "field with a doubled shorthand"
+        ("--", "-d", "--")
+
+    with pytest.raises(ValueError, match="dry_run"):
+        DoubledShorthand._parser_()
 
 
 # --- full argparse kwargs passthrough via Arg[T, NS(...)] ---

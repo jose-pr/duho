@@ -56,7 +56,7 @@ from .logging import (
 from .presets import LoggingArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run_command
-from .text import camelcase, expand, gettext, pysafe, snakecase
+from .text import camelcase, expand, gettext, kebabcase, pysafe, snakecase
 
 if _ty.TYPE_CHECKING:
     from .args import _Parser as _Parser
@@ -125,6 +125,7 @@ __all__ = [
     "Extend",
     "finish_parse",
     "gettext",
+    "kebabcase",
     "LoggingArgs",
     "main",
     "Meta",

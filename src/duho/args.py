@@ -33,6 +33,7 @@ from ._layers import _resolve_config_dict as _resolve_config_dict
 from ._layers import _stage_layers as _stage_layers
 from ._layers import _stash_layer_state as _stash_layer_state
 from ._layers import value_sources as value_sources
+from .text import kebabcase as _kebabcase
 
 _LOGGER = _logging.getLogger(__name__)
 
@@ -477,8 +478,18 @@ def _command_name(command) -> str:
     `ModuleCommand.__init__` always sets it as a plain instance attribute
     (never inherited from anywhere), so the same own-``vars()`` read already
     does the right thing with no class/instance branch needed.
+
+    A CLASS-derived name (the ``__name__`` fallback -- never an explicit
+    ``_parsername_``, which is a user's own literal choice and passes through
+    verbatim) is kebab-cased (:func:`duho.text.kebabcase`): ``BuildPyz`` ->
+    ``build-pyz``. This was always the intended behaviour -- the class-name
+    fallback previously returned the exact class name, mixed-case included.
     """
-    return vars(command).get("_parsername_") or getattr(command, "__name__", "")
+    explicit = vars(command).get("_parsername_")
+    if explicit:
+        return explicit
+    class_name = getattr(command, "__name__", "")
+    return _kebabcase(class_name) if class_name else ""
 
 
 #: Thread-local guard against a class appearing in its own (possibly
@@ -744,6 +755,41 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
             )
 
 
+def _default_long_flag(name: str) -> str:
+    """A field's default long flag: ``"--" + kebabcase(name)``.
+
+    Kebab-case (:func:`duho.text.kebabcase`), not the older plain
+    ``name.replace("_", "-")`` -- so a camelCase/acronym field name gets a
+    real kebab flag too (``testMe`` -> ``--test-me``, ``HTTPPort`` ->
+    ``--http-port``), while a already-snake_case name is unaffected
+    (``dry_run`` -> ``--dry-run``, same as before). Never applied to an
+    explicitly spelled flag, the field's own attribute/dest name, or a
+    config/env key -- only this ONE derived default, and the ``"--"``
+    shorthand below that expands to it.
+    """
+    return "--" + _kebabcase(name)
+
+
+def _expand_flag_shorthand(
+    name: str, flags: "_ty.Sequence[str]", default_flag: str
+) -> "tuple[str, ...]":
+    """Expand a bare ``"--"`` entry in a declared flag tuple to
+    ``default_flag`` (the field's default long flag). Any other entry passes
+    through unchanged (an explicitly spelled flag is never rewritten). A
+    tuple containing ``"--"`` more than once is a build-time ``ValueError``
+    naming the field -- there is only one default long flag to expand to.
+    """
+    count = sum(1 for flag in flags if flag == "--")
+    if count > 1:
+        raise ValueError(
+            f'argument {name!r}: the "--" flag shorthand can appear at '
+            f"most once in a flag tuple, got {tuple(flags)!r}"
+        )
+    if count == 0:
+        return tuple(flags)
+    return tuple(default_flag if flag == "--" else flag for flag in flags)
+
+
 class ArgumentMeta(_ty._ProtocolMeta):
     """Metaclass backing :class:`Argument`'s duck-typed ``isinstance`` check.
 
@@ -807,9 +853,11 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 f"argument {name!r}: flags must be given as a list or tuple, "
                 f"not a set {flags_expr!r} (a set has no guaranteed order)"
             )
-        flags = (
-            flags_expr if flags_expr is not None else ("--" + name.replace("_", "-"),)
-        )
+        default_flag = _default_long_flag(name)
+        if flags_expr is None:
+            flags: "tuple[str, ...]" = (default_flag,)
+        else:
+            flags = _expand_flag_shorthand(name, flags_expr, default_flag)
         required = None
         choices = None
         metavar = None
@@ -2330,6 +2378,27 @@ class Args(_argparse.Namespace):
             )
             if subcommands:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
+                # A kebab-cased class-derived name (plan 38) can collide with
+                # a SIBLING's -- `FooBar` and `Foo_Bar` both resolve to
+                # `foo-bar` -- exactly the same way two siblings sharing an
+                # explicit `_parsername_` already could. Either shape is
+                # caught here, once, before it reaches argparse: a silent
+                # `add_parser` name clash would otherwise either misroute
+                # dispatch (3.9/3.10) or raise argparse's own unrelated
+                # "conflicting subparser" error (3.11+) -- neither names the
+                # two duho classes actually responsible.
+                sibling_names = [_command_name(sub) for sub in subcommands]
+                seen_names: "dict[str, object]" = {}
+                for sibling, sibling_name in zip(subcommands, sibling_names):
+                    prior = seen_names.get(sibling_name)
+                    if prior is not None and prior is not sibling:
+                        raise ValueError(
+                            f"subcommand name {sibling_name!r} is used by both "
+                            f"{prior.__name__!r} and {sibling.__name__!r} -- "
+                            "declare an explicit _parsername_ on one of them "
+                            "to disambiguate"
+                        )
+                    seen_names[sibling_name] = sibling
                 # argparse falls back to the ACTION'S DEST (never `choices`)
                 # for its "required" / "invalid choice" ERROR text when no
                 # `metavar` is set -- only the usage SYNOPSIS defaults to a
@@ -2338,9 +2407,7 @@ class Args(_argparse.Namespace):
                 # message (it used to show "the following arguments are
                 # required: _duho_command_"); `instance.command` stays gone
                 # regardless (a documented [minor] break).
-                subparsers.metavar = (
-                    "{" + ",".join(_command_name(sub) for sub in subcommands) + "}"
-                )
+                subparsers.metavar = "{" + ",".join(sibling_names) + "}"
                 # Dests this (root) class declares itself: an option given BEFORE the
                 # subcommand parses into these on the root namespace. A child that
                 # inherits the same field (via MRO) re-declares it with its own
@@ -3223,10 +3290,10 @@ def _default_mcp_app_name(
     own ``name=`` kwarg), else the program name from ``sys.argv[0]`` (its
     stem, so a ``.py``/``.exe`` suffix never leaks in; under ``python -m
     pkg`` ``argv[0]``'s stem is the unhelpful ``"__main__"``, so the
-    PACKAGE name -- its parent directory's name -- is used instead), else
-    ``cls``'s own class name, else the literal ``"APP"`` (no ``cls`` and no
-    usable ``argv[0]`` at all -- practically unreachable, but a name is
-    still needed).
+    PACKAGE name -- its parent directory's name -- is used instead), else the
+    KEBAB-CASE (:func:`duho.text.kebabcase`) of ``cls``'s own class name,
+    else the literal ``"APP"`` (no ``cls`` and no usable ``argv[0]`` at all --
+    practically unreachable, but a name is still needed).
     """
     parsername = getattr(cls, "_parsername_", None) if cls is not None else None
     if parsername:
@@ -3242,7 +3309,7 @@ def _default_mcp_app_name(
         if stem == "__main__" and path.parent.name:
             return path.parent.name
     if cls is not None:
-        return cls.__name__
+        return _kebabcase(cls.__name__)
     return "APP"
 
 

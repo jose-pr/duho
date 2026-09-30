@@ -11,7 +11,6 @@ class App(LoggingArgs):
 
     target: str
     "What to act on"
-    ("--target",)
 
     def __call__(self):
         self._logger_.info("working on %s", self.target)

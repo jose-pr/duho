@@ -18,7 +18,6 @@ class Greet(Cmd):
 
     name: str = "world"
     "Who to greet"
-    ("--name",)
 
     def __call__(self):
         print(f"Hello, {self.name}!")
@@ -134,7 +133,6 @@ from duho import Args
 class Serve(Args):
     """Start the development server."""
     port: int = 8000
-    ("--port",)
 
     def __call__(self):
         print(f"serving on {self.port}")
@@ -142,7 +140,6 @@ class Serve(Args):
 class Build(Args):
     """Build the project."""
     output: str = "dist"
-    ("--output",)
 
     def __call__(self):
         print(f"building to {self.output}")
@@ -321,7 +318,6 @@ class App(duho.Cli):
 
     region: str = "us-east"
     "Target region"
-    ("--region",)
 ```
 
 A root's `_help_formatter_` propagates to its `_subcommands_` tree, so a single

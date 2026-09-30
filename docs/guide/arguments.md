@@ -14,7 +14,6 @@ class Deploy(Args):
 
     dry_run: bool = False
     "Preview changes without applying them"
-    ("--dry-run",)
 ```
 
 Three things make up a field:
@@ -29,8 +28,18 @@ The class docstring becomes the parser's description.
 
 ## Flags are optional
 
-With no tuple literal, the flag is derived from the field name, with underscores
-becoming dashes:
+With no tuple literal, the flag defaults to one long flag,
+`"--" + kebabcase(field_name)` — underscores become dashes, and a camelCase or
+ACRONYM name is kebab-cased too (`dry_run` → `--dry-run`, `testMe` →
+`--test-me`, `HTTPPort` → `--http-port`). Reach for an explicit tuple only for:
+
+- a **positional** — `("source",)`
+- a **short flag or extra aliases** — `("-n", "--name")`
+- a **different spelling** — `("--env",)` for a field named `environment`
+
+A bare `"--"` entry inside a tuple expands to that same default long flag, so
+you can pair a short flag with it without spelling it out:
+`("-n", "--")` → `("-n", "--name")`.
 
 ```python
 class Build(Args):
@@ -55,7 +64,6 @@ class Deploy(Args):
     ("--env",)
 
     version: str = "latest"   # optional
-    ("--version",)
 ```
 
 `Optional[T]` fields are never required (they default to `None` if you don't give
@@ -104,7 +112,6 @@ class Run(Args):
     ("--tag",)
 
     level: Arg[int, NS(choices=(1, 2, 3))] = 1
-    ("--level",)
 ```
 
 `action`, `nargs`, `const`, `metavar`, `dest`, `choices`, `required` — they all
@@ -126,7 +133,6 @@ from duho import Args, Arg, Meta
 
 class Run(Args):
     level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
-    ("--level",)
 ```
 
 `Meta` is the recommended, typo-safe form; `NS` keeps working. A field's
@@ -145,10 +151,8 @@ Any metadata object exposing a str `.documentation` attribute (a PEP-727-style
 ```python
 class Output(Args):
     json: Arg[bool, NS(conflicts="format")] = False
-    ("--json",)
 
     yaml: Arg[bool, NS(conflicts="format")] = False
-    ("--yaml",)
 ```
 
 Passing both `--json` and `--yaml` is now an error.
@@ -157,10 +161,8 @@ Add `conflicts_required=True` on any member to require exactly one:
 
 ```python
     push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
-    ("--push",)
 
     pull: Arg[bool, NS(conflicts="mode")] = False
-    ("--pull",)
 ```
 
 Omitting both `--push` and `--pull` is now an error.
@@ -172,7 +174,6 @@ Omitting both `--push` and `--pull` is now an error.
 ```python
 class App(Args):
     outfile: Arg[str, NS(group="Output options")] = "-"
-    ("--outfile",)
 ```
 
 A field combining `group=` and `conflicts=` nests the mutually-exclusive group
@@ -196,7 +197,6 @@ class App(Args):
     ("--fast",)
 
     color: Arg[str, Choice("auto", "always", "never")] = "auto"
-    ("--color",)
 
     paths: Arg[list, Extend(":")] = []        # --path a:b -> ["a", "b"]
     ("--path",)

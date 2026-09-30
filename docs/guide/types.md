@@ -33,10 +33,8 @@ If you genuinely need a `-1`-style *flag* (rare and ambiguous), reach for the
 ```python
 class App(Args):
     verbose: bool = False     # --verbose
-    ("--verbose",)
 
     color: bool = True        # --color / --no-color
-    ("--color",)
 ```
 
 A `True` default uses `argparse.BooleanOptionalAction` — without it, a
@@ -57,7 +55,6 @@ class Color(enum.Enum):
 class App(Args):
     color: Color = Color.RED
     "Pick a color"
-    ("--color",)
 ```
 
 ```bash
@@ -76,7 +73,6 @@ declaration order matters:
 ```python
 class App(Args):
     kind: ty.Union[Color, str] = "auto"
-    ("--kind",)
 ```
 
 ```bash
@@ -147,7 +143,6 @@ from duho import Args
 
 class App(Args):
     day: datetime.date = None
-    ("--day",)
 ```
 
 ```bash
@@ -192,7 +187,6 @@ Members are tried in order, so put the most specific type first:
 
 ```python
     value: ty.Union[int, str]     # "5" -> 5,  "x" -> "x"
-    ("--value",)
 ```
 
 Only `TypeError`/`ValueError` count as "try the next member" — an unexpected

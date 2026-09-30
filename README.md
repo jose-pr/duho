@@ -25,11 +25,9 @@ from duho import Args
 class MyApp(Args):
     name: str
     "The name to greet"
-    ("--name",)
-    
+
     count: int = 1
     "How many times to greet"
-    ("--count",)
 
 if __name__ == "__main__":
     parser = MyApp._parser_()
@@ -47,6 +45,20 @@ python app.py --name Alice --count 3
 # Hello, Alice!
 # Hello, Alice!
 ```
+
+**Every annotated field gets a default long flag for free** —
+`"--" + kebabcase(field_name)` (underscores become dashes; a camelCase or
+ACRONYM name is kebab-cased too: `dry_run` → `--dry-run`, `testMe` →
+`--test-me`). `name` above needs no tuple to become `--name`. Reach for an
+explicit flags tuple only for:
+
+- a **positional** — `("source",)`
+- a **short flag or extra aliases** — `("-n", "--name")`
+- a **different spelling** — `("--env",)` for a field named `environment`
+
+A bare `"--"` entry inside a tuple expands to that same default long flag, so
+you can pair a short flag with it without spelling it out:
+`("-n", "--")` → `("-n", "--name")`.
 
 ## Installation
 
@@ -84,11 +96,9 @@ class Deploy(Args):
     
     version: ty.Optional[str] = None
     "Release version (defaults to latest)"
-    ("--version",)
     
     dry_run: bool = False
     "Preview changes without applying them"
-    ("--dry-run",)
 ```
 
 Bool fields defaulting to `False` (or with no default) get a simple `--flag`
@@ -223,7 +233,6 @@ from duho import Args, Arg, Meta
 
 class App(Args):
     level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
-    ("--level",)
 ```
 
 `Meta` accepts every field `NS` does EXCEPT `dest` (`help`, `env`, `conflicts`,
@@ -249,15 +258,12 @@ class Archive(Args):
 
     gzip: Arg[bool, NS(conflicts="compression")] = False
     "Compress with gzip."
-    ("--gzip",)
 
     zstd: Arg[bool, NS(conflicts="compression")] = False
     "Compress with zstd."
-    ("--zstd",)
 
     none: Arg[bool, NS(conflicts="compression")] = False
     "Store uncompressed."
-    ("--none",)
 ```
 
 ```bash
@@ -274,10 +280,8 @@ required — the user must supply exactly one of its options:
 
 ```python
     push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
-    ("--push",)
 
     pull: Arg[bool, NS(conflicts="mode")] = False
-    ("--pull",)
 ```
 
 ```bash
@@ -295,11 +299,9 @@ default `options:`:
 class App(Args):
     outfile: Arg[str, NS(group="Output options")] = "-"
     "Where to write."
-    ("--outfile",)
 
     verbose: Arg[bool, NS(group="Output options")] = False
     "Verbose output."
-    ("--verbose",)
 ```
 
 A field may combine `group=` and `conflicts=`: the mutually-exclusive group is
@@ -322,7 +324,6 @@ class App(duho.Cli):
     _help_formatter_ = duho.ColorDefaultsFormatter
     region: str = "us-east"
     "Target region"
-    ("--region",)
 ```
 
 A root's `_help_formatter_` propagates to its `_subcommands_` tree, so one setting
@@ -354,7 +355,6 @@ class Greet(Cmd):
     """Print a greeting."""
     name: str = "world"
     "Who to greet"
-    ("--name",)
 
     def __call__(self):
         print(f"Hello, {self.name}!")
@@ -385,14 +385,12 @@ selected command via `__call__`.
 class Serve(Cmd):
     """Start the development server."""
     port: int = 8000
-    ("--port",)
     def __call__(self):
         print(f"serving on {self.port}")
 
 class Build(Cmd):
     """Build the project."""
     output: str = "dist"
-    ("--output",)
     def __call__(self):
         print(f"building to {self.output}")
 
@@ -595,7 +593,6 @@ from duho import Args, Arg, NS
 class Deploy(Args):
     token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
     "Auth token"
-    ("--token",)
 ```
 
 **Config file**: set `_config_` on the class, or pass `config=` to
@@ -676,7 +673,6 @@ from duho import LoggingArgs, Cmd
 class MyApp(LoggingArgs, Cmd):
     command: str
     "The command to run"
-    ("--command",)
 
     def __call__(self):
         logger = self._logger_
@@ -832,7 +828,6 @@ from duho import Cmd
 class Serve(Cmd):
     """Start the development server."""
     port: int = 8000
-    ("--port",)
 
     def __call__(self):
         print(f"serving on {self.port}")
@@ -893,7 +888,6 @@ whose `__call__` calls `func(self)` (the parsed instance):
 ```python
 class Greet(duho.Args):
     name: str = "world"
-    ("--name",)
 
 def run(args):
     print(f"Hello, {args.name}!")
@@ -955,7 +949,6 @@ from myapp.app import MyApp
 class Deploy(duho.Cmd):
     """Deploy to a region."""
     region: str = "local"
-    ("--region",)
 
     def __call__(self):
         print(f"deploying to {self.region}")
@@ -1080,7 +1073,6 @@ import duho
 class Deploy(duho.Cmd):
     """Deploy the application."""
     name: str
-    ("--name",)
     def __call__(self):
         print("deployed", self.name)
 ```
@@ -1769,9 +1761,7 @@ duho's full surface (they stub the actual filesystem work — the point is the C
       """Copy the agent-config payload into the destination directory."""
 
       dest: Path = Path.home() / ".agents"
-      ("--dest",)
       dry_run: bool = False
-      ("--dry-run",)
 
   # ...
   if __name__ == "__main__":

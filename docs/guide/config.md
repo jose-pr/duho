@@ -23,7 +23,6 @@ class Deploy(Args):
 
     token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
     "Auth token"
-    ("--token",)
 ```
 
 ```bash

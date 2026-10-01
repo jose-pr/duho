@@ -14,6 +14,39 @@ benchmark-job run before the next release.
 
 ---
 
+## [0.6.2] — 2026-10-01
+
+Three fixes and two small additions, all found while using 0.6 on Windows and
+in downstream projects.
+
+- **UTF-8 output by default.** On Windows, piped or captured output used the
+  ANSI code page (`cp1252`). `--version` and an app's own `print()` crashed
+  on non-ASCII text, and help and logs reached PowerShell garbled. `duho.main`
+  and `duho.app` now switch non-UTF-8, non-terminal stdout/stderr to UTF-8
+  first. They respect `PYTHONIOENCODING` and Python's UTF-8 mode, and an app
+  can opt out with `_utf8_stdio_ = False` or `utf8_stdio=False`. duho's own
+  writes (`--version`, its stderr messages) no longer crash even when an app
+  opts out. For correct display of captured non-ASCII text in PowerShell, set
+  `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()`.
+- **Kebab-case default names, as intended.** A command class with no
+  `_parsername_` is now named `build-pyz` rather than `BuildPyz`, and a
+  field's default flag is `--test-me` rather than `--testMe`. This is visible
+  in usage, subcommand names and default logger names. Before release it was
+  checked against twelve downstream projects: none of their own commands or
+  flags changed, and one project's command override was restored by it.
+- **`("--",)` flag shorthand** for a field's default long flag, and the
+  public `duho.kebabcase` helper.
+
+### Validation
+
+- Test suite green on Windows Python 3.9 and 3.14 and Linux (WSL) Python
+  3.14. `black`, `mkdocs build --strict` and the leak check are clean. The CI
+  test workflow ran at the release commit before tagging.
+- Encoding probes: piped output on Windows, and captured output in Windows
+  PowerShell 5.1 and pwsh 7, no longer crash.
+
+---
+
 ## [0.6.1] — 2026-09-29
 
 A single bug fix, reported by a downstream project the day after 0.6.0:

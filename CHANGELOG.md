@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-03
+
 ### Fixed
 
 - A `choices` value containing a NUL byte no longer corrupts the generated
@@ -1633,7 +1635,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/jose-pr/duho/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/jose-pr/duho/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/jose-pr/duho/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/jose-pr/duho/compare/v0.5.4...v0.6.0

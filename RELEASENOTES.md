@@ -8,7 +8,29 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-**Performance target:** met. `benchmarks/baseline.json` now carries CI-sourced
+**Performance target:** keep the CI regression gate meaningful. On shared
+`ubuntu-latest` runners its 1.5x warm-metric threshold has been seen to
+trip from timing variance alone, so watch for flaky gate failures.
+
+---
+
+## [0.6.3] — 2026-10-03
+
+Three small fixes from the backlog, plus CI benchmark baselines and an MCP
+conformance test.
+
+- A NUL in a `choices` value no longer breaks fish or PowerShell
+  completion for the whole command; that candidate is dropped.
+- A bad env/config value for a lookup-typed field (`type=MAP.__getitem__`)
+  now says what is accepted (`one of: green, red`) instead of
+  `expected __getitem__`.
+- An MCP server no longer reports duho's own version as the app's.
+- A dev-only test checks duho's MCP stdio server against the official
+  `mcp` SDK client on Python 3.10+. Runtime dependencies are unchanged.
+
+### Performance
+
+**Target met.** `benchmarks/baseline.json` now carries CI-sourced
 `3.9`, `3.13`, and `3.14` entries, all measured on the same `ubuntu-latest`
 Benchmark job the regression gate itself runs on (GitHub Actions run
 [37057601055](https://github.com/jose-pr/duho/actions/runs/37057601055), tag

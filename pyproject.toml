@@ -32,7 +32,20 @@ dependencies = []
 [project.optional-dependencies]
 colorama = ["colorama"]
 config = ["tomli; python_version < '3.11'"]
-dev = ["black", "build", "hatchling", "hypothesis", "pytest", "pytest-cov", "twine"]
+dev = [
+    "black",
+    "build",
+    "hatchling",
+    "hypothesis",
+    "pytest",
+    "pytest-cov",
+    "twine",
+    # Dev-only MCP SDK conformance oracle (D01): the official SDK is
+    # 3.10+-only and never a runtime or `duho[mcp]` dependency -- see
+    # .agents/decisions/D01.md and tests/test_mcp_sdk_conformance.py, which
+    # pytest.importorskip("mcp")s and skips cleanly on 3.9/without it.
+    "mcp; python_version >= '3.10'",
+]
 docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
 
 [project.urls]

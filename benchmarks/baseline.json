@@ -1,26 +1,74 @@
 {
   "3.13": {
-    "measured": "2026-07-19T17:44:52+00:00",
+    "measured": "2026-10-02T19:59:16+00:00",
     "startup": {
-      "import_duho_delta": 41.87
+      "import_duho_delta": 33.11
     },
     "warm": {
-      "build.complex": 0.1752,
-      "build.enum": 0.0736,
-      "build.list": 0.0757,
-      "build.literal": 0.0763,
-      "build.set": 0.0763,
-      "build.simple": 0.0955,
-      "build.tuple": 0.0761,
-      "build.union": 0.073,
-      "parse.complex": 0.0362,
-      "parse.simple": 0.0161,
-      "tree.build.1": 0.197,
-      "tree.build.10": 1.2597,
-      "tree.build.50": 5.64,
-      "tree.parse.1": 0.0396,
-      "tree.parse.10": 0.0387,
-      "tree.parse.50": 0.0382
+      "build.complex": 0.1812,
+      "build.enum": 0.0955,
+      "build.list": 0.096,
+      "build.literal": 0.0963,
+      "build.set": 0.0988,
+      "build.simple": 0.1134,
+      "build.tuple": 0.0949,
+      "build.union": 0.0947,
+      "parse.complex": 0.0432,
+      "parse.simple": 0.0235,
+      "tree.build.1": 0.2337,
+      "tree.build.10": 1.4696,
+      "tree.build.50": 6.9332,
+      "tree.parse.1": 0.0532,
+      "tree.parse.10": 0.0516,
+      "tree.parse.50": 0.0522
+    }
+  },
+  "3.14": {
+    "measured": "2026-10-02T19:59:23+00:00",
+    "startup": {
+      "import_duho_delta": 49.72
+    },
+    "warm": {
+      "build.complex": 0.1724,
+      "build.enum": 0.1163,
+      "build.list": 0.1163,
+      "build.literal": 0.1186,
+      "build.set": 0.1164,
+      "build.simple": 0.1266,
+      "build.tuple": 0.1157,
+      "build.union": 0.1167,
+      "parse.complex": 0.0436,
+      "parse.simple": 0.0242,
+      "tree.build.1": 0.3022,
+      "tree.build.10": 1.6444,
+      "tree.build.50": 7.5419,
+      "tree.parse.1": 0.0477,
+      "tree.parse.10": 0.0486,
+      "tree.parse.50": 0.0484
+    }
+  },
+  "3.9": {
+    "measured": "2026-10-02T19:59:20+00:00",
+    "startup": {
+      "import_duho_delta": 30.96
+    },
+    "warm": {
+      "build.complex": 0.2546,
+      "build.enum": 0.1479,
+      "build.list": 0.1475,
+      "build.literal": 0.1525,
+      "build.set": 0.1481,
+      "build.simple": 0.1683,
+      "build.tuple": 0.1487,
+      "build.union": 0.1486,
+      "parse.complex": 0.0598,
+      "parse.simple": 0.0318,
+      "tree.build.1": 0.3412,
+      "tree.build.10": 2.0926,
+      "tree.build.50": 9.9381,
+      "tree.parse.1": 0.0661,
+      "tree.parse.10": 0.0662,
+      "tree.parse.50": 0.0669
     }
   }
 }

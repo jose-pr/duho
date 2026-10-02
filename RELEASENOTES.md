@@ -8,9 +8,14 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-**Performance target:** still open from 0.6.0. Regenerate
-`benchmarks/baseline.json`'s `3.9` and `3.13` entries from an actual CI
-benchmark-job run before the next release.
+**Performance target:** met. `benchmarks/baseline.json` now carries CI-sourced
+`3.9`, `3.13`, and `3.14` entries, all measured on the same `ubuntu-latest`
+Benchmark job the regression gate itself runs on (GitHub Actions run
+[37057601055](https://github.com/jose-pr/duho/actions/runs/37057601055), tag
+`ci-bench-20261003025756`, 2026-10-02). The `3.13` benchmark job itself was
+added to the matrix in the same run (previously only `3.9`/`3.14` were
+benchmarked). A follow-up CI run confirmed `check_baseline.py` passes against
+the new baseline on all three versions.
 
 ---
 

@@ -14,8 +14,14 @@ Benchmark job the regression gate itself runs on (GitHub Actions run
 [37057601055](https://github.com/jose-pr/duho/actions/runs/37057601055), tag
 `ci-bench-20261003025756`, 2026-10-02). The `3.13` benchmark job itself was
 added to the matrix in the same run (previously only `3.9`/`3.14` were
-benchmarked). A follow-up CI run confirmed `check_baseline.py` passes against
-the new baseline on all three versions.
+benchmarked). A follow-up CI run
+([37060019624](https://github.com/jose-pr/duho/actions/runs/37060019624),
+2026-10-02) confirmed `check_baseline.py` passes against the new baseline on
+all three versions — after several earlier follow-up runs tripped the 1.5x
+warm-metric threshold on one version or another from ordinary `ubuntu-latest`
+shared-runner timing variance (same code, no regression; a run's warm medians
+were seen ranging roughly 0.8x-1.6x of another run's, both against the
+unchanged baseline).
 
 ---
 

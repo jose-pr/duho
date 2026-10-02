@@ -1706,7 +1706,8 @@ app(Dotagents)                     # same result: kebab-case of the class name
 
 `serverInfo.version` reports the served app's own `_version_` when it resolves to a
 string (a literal, `duho.AUTO`, or a class-level `__version__` fallback — see
-"`--version`" above); otherwise it falls back to duho's own version, same as before.
+"`--version`" above); otherwise it reports the empty string. duho's own version is
+never reported as the served app's.
 
 ### Excluding a command from the tool surface
 

@@ -118,7 +118,6 @@ import sys as _sys
 import typing as _ty
 import weakref as _weakref
 
-from . import __version__ as _DUHO_VERSION
 from . import _compat as _compat
 from . import _introspect as _introspect
 from . import agenthelp as _agenthelp
@@ -162,15 +161,20 @@ _NONETYPE = type(None)
 #: otherwise it answers with the first (newest) entry.
 _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-#: Fallback ``serverInfo.name``/``version`` for the ``initialize`` result
+#: Fallback ``serverInfo.name`` for the ``initialize`` result
 #: (:func:`_server_info`), used only when the served app's own resolution
 #: somehow comes up empty. The NORMAL case reports the app's own identity
 #: instead: ``name`` is the same root tool-name segment
 #: ``describe_tools``/``call_tool`` use, and ``version`` is the app's own
 #: ``_version_`` when it resolves to a string -- so a host can tell one
 #: served APP apart from another, not just one duho release from another.
+#: There is deliberately NO duho-version fallback for ``version`` (item 8):
+#: reporting duho's own release as the served app's version is actively
+#: misleading (e.g. a served app with no ``_version_`` of its own used to
+#: report duho's version as if it were its own), so an app with no
+#: resolvable version reports the empty string instead -- see
+#: :func:`_server_info`.
 _SERVER_NAME = "duho.mcp"
-_SERVER_VERSION = _DUHO_VERSION
 
 #: JSON Schema ``format`` hint for each ISO-format stdlib type. All three
 #: collapse to ``"type": "string"`` -- same as ``pathlib.Path`` -- since JSON
@@ -2121,10 +2125,13 @@ def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
     tree too). ``version`` is the app's own ``_version_``
     (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
     sentinel resolved via ``importlib.metadata``, or a class-level
-    ``__version__`` fallback) when it resolves to a string, else duho's own
-    ``_SERVER_VERSION`` -- so a served app that never declared its own
-    version is still reported truthfully as "duho itself", not a fabricated
-    placeholder.
+    ``__version__`` fallback) when it resolves to a string, else the empty
+    string (item 8) -- duho's own version is NEVER reported as the served
+    app's version. The MCP ``Implementation`` type requires ``version`` to be
+    a string, so the field is still always present; a served app with no
+    resolvable version of its own simply reports it empty rather than
+    fabricating one (and rather than silently reporting duho's, which used to
+    read as "this app's version is 0.6.2" for an app that never said so).
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     name = core.root_parser.prog
@@ -2134,7 +2141,7 @@ def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
         # path here; the `_SERVER_NAME` fallback exists only so this stays
         # defensively correct rather than reporting an empty name.
         "name": name if name else _SERVER_NAME,
-        "version": version if isinstance(version, str) else _SERVER_VERSION,
+        "version": version if isinstance(version, str) else "",
     }
 
 

@@ -244,11 +244,13 @@ def test_serverinfo_reports_the_apps_own_name_and_version():
     assert response["result"]["serverInfo"] == {"name": "dotagents", "version": "9.9.9"}
 
 
-def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
+def test_serverinfo_version_is_empty_when_app_declares_none():
+    # Item 8: duho's OWN version must never be reported as the served app's
+    # version -- an app with no resolvable `_version_` of its own reports an
+    # empty string, not duho's.
     import io
     import json as _json
 
-    import duho
     from duho.mcp import serve
 
     class Env(Cmd):
@@ -271,7 +273,7 @@ def test_serverinfo_falls_back_to_duhos_own_version_when_app_declares_none():
     serve(core, stdin=stdin, stdout=stdout)
     response = _json.loads(stdout.getvalue().splitlines()[0])
     assert response["result"]["serverInfo"]["name"] == "plain"
-    assert response["result"]["serverInfo"]["version"] == duho.__version__
+    assert response["result"]["serverInfo"]["version"] == ""
 
 
 # --------------------------------------------------------------------------

@@ -660,7 +660,9 @@ manipulating a parser tree directly:
   identity, not a fixed placeholder: `name` is the same root tool-name segment every
   tool name's own root uses (an `app(name=...)` value when given, else `_parsername_`/
   the class name), and `version` is the app's own `_version_` when it resolves to a
-  string, else duho's own real running version. `initialize` negotiates
+  string, else the empty string -- duho's own version is NEVER reported as the served
+  app's (a served app with no resolvable `_version_` used to report duho's own
+  release number as if it were the app's). `initialize` negotiates
   `protocolVersion` against a small supported set (falling back to the newest
   supported version) rather than echoing the client's request unconditionally.
   `json`/`importlib.metadata` stay function-local.

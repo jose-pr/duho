@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `choices` value containing a NUL byte no longer corrupts the generated
+  fish or PowerShell completion script as a whole (every other candidate
+  stopped completing too). The NUL candidate is now dropped; every other
+  choice keeps completing normally.
+- A layered (env/config) conversion error for a field whose `type=` is a
+  bound `__getitem__`/`.get` lookup on a mapping (e.g.
+  `NS(type=COLORS.__getitem__)`) now describes what it accepts — "one of:
+  green, red" for a small mapping, or "a key of `<OwnerType>`" for a larger
+  one — instead of "expected `__getitem__`", the factory's own internal
+  name. The rejected value is still never echoed.
+- An MCP server no longer reports duho's own version as the served app's
+  version. `initialize`'s `serverInfo.version` is the app's own `_version_`
+  when it resolves to a string, otherwise the empty string — never duho's.
+
+### Added
+
+- A dev-only test drives `python -m duho.mcp` through the official `mcp`
+  SDK's own client (initialize, list tools, call a tool, call an unknown
+  tool) as a conformance check against duho's hand-rolled stdio server.
+  Requires the `mcp` package (Python 3.10+ only); skips cleanly without it.
+  `mcp` is never a runtime dependency.
+
 ## [0.6.2] - 2026-10-01
 
 ### Added

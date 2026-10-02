@@ -278,11 +278,27 @@ def _enum_choices(type_factory: object) -> "tuple[str, ...] | None":
     return names
 
 
+def _drop_nul_choices(choices: "tuple[str, ...] | None") -> "tuple[str, ...] | None":
+    """Drop any candidate containing a NUL byte.
+
+    A NUL can't be represented in any of the four shells' word lists (bash
+    ``compgen -W``, zsh ``_arguments``, fish ``complete -a``, PowerShell's
+    completion array all terminate or corrupt on it). Completion is
+    advisory -- the parser still validates the real value -- so a bad
+    candidate is silently omitted rather than breaking completion for every
+    OTHER candidate on the same field.
+    """
+    if not choices:
+        return None
+    filtered = tuple(c for c in choices if "\0" not in c)
+    return filtered or None
+
+
 def _choices_tuple(action: _argparse.Action) -> "tuple[str, ...] | None":
     choices = getattr(action, "choices", None)
     if choices:
-        return tuple(str(c) for c in choices)
-    return _enum_choices(getattr(action, "type", None))
+        return _drop_nul_choices(tuple(str(c) for c in choices))
+    return _drop_nul_choices(_enum_choices(getattr(action, "type", None)))
 
 
 def _takes_value(action: _argparse.Action) -> bool:

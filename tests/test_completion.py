@@ -544,6 +544,73 @@ def test_fish_script_valid_if_available():
     assert result.returncode == 0, result.stderr
 
 
+# --- A NUL in a choice must not break the whole script (item 2) -----------
+
+
+class _NulChoice(Args):
+    """App with an option that will get a NUL-containing choice injected."""
+
+    mode: ty.Literal["safe"] = "safe"
+    "Mode"
+    ("--mode",)
+
+
+def _nul_choice_parser():
+    """Build `_NulChoice`'s parser with a NUL candidate spliced into its
+    built `--mode` choices (same injection technique as the hostile-choice
+    tests above -- a real `Literal` can't carry a NUL through source text)."""
+    parser = _NulChoice._parser_()
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("safe", "bad\x00choice", "also-safe")
+    return parser
+
+
+def test_choices_tuple_drops_a_nul_candidate_but_keeps_the_rest():
+    parser = _nul_choice_parser()
+    (action,) = [a for a in parser._actions if "--mode" in a.option_strings]
+    assert completion._choices_tuple(action) == ("safe", "also-safe")
+
+
+def test_bash_script_valid_with_a_nul_choice_and_other_choices_complete():
+    if not _BASH:
+        pytest.skip("bash not available on this machine")
+    script = completion.bash(_nul_choice_parser())
+    assert "\x00" not in script
+    assert "also-safe" in script
+    result = subprocess.run([_BASH, "-n", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_zsh_script_valid_with_a_nul_choice_and_other_choices_complete():
+    zsh_path = shutil.which("zsh")
+    if not zsh_path:
+        pytest.skip("zsh not available")
+    script = completion.zsh(_nul_choice_parser())
+    assert "\x00" not in script
+    assert "also-safe" in script
+    result = subprocess.run(
+        [zsh_path, "-n", "-c", script], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_fish_script_valid_with_a_nul_choice_and_other_choices_complete():
+    fish_path = shutil.which("fish")
+    if not fish_path:
+        pytest.skip("fish not available")
+    script = completion.fish(_nul_choice_parser())
+    assert "\x00" not in script
+    assert "also-safe" in script
+    result = subprocess.run(
+        [fish_path, "--no-execute", "/dev/stdin"],
+        input=script,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # --- --print-completion wiring ----------------------------------------------
 
 

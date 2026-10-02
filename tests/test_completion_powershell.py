@@ -172,6 +172,46 @@ def test_print_completion_standalone_powershell():
     assert "p-shell-completion-app" in out
 
 
+class _NulChoice(Args):
+    """App with an option that will get a NUL-containing choice injected."""
+
+    mode: ty.Literal["safe"] = "safe"
+    "Mode"
+    ("--mode",)
+
+
+def test_powershell_script_valid_with_a_nul_choice_and_other_choices_complete():
+    """A NUL in a built choice (item 2) must not break the whole script --
+    it's dropped, every other choice keeps completing. See
+    `tests/test_completion.py`'s bash/zsh/fish counterparts for the same
+    contract on the other three shells."""
+    import shutil
+    import subprocess
+
+    parser = _NulChoice._parser_()
+    for action in parser._actions:
+        if "--mode" in getattr(action, "option_strings", []):
+            action.choices = ("safe", "bad\x00choice", "also-safe")
+    script = completion.powershell(parser)
+    assert "\x00" not in script
+    assert "also-safe" in script
+
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("pwsh not available on this machine")
+    check = (
+        "$ErrorActionPreference='Stop'; "
+        "$null=[System.Management.Automation.Language.Parser]::ParseInput("
+        "$args[0], [ref]$null, [ref]$null); 'ok'"
+    )
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", check, script],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_powershell_script_syntax_if_pwsh_available():
     """Optional smoke check: skipped unless pwsh is on PATH."""
     import shutil

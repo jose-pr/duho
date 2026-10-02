@@ -1,13 +1,13 @@
 """Dev-only conformance test: the official MCP SDK's own client against a
 real ``duho.mcp`` server.
 
-Decision ([D01](../.agents/decisions/D01.md)): ``duho.mcp`` stays a
-zero-dependency stdlib implementation on the 3.9 floor; the SDK itself is
-3.10+-only and never a runtime or ``duho[mcp]`` dependency. It is used HERE,
-and only here, as a dev-only conformance ORACLE -- driving a real duho MCP
-server over stdio through the SDK's own ``ClientSession`` proves duho's
-hand-rolled protocol implementation is something the official client
-actually accepts, without duho depending on the SDK to do it.
+``duho.mcp`` stays a zero-dependency stdlib implementation on the 3.9 floor;
+the SDK itself is 3.10+-only and never a runtime or ``duho[mcp]``
+dependency. It is used HERE, and only here, as a dev-only conformance
+ORACLE -- driving a real duho MCP server over stdio through the SDK's own
+``ClientSession`` proves duho's hand-rolled protocol implementation is
+something the official client actually accepts, without duho depending on
+the SDK to do it.
 
 ``pytest.importorskip`` skips this whole module cleanly on 3.9 (where the
 SDK cannot even be installed) and on any interpreter where the ``mcp[dev]``
@@ -20,7 +20,7 @@ import pytest
 
 mcp_sdk = pytest.importorskip(
     "mcp",
-    reason="dev-only MCP SDK conformance oracle (D01) -- `pip install duho[dev]` on 3.10+",
+    reason="dev-only MCP SDK conformance oracle -- `pip install duho[dev]` on 3.10+",
 )
 
 import asyncio  # noqa: E402

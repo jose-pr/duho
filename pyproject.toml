@@ -40,10 +40,12 @@ dev = [
     "pytest",
     "pytest-cov",
     "twine",
-    # Dev-only MCP SDK conformance oracle (D01): the official SDK is
-    # 3.10+-only and never a runtime or `duho[mcp]` dependency -- see
-    # .agents/decisions/D01.md and tests/test_mcp_sdk_conformance.py, which
-    # pytest.importorskip("mcp")s and skips cleanly on 3.9/without it.
+    # Dev-only MCP SDK conformance oracle, never a runtime or `duho[mcp]`
+    # dependency: duho.mcp stays its own zero-dependency stdlib server (keeps
+    # the 3.9 floor); the official SDK is 3.10+-only and only used here to
+    # verify duho's server against a real client -- see
+    # tests/test_mcp_sdk_conformance.py, which pytest.importorskip("mcp")s
+    # and skips cleanly on 3.9/without it.
     "mcp; python_version >= '3.10'",
 ]
 docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]

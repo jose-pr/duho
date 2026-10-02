@@ -246,10 +246,11 @@ def test_check_baseline_wording_no_longer_claims_normalized_runner_speed():
 
 def test_baseline_only_covers_ci_matrix_versions():
     """`.github/workflows/test.yml`'s benchmark job matrix is exactly
-    ["3.9", "3.13"]; baseline.json previously also carried unused 3.10-3.12
-    entries (measured locally, never compared against) and no 3.9 entry."""
+    ["3.9", "3.13", "3.14"] (plan 39 added the "3.13" job); baseline.json
+    previously also carried unused 3.10-3.12 entries (measured locally, never
+    compared against)."""
     data = json.loads((_HERE / "baseline.json").read_text())
-    assert set(data) <= {"3.9", "3.13"}
+    assert set(data) <= {"3.9", "3.13", "3.14"}
 
 
 def test_baseline_has_no_stale_e2e_delta():

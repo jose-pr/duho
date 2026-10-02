@@ -264,6 +264,40 @@ def _is_replace_semantics_action(action) -> bool:
     return isinstance(action, _REPLACE_SEMANTICS_ACTION_TYPES)
 
 
+def _bound_lookup_choices_desc(factory) -> "str | None":
+    """Describe what a *bound* lookup factory (``NS(type=SOME_MAPPING.
+    __getitem__)``/``.get``, the idiom for "convert to a value looked up in
+    this table") actually accepts, instead of the useless "expected
+    __getitem__"/"expected get" the generic ``__name__`` fallback gives --
+    that name is the FACTORY's own internal name, not a description of what
+    it converts to.
+
+    ``factory.__self__`` is the mapping the bound method is attached to. A
+    small mapping (<= 20 keys) lists every key, sorted in a safe (repr-keyed,
+    so mixed/unorderable key types never raise) order; a larger one just
+    names its owner type instead of dumping the whole table. Never echoes a
+    VALUE from the mapping -- only its keys -- and never the rejected input.
+    Returns ``None`` for anything that isn't this exact shape, so the plain
+    ``__name__`` fallback still applies to every other factory.
+    """
+    if getattr(factory, "__name__", None) not in ("__getitem__", "get"):
+        return None
+    owner = getattr(factory, "__self__", None)
+    if owner is None:
+        return None
+    try:
+        keys = list(owner.keys())
+    except (AttributeError, TypeError):
+        return None
+    if not keys:
+        return None
+    if len(keys) <= 20:
+        ordered = sorted(keys, key=repr)
+        shown = ", ".join(k if isinstance(k, str) else repr(k) for k in ordered)
+        return f"one of: {shown}"
+    return f"a key of {type(owner).__name__}"
+
+
 def _field_type_desc(builder) -> str:
     """A short, non-sensitive description of the type a layered value for
     `builder` must convert to -- for an error message that names the
@@ -277,6 +311,9 @@ def _field_type_desc(builder) -> str:
     if builder.collection is not None:
         elem = getattr(builder.type, "__name__", None) or "value"
         return f"a {builder.collection.__name__} of {elem}"
+    lookup = _bound_lookup_choices_desc(builder.type)
+    if lookup is not None:
+        return lookup
     return getattr(builder.type, "__name__", None) or "value"
 
 

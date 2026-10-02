@@ -104,6 +104,66 @@ def test_bad_env_value_from_keyerror_factory_is_redacted(monkeypatch, capsys):
     assert "hunter2-PASSWORD" not in msg
     assert "Traceback" not in msg
     assert "usage:" in msg
+    # Item 7: a bound `__getitem__` lookup now describes what it accepts
+    # (its mapping's keys) instead of the factory's own internal name
+    # ("expected __getitem__").
+    assert "expected __getitem__" not in msg
+    assert "one of: eu, us" in msg
+
+
+# --------------------------------------------------------------------------
+# Item 7: a bound-lookup `type=` (`SOME_MAPPING.__getitem__`/`.get`) gets a
+# readable "one of: ..." description instead of "expected __getitem__" --
+# the factory's own internal name, meaningless to a user.
+# --------------------------------------------------------------------------
+
+COLORS = {"red": 1, "green": 2}
+
+
+class _BoundLookupArgs(Args):
+    """A small bound-lookup `type=` factory."""
+
+    color: Arg[int, NS(env="DUHO_T7_COLOR", type=COLORS.__getitem__)] = 1
+    "Color"
+    ("--color",)
+
+
+def test_bound_getitem_lookup_error_lists_the_keys(monkeypatch, capsys):
+    monkeypatch.setenv("DUHO_T7_COLOR", "purple")
+    with pytest.raises(SystemExit) as excinfo:
+        duho.parse(_BoundLookupArgs, [])
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
+    assert "expected __getitem__" not in msg
+    assert "one of: green, red" in msg
+    # The rejected value is never echoed.
+    assert "purple" not in msg
+
+
+_BIG_TABLE = {str(i): i for i in range(25)}
+
+
+class _BoundLookupBigTableArgs(Args):
+    """A bound-lookup `type=` factory whose mapping is too large to list."""
+
+    code: Arg[int, NS(env="DUHO_T7_CODE", type=_BIG_TABLE.__getitem__)] = 0
+    "Code"
+    ("--code",)
+
+
+def test_bound_getitem_lookup_error_names_owner_type_when_too_large(
+    monkeypatch, capsys
+):
+    monkeypatch.setenv("DUHO_T7_CODE", "nope")
+    with pytest.raises(SystemExit) as excinfo:
+        duho.parse(_BoundLookupBigTableArgs, [])
+    assert excinfo.value.code == 2
+    msg = capsys.readouterr().err
+    assert "expected __getitem__" not in msg
+    assert "a key of dict" in msg
+    assert "nope" not in msg
+    # None of the 25 keys get dumped either.
+    assert "24" not in msg
 
 
 def _parse_token(value: str) -> str:

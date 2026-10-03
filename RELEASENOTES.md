@@ -41,8 +41,7 @@ shared-runner timing variance (same code, no regression; a run's warm medians
 were seen ranging roughly 0.8x-1.6x of another run's, both against the
 unchanged baseline).
 
-**The gate noise above is now fixed** (plan `40_benchmark_gate_noise`,
-2026-10-03): `check_baseline.py` normalises each gated group against a
+**The gate noise above is now fixed** (2026-10-03): `check_baseline.py` normalises each gated group against a
 calibration reference from its own measurement domain before applying the
 1.5x/1.3x thresholds — warm metrics (in-process) against a fixed,
 duho-independent `argparse` build+parse; startup deltas (subprocess spawns)

@@ -1,74 +1,77 @@
 {
   "3.13": {
-    "measured": "2026-10-02T19:59:16+00:00",
+    "calibration_ms": 0.2355,
+    "measured": "2026-10-03T05:02:03+00:00",
     "startup": {
-      "import_duho_delta": 33.11
+      "import_duho_delta": 42.72
     },
     "warm": {
-      "build.complex": 0.1812,
-      "build.enum": 0.0955,
-      "build.list": 0.096,
-      "build.literal": 0.0963,
-      "build.set": 0.0988,
-      "build.simple": 0.1134,
-      "build.tuple": 0.0949,
-      "build.union": 0.0947,
-      "parse.complex": 0.0432,
-      "parse.simple": 0.0235,
-      "tree.build.1": 0.2337,
-      "tree.build.10": 1.4696,
-      "tree.build.50": 6.9332,
-      "tree.parse.1": 0.0532,
-      "tree.parse.10": 0.0516,
-      "tree.parse.50": 0.0522
+      "build.complex": 0.2832,
+      "build.enum": 0.1543,
+      "build.list": 0.1517,
+      "build.literal": 0.1555,
+      "build.set": 0.1539,
+      "build.simple": 0.1775,
+      "build.tuple": 0.1533,
+      "build.union": 0.1533,
+      "parse.complex": 0.0593,
+      "parse.simple": 0.0342,
+      "tree.build.1": 0.3678,
+      "tree.build.10": 2.2822,
+      "tree.build.50": 10.6763,
+      "tree.parse.1": 0.0691,
+      "tree.parse.10": 0.0689,
+      "tree.parse.50": 0.071
     }
   },
   "3.14": {
-    "measured": "2026-10-02T19:59:23+00:00",
+    "calibration_ms": 0.1225,
+    "measured": "2026-10-03T04:59:17+00:00",
     "startup": {
-      "import_duho_delta": 49.72
+      "import_duho_delta": 39.0
     },
     "warm": {
-      "build.complex": 0.1724,
-      "build.enum": 0.1163,
-      "build.list": 0.1163,
-      "build.literal": 0.1186,
-      "build.set": 0.1164,
-      "build.simple": 0.1266,
-      "build.tuple": 0.1157,
-      "build.union": 0.1167,
-      "parse.complex": 0.0436,
-      "parse.simple": 0.0242,
-      "tree.build.1": 0.3022,
-      "tree.build.10": 1.6444,
-      "tree.build.50": 7.5419,
-      "tree.parse.1": 0.0477,
-      "tree.parse.10": 0.0486,
-      "tree.parse.50": 0.0484
+      "build.complex": 0.1289,
+      "build.enum": 0.0906,
+      "build.list": 0.092,
+      "build.literal": 0.0884,
+      "build.set": 0.09,
+      "build.simple": 0.0957,
+      "build.tuple": 0.0888,
+      "build.union": 0.0884,
+      "parse.complex": 0.0343,
+      "parse.simple": 0.0192,
+      "tree.build.1": 0.2263,
+      "tree.build.10": 1.227,
+      "tree.build.50": 5.8617,
+      "tree.parse.1": 0.0372,
+      "tree.parse.10": 0.037,
+      "tree.parse.50": 0.0374
     }
   },
   "3.9": {
-    "measured": "2026-10-02T19:59:20+00:00",
+    "calibration_ms": 0.3836,
+    "measured": "2026-10-03T04:59:26+00:00",
     "startup": {
-      "import_duho_delta": 30.96
+      "import_duho_delta": 38.05
     },
     "warm": {
-      "build.complex": 0.2546,
-      "build.enum": 0.1479,
-      "build.list": 0.1475,
-      "build.literal": 0.1525,
-      "build.set": 0.1481,
-      "build.simple": 0.1683,
-      "build.tuple": 0.1487,
-      "build.union": 0.1486,
-      "parse.complex": 0.0598,
-      "parse.simple": 0.0318,
-      "tree.build.1": 0.3412,
-      "tree.build.10": 2.0926,
-      "tree.build.50": 9.9381,
-      "tree.parse.1": 0.0661,
-      "tree.parse.10": 0.0662,
-      "tree.parse.50": 0.0669
+      "build.complex": 0.3961,
+      "build.enum": 0.2215,
+      "build.list": 0.2223,
+      "build.literal": 0.2257,
+      "build.set": 0.2241,
+      "build.simple": 0.2571,
+      "build.tuple": 0.222,
+      "build.union": 0.2221,
+      "parse.complex": 0.0787,
+      "parse.simple": 0.0427,
+      "tree.build.1": 0.5163,
+      "tree.build.10": 3.1737,
+      "tree.build.50": 14.9818,
+      "tree.parse.1": 0.0828,
+      "tree.parse.10": 0.0814,
+      "tree.parse.50": 0.0825
     }
   }
 }

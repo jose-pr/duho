@@ -8,10 +8,6 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-**Performance target:** keep the CI regression gate meaningful. On shared
-`ubuntu-latest` runners its 1.5x warm-metric threshold has been seen to
-trip from timing variance alone, so watch for flaky gate failures.
-
 ---
 
 ## [0.6.3] — 2026-10-03
@@ -43,6 +39,40 @@ all three versions — after several earlier follow-up runs tripped the 1.5x
 warm-metric threshold on one version or another from ordinary `ubuntu-latest`
 shared-runner timing variance (same code, no regression; a run's warm medians
 were seen ranging roughly 0.8x-1.6x of another run's, both against the
+unchanged baseline).
+
+**The gate noise above is now fixed** (plan `40_benchmark_gate_noise`,
+2026-10-03): `check_baseline.py` normalises each gated group against a
+calibration reference from its own measurement domain before applying the
+1.5x/1.3x thresholds — warm metrics (in-process) against a fixed,
+duho-independent `argparse` build+parse; startup deltas (subprocess spawns)
+against `python -c pass`'s own median. A uniformly slower or faster shared
+runner moves a group's calibration ratio by the same factor it moves every
+metric in that group, so the division cancels it; a regression confined to
+duho's own code still trips the gate.
+
+A single shared calibration ratio was tried first and rejected: it is NOT
+the design above, and the difference is why there are two references, not
+one. Measured directly on a real CI run
+([37098728406](https://github.com/jose-pr/duho/actions/runs/37098728406)),
+the in-process workload sped up 39% while the subprocess spawn only sped up
+~13-17% on the SAME run — dividing the startup delta's own harmless 0.87x
+raw ratio by the unrelated in-process ratio produced a false "1.39x
+REGRESSION" on the `3.9` job. Domain-matching each group to its own
+reference fixed it.
+
+`baseline.json`'s `3.9`/`3.13`/`3.14` entries were regenerated with both
+calibration references from one CI run
+([37098319162](https://github.com/jose-pr/duho/actions/runs/37098319162),
+tag `ci-bench40-20261003115759`) — `calibration_ms` and warm/startup medians
+from that run's benchmark artifacts, `calibration_subprocess_ms` from the
+same run's Regression gate step log. Three follow-up confirming runs of
+unchanged code against the fixed, domain-matched gate all passed on every
+benchmark job (`3.9`/`3.13`/`3.14`):
+[37099383438](https://github.com/jose-pr/duho/actions/runs/37099383438),
+[37099521291](https://github.com/jose-pr/duho/actions/runs/37099521291), and
+[37099645764](https://github.com/jose-pr/duho/actions/runs/37099645764). All
+throwaway `ci-*` tags used along the way were deleted after confirming.
 unchanged baseline).
 
 ---

@@ -53,7 +53,9 @@ with `PYTHONPATH=src` (or an editable install).
   medians and startup deltas against `baseline.json` for the running Python's
   `major.minor`. Exits 1 on a regression beyond threshold, 0 otherwise
   (including when there is no baseline entry for this Python version, which is
-  a SKIP, not a pass/fail).
+  a SKIP, not a pass/fail). Normalises for runner speed before comparing (see
+  "Calibration" below), so a uniformly slower/faster shared CI runner no
+  longer trips it on its own.
   ```
   python benchmarks/check_baseline.py
   python benchmarks/check_baseline.py -n 15
@@ -68,9 +70,34 @@ with `PYTHONPATH=src` (or an editable install).
   python benchmarks/update_baseline.py -n 15
   ```
 - `_bench.py` -- not a script: the shared core (sample workloads, cache
-  dropping, the sampler, and the result-JSON envelope writer) that every
-  script above imports from, so they all measure and report the same things
-  the same way.
+  dropping, the sampler, the calibration workload, and the result-JSON
+  envelope writer) that every script above imports from, so they all measure
+  and report the same things the same way.
+
+## Calibration (runner-speed normalisation)
+
+`check_baseline.py` gates on a *ratio to threshold*, not a raw time -- but a
+shared CI runner's raw speed varies run to run (same unchanged code measured
+0.8x-1.6x of its own baseline across different runs; see "Baseline
+provenance" below), which made the 1.5x/1.3x thresholds trip on ordinary
+noise, not a real regression.
+
+`_bench.calibration_metric()` measures a fixed, duho-independent workload --
+building and parsing a plain `argparse` parser of known size -- the exact
+same way a warm metric is measured. It exercises no duho code, so its own
+timing moves with nothing but the machine/runner's raw speed. Every gated
+metric's `current/baseline` ratio is divided by this workload's own
+`current/baseline` ratio before being compared to the threshold: a uniformly
+slower (or faster) runner moves the calibration ratio by the same factor it
+moves every duho metric, so the division cancels that common factor; a
+regression confined to duho's own code moves only that metric's ratio, so it
+still trips the gate.
+
+The calibration median is stored as `calibration_ms` in each `baseline.json`
+version entry, alongside `warm`/`startup`. An entry from before this existed
+has no `calibration_ms` -- `check_baseline.py` then falls back to an
+unnormalised 1.0 ratio (the old, pre-calibration behavior) rather than
+crashing.
 
 ## Result JSON schema
 
@@ -132,10 +159,10 @@ comparing runs produced the same way -- ideally the CI benchmark job's own
 runner, for exactly the Python versions in its matrix
 (`.github/workflows/test.yml`'s `benchmark` job).
 
-`baseline.json` currently carries a single, CI-matrix `3.13` entry with no
-`e2e_delta` (dropped: it was measured before `bench_startup.py`'s `e2e_delta`
-was fixed to run from a real `.py` file rather than `python -c`, so the old
+`baseline.json` carries CI-matrix `3.9`/`3.13`/`3.14` entries (none with an
+`e2e_delta`: it was measured before `bench_startup.py`'s `e2e_delta` was
+fixed to run from a real `.py` file rather than `python -c`, so the old
 number under-measures the AST/getsource path the metric now actually
-exercises, and would read as a false regression). There is no `3.9` entry yet.
-Regenerating both from an actual CI run (not a contributor machine) is a
-follow-up for whoever next has CI access to this repo's Actions.
+exercises, and would read as a false regression). `calibration_ms` (see
+"Calibration" above) is regenerated from CI the same way, in its own follow-up
+commit, after the code that reads it lands.

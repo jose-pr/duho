@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - An MCP server no longer reports duho's own version as the served app's
   version. `initialize`'s `serverInfo.version` is the app's own `_version_`
   when it resolves to a string, otherwise the empty string — never duho's.
+- A command class created at runtime with `type(...)` in an ordinary source
+  module no longer logs a "no source ClassDef found" WARNING per class; it
+  never had a class body to read, so nothing is lost and it is logged at
+  DEBUG. The WARNING stays for a module with no readable source at all (a
+  frozen app, a `.pyc`-only install, a zipapp, the REPL), where class-body
+  flags and help text really are lost.
 
 ### Added
 

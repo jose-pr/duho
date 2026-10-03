@@ -20,6 +20,8 @@ Three small fixes, plus CI benchmark baselines and an MCP conformance test.
   now says what is accepted (`one of: green, red`) instead of
   `expected __getitem__`.
 - An MCP server no longer reports duho's own version as the app's.
+- A command class built at runtime with `type(...)` no longer logs a
+  warning per class; the warning stays for apps whose source is really missing.
 - A dev-only test checks duho's MCP stdio server against the official
   `mcp` SDK client on Python 3.10+. Runtime dependencies are unchanged.
 

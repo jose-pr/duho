@@ -281,16 +281,28 @@ def _write_fake_baseline(tmp_path, entry):
     return path
 
 
+def _fake_measure(delta, python_pass):
+    """Build a fake bench_startup.measure() return value with just the two
+    fields check_baseline.py actually reads: the gated delta and the
+    subprocess calibration reference (abs.python_pass)."""
+    return {
+        "deltas": {"import_duho_delta": delta},
+        "abs": {"python_pass": {"median_ms": python_pass}},
+    }
+
+
 def test_check_baseline_normalises_uniform_runner_slowdown(tmp_path, monkeypatch):
-    """A uniformly slower runner -- every timing (calibration, warm metrics,
-    startup delta) scaled by the SAME constant factor -- must still pass:
-    this is exactly what Plan 40's calibration-ratio normalisation exists to
-    cancel. Pre-fix (raw ratio, no calibration division) this would fail,
-    since every raw ratio equals the factor, well above either threshold."""
+    """A uniformly slower runner -- every timing (both calibration workloads,
+    warm metrics, startup delta) scaled by the SAME constant factor -- must
+    still pass: this is exactly what Plan 40's calibration-ratio
+    normalisation exists to cancel. Pre-fix (raw ratio, no calibration
+    division) this would fail, since every raw ratio equals the factor, well
+    above either threshold."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {
             "calibration_ms": 1.0,
+            "calibration_subprocess_ms": 5.0,
             "warm": {"build.simple": 1.0, "build.complex": 2.0},
             "startup": {"import_duho_delta": 10.0},
         },
@@ -314,20 +326,22 @@ def test_check_baseline_normalises_uniform_runner_slowdown(tmp_path, monkeypatch
     monkeypatch.setattr(
         check_baseline.bench_startup,
         "measure",
-        lambda n: {"deltas": {"import_duho_delta": 10.0 * factor}},
+        lambda n: _fake_measure(10.0 * factor, 5.0 * factor),
     )
 
     assert check_baseline.main([]) == 0
 
 
 def test_check_baseline_still_catches_a_duho_only_regression(tmp_path, monkeypatch):
-    """Calibration and every OTHER metric are unchanged (steady runner speed);
-    only `build.complex` doubles. A genuine duho-specific slowdown must still
-    fail the gate even with calibration normalisation active."""
+    """Both calibration references and every OTHER metric are unchanged
+    (steady runner speed); only `build.complex` doubles. A genuine
+    duho-specific slowdown must still fail the gate even with calibration
+    normalisation active."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {
             "calibration_ms": 1.0,
+            "calibration_subprocess_ms": 5.0,
             "warm": {"build.simple": 1.0, "build.complex": 2.0},
             "startup": {"import_duho_delta": 10.0},
         },
@@ -346,20 +360,19 @@ def test_check_baseline_still_catches_a_duho_only_regression(tmp_path, monkeypat
         },
     )
     monkeypatch.setattr(
-        check_baseline.bench_startup,
-        "measure",
-        lambda n: {"deltas": {"import_duho_delta": 10.0}},
+        check_baseline.bench_startup, "measure", lambda n: _fake_measure(10.0, 5.0)
     )
 
     assert check_baseline.main([]) == 1
 
 
-def test_check_baseline_falls_back_to_unnormalised_without_calibration_ms(
+def test_check_baseline_falls_back_to_unnormalised_without_calibration(
     tmp_path, monkeypatch
 ):
-    """A baseline entry predating Plan 40 has no calibration_ms. The gate must
-    not crash (e.g. divide by None/zero) and must fall back to the old,
-    unnormalised raw-ratio behavior."""
+    """A baseline entry predating Plan 40 has neither calibration_ms nor
+    calibration_subprocess_ms. The gate must not crash (e.g. divide by
+    None/zero) and must fall back to the old, unnormalised raw-ratio
+    behavior for both groups."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {"warm": {"build.simple": 1.0}, "startup": {"import_duho_delta": 10.0}},
@@ -375,9 +388,53 @@ def test_check_baseline_falls_back_to_unnormalised_without_calibration_ms(
         lambda: {"build.simple": {"median_ms": 1.0}},
     )
     monkeypatch.setattr(
+        check_baseline.bench_startup, "measure", lambda n: _fake_measure(10.0, 5.0)
+    )
+
+    assert check_baseline.main([]) == 0
+
+
+def test_check_baseline_warm_and_startup_calibrate_independently(tmp_path, monkeypatch):
+    """Reproduces the exact failure caught on a real confirming CI run (Plan
+    40 Phase 2): a runner-speed swing moved the in-process calibration
+    workload's ratio (0.61x) by a different amount than the subprocess
+    python_pass ratio (0.87x) on the SAME run. Under a single shared
+    calibration ratio, dividing the startup delta's own harmless raw ratio
+    (0.87x, well under the 1.3x threshold) by the unrelated in-process ratio
+    produced a false "1.39x REGRESSION". With each group normalised against
+    its OWN domain-matched reference, the startup delta's ratio comes out
+    close to its own raw ratio (~0.87x / ~0.87x ~= 1.0x) and must pass, even
+    though the in-process calibration swung hard enough that it would have
+    mis-normalised it."""
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {
+            "calibration_ms": 1.0,
+            "calibration_subprocess_ms": 12.71,
+            "warm": {"build.simple": 1.0},
+            "startup": {"import_duho_delta": 38.05},
+        },
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+
+    # In-process calibration workload got a lot faster (0.61x), and the warm
+    # metric moved by the SAME amount -- a real in-process runner swing, not
+    # a regression, correctly cancelled by the warm group's own reference.
+    monkeypatch.setattr(
+        check_baseline._bench, "calibration_metric", lambda: {"median_ms": 0.61}
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {"build.simple": {"median_ms": 1.0 * 0.61}},
+    )
+    # Subprocess spawn only got modestly faster (0.87x), and the gated delta
+    # moved by almost exactly the same amount -- a real duho-independent
+    # runner swing, not a regression.
+    monkeypatch.setattr(
         check_baseline.bench_startup,
         "measure",
-        lambda n: {"deltas": {"import_duho_delta": 10.0}},
+        lambda n: _fake_measure(33.13, 11.06),  # 11.06/12.71 ~= 0.87x
     )
 
     assert check_baseline.main([]) == 0

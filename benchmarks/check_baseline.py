@@ -14,16 +14,35 @@ Measures this interpreter's gated metrics and compares them to
     run are both produced on the same CI runner image (see bench_startup.py).
 
 Both groups are **normalised for runner speed** (Plan 40) before being
-compared to their threshold: a fixed, duho-independent calibration workload
-(``_bench.calibration_metric`` -- building and parsing a plain ``argparse``
-parser) is measured here too, and its own current/baseline ratio divides out
-of every other metric's raw ratio. A uniformly slower (or faster) shared
-``ubuntu-latest`` runner moves the calibration ratio by the same factor it
-moves every duho metric, so the division cancels that common factor; a
-regression confined to duho's own code still moves a metric's ratio without
-moving the calibration ratio, so it still trips the gate. A baseline entry
-from before this change has no ``calibration_ms``, so the ratio falls back to
-1.0 (unnormalised, the old behavior) until the entry is regenerated.
+compared to their threshold -- but each against a calibration reference from
+its OWN measurement domain, not a single shared one:
+
+  * **warm** metrics are in-process, CPU-bound work, so they are normalised
+    against ``_bench.calibration_metric`` -- building and parsing a plain
+    ``argparse`` parser in-process, the same way.
+  * **startup** deltas are fresh-process subprocess spawns, so they are
+    normalised against ``python -c pass``'s own median (``bench_startup.py``
+    already measures this as ``abs.python_pass``) -- a bare subprocess spawn,
+    the same way.
+
+A single shared calibration ratio was tried first and rejected: measured
+directly on a real confirming CI run, a runner-speed swing moved the
+in-process workload's ratio by a different amount than the subprocess
+spawn's ratio (python_pass 13-17% faster vs. the in-process calibration 39%
+faster, same run) -- dividing ``import_duho_delta`` by the in-process ratio
+turned its own harmless 0.87x raw ratio into a false "1.39x REGRESSION".
+Domain-matching each group to its own reference is what makes the
+cancellation in the next paragraph actually hold.
+
+Each group's calibration ratio is current/baseline for that reference. A
+uniformly slower (or faster) shared ``ubuntu-latest`` runner moves a group's
+calibration ratio by the same factor it moves every metric IN THAT GROUP, so
+dividing cancels that common factor; a regression confined to duho's own code
+still moves a metric's ratio without moving its group's calibration ratio, so
+it still trips the gate. A baseline entry from before this change has no
+``calibration_ms``/``calibration_subprocess_ms``, so the corresponding ratio
+falls back to 1.0 (unnormalised, the old behavior) until the entry is
+regenerated.
 
 Thresholds are deliberately generous -- CI runner timing noise is real -- so a
 trip means a structural regression, not jitter. When the baseline has no entry
@@ -98,17 +117,23 @@ def main(argv=None):
         )
         return 0
 
-    # Runner-speed reference (Plan 40): see the module docstring. A baseline
-    # entry predating this change has no calibration_ms -- fall back to an
-    # unnormalised 1.0 ratio (the old behavior) rather than failing the gate.
+    # Runner-speed references (Plan 40): see the module docstring for why
+    # there are two, domain-matched ones rather than one shared ratio. A
+    # baseline entry predating this change has neither key -- fall back to
+    # an unnormalised 1.0 ratio (the old behavior) rather than failing.
+    def _ratio(current, baseline_value):
+        return current / baseline_value if baseline_value else 1.0
+
     calibration_current = _bench.calibration_metric()["median_ms"]
     calibration_baseline = entry.get("calibration_ms")
-    calibration_ratio = (
-        calibration_current / calibration_baseline if calibration_baseline else 1.0
-    )
+    calibration_ratio = _ratio(calibration_current, calibration_baseline)
 
     warm_current = {k: v["median_ms"] for k, v in _bench.warm_metrics().items()}
-    startup_current = bench_startup.measure(max(args.n, 10))["deltas"]
+    startup_measured = bench_startup.measure(max(args.n, 10))
+    startup_current = startup_measured["deltas"]
+    subprocess_current = startup_measured["abs"]["python_pass"]["median_ms"]
+    subprocess_baseline = entry.get("calibration_subprocess_ms")
+    subprocess_ratio = _ratio(subprocess_current, subprocess_baseline)
 
     warm_reg = _check_group(
         warm_current, entry.get("warm", {}), WARM_THRESHOLD, calibration_ratio
@@ -117,21 +142,28 @@ def main(argv=None):
         startup_current,
         entry.get("startup", {}),
         STARTUP_THRESHOLD,
-        calibration_ratio,
+        subprocess_ratio,
         STARTUP_FLOOR_MS,
     )
 
     print(f"=== regression gate (python {py_minor}) ===")
-    calibration_base_str = (
-        f"{calibration_baseline:.4f}" if calibration_baseline else "n/a"
+
+    def _calibration_line(label, current, baseline_value, ratio):
+        base_str = f"{baseline_value:.4f}" if baseline_value else "n/a"
+        note = "" if baseline_value else "  (no baseline value; unnormalised)"
+        print(f"{label}: base {base_str:>8s}  cur {current:8.4f}  {ratio:5.2f}x{note}")
+
+    _calibration_line(
+        "calibration, in-process (plain-argparse build+parse, warm reference)",
+        calibration_current,
+        calibration_baseline,
+        calibration_ratio,
     )
-    calibration_note = (
-        "" if calibration_baseline else "  (no baseline calibration_ms; unnormalised)"
-    )
-    print(
-        "calibration (plain-argparse build+parse, runner-speed reference): "
-        f"base {calibration_base_str:>8s}  cur {calibration_current:8.4f}  "
-        f"{calibration_ratio:5.2f}x{calibration_note}"
+    _calibration_line(
+        "calibration, subprocess (python -c pass, startup reference)",
+        subprocess_current,
+        subprocess_baseline,
+        subprocess_ratio,
     )
     print(
         f"warm metrics <= {WARM_THRESHOLD}x baseline median (calibration-normalised):"
@@ -152,7 +184,7 @@ def main(argv=None):
         if cur is None:
             continue
         raw_ratio = cur / base if base > 0 else float("nan")
-        ratio = raw_ratio / calibration_ratio if base > 0 else raw_ratio
+        ratio = raw_ratio / subprocess_ratio if base > 0 else raw_ratio
         note = " (below floor; not gated)" if base < STARTUP_FLOOR_MS else ""
         flag = "  <-- REGRESSION" if (name, base, cur, ratio) in startup_reg else ""
         print(

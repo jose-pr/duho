@@ -13,6 +13,18 @@ Measures this interpreter's gated metrics and compares them to
     speed -- it is meaningful here only because a baseline and its comparison
     run are both produced on the same CI runner image (see bench_startup.py).
 
+Both groups are **normalised for runner speed** (Plan 40) before being
+compared to their threshold: a fixed, duho-independent calibration workload
+(``_bench.calibration_metric`` -- building and parsing a plain ``argparse``
+parser) is measured here too, and its own current/baseline ratio divides out
+of every other metric's raw ratio. A uniformly slower (or faster) shared
+``ubuntu-latest`` runner moves the calibration ratio by the same factor it
+moves every duho metric, so the division cancels that common factor; a
+regression confined to duho's own code still moves a metric's ratio without
+moving the calibration ratio, so it still trips the gate. A baseline entry
+from before this change has no ``calibration_ms``, so the ratio falls back to
+1.0 (unnormalised, the old behavior) until the entry is regenerated.
+
 Thresholds are deliberately generous -- CI runner timing noise is real -- so a
 trip means a structural regression, not jitter. When the baseline has no entry
 for the running Python version, the check is SKIPPED (exit 0) with a note, so a
@@ -47,8 +59,13 @@ STARTUP_THRESHOLD = 1.3
 STARTUP_FLOOR_MS = 5.0
 
 
-def _check_group(current, baseline, threshold, floor=0.0):
-    """Return a list of (metric, baseline, current, ratio) regressions."""
+def _check_group(current, baseline, threshold, calibration_ratio, floor=0.0):
+    """Return a list of (metric, baseline, current, ratio) regressions.
+
+    ``ratio`` is each metric's raw ``current / baseline`` divided by
+    ``calibration_ratio`` -- see the module docstring and
+    ``_bench.calibration_metric``.
+    """
     regressions = []
     for name, base in baseline.items():
         cur = current.get(name)
@@ -56,7 +73,7 @@ def _check_group(current, baseline, threshold, floor=0.0):
             continue
         if base <= 0 or (floor and base < floor):
             continue
-        ratio = cur / base
+        ratio = (cur / base) / calibration_ratio
         if ratio > threshold:
             regressions.append((name, base, cur, ratio))
     return regressions
@@ -81,31 +98,61 @@ def main(argv=None):
         )
         return 0
 
+    # Runner-speed reference (Plan 40): see the module docstring. A baseline
+    # entry predating this change has no calibration_ms -- fall back to an
+    # unnormalised 1.0 ratio (the old behavior) rather than failing the gate.
+    calibration_current = _bench.calibration_metric()["median_ms"]
+    calibration_baseline = entry.get("calibration_ms")
+    calibration_ratio = (
+        calibration_current / calibration_baseline if calibration_baseline else 1.0
+    )
+
     warm_current = {k: v["median_ms"] for k, v in _bench.warm_metrics().items()}
     startup_current = bench_startup.measure(max(args.n, 10))["deltas"]
 
-    warm_reg = _check_group(warm_current, entry.get("warm", {}), WARM_THRESHOLD)
+    warm_reg = _check_group(
+        warm_current, entry.get("warm", {}), WARM_THRESHOLD, calibration_ratio
+    )
     startup_reg = _check_group(
-        startup_current, entry.get("startup", {}), STARTUP_THRESHOLD, STARTUP_FLOOR_MS
+        startup_current,
+        entry.get("startup", {}),
+        STARTUP_THRESHOLD,
+        calibration_ratio,
+        STARTUP_FLOOR_MS,
     )
 
     print(f"=== regression gate (python {py_minor}) ===")
-    print(f"warm metrics <= {WARM_THRESHOLD}x baseline median:")
+    calibration_base_str = (
+        f"{calibration_baseline:.4f}" if calibration_baseline else "n/a"
+    )
+    calibration_note = (
+        "" if calibration_baseline else "  (no baseline calibration_ms; unnormalised)"
+    )
+    print(
+        "calibration (plain-argparse build+parse, runner-speed reference): "
+        f"base {calibration_base_str:>8s}  cur {calibration_current:8.4f}  "
+        f"{calibration_ratio:5.2f}x{calibration_note}"
+    )
+    print(
+        f"warm metrics <= {WARM_THRESHOLD}x baseline median (calibration-normalised):"
+    )
     for name, base in sorted(entry.get("warm", {}).items()):
         cur = warm_current.get(name)
         flag = ""
         if cur is not None and base > 0:
-            ratio = cur / base
+            ratio = (cur / base) / calibration_ratio
             flag = "  <-- REGRESSION" if ratio > WARM_THRESHOLD else ""
             print(f"  {name:22s} base {base:8.4f}  cur {cur:8.4f}  {ratio:5.2f}x{flag}")
     print(
-        f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms):"
+        f"startup deltas <= {STARTUP_THRESHOLD}x baseline (floor {STARTUP_FLOOR_MS} ms, "
+        "calibration-normalised):"
     )
     for name, base in sorted(entry.get("startup", {}).items()):
         cur = startup_current.get(name)
         if cur is None:
             continue
-        ratio = cur / base if base > 0 else float("nan")
+        raw_ratio = cur / base if base > 0 else float("nan")
+        ratio = raw_ratio / calibration_ratio if base > 0 else raw_ratio
         note = " (below floor; not gated)" if base < STARTUP_FLOOR_MS else ""
         flag = "  <-- REGRESSION" if (name, base, cur, ratio) in startup_reg else ""
         print(

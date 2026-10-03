@@ -5,7 +5,10 @@
 Python ``major.minor``, and is what ``check_baseline.py`` compares a run against.
 Because timings differ per interpreter version, each version carries its own
 entry; this script measures on whatever Python runs it and merges (only) that
-version's entry, leaving other versions untouched.
+version's entry, leaving other versions untouched. Each entry also carries
+``calibration_ms`` -- the median of a fixed, duho-independent workload (see
+``_bench.calibration_metric``) that ``check_baseline.py`` uses to normalise
+its thresholds for runner speed.
 
 Run it ONLY after an intentional, understood performance change, on a quiet
 machine of the SAME kind ``check_baseline.py`` will later compare against --
@@ -35,9 +38,12 @@ BASELINE = Path(__file__).resolve().parent / "baseline.json"
 
 def build_entry(startup_samples=10):
     """Measure and return this interpreter's baseline entry."""
+    calibration = _bench.calibration_metric()
     warm = _bench.warm_metrics()
     startup = bench_startup.measure(max(startup_samples, 10))
     return {
+        # Runner-speed reference (Plan 40); see _bench.calibration_metric.
+        "calibration_ms": calibration["median_ms"],
         "warm": {k: v["median_ms"] for k, v in warm.items()},
         "startup": startup["deltas"],
         "measured": datetime.now(timezone.utc).isoformat(timespec="seconds"),

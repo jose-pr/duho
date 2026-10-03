@@ -27,6 +27,7 @@ from duho import _introspect  # noqa: E402
 import _bench  # noqa: E402
 import bench_discovery  # noqa: E402
 import bench_startup  # noqa: E402
+import check_baseline  # noqa: E402
 import compare_cache  # noqa: E402
 
 
@@ -261,3 +262,122 @@ def test_baseline_has_no_stale_e2e_delta():
     data = json.loads((_HERE / "baseline.json").read_text())
     for entry in data.values():
         assert "e2e_delta" not in entry.get("startup", {})
+
+
+# ---------------------------------------------------------------------------
+# Plan 40: the regression gate must normalise for runner speed, not just
+# raw ratios -- a uniformly slower (or faster) CI runner must not trip it,
+# while a genuine duho-only slowdown still must.
+# ---------------------------------------------------------------------------
+
+
+def _write_fake_baseline(tmp_path, entry):
+    """Write a one-version baseline.json keyed under the REAL running
+    interpreter's major.minor, so check_baseline.main() picks it up without
+    needing to fake sys.version_info."""
+    py_minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps({py_minor: entry}))
+    return path
+
+
+def test_check_baseline_normalises_uniform_runner_slowdown(tmp_path, monkeypatch):
+    """A uniformly slower runner -- every timing (calibration, warm metrics,
+    startup delta) scaled by the SAME constant factor -- must still pass:
+    this is exactly what Plan 40's calibration-ratio normalisation exists to
+    cancel. Pre-fix (raw ratio, no calibration division) this would fail,
+    since every raw ratio equals the factor, well above either threshold."""
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {
+            "calibration_ms": 1.0,
+            "warm": {"build.simple": 1.0, "build.complex": 2.0},
+            "startup": {"import_duho_delta": 10.0},
+        },
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+
+    factor = 1.55  # above both WARM_THRESHOLD and STARTUP_THRESHOLD if raw
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "calibration_metric",
+        lambda: {"median_ms": 1.0 * factor},
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {
+            "build.simple": {"median_ms": 1.0 * factor},
+            "build.complex": {"median_ms": 2.0 * factor},
+        },
+    )
+    monkeypatch.setattr(
+        check_baseline.bench_startup,
+        "measure",
+        lambda n: {"deltas": {"import_duho_delta": 10.0 * factor}},
+    )
+
+    assert check_baseline.main([]) == 0
+
+
+def test_check_baseline_still_catches_a_duho_only_regression(tmp_path, monkeypatch):
+    """Calibration and every OTHER metric are unchanged (steady runner speed);
+    only `build.complex` doubles. A genuine duho-specific slowdown must still
+    fail the gate even with calibration normalisation active."""
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {
+            "calibration_ms": 1.0,
+            "warm": {"build.simple": 1.0, "build.complex": 2.0},
+            "startup": {"import_duho_delta": 10.0},
+        },
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+
+    monkeypatch.setattr(
+        check_baseline._bench, "calibration_metric", lambda: {"median_ms": 1.0}
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {
+            "build.simple": {"median_ms": 1.0},
+            "build.complex": {"median_ms": 4.0},  # 2x its own baseline
+        },
+    )
+    monkeypatch.setattr(
+        check_baseline.bench_startup,
+        "measure",
+        lambda n: {"deltas": {"import_duho_delta": 10.0}},
+    )
+
+    assert check_baseline.main([]) == 1
+
+
+def test_check_baseline_falls_back_to_unnormalised_without_calibration_ms(
+    tmp_path, monkeypatch
+):
+    """A baseline entry predating Plan 40 has no calibration_ms. The gate must
+    not crash (e.g. divide by None/zero) and must fall back to the old,
+    unnormalised raw-ratio behavior."""
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {"warm": {"build.simple": 1.0}, "startup": {"import_duho_delta": 10.0}},
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+
+    monkeypatch.setattr(
+        check_baseline._bench, "calibration_metric", lambda: {"median_ms": 1.0}
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {"build.simple": {"median_ms": 1.0}},
+    )
+    monkeypatch.setattr(
+        check_baseline.bench_startup,
+        "measure",
+        lambda n: {"deltas": {"import_duho_delta": 10.0}},
+    )
+
+    assert check_baseline.main([]) == 0

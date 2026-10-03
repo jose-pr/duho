@@ -19,6 +19,7 @@ every cache first, reproducing what a fresh CLI *invocation* pays -- except the
 metrics are stable enough to gate CI on; cold numbers are reported for insight.
 """
 
+import argparse
 import enum
 import json
 import platform
@@ -212,6 +213,51 @@ def sample(fn, inner, repeat=REPEAT, warmup=True):
         "min_ms": round(min(per_call), 4),
         "max_ms": round(max(per_call), 4),
     }
+
+
+# ---------------------------------------------------------------------------
+# Calibration (runner-speed reference, duho-independent -- Plan 40)
+# ---------------------------------------------------------------------------
+
+
+def _calibration_workload() -> None:
+    """Build + parse a plain ``argparse`` parser of fixed size. Exercises no
+    duho code at all, so this workload's own timing moves with nothing but
+    the machine/CI-runner's raw speed."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name")
+    parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--output", default="output.txt")
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--workers", type=int, default=4)
+    parser.parse_args(
+        [
+            "--name",
+            "x",
+            "--count",
+            "5",
+            "--output",
+            "o.txt",
+            "--verbose",
+            "--workers",
+            "8",
+        ]
+    )
+
+
+def calibration_metric() -> dict:
+    """Sample :func:`_calibration_workload` the same way a warm metric is
+    sampled (min/median/max over ``REPEAT`` samples of ``BUILD_INNER``
+    iterations each).
+
+    ``check_baseline.py`` divides a gated metric's raw current/baseline ratio
+    by THIS workload's own current/baseline ratio before comparing to a
+    threshold. A uniformly slower (or faster) CI runner moves this
+    calibration ratio by the same factor it moves every duho metric, so
+    dividing cancels that common factor -- what's left is a duho-specific
+    slowdown, if any. This workload is never itself one of the gated duho
+    metrics; it exists only as the runner-speed reference."""
+    return sample(_calibration_workload, BUILD_INNER)
 
 
 def warm_metrics() -> "dict":

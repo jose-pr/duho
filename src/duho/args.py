@@ -134,7 +134,7 @@ _META_UNSET = _MetaUnset()
 
 @_dataclasses.dataclass(init=False)
 class Meta:
-    """Typed, typo-safe alternative to ``NS(...)`` for field metadata (F5).
+    """Typed, typo-safe alternative to ``NS(...)`` for field metadata.
 
     ``NS(...)`` is an untyped ``argparse.Namespace``: a misspelled key
     (``NS(hlep="oops")``) is silently dropped. ``Meta`` declares the known
@@ -305,8 +305,8 @@ def _resolve_auto_version(dist: str) -> "str | None":
 
     # Imported lazily (not at module top) so a plain `import duho` never pays
     # importlib.metadata's ~30 ms cost -- only a class that actually opts into
-    # `_version_ = duho.AUTO` triggers the load, and only at parser-build time
-    # (P1), once per distinct distribution name thanks to the cache above.
+    # `_version_ = duho.AUTO` triggers the load, and only at parser-build time,
+    # once per distinct distribution name thanks to the cache above.
     import importlib.metadata as _importlib_metadata
 
     def _lookup(name: str) -> "str | None":
@@ -2107,7 +2107,7 @@ class Args(_argparse.Namespace):
     #: other leading-underscore name, ``ClassVar`` or not.
     _parsername_: "_ty.ClassVar[str]"
 
-    #: Pre-seeded empty class-body-constants cache (P2). ``_class_constants``
+    #: Pre-seeded empty class-body-constants cache. ``_class_constants``
     #: (``_introspect``) short-circuits on ``"_duho_constants_" in vars(cls)``,
     #: so seeding it here means building ANY user parser never AST-parses
     #: duho's own ``args.py`` to scan these framework base classes for
@@ -2191,7 +2191,7 @@ class Args(_argparse.Namespace):
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
                         # an unset (sentinel) field never overrides a type-derived
-                        # kwarg (F5).
+                        # kwarg.
                         options.update(opts._duho_options_())
                     elif isinstance(opts, _ty.Mapping):
                         options.update(opts)
@@ -2294,7 +2294,7 @@ class Args(_argparse.Namespace):
         # earlier fix did) showed a literal `%` DOUBLED in `--help`.
         _doc = cls.__doc__ or ""
         kwargs.setdefault("description", _escape_description(_doc))
-        # F8: opt-in help formatter (``_help_formatter_`` class attr, e.g.
+        # Opt-in help formatter (``_help_formatter_`` class attr, e.g.
         # ``duho.DefaultsFormatter``/``duho.ColorHelpFormatter``) plumbed into
         # argparse's ``formatter_class``. ``setdefault`` so a caller-supplied
         # ``formatter_class=`` still wins; unset means argparse's plain default.
@@ -2378,7 +2378,7 @@ class Args(_argparse.Namespace):
             )
             if subcommands:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
-                # A kebab-cased class-derived name (plan 38) can collide with
+                # A kebab-cased class-derived name can collide with
                 # a SIBLING's -- `FooBar` and `Foo_Bar` both resolve to
                 # `foo-bar` -- exactly the same way two siblings sharing an
                 # explicit `_parsername_` already could. Either shape is
@@ -2722,7 +2722,7 @@ class Cmd(Args):
     order reads "add logging to a command".
     """
 
-    #: Own empty class-body-constants cache (P2): ``Cmd``'s body declares no
+    #: Own empty class-body-constants cache: ``Cmd``'s body declares no
     #: real CLI fields (only ``_passthrough_`` and ``__call__``), so seeding
     #: this skips AST-parsing ``args.py`` for it. See ``Args._duho_constants_``.
     _duho_constants_: dict = {}
@@ -2784,7 +2784,7 @@ class Cli(Cmd):
     avoid that one field name on a ``Cli`` subclass.
     """
 
-    #: Own empty class-body-constants cache (P2): every field ``Cli`` declares
+    #: Own empty class-body-constants cache: every field ``Cli`` declares
     #: is sandwich-named (``_version_``, ``_completion_``, ...) and gets filtered
     #: out by ``get_clsargs`` anyway, so seeding this skips AST-parsing
     #: ``args.py`` for ``Cli``. See ``Args._duho_constants_``.
@@ -2820,7 +2820,7 @@ class Cli(Cmd):
     #: ``_resolve_config_dict`` (``args.py``) via ``_apply_layers``.
     _config_: "_ty.Optional[_ty.Union[str, _pathlib.Path]]" = None
 
-    #: Optional custom config loader ``Callable[[Path], dict]`` (F7). When set it
+    #: Optional custom config loader ``Callable[[Path], dict]``. When set it
     #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
     #: format duho does not ship (e.g. YAML via their own ``yaml.safe_load``)
     #: WITHOUT duho depending on it -- keeping the zero-runtime-deps contract.
@@ -2828,7 +2828,7 @@ class Cli(Cmd):
     #: ``duho.app``.
     _config_loader_: "_ty.Optional[_ty.Callable[[_pathlib.Path], dict]]" = None
 
-    #: Opt-in argparse help ``formatter_class`` (F8). ``None`` (default) uses
+    #: Opt-in argparse help ``formatter_class``. ``None`` (default) uses
     #: argparse's plain formatter; set it to ``duho.DefaultsFormatter``,
     #: ``duho.ColorHelpFormatter``, ``duho.ColorDefaultsFormatter``, or any
     #: ``HelpFormatter`` subclass. Plumbed into ``formatter_class`` by
@@ -3212,7 +3212,7 @@ def _setup_instance_logging(
 
 
 def _maybe_await(result):
-    """Drive a coroutine result to completion, returning its value (F4).
+    """Drive a coroutine result to completion, returning its value.
 
     A ``Cmd.__call__`` (or a ``duho.main`` target) may be ``async def``; its
     invocation returns a coroutine. This runs it with ``asyncio.run`` at the

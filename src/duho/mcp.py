@@ -168,7 +168,7 @@ _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 #: ``describe_tools``/``call_tool`` use, and ``version`` is the app's own
 #: ``_version_`` when it resolves to a string -- so a host can tell one
 #: served APP apart from another, not just one duho release from another.
-#: There is deliberately NO duho-version fallback for ``version`` (item 8):
+#: There is deliberately NO duho-version fallback for ``version``:
 #: reporting duho's own release as the served app's version is actively
 #: misleading (e.g. a served app with no ``_version_`` of its own used to
 #: report duho's version as if it were its own), so an app with no
@@ -284,7 +284,7 @@ def _schema_for_type(tp: object) -> "dict":
     * ``pathlib.Path`` (or any ``PurePath`` subclass) -> ``"string"`` (as it
       already collapses for argparse).
     * ``datetime.date``/``datetime``/``time`` -> ``"string"`` + a ``format``
-      hint (not required by the plan's type table; a low-risk, easy addition
+      hint (not required by the base type table; a low-risk, easy addition
       since duho already special-cases these three for argparse).
     * ``str``/``int``/``float``/``bool`` -> ``string``/``integer``/``number``/
       ``boolean``.
@@ -2126,7 +2126,7 @@ def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
     (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
     sentinel resolved via ``importlib.metadata``, or a class-level
     ``__version__`` fallback) when it resolves to a string, else the empty
-    string (item 8) -- duho's own version is NEVER reported as the served
+    string -- duho's own version is NEVER reported as the served
     app's version. The MCP ``Implementation`` type requires ``version`` to be
     a string, so the field is still always present; a served app with no
     resolvable version of its own simply reports it empty rather than

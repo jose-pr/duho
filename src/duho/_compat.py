@@ -55,7 +55,7 @@ def get_level_names_mapping() -> dict[str, int]:
 
 
 def iter_entry_points(group: str) -> "list":
-    """Return the installed-distribution entry points in ``group`` (F6).
+    """Return the installed-distribution entry points in ``group``.
 
     Bridges the two ``importlib.metadata.entry_points`` shapes:
 

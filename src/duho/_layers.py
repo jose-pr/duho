@@ -75,7 +75,7 @@ def _load_config(
     path: "str | _pathlib.Path",
     loader: "_ty.Callable[[_pathlib.Path], dict] | None" = None,
 ) -> dict:
-    """Read a config file into a plain dict, dispatching on shape (F7).
+    """Read a config file into a plain dict, dispatching on shape.
 
     Resolution order:
 

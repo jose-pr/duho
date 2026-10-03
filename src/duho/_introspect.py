@@ -21,7 +21,7 @@ _SKIP_MODULES = frozenset({"argparse", "builtins", "typing"})
 # ``try/except*`` (PEP 654, 3.11+) carries the same statement-body fields as a
 # plain ``Try``; reference it via ``getattr`` so the isinstance check is a no-op
 # on 3.9/3.10 where the node type does not exist. Together with ``ast.Try`` this
-# lets the P3 statement-only walk descend both try forms.
+# lets the statement-only walk below descend both try forms.
 _TRY_TYPES = tuple(
     t for t in (_ast.Try, getattr(_ast, "TryStar", None)) if t is not None
 )
@@ -58,7 +58,7 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
 
     def walk(body, prefix: str):
         # Recurse only into STATEMENT containers, not `ast.iter_child_nodes` on
-        # every node (P3). A ClassDef/FunctionDef can only appear as a statement
+        # every node. A ClassDef/FunctionDef can only appear as a statement
         # in some enclosing statement's body -- never inside an expression -- so
         # walking only the statement-carrying fields (`body`/`orelse`/`finalbody`
         # and each except handler's `body`) reaches every class while skipping the
@@ -178,7 +178,7 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
                 # ``duho.command(...)``) and has no literal ``ClassDef`` in the
                 # source. ``inspect.getsource`` re-parses the exact same file and
                 # fails the identical lookup, only slower (up to ~23 ms per class in
-                # a large dynamically-built tree, P5). Give up now. The getsource
+                # a large dynamically-built tree). Give up now. The getsource
                 # fallback below is reserved for the no-module-file case
                 # (REPL/``exec``) or the unreadable/undecodable-file case above.
                 return None

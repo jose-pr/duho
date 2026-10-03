@@ -19,7 +19,7 @@ if _ty.TYPE_CHECKING:
 #: NAMED color spec ("red", "red+white") into an ANSI sequence -- the built-in
 #: level colors are hard-coded ANSI (see ``DefaultFormatter.COLORS``), so a
 #: plain ``import duho`` must not pay it. Resolved lazily on first use in
-#: ``_getcolor`` and memoized here (P4). ``False`` means "not yet probed";
+#: ``_getcolor`` and memoized here. ``False`` means "not yet probed";
 #: once probed, this holds the real module, or ``None`` when colorama is not
 #: installed.
 _color: "object | bool | None" = False
@@ -31,7 +31,7 @@ def _resolve_colorama():
     Imports ``colorama`` on first call and caches the result (the module or
     ``None``) on the module-global ``_color``, so the potentially-missing
     dependency is probed exactly once and only when a named color is actually
-    requested (P4). The sentinel ``False`` means "not yet probed".
+    requested. The sentinel ``False`` means "not yet probed".
     """
     global _color
     if _color is False:

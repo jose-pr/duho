@@ -1069,7 +1069,7 @@ def _module_inside(module: object, directory: "_Path") -> bool:
 
 
 # --------------------------------------------------------------------------
-# Entry-point discovery (F6)
+# Entry-point discovery
 # --------------------------------------------------------------------------
 
 

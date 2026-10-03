@@ -313,7 +313,7 @@ def _split_kv(text: str, name: str) -> "tuple[str, str]":
 
 
 class _KVFactory:
-    """CLI-text factory for a ``dict[str, V]`` field (F1).
+    """CLI-text factory for a ``dict[str, V]`` field.
 
     Converts one ``KEY=VALUE`` token into a one-pair dict, applying the value
     factory ``V`` to the value half; :class:`UpdateAction` merges successive
@@ -806,6 +806,6 @@ class UpdateAction(_argparse.Action):
         else:
             # A ``None`` starting value (an explicit ``= None`` default) is
             # already normalized to ``{}`` above; a single dict occurrence
-            # (F1) merges directly.
+            # merges directly.
             items.update(values or {})
         setattr(namespace, self.dest, items)

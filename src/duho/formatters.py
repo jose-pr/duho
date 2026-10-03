@@ -1,4 +1,4 @@
-"""Opt-in argparse help formatters (F8): defaults-in-help + ANSI color.
+"""Opt-in argparse help formatters: defaults-in-help + ANSI color.
 
 Both formatters are plain :class:`argparse.HelpFormatter` subclasses a class opts
 into via the sandwich-named ``_help_formatter_`` attribute, which

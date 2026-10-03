@@ -104,7 +104,7 @@ def test_bad_env_value_from_keyerror_factory_is_redacted(monkeypatch, capsys):
     assert "hunter2-PASSWORD" not in msg
     assert "Traceback" not in msg
     assert "usage:" in msg
-    # Item 7: a bound `__getitem__` lookup now describes what it accepts
+    # A bound `__getitem__` lookup now describes what it accepts
     # (its mapping's keys) instead of the factory's own internal name
     # ("expected __getitem__").
     assert "expected __getitem__" not in msg
@@ -112,7 +112,7 @@ def test_bad_env_value_from_keyerror_factory_is_redacted(monkeypatch, capsys):
 
 
 # --------------------------------------------------------------------------
-# Item 7: a bound-lookup `type=` (`SOME_MAPPING.__getitem__`/`.get`) gets a
+# A bound-lookup `type=` (`SOME_MAPPING.__getitem__`/`.get`) gets a
 # readable "one of: ..." description instead of "expected __getitem__" --
 # the factory's own internal name, meaningless to a user.
 # --------------------------------------------------------------------------

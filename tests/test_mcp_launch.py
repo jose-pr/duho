@@ -245,7 +245,7 @@ def test_serverinfo_reports_the_apps_own_name_and_version():
 
 
 def test_serverinfo_version_is_empty_when_app_declares_none():
-    # Item 8: duho's OWN version must never be reported as the served app's
+    # duho's OWN version must never be reported as the served app's
     # version -- an app with no resolvable `_version_` of its own reports an
     # empty string, not duho's.
     import io

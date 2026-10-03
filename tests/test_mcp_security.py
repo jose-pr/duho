@@ -1009,7 +1009,7 @@ def test_initialize_negotiates_a_supported_protocol_version(requested, expected)
 
 
 def test_serverinfo_version_is_empty_when_app_declares_none():
-    # Item 8: `EchoRoot` declares no `_version_` of its own, so `version`
+    # `EchoRoot` declares no `_version_` of its own, so `version`
     # must be the empty string -- NOT duho's own version.
     rc, responses = _serve_lines(
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})

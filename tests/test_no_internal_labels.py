@@ -43,7 +43,7 @@ _THIS_FILE = Path(__file__).resolve()
 _PATTERNS = [
     ("numbered-plan", re.compile(r"\b[Pp]lan[ _-]?\d")),
     ("numbered-phase", re.compile(r"\b[Pp]hase[ _-]?\d")),
-    ("numbered-item", re.compile(r"\bitem[ _-]?\d")),
+    ("numbered-item", re.compile(r"\b[Ii]tem[ _-]?\d")),
     ("task-range", re.compile(r"\bT\d+-T\d+")),
     (
         "work-item-code-paren",

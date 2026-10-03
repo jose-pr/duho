@@ -12,8 +12,7 @@ user-facing; this file is the durable record.
 
 ## [0.6.3] — 2026-10-03
 
-Three small fixes from the backlog, plus CI benchmark baselines and an MCP
-conformance test.
+Three small fixes, plus CI benchmark baselines and an MCP conformance test.
 
 - A NUL in a `choices` value no longer breaks fish or PowerShell
   completion for the whole command; that candidate is dropped.
@@ -148,8 +147,8 @@ The releases between 0.3.0 and 0.5.4 (RunPath, MCP, agent help, formatters,
 the lazy-import and AST-walk performance work, PowerShell completion, and
 the current benchmark-harness rewrite) shipped without a
 `RELEASENOTES.md` entry recording their perf evidence. Their `CHANGELOG.md`
-entries quote local/development-machine numbers (e.g. the 0.4.0 P1–P5
-"~75 ms to ~51 ms" import figures) that were never captured as a committed
+entries quote local/development-machine numbers (e.g. the 0.4.0 lazy-import
+and AST-walk "~75 ms to ~51 ms" import figures) that were never captured as a committed
 CI benchmark run for that release. Those numbers are not reproducible from
 `benchmarks/baseline.json` today and should not be cited as CI-verified —
 treat them as informal, at-the-time observations only.

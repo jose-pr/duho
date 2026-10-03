@@ -1127,7 +1127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   invocation), and exit codes (`_exit_codes_` overrides). New module
   `duho.agenthelp` (parser-tree walk, mirrors `duho.completion`), plus
   `duho.print_agent_help(cls)`. `json` stays lazily imported.
-- **F1** First-class `dict[str, V]` fields. A `dict`-annotated field collects
+- First-class `dict[str, V]` fields. A `dict`-annotated field collects
   `KEY=VALUE` tokens; repeated flags merge into one dict via `UpdateAction`, and
   the value half is converted with `V` (bare `dict` == `dict[str, str]`). Only
   the first `=` splits; a token with no `=` is a clear argparse error; a non-`str`
@@ -1135,24 +1135,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   TOML-table config layers are supported. `UpdateAction` now makes a shallow
   per-occurrence copy instead of a `deepcopy`. `duho.Count()` counted flags
   (`-vvv` → `3`) are documented in the README type table.
-- **F2** Required mutually-exclusive groups: `NS(conflicts="grp",
+- Required mutually-exclusive groups: `NS(conflicts="grp",
   conflicts_required=True)` on any member makes the whole group required
   (argparse requires exactly one). Omitting all members errors; the group's
   `required` flag is set at build time.
-- **F3** Titled argument groups: `NS(group="Section title")` buckets a field
+- Titled argument groups: `NS(group="Section title")` buckets a field
   under a named `--help` section (lazily created per title). A field combining
   `group=` and `conflicts=` nests the mutually-exclusive group inside the titled
   section.
-- **F4** Async `__call__` support: a `Cmd` whose `__call__` is `async def` is
+- Async `__call__` support: a `Cmd` whose `__call__` is `async def` is
   driven to completion via `asyncio.run` at the call site (`duho.main` and
   `duho.run_command`), so the awaited value is the exit code. `asyncio` is
   imported lazily. Module-command lifecycle hooks stay synchronous.
-- **F5** `duho.Meta`: a typed, typo-safe dataclass alternative to `NS(...)` for
+- `duho.Meta`: a typed, typo-safe dataclass alternative to `NS(...)` for
   field metadata. An unknown keyword is a `TypeError` at class-definition time
   (an `NS(...)` typo silently vanishes); only the fields you set are merged.
   `NS` keeps working. PEP-727 `Doc` duck-typing (a metadata object with a str
   `.documentation` attr contributes help) is documented.
-- **F6** Entry-points plugin discovery: `duho.app(root, entry_points="group")`
+- Entry-points plugin discovery: `duho.app(root, entry_points="group")`
   loads commands advertised by installed distributions' entry points in `group`,
   coercing each to a command (a `Cmd` subclass → class command; a module →
   module command) through the same path as every other source. Loading is
@@ -1161,7 +1161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `importlib.metadata` stays lazily imported (only entry-point discovery loads
   it). Sits in `app`'s source precedence after `source=` and before the
   `CMDS_PATH` env layer.
-- **F7** JSON config files + a pluggable loader. A `_config_`/`config=` path
+- JSON config files + a pluggable loader. A `_config_`/`config=` path
   ending in `.json` is parsed as JSON (stdlib `json`, imported lazily; a malformed
   file raises a clear error naming it); any other suffix stays TOML. JSON yields
   the same nested-dict shape as TOML, so subcommand tables layer identically. A
@@ -1169,7 +1169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is used *instead of* the built-in dispatch when set, letting users plug any
   format (e.g. YAML) without duho depending on it — the zero-runtime-deps
   contract holds.
-- **F8** Opt-in help formatters via a class-level `_help_formatter_`
+- Opt-in help formatters via a class-level `_help_formatter_`
   (plumbed into argparse's `formatter_class`, and propagated across a
   `_subcommands_` tree). New public `duho.DefaultsFormatter` (append
   `(default: X)`, skipping `None`/`""`/`False`), `duho.ColorHelpFormatter` (ANSI
@@ -1177,7 +1177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   to plain when off), and `duho.ColorDefaultsFormatter` (both composed). All ANSI
   reuses the logging color codes (no `colorama` import). Off by default; plain
   help is unchanged.
-- **F9** PowerShell completion: a new `duho.completion.powershell(parser)` emitter
+- PowerShell completion: a new `duho.completion.powershell(parser)` emitter
   walks the same `CompletionSpec` tree and emits a `Register-ArgumentCompleter
   -Native` script block resolving the subcommand path to flags/subcommands/choices
   (file completion falls through to PowerShell's defaults). `"powershell"` is
@@ -1193,29 +1193,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Documented using an **`enum.IntEnum` as exit codes** — an `IntEnum` return from
   `__call__` propagates as the process exit code unchanged (it is an `int`); added
   a test.
-- **P1** `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
+- `importlib.metadata` is now imported lazily, inside `_resolve_version`'s
   `_version_ = duho.AUTO` branch, instead of at module top. A plain
   `import duho` no longer pays its ~20-30 ms cost; only a class that opts into
   `AUTO` triggers the load, at parser-build time.
-- **P4** `colorama` is now imported lazily on first use (a named color spec such
+- `colorama` is now imported lazily on first use (a named color spec such
   as `"red"`/`"red+white"`), not at `duho.logging` import. `import duho` no
   longer pays colorama's ~3-5 ms when it is installed; built-in level colors are
   hard-coded ANSI and never need it.
-- **P2** duho no longer AST-parses its own `args.py` on every parser build:
+- duho no longer AST-parses its own `args.py` on every parser build:
   `Args`/`Cmd`/`Cli` seed an empty `_duho_constants_` class attribute so the
   class-body scan short-circuits for framework base classes.
-- **P3** The qualname walk in `_introspect._module_index` now recurses only into
+- The qualname walk in `_introspect._module_index` now recurses only into
   statement containers (class/function bodies, `if`/`for`/`while`/`with`/`try`
   clauses) instead of every AST node, cutting the per-file walk time ~30x.
-- **P5** `getclsdef` returns `None` immediately when a file's module index was
+- `getclsdef` returns `None` immediately when a file's module index was
   built successfully but the class qualname is absent (a dynamically-created
   class), skipping a redundant `inspect.getsource` re-parse that would fail
   anyway. The REPL/`exec` no-module-file case still uses the fallback.
 
-Combined, P1-P5 cut fresh-process `import duho` from ~75 ms to ~51 ms and
+Combined, these changes cut fresh-process `import duho` from ~75 ms to ~51 ms and
 end-to-end import+build+parse from ~90 ms to ~55 ms, and the cold 10-subcommand
 tree build from ~41 ms to ~10 ms (min, reference machine).
-- **P6** Benchmark harness upgraded so the wins stay visible: fresh-process
+- Benchmark harness upgraded so the wins stay visible: fresh-process
   startup deltas (`benchmarks/bench_startup.py`), subcommand-tree scaling and a
   field-type matrix (`benchmarks/run.py`), a command-discovery benchmark
   (`benchmarks/bench_discovery.py`), a committed `benchmarks/baseline.json` with
@@ -1244,103 +1244,103 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
   `_parsername_` onto the shared `Args`/`Cmd`/`Cli` base. Previously that name
   leaked via inheritance to every subclass, so a later `app(root=None, ...)`
   mis-derived subcommand names (`invalid choice: 'Deploy' (choose from 'Args')`).
-  Surfaced by F6's plugin-only apps, which commonly run with no explicit root.
-- **C1** `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
+  Surfaced by entry-points-discovery-only apps, which commonly run with no explicit root.
+- `bool` env/config values now parse correctly: `false`/`0`/`no`/`off`
   map to `False` (previously `bool("false")` was `True`); an unknown string is
   a clear error naming the field and source.
-- **C2** An env var / TOML string on a `list`/`set`/`tuple` field now becomes a
+- An env var / TOML string on a `list`/`set`/`tuple` field now becomes a
   single-element collection (`FILES=a.txt` -> `["a.txt"]`), matching one CLI
   occurrence, instead of running the element factory over the whole string.
-- **C3** A subcommand's `set_defaults` no longer clobbers a root option's value
+- A subcommand's `set_defaults` no longer clobbers a root option's value
   given before the subcommand: layered defaults skip dests suppressed on the
   child parser.
-- **M14** Non-string config (TOML) values are now converted to the field type
+- Non-string config (TOML) values are now converted to the field type
   (`timeout = 30` for a `float` field -> `30.0`; a `list[Path]` array ->
   `[Path(...), ...]`) instead of being installed unconverted.
-- **C4** `duho.app()` now suppresses the root's inherited option defaults on
+- `duho.app()` now suppresses the root's inherited option defaults on
   every registered subcommand parser, so a global given before the subcommand
   (`myapp -v deploy`) and root env/config values survive to the dispatched
   command. Required inherited globals are also un-required on the child (the
   root parser still enforces them).
-- **C5** `app()` loads config once and applies the root layer before its
+- `app()` loads config once and applies the root layer before its
   advisory prepass, and degrades to no-prepass on a `SystemExit`, so a required
   global supplied by config no longer hard-exits with a usage error.
-- **M6** A command name registered by more than one source (e.g. a module and a
+- A command name registered by more than one source (e.g. a module and a
   class command) now logs a warning naming both; the last registration wins and
   dispatch resolves through the same single registry (previously argparse raised
   `conflicting subparser`).
-- **C6** Union members now recurse through the full type ladder:
+- Union members now recurse through the full type ladder:
   `Optional[list[int]]` gets element conversion + the extend action (no more
   char-splitting), `Optional[Literal[...]]` gets choices, and a multi-member
   union with a collection member is a clear build-time error.
-- **C7** Collection defaults (`list`/`set`/`dict`) are copied per parse/build, so
+- Collection defaults (`list`/`set`/`dict`) are copied per parse/build, so
   mutating one parsed instance's list no longer leaks into the next parse or a
   directly-constructed instance.
-- **C8** Foreign `Annotated` metadata (a bare `Annotated[int, "doc"]` string, or
+- Foreign `Annotated` metadata (a bare `Annotated[int, "doc"]` string, or
   any non-namespace object) no longer crashes `_getargs_`; a PEP-727-style object
   with a str `.documentation` contributes help text, everything else is ignored.
-- **C9** `ClassVar[...]` and `Final[...]` annotations are skipped instead of
+- `ClassVar[...]` and `Final[...]` annotations are skipped instead of
   becoming broken CLI flags.
-- **C10** `Literal[True, False]` builds and parses (goes through `type=`+`choices=`)
+- `Literal[True, False]` builds and parses (goes through `type=`+`choices=`)
   instead of raising an argparse `TypeError` at build.
-- **C15** `datetime.date`/`datetime.datetime`/`datetime.time` fields parse via
+- `datetime.date`/`datetime.datetime`/`datetime.time` fields parse via
   `fromisoformat` (a bad value is a clean argparse error, not a traceback).
-- **M15** A `set` used as a flags container is now a clear build-time error
+- A `set` used as a flags container is now a clear build-time error
   instead of a crash / nondeterministic flag order.
-- **M17** `argparse.SUPPRESS` in `Annotated` metadata hides the field wherever it
+- `argparse.SUPPRESS` in `Annotated` metadata hides the field wherever it
   appears, not only as the first metadata item.
-- **C11** A missing `<PREFIX>_CMDS_PATH` no longer glob-imports every `.py` in the
+- A missing `<PREFIX>_CMDS_PATH` no longer glob-imports every `.py` in the
   current working directory (`Env.list` returns `[]` and `app()` guards on a
   non-empty value).
-- **M3** `Env` companion-module autoload seeds only upper-case, non-underscore
+- `Env` companion-module autoload seeds only upper-case, non-underscore
   variables through `str()` coercion, and accepts `Env(prefix, autoload=False)`
   to disable the `sys.path`/CWD import.
-- **M5** A fan-out target returning a non-int, non-None value is logged and
+- A fan-out target returning a non-int, non-None value is logged and
   isolated (counts as exit code 1) instead of aborting the whole fan-out.
-- **M4** A RunPath step whose import raises `ImportError`/`NotImplementedError`
+- A RunPath step whose import raises `ImportError`/`NotImplementedError`
   is skipped with a warning (resilient) or re-raised (strict); an enabled step
   whose `REQUIRED` names a disabled step warns/raises; a `REQUIRED` cycle raises
   under strict. Non-environmental errors (e.g. `SyntaxError`) still surface.
 
-- **M1** `prerun_parse` no longer patches `argparse._SubParsersAction.__call__`
+- `prerun_parse` no longer patches `argparse._SubParsersAction.__call__`
   / `_HelpAction.__call__` process-globally; it swaps the specific action
   instances' classes (restored in `finally`), so it is thread-safe and reentrant.
-- **M20** `pop_action` also removes the action from its argument group's
+- `pop_action` also removes the action from its argument group's
   `_group_actions`, so a popped flag no longer lingers in `format_help()`.
-- **C13** `duho.snakecase` lower-cases interior upper-case letters with an
+- `duho.snakecase` lower-cases interior upper-case letters with an
   underscore (`CamelCaseName` -> `camel_case_name`) instead of dropping them, and
   returns `""` for empty input.
-- **C14** `duho.value_sources` compares against each field's *effective* default
+- `duho.value_sources` compares against each field's *effective* default
   (so an undeclared-default `store_true` left off the CLI is `"default"`, not
   `"cli"`) and merges subcommand parsers' provenance up to the root, so a
   config-supplied subcommand field is labeled `"config"`.
-- **M9** `logging._getcolor` resolves the documented `"fore+back"` syntax and
+- `logging._getcolor` resolves the documented `"fore+back"` syntax and
   returns `""` (never the raw compound string) when colorama is absent or a name
   does not resolve.
-- **M10** `_parser_(name="alias")` no longer permanently writes `_parsername_`
+- `_parser_(name="alias")` no longer permanently writes `_parsername_`
   onto the class; the alias is a one-off.
-- **M11** Source is read as UTF-8, and `UnicodeDecodeError`/`ValueError` are
+- Source is read as UTF-8, and `UnicodeDecodeError`/`ValueError` are
   caught so non-ASCII source under a non-UTF-8 locale no longer crashes.
-- **M12** The `_CollectionAction` sidecar (`_duho_items_<dest>`) is dropped before
+- The `_CollectionAction` sidecar (`_duho_items_<dest>`) is dropped before
   instance construction, so it no longer leaks into `vars(instance)`.
-- **M16** `_suppress_inherited_defaults` keeps a child's deliberately overridden
+- `_suppress_inherited_defaults` keeps a child's deliberately overridden
   default (a re-declared field with a different default) instead of discarding it.
-- **M18** A non-literal class-body expression resets docstring attribution (no
+- A non-literal class-body expression resets docstring attribution (no
   misattribution to the previous field), and a class whose source can't be located
   emits a one-time debug diagnostic.
-- **M19** `QualName.relative_to` with an empty base returns the name unchanged
+- `QualName.relative_to` with an empty base returns the name unchanged
   instead of dropping the first part.
-- **M22** A module command's `success` hook runs only on a successful exit (not
+- A module command's `success` hook runs only on a successful exit (not
   for a non-zero exit code), and a raising `finally_` no longer masks the original
   exception.
-- **C12** The zsh emitter emits valid multi-flag optspecs
+- The zsh emitter emits valid multi-flag optspecs
   (`'(-v --verbose)'{-v,--verbose}'[option]'`), rebuilds the command path from
   non-option words, and drops the dead `_describe` call.
-- **M2** Completion scripts escape every interpolated value: bash word lists
+- Completion scripts escape every interpolated value: bash word lists
   neutralise command substitution (a hostile choice like `$(...)` no longer runs
   at Tab-press), zsh/fish single-quoted contexts escape embedded quotes, and a
   program name with whitespace/metacharacters is rejected.
-- **M8** The bash emitter skips the value following a value-taking flag when
+- The bash emitter skips the value following a value-taking flag when
   reconstructing the command path (`myapp --env prod deploy <TAB>` now completes).
 - **fish** Single-dash multi-char flags are emitted with `-o` (old-style) rather
   than `-s`, and a subcommand's `-d` description is its one-line help.
@@ -1452,7 +1452,7 @@ tree build from ~41 ms to ~10 ms (min, reference machine).
 - **`duho.runpath` opt-in RunPath step-runner**: an opt-in module (not on the core
   `duho.*` surface) that turns a directory of numbered `NN-name.py` files into one
   command running them in order. `import duho.runpath` registers a command provider
-  on the Plan-13 `register_command_provider` hook (its first consumer) — core `duho`
+  on the `register_command_provider` hook (its first consumer) — core `duho`
   never imports it. Steps declare ordering via the `NN` prefix or a module-level
   `PRIORITY`, and dependencies via `REQUIRED`; a `--rcopts`/`-O` flag selects steps
   with comma-separated fnmatch patterns (`!` disables, `!*,x` = "only x") and a

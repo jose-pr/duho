@@ -21,9 +21,10 @@ Nuitka build that ships no .py source for duho).
 import importlib.util
 import logging
 import sys
+import types
 from unittest import mock
 
-from duho import _introspect
+from duho import Args, _introspect
 
 
 def test_getclsdef_exec_fake_module_returns_none():
@@ -143,15 +144,55 @@ def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):
     """The diagnostic must be WARNING, not DEBUG -- it fires while the
     parser is still being built, before an app's own -v/--loglevel could
     possibly raise the level high enough to see a DEBUG record."""
+    no_source = mock.patch.object(
+        _introspect, "_module_source_readable", return_value=False
+    )
     with mock.patch.object(_introspect, "getclsdef", return_value=None):
-        with caplog.at_level(logging.WARNING, logger="duho._introspect"):
-            _introspect.get_clsargs(_NoSourceWithFields)
+        with no_source:
+            with caplog.at_level(logging.WARNING, logger="duho._introspect"):
+                _introspect.get_clsargs(_NoSourceWithFields)
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any(
         "_NoSourceWithFields" in r.getMessage() and "no source" in r.getMessage()
         for r in warnings
     )
+
+
+def test_runtime_created_class_in_a_source_module_only_logs_debug(caplog):
+    """A class built with `type(...)` in an ordinary module has no class body
+    to read, so nothing is lost: no WARNING per class, only a DEBUG note."""
+    dyn = type(
+        "_RuntimeMadeWithFields",
+        (Args,),
+        {"__annotations__": {"n": int}, "n": 1, "__module__": __name__},
+    )
+    with caplog.at_level(logging.DEBUG, logger="duho._introspect"):
+        _introspect.get_clsargs(dyn)
+
+    mine = [r for r in caplog.records if "_RuntimeMadeWithFields" in r.getMessage()]
+    assert mine and all(r.levelno == logging.DEBUG for r in mine)
+
+
+def test_runtime_created_class_in_a_module_without_source_still_warns(caplog):
+    """A module with no readable source (frozen, `.pyc`-only, REPL) keeps the
+    WARNING: there the class-body declarations really are lost."""
+    fake = types.ModuleType("duho_test_no_source_mod")
+    sys.modules[fake.__name__] = fake
+    try:
+        dyn = type(
+            "_NoSourceModuleClass",
+            (Args,),
+            {"__annotations__": {"n": int}, "n": 1, "__module__": fake.__name__},
+        )
+        with caplog.at_level(logging.WARNING, logger="duho._introspect"):
+            _introspect.get_clsargs(dyn)
+    finally:
+        sys.modules.pop(fake.__name__, None)
+        _introspect._MODULE_SOURCE_READABLE.pop(fake.__name__, None)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("_NoSourceModuleClass" in r.getMessage() for r in warnings)
 
 
 class _NoSourceNoFields(_NoSourceWithFields):

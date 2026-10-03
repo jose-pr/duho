@@ -195,6 +195,31 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
         return None
 
 
+_MODULE_SOURCE_READABLE: "dict[str, bool]" = {}
+
+
+def _module_source_readable(module_name: "str | None") -> bool:
+    """True when `module_name`'s source text can be read (cached per module).
+
+    Tells a class created at runtime in an ordinary source module (its module
+    reads fine; the class just has no body there) apart from a class whose
+    whole module has no readable source (a frozen app, a `.pyc`-only install,
+    a zipapp, the REPL), where class-body declarations are really lost.
+    """
+    if not module_name:
+        return False
+    cached = _MODULE_SOURCE_READABLE.get(module_name)
+    if cached is not None:
+        return cached
+    module = _sys.modules.get(module_name)
+    try:
+        readable = module is not None and bool(_inspect.getsource(module))
+    except (OSError, TypeError, ValueError):
+        readable = False
+    _MODULE_SOURCE_READABLE[module_name] = readable
+    return readable
+
+
 class NotDefined: ...
 
 
@@ -257,7 +282,18 @@ def _class_constants(cls: type) -> "dict[str, list]":
                 # could raise the level to see a DEBUG-level diagnostic, so it
                 # must be loud enough to be seen by default (this runs once per
                 # class -- the result is cached below).
-                _LOGGER.warning(
+                #
+                # When the module's own source IS readable, the class simply was
+                # never written as a class body there: it was created at runtime
+                # (`type(...)`, a factory). There is nothing to lose, so that is
+                # only a debug-level note rather than a warning per class.
+                level = (
+                    _logging.DEBUG
+                    if _module_source_readable(getattr(cls, "__module__", None))
+                    else _logging.WARNING
+                )
+                _LOGGER.log(
+                    level,
                     "duho: no source ClassDef found for %s.%s; class-body flags, "
                     "env, and attribute docstrings will be unavailable",
                     getattr(cls, "__module__", "?"),

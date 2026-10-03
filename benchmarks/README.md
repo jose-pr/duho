@@ -82,21 +82,34 @@ shared CI runner's raw speed varies run to run (same unchanged code measured
 provenance" below), which made the 1.5x/1.3x thresholds trip on ordinary
 noise, not a real regression.
 
-`_bench.calibration_metric()` measures a fixed, duho-independent workload --
-building and parsing a plain `argparse` parser of known size -- the exact
-same way a warm metric is measured. It exercises no duho code, so its own
-timing moves with nothing but the machine/runner's raw speed. Every gated
-metric's `current/baseline` ratio is divided by this workload's own
-`current/baseline` ratio before being compared to the threshold: a uniformly
-slower (or faster) runner moves the calibration ratio by the same factor it
-moves every duho metric, so the division cancels that common factor; a
-regression confined to duho's own code moves only that metric's ratio, so it
-still trips the gate.
+Two calibration references are used, one per measurement domain -- NOT one
+shared ratio across both:
 
-The calibration median is stored as `calibration_ms` in each `baseline.json`
-version entry, alongside `warm`/`startup`. An entry from before this existed
-has no `calibration_ms` -- `check_baseline.py` then falls back to an
-unnormalised 1.0 ratio (the old, pre-calibration behavior) rather than
+- **`_bench.calibration_metric()`** measures a fixed, duho-independent
+  workload -- building and parsing a plain `argparse` parser of known size --
+  in-process, the exact same way a warm metric is measured. It normalises the
+  **warm** group.
+- **`python -c pass`'s own median** -- `bench_startup.py` already measures
+  this as `abs.python_pass` on every run -- is a bare subprocess spawn with
+  no duho involved. It normalises the **startup** group.
+
+A single shared ratio was tried first and rejected: measured directly on a
+real confirming CI run, the in-process workload's ratio and the subprocess
+spawn's ratio moved by *different* amounts from the SAME runner-speed swing
+(python_pass 13-17% faster vs. the in-process workload 39% faster). Dividing
+the startup delta -- itself a harmless 0.87x raw ratio -- by the unrelated
+in-process ratio produced a false "1.39x REGRESSION". An in-process CPU-bound
+loop and a fresh-process spawn (dominated by exec/loader/syscall overhead,
+not raw clock speed) just don't scale together, so each group needs a
+reference from its own domain for the cancellation to hold.
+
+Each group's calibration ratio is `current/baseline` for its own reference;
+a gated metric's own ratio is divided by its group's calibration ratio before
+comparing to the threshold. The medians are stored as `calibration_ms`
+(warm) and `calibration_subprocess_ms` (startup) in each `baseline.json`
+version entry, alongside `warm`/`startup`. An entry from before these existed
+has neither key -- `check_baseline.py` then falls back to an unnormalised 1.0
+ratio for the affected group (the old, pre-calibration behavior) rather than
 crashing.
 
 ## Result JSON schema
@@ -163,6 +176,8 @@ runner, for exactly the Python versions in its matrix
 `e2e_delta`: it was measured before `bench_startup.py`'s `e2e_delta` was
 fixed to run from a real `.py` file rather than `python -c`, so the old
 number under-measures the AST/getsource path the metric now actually
-exercises, and would read as a false regression). `calibration_ms` (see
-"Calibration" above) is regenerated from CI the same way, in its own follow-up
-commit, after the code that reads it lands.
+exercises, and would read as a false regression). `calibration_ms` and
+`calibration_subprocess_ms` (see "Calibration" above) came from that same CI
+run's artifacts and its Regression gate step log, respectively -- measuring
+both references on the SAME run the rest of the baseline comes from is what
+makes the ratio-normalisation meaningful going forward.

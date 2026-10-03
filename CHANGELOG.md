@@ -36,13 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - The CI benchmark regression gate (`benchmarks/check_baseline.py`) now
-  normalises for runner speed: a fixed, duho-independent calibration
-  workload is measured alongside the gated metrics each run, and every
-  metric's ratio to its baseline is divided by that workload's own ratio
-  before the 1.5x/1.3x thresholds apply. A uniformly slower or faster shared
-  CI runner no longer trips the gate on its own; a regression confined to
-  duho's own code still does. Dev/CI tooling only — no runtime behavior
-  change.
+  normalises for runner speed: two fixed, duho-independent calibration
+  workloads (one in-process, one a subprocess spawn — each matching one
+  gated group's own measurement domain) are measured alongside the gated
+  metrics each run, and every metric's ratio to its baseline is divided by
+  its group's own calibration ratio before the 1.5x/1.3x thresholds apply. A
+  uniformly slower or faster shared CI runner no longer trips the gate on
+  its own; a regression confined to duho's own code still does. Dev/CI
+  tooling only — no runtime behavior change.
 
 ## [0.6.2] - 2026-10-01
 

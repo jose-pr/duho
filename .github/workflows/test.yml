@@ -115,10 +115,10 @@ jobs:
       - name: Install shells for completion tests
         run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests with coverage gate
-        # Plan 03 target is >=92% overall; measured 93.66% after T1-T7, so the
-        # gate is pinned at floor(measured)-1 = 92 (== the plan's post-T target;
-        # raise as coverage grows). This is the correctness/coverage gate; the
-        # benchmark job below is the separate Plan 02 perf gate -- don't conflate.
+        # Target is >=92% overall; measured 93.66% at the time this gate was set,
+        # so the gate is pinned at floor(measured)-1 = 92 (raise as coverage
+        # grows). This is the correctness/coverage gate; the benchmark job below
+        # is the separate perf gate -- don't conflate.
         run: python -m pytest -q --cov=duho --cov-fail-under=92
 
   benchmark:

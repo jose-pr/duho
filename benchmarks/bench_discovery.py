@@ -12,7 +12,7 @@ trivial command files and measures:
     dispatch one command end-to-end.
 
 This is the structurally dominant cost for app-style CLIs at scale, and the
-workload the P7 lazy-discovery design targets. Reported informationally (import
+workload the lazy-discovery design targets. Reported informationally (import
 cost is inherently one-shot / cache-sensitive, so it is not part of the CI
 regression gate).
 

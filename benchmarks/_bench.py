@@ -130,7 +130,7 @@ FIELD_MATRIX = {
 CACHE_ATTRS = ("_duho_constants_", "_duho_clsargs_", "_duho_builders_")
 
 #: Args/Cmd/Cli each pre-seed ``_duho_constants_ = {}`` in their own class body
-#: (P2, see the docstring on ``duho.Args._duho_constants_``) so that building
+#: (see the docstring on ``duho.Args._duho_constants_``) so that building
 #: ANY user parser never AST-parses duho's own ``args.py`` to scan these
 #: framework base classes -- they declare no real CLI fields. A fresh process
 #: always has this seed. Deleting it here forced every "cold" sample to
@@ -146,7 +146,8 @@ def make_tree(n: int) -> "type":
 
     Subcommands are ``type(...)``-created (as ``duho.command``/discovery would
     produce) so the tree exercises the dynamic-class path (no literal ClassDef),
-    which is exactly where the P5 getsource guard matters. A fresh root/subs each
+    which is exactly where the dynamic-class getsource fallback guard matters.
+    A fresh root/subs each
     call keeps cold builds honest (nothing is pre-cached).
     """
     subs = []
@@ -216,7 +217,7 @@ def sample(fn, inner, repeat=REPEAT, warmup=True):
 
 
 # ---------------------------------------------------------------------------
-# Calibration (runner-speed reference, duho-independent -- Plan 40)
+# Calibration (runner-speed reference, duho-independent)
 # ---------------------------------------------------------------------------
 
 
@@ -303,8 +304,8 @@ def warm_metrics() -> "dict":
         duho.parser(root)  # warm
         metrics["tree.build.%d" % n] = sample(lambda r=root: duho.parser(r), 50)
         parser = duho.parser(root)
-        # Plan 38: a subcommand with no own `_parsername_` is now named the
-        # kebab-case of its class name -- read the real resolved name off
+        # A subcommand with no own `_parsername_` is named the kebab-case of
+        # its class name -- read the real resolved name off
         # the class itself rather than hand-reconstructing the old
         # exact-class-name spelling, so this stays correct if `make_tree`'s
         # naming scheme ever changes.

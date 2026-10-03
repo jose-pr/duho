@@ -247,9 +247,8 @@ def test_check_baseline_wording_no_longer_claims_normalized_runner_speed():
 
 def test_baseline_only_covers_ci_matrix_versions():
     """`.github/workflows/test.yml`'s benchmark job matrix is exactly
-    ["3.9", "3.13", "3.14"] (plan 39 added the "3.13" job); baseline.json
-    previously also carried unused 3.10-3.12 entries (measured locally, never
-    compared against)."""
+    ["3.9", "3.13", "3.14"]; baseline.json previously also carried unused
+    3.10-3.12 entries (measured locally, never compared against)."""
     data = json.loads((_HERE / "baseline.json").read_text())
     assert set(data) <= {"3.9", "3.13", "3.14"}
 
@@ -265,9 +264,9 @@ def test_baseline_has_no_stale_e2e_delta():
 
 
 # ---------------------------------------------------------------------------
-# Plan 40: the regression gate must normalise for runner speed, not just
-# raw ratios -- a uniformly slower (or faster) CI runner must not trip it,
-# while a genuine duho-only slowdown still must.
+# The regression gate must normalise for runner speed, not just raw ratios --
+# a uniformly slower (or faster) CI runner must not trip it, while a genuine
+# duho-only slowdown still must.
 # ---------------------------------------------------------------------------
 
 
@@ -294,10 +293,10 @@ def _fake_measure(delta, python_pass):
 def test_check_baseline_normalises_uniform_runner_slowdown(tmp_path, monkeypatch):
     """A uniformly slower runner -- every timing (both calibration workloads,
     warm metrics, startup delta) scaled by the SAME constant factor -- must
-    still pass: this is exactly what Plan 40's calibration-ratio
-    normalisation exists to cancel. Pre-fix (raw ratio, no calibration
-    division) this would fail, since every raw ratio equals the factor, well
-    above either threshold."""
+    still pass: this is exactly what the calibration-ratio normalisation
+    exists to cancel. Pre-fix (raw ratio, no calibration division) this
+    would fail, since every raw ratio equals the factor, well above either
+    threshold."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {
@@ -369,10 +368,10 @@ def test_check_baseline_still_catches_a_duho_only_regression(tmp_path, monkeypat
 def test_check_baseline_falls_back_to_unnormalised_without_calibration(
     tmp_path, monkeypatch
 ):
-    """A baseline entry predating Plan 40 has neither calibration_ms nor
-    calibration_subprocess_ms. The gate must not crash (e.g. divide by
-    None/zero) and must fall back to the old, unnormalised raw-ratio
-    behavior for both groups."""
+    """A baseline entry predating the calibration-ratio normalisation has
+    neither calibration_ms nor calibration_subprocess_ms. The gate must not
+    crash (e.g. divide by None/zero) and must fall back to the old,
+    unnormalised raw-ratio behavior for both groups."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {"warm": {"build.simple": 1.0}, "startup": {"import_duho_delta": 10.0}},

@@ -13,7 +13,7 @@ Measures this interpreter's gated metrics and compares them to
     speed -- it is meaningful here only because a baseline and its comparison
     run are both produced on the same CI runner image (see bench_startup.py).
 
-Both groups are **normalised for runner speed** (Plan 40) before being
+Both groups are **normalised for runner speed** before being
 compared to their threshold -- but each against a calibration reference from
 its OWN measurement domain, not a single shared one:
 
@@ -117,7 +117,7 @@ def main(argv=None):
         )
         return 0
 
-    # Runner-speed references (Plan 40): see the module docstring for why
+    # Runner-speed references: see the module docstring for why
     # there are two, domain-matched ones rather than one shared ratio. A
     # baseline entry predating this change has neither key -- fall back to
     # an unnormalised 1.0 ratio (the old behavior) rather than failing.

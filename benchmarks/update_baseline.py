@@ -7,7 +7,7 @@ Because timings differ per interpreter version, each version carries its own
 entry; this script measures on whatever Python runs it and merges (only) that
 version's entry, leaving other versions untouched. Each entry also carries two
 runner-speed references ``check_baseline.py`` uses to normalise its
-thresholds (Plan 40): ``calibration_ms`` (an in-process, duho-independent
+thresholds: ``calibration_ms`` (an in-process, duho-independent
 ``argparse`` build+parse -- see ``_bench.calibration_metric``), which
 normalises the **warm** group, and ``calibration_subprocess_ms`` (the bare
 ``python -c pass`` median ``bench_startup.py`` already measures), which
@@ -50,7 +50,7 @@ def build_entry(startup_samples=10):
     warm = _bench.warm_metrics()
     startup = bench_startup.measure(max(startup_samples, 10))
     return {
-        # Runner-speed references (Plan 40); see the module docstring for why
+        # Runner-speed references; see the module docstring for why
         # there are two, one per measurement domain.
         "calibration_ms": calibration["median_ms"],
         "calibration_subprocess_ms": startup["abs"]["python_pass"]["median_ms"],

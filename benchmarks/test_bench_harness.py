@@ -395,9 +395,9 @@ def test_check_baseline_falls_back_to_unnormalised_without_calibration(
 
 
 def test_check_baseline_warm_and_startup_calibrate_independently(tmp_path, monkeypatch):
-    """Reproduces the exact failure caught on a real confirming CI run (Plan
-    40 Phase 2): a runner-speed swing moved the in-process calibration
-    workload's ratio (0.61x) by a different amount than the subprocess
+    """Reproduces the exact failure caught on a real confirming CI run: a
+    runner-speed swing moved the in-process calibration workload's ratio
+    (0.61x) by a different amount than the subprocess
     python_pass ratio (0.87x) on the SAME run. Under a single shared
     calibration ratio, dividing the startup delta's own harmless raw ratio
     (0.87x, well under the 1.3x threshold) by the unrelated in-process ratio

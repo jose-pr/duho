@@ -58,7 +58,7 @@ def test_building_base_first_does_not_rename_subclasses():
 
     push_parser = duho.parser(_Push)
     pull_parser = duho.parser(_Pull)
-    # Class-derived names are kebab-case (plan 38); a leading `_` (used here
+    # Class-derived names are kebab-case; a leading `_` (used here
     # only to avoid colliding with a real top-level test name) is a split
     # point too and disappears, same as `_Private` -> `private`.
     assert push_parser.prog == "push"

@@ -1,4 +1,4 @@
-"""Tests for PowerShell completion generation (F9).
+"""Tests for PowerShell completion generation.
 
 Assertions carry the weight (pwsh is absent on CI images); a syntax smoke-check
 runs only when ``pwsh`` is on PATH. Also covers ``--print-completion powershell``
@@ -181,7 +181,7 @@ class _NulChoice(Args):
 
 
 def test_powershell_script_valid_with_a_nul_choice_and_other_choices_complete():
-    """A NUL in a built choice (item 2) must not break the whole script --
+    """A NUL in a built choice must not break the whole script --
     it's dropped, every other choice keeps completing. See
     `tests/test_completion.py`'s bash/zsh/fish counterparts for the same
     contract on the other three shells."""

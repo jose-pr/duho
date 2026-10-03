@@ -5,9 +5,8 @@ optional flag sits BETWEEN a fixed positional and a variable-arity
 (``nargs`` in ``"*"``/``"+"``/``"?"``) one in the same parser: the run gets
 settled against the argv slice before the next optional, so the variadic
 positional closes out empty/short and never reopens. Verified bare-stdlib
-(no duho) before this fix existed -- see the plan's Known Facts for the
-exact repro. duho now reorders recognized flags to the front of the argv
-slice a risky parser will see, so all four argument orderings
+(no duho) before this fix existed. duho now reorders recognized flags to the
+front of the argv slice a risky parser will see, so all four argument orderings
 (flag-before/-after/-between the positionals, or no flag at all) parse
 identically -- while a genuine typo'd flag still surfaces argparse's own
 honest "unrecognized arguments" error, never silently swallowed as a

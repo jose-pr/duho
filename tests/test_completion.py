@@ -544,7 +544,7 @@ def test_fish_script_valid_if_available():
     assert result.returncode == 0, result.stderr
 
 
-# --- A NUL in a choice must not break the whole script (item 2) -----------
+# --- A NUL in a choice must not break the whole script --------------------
 
 
 class _NulChoice(Args):

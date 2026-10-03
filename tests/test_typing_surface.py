@@ -5,7 +5,7 @@ documented patterns (``Arg[...]``, ``Meta(...)``, ``@Cli.subcommand``,
 ``duho.parse``/``duho.parser``/``duho.main``, ``app(commands=[...])``,
 ``CmdBuilder.command``) must type-check cleanly under a consumer's own mypy
 run -- previously several of them either failed outright or silently widened
-to ``Any``/``type[Cmd]`` (see the typing-surface review findings).
+to ``Any``/``type[Cmd]``.
 
 duho does NOT depend on mypy (``PYTHON.md``: type-checking is opt-in, never a
 project dependency), so this test never installs it -- it SKIPS whenever

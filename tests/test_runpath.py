@@ -6,7 +6,7 @@ ordering/deps are exactly the on-disk behavior we want to pin). Each step record
 that it ran by appending its name to a shared results file, so a test asserts the
 observed run order directly.
 
-**Provider isolation is the top footgun** (per the plan): the RunPath provider is
+**Provider isolation is the top footgun**: the RunPath provider is
 a module-global registered on import. The autouse provider-isolation fixture in
 ``conftest.py`` snapshots/restores it around every test, and tests use
 ``runpath.unregister()`` where they assert the unregistered state, so provider

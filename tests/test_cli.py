@@ -17,7 +17,7 @@ Covers:
   statically declared ``_subcommands_`` (a child in both appears once);
 * ``class App(LoggingArgs, Cli)`` MRO (verbosity + ``__call__`` + app-root attrs
   all resolve);
-* Phase-2 env/config-file thread-down through ``app()`` (real TOML + real ``.py``
+* env/config-file thread-down through ``app()`` (real TOML + real ``.py``
   command fixtures under ``tmp_path`` -- never ``python -c``).
 """
 

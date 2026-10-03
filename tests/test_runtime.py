@@ -1848,7 +1848,7 @@ def main(args):
 def test_module_command_reorders_flag_between_positionals(tmp_path):
     """A flag between a module command's own positional and a variadic one parses.
 
-    Regression test for the finding that `_register_module_command` built an
+    Regression test: `_register_module_command` used to build an
     unpatched subparser, so this exact shape (`query <ns> -f <val> <targets...>`)
     raised `unrecognized arguments` even though the same shape on a declarative
     `Cmd` subcommand already worked via the positional-reorder fix.

@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-09-24 in-depth review's MCP findings.
+"""Regression tests for duho's MCP security hardening.
 
 Covers argv-injection safety, env/config layering, dispatch through the root
 parser (root globals reachable from a nested tool), JSON-RPC envelope
@@ -225,7 +225,7 @@ class HijackCollisionRoot(Cli):
 
 
 def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
-    # Matches the reviewer's `opt_app.py`: an omitted optional positional
+    # An omitted optional positional
     # ("path") used to absorb the "HijackLeaf" separator token, shifting
     # "HijackDanger" (the client's OWN "name" value) into the root's
     # subparsers slot and actually running HijackDanger instead. Caught here
@@ -239,7 +239,7 @@ def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
 
 
 def test_variadic_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
-    # Matches the reviewer's `inj_app.py`: a variadic ("tags") positional
+    # A variadic ("tags") positional
     # greedily ate the separator token the same way, dispatching
     # HijackDanger (with ITS OWN default field) instead of HijackLeaf.
     with pytest.raises(InvalidArgumentsError):
@@ -717,7 +717,7 @@ class ArgumentTypeErrorFactoryTool(Cmd):
 
 
 def test_mcp_result_never_leaks_a_secret_from_a_keyerror_factory(monkeypatch):
-    # Mirrors the reviewer's `ke_app.py`/`ke_run.py`: before the fix, the
+    # Before the fix, the
     # deferred KeyError propagated uncaught out of `root_parser.parse_args`,
     # was caught only by `call_tool`'s own generic `except Exception`, and
     # THAT handler formatted the raw exception (secret included) straight
@@ -734,7 +734,8 @@ def test_mcp_result_never_leaks_a_secret_from_a_keyerror_factory(monkeypatch):
 def test_mcp_result_never_leaks_a_secret_from_an_argumenttypeerror_factory(
     monkeypatch,
 ):
-    # Mirrors the reviewer's `ate_app.py`/`ate_run.py`.
+    # Same secret-leak guard as above, with an ArgumentTypeError-raising
+    # factory instead of KeyError.
     monkeypatch.setenv("DUHO_MCP_TEST_ARGTYPEERROR_TOKEN", "S3CRET-ENV-VALUE")
     result = call_tool(
         ArgumentTypeErrorFactoryTool, "argument-type-error-factory-tool", {}

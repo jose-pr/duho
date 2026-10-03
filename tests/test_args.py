@@ -553,7 +553,7 @@ def test_implicit_flag_underscore_to_dash():
 
 class CamelCaseDefaultFlagArgs(Args):
     """Fields with no declared flag tuple: the default long flag is now
-    kebab-case (plan 38), not the older plain ``name.replace("_", "-")`` --
+    kebab-case, not the older plain ``name.replace("_", "-")`` --
     so a camelCase/acronym field name gets a real kebab flag too."""
 
     testMe: bool = False

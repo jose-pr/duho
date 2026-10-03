@@ -1,4 +1,4 @@
-"""Tests for async ``__call__`` support (F4).
+"""Tests for async ``__call__`` support.
 
 A ``Cmd`` whose ``__call__`` is ``async def`` returns a coroutine; ``duho.main``
 and ``duho.run_command`` drive it to completion with ``asyncio.run`` at the call

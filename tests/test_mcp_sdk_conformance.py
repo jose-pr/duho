@@ -36,7 +36,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 # A class command (`Ping`) plus one discovered MODULE command (`cmds/greet.py`)
-# -- the plan's own "a class tree plus one module command" shape -- served
+# -- a class tree plus one module command shape -- served
 # over stdio via the `<NAME>_MCP` launch trigger, exactly like a real app.
 _RUNNER = '''\
 import pathlib
@@ -105,7 +105,7 @@ def test_duho_mcp_server_satisfies_the_official_sdk_client(tmp_path):
             async with ClientSession(read, write) as session:
                 init_result = await session.initialize()
                 # The served app's own identity, not a fixed "duho.mcp" --
-                # Root has no declared _version_, so item 8's empty-string
+                # Root has no declared _version_, so the empty-string-version
                 # contract applies here too (never duho's own version).
                 assert init_result.server_info.name == "root"
                 assert init_result.server_info.version == ""

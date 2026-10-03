@@ -1,5 +1,5 @@
-"""Tests for required mutually-exclusive groups (F2) and titled argument
-groups (F3).
+"""Tests for required mutually-exclusive groups and titled argument
+groups.
 
 All classes are declared at module level so the AST-derived flag tuples
 resolve from a real file.
@@ -11,7 +11,7 @@ import pytest
 
 from duho import Arg, Args, Cmd, NS
 
-# --- F2: required mutually-exclusive groups ------------------------------
+# --- required mutually-exclusive groups -----------------------------------
 
 
 class RequiredExclusive(Args):
@@ -68,7 +68,7 @@ def test_optional_group_allows_none():
     assert parser.exclusive_groups["g"].required is False
 
 
-# --- F3: titled argument groups ------------------------------------------
+# --- titled argument groups ------------------------------------------------
 
 
 class Grouped(Args):

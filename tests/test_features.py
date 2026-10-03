@@ -434,7 +434,7 @@ class NoRunArgs(Args):
 def test_main_bare_args_not_runnable_raises_not_implemented():
     """Dispatching a bare data Args raises NotImplementedError naming it.
 
-    Since the Plan-13 Args/Cmd split, `duho.main` expects a runnable `Cmd`;
+    Since the Args/Cmd split, `duho.main` expects a runnable `Cmd`;
     a data-only `Args` (no `__call__`) fails loud rather than
     silently no-op'ing.
     """

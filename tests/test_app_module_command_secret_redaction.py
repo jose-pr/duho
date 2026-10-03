@@ -204,8 +204,8 @@ def test_module_command_placeholder_still_shows_the_class_default(
 def test_module_command_keyerror_factory_env_value_never_leaks_and_never_tracebacks(
     tmp_path, monkeypatch, capsys
 ):
-    # Mirrors the reviewer's `am.py`/`regmod.py`: a mapping-lookup `type=`
-    # factory (`REGIONS.__getitem__`) raises `KeyError`, not `ValueError` --
+    # Reproduces a mapping-lookup `type=` factory (`REGIONS.__getitem__`)
+    # that raises `KeyError`, not `ValueError` --
     # before the fix this propagated as an UNCAUGHT KeyError with the raw
     # env value both in its own message and printed in the traceback,
     # crashing every invocation of the module command (including `-h`).

@@ -190,7 +190,7 @@ def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secr
 ):
     # `AGENT_HELP=1 app SecretDeploy --help` DOES parse into the subcommand,
     # so both its env- and config-bound fields get layered for real before
-    # this fires -- the flagship leak scenario the finding reproduced.
+    # this fires -- the flagship secret-leak scenario this test guards against.
     monkeypatch.setenv("AGENT_HELP", "1")
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_SECRET", "s3cr3t-api-key")
     cfg = tmp_path / "cfg.toml"

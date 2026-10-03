@@ -1,4 +1,4 @@
-"""Tests for duho.Meta -- the typed, typo-safe alternative to NS(...) (F5).
+"""Tests for duho.Meta -- the typed, typo-safe alternative to NS(...).
 
 Also covers PEP-727 ``Doc`` duck-typing (an object with a str ``.documentation``
 attr contributes help). All classes are declared at module level so AST-derived
@@ -118,7 +118,7 @@ def test_meta_default():
 
 
 class MetaConflicts(Args):
-    """Meta carries the F2/F3 group metadata too."""
+    """Meta carries the conflict-group metadata too."""
 
     a: Arg[bool, Meta(conflicts="g", conflicts_required=True)] = False
     ("--a",)

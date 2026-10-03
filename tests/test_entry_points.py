@@ -1,4 +1,4 @@
-"""Tests for entry-points plugin discovery (F6).
+"""Tests for entry-points plugin discovery.
 
 ``duho.app(root, entry_points="group")`` -- and its underlying
 ``duho.discover_entry_points(group)`` -- load commands advertised by installed
@@ -195,8 +195,8 @@ def test_duplicated_distribution_dedupes_entry_points(tmp_path, monkeypatch):
 
 def test_entry_points_lazy_import():
     """discover_entry_points must not have been triggered by ``import duho``."""
-    # A plain import of duho never loads importlib.metadata (P1/F6). This is the
-    # per-feature guard mirrored by the plan's acceptance importtime check.
+    # A plain import of duho never loads importlib.metadata. This is the
+    # per-feature guard mirrored by the lazy-import acceptance importtime check.
     code = "import sys, duho; print('importlib.metadata' in sys.modules)"
     import subprocess
 

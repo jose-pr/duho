@@ -1,4 +1,4 @@
-"""Tests for the opt-in help formatters (F8).
+"""Tests for the opt-in help formatters.
 
 ``DefaultsFormatter`` appends ``(default: X)`` (skipping None/""/False);
 ``ColorHelpFormatter`` adds ANSI (gated on TTY / NO_COLOR / FORCE_COLOR);

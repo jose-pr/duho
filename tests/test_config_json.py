@@ -1,4 +1,4 @@
-"""Tests for JSON config files + the pluggable ``_config_loader_`` hook (F7).
+"""Tests for JSON config files + the pluggable ``_config_loader_`` hook.
 
 A ``.json`` config path is parsed as JSON (stdlib, lazily imported); a class-level
 ``_config_loader_`` overrides format dispatch entirely so a user can plug any
@@ -124,7 +124,7 @@ def test_config_loader_hook_is_called_with_path(tmp_path):
 
 
 def test_json_import_is_lazy():
-    """Importing duho must not eagerly import the json module (F7 acceptance)."""
+    """Importing duho must not eagerly import the json module."""
     import subprocess
 
     code = "import sys, duho; print('json' in sys.modules)"

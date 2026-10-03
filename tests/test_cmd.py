@@ -1,4 +1,4 @@
-"""Tests for the Plan-13 Args/Cmd split.
+"""Tests for the Args/Cmd split.
 
 Covers: Cmd.__call__ dispatch, direct callability, bare data Args is
 not runnable (clear error), the command() builder, _passthrough_ capture

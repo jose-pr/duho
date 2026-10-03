@@ -1,5 +1,5 @@
 """Tests for `duho._introspect` source-scanning: the statement-body-only
-qualname walk (P3) and the framework `_duho_constants_` seed (P2).
+qualname walk and the framework `_duho_constants_` seed.
 
 These cover that a `ClassDef` nested under any statement container -- an
 `if`/`else`, a `try`/`except`/`else`/`finally`, a function (`<locals>`), or
@@ -19,7 +19,8 @@ from duho import Args, _introspect
 
 # --- classes nested under every statement container -------------------------
 # Each is defined at module scope in THIS file (which has a real __file__), so
-# getclsdef resolves them through _module_index, exercising the P3 walk.
+# getclsdef resolves them through _module_index, exercising the statement-only
+# walk.
 
 if typing.TYPE_CHECKING or True:
 
@@ -96,7 +97,7 @@ class _Outer(duho.Args):
 def test_class_under_if_resolves():
     node = _introspect.getclsdef(_UnderIf)
     assert isinstance(node, ast.ClassDef) and node.name == "_UnderIf"
-    # And its class-body flag/docstring metadata is scanned (P2 seed on the
+    # And its class-body flag/docstring metadata is scanned (the seeded
     # framework base does not stop scanning a real field-declaring subclass).
     decl = _introspect.get_clsargs(_UnderIf)["alpha"]
     assert decl.docstring == "The alpha field."
@@ -133,11 +134,12 @@ def test_deeply_nested_class_resolves():
     assert "eta" in _introspect.get_clsargs(inner)
 
 
-# --- P3: identical _module_index output vs the exhaustive iter_child_nodes ---
+# --- identical _module_index output vs the exhaustive iter_child_nodes -----
 
 
 def _reference_index(filename):
-    """The pre-P3 exhaustive walk (iter_child_nodes on every node)."""
+    """The exhaustive walk (iter_child_nodes on every node), predating the
+    statement-only one `_module_index` now uses."""
     index = {}
     with open(filename, encoding="utf-8") as f:
         src = f.read()
@@ -171,7 +173,7 @@ def test_module_index_matches_reference_walk():
     _introspect._module_index.cache_clear()
 
 
-# --- P2: framework bases are seeded, user fields still scanned ---------------
+# --- framework bases are seeded, user fields still scanned -----------------
 
 
 def test_framework_bases_have_seeded_constants():
@@ -201,7 +203,7 @@ def test_logging_args_preset_is_source_independent():
     assert set(clsargs) == {"loglevels", "verbose", "quiet"}
 
 
-# --- P5: guard the getsource fallback for dynamically-created classes --------
+# --- guard the getsource fallback for dynamically-created classes ----------
 
 
 class _DynArgs(duho.Args):
@@ -215,7 +217,7 @@ def test_dynamic_class_build_skips_getsource(monkeypatch):
     # A duho.command(...)-generated class has no literal ClassDef in any source
     # file. _module_index of its (module) file succeeds but the qualname is
     # absent; getclsdef must return None WITHOUT re-parsing via inspect.getsource
-    # (which would fail the same lookup, only slower -- P5).
+    # (which would fail the same lookup, only slower).
     calls = []
     real_getsource = _introspect._inspect.getsource
 
@@ -234,7 +236,7 @@ def test_dynamic_class_build_skips_getsource(monkeypatch):
         assert "port" in args  # inherited field still resolves via the base
         generated._parser_()
 
-    assert calls == [], "getsource must not be called for dynamic classes (P5)"
+    assert calls == [], "getsource must not be called for dynamic classes"
 
 
 # --- The same qualname defined twice (if/else, try/except) must pick -------

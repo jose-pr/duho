@@ -299,8 +299,8 @@ class TestCamelCase:
 
 
 class TestKebabCase:
-    """Plan 38's acronym-aware kebab-case rule -- the one behind duho's
-    class-derived command names and a field's default long flag."""
+    """The acronym-aware kebab-case rule behind duho's class-derived command
+    names and a field's default long flag."""
 
     @pytest.mark.parametrize(
         "value,expected",

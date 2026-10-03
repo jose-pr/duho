@@ -1,4 +1,4 @@
-"""Tests for first-class ``dict[str, V]`` field support (F1).
+"""Tests for first-class ``dict[str, V]`` field support.
 
 A ``dict`` field accumulates ``KEY=VALUE`` tokens across repeated flags via
 ``UpdateAction``; the value half is converted through ``V``. All classes are

@@ -68,7 +68,7 @@ def test_env_var_name_from_class_name_fallback(monkeypatch):
         """No _parsername_, no name kwarg, and no usable argv[0]."""
 
     # An empty/absent argv[0] (never usable as a program name) falls all the
-    # way through to the class name -- kebab-cased (plan 38), so a multi-word
+    # way through to the class name -- kebab-cased, so a multi-word
     # class name gets a real separator in the env var too.
     monkeypatch.setattr(sys, "argv", [""])
     assert _mcp_env_var_name(SomeApp) == "SOME_APP_MCP"

@@ -1236,7 +1236,7 @@ is its ordering key. A step module may override ordering and declare dependencie
 - `PRIORITY: int` — overrides the `NN` prefix for ordering.
 - `REQUIRED: list[str]` — a **hard** dependency: names of steps that must run and
   succeed **before** this one. A missing or disabled `REQUIRED` name is a warning
-  (or, under strict, an error) — see "Strict vs. resilient" below.
+  (or, under a run-wide `strict`, an error) — see "Strict vs. resilient" below.
 - `BEFORE: list[str]` / `AFTER: list[str]` — **soft** ordering only (no
   existence/success requirement), styled after systemd's `Before=`/`After=`:
   `BEFORE = ["x"]` on a step means "I run before `x`, if `x` is present and
@@ -1362,23 +1362,25 @@ all then re-enables everything matching `build-*`.
 
 ### Strict vs. resilient
 
-The default is **resilient**, matching duho's discovery philosophy:
+A step is **strict** by default: a step whose body raises (or returns a non-zero
+code) stops the run at that step with its traceback, and later steps never run.
+What stays a **warning** by default is selection, not execution:
 
-- an `--rcopts` pattern that matches no step is a **warning**, not an error;
-- a step whose body raises is **logged and skipped** — the run continues.
+- an `--rcopts` pattern that matches no step is logged as a warning;
+- a `REQUIRED` name that is missing or disabled is logged as a warning.
 
-Passing a bare `strict`/`!strict` in `--rcopts` (e.g. `--rcopts 'strict'`) flips
-this **run-wide**: an unmatched pattern raises, a `REQUIRED` dependency naming a
-missing step raises, and — because it's the EXPLICIT run-wide token — it
-overrides every step's own filename-derived (or per-pattern `--rcopts`)
-strict setting too, uniformly. So you run resilient by default and ask for
-strict when you want a hard failure; independently, a plain step **filename**
-is fatal-on-failure by its own default even without any `--rcopts strict` at
-all, and a `!strict`-tokened one (by filename or by a matching `--rcopts`
-entry) stays resilient even in an otherwise-strict run, for exactly that one
-step (see "Filename-encoded per-step options" above) — unless the bare
-run-wide `strict`/`!strict` is passed, which wins last of all.
+`!strict` makes a step **resilient**: its failure is logged (`step test failed:
+...`) and the run continues with the next step. Spell it in the step's filename
+(`03-cleanup;!strict.py`) or for matching steps with `--rcopts 'build:!strict'`;
+it applies to that one step even in an otherwise-strict run (see
+"Filename-encoded per-step options" above).
 
+Passing a bare `strict`/`!strict` in `--rcopts` (e.g. `--rcopts 'strict'`) sets
+the policy **run-wide**: with `strict`, an unmatched pattern raises, a `REQUIRED`
+dependency naming a missing step raises, and — because it's the EXPLICIT run-wide
+token — it overrides every step's own filename-derived (or per-pattern `--rcopts`)
+strict setting, uniformly. With `!strict`, every step is resilient. The bare
+run-wide token wins last of all.
 The module's public API is `duho.runpath.RunPathCmd`, `register()`, and
 `unregister()` (`register`/`unregister` give explicit control over the provider —
 `unregister()` is what tests use to keep provider state from leaking). These are

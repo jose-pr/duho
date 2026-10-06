@@ -136,9 +136,9 @@ without reinstalling or re-importing anything. `0`, `false`, `no`, `off`, and th
 empty value all count as off; any other value enables it.
 
 Behavior is unchanged either way — this only controls how much detail is
-*logged*. A skipped command is still skipped, and a resilient step failure still
-doesn't abort the run. Use `--rcopts strict` if you want a RunPath step failure
-to actually stop the run.
+*logged*. A skipped command is still skipped, and a step marked `!strict` that
+fails is still only logged. A plain RunPath step is strict by default: its failure
+stops the run, with or without this variable.
 
 ## Logger names
 

@@ -52,6 +52,13 @@ mkdocs build --strict
 
 `python -m black src tests examples benchmarks` applies the formatting.
 
+Warnings are errors in the test run. Each leg of the CI test matrix also has a
+`max-skips` bound in `.github/workflows/test.yml`, a little above the number
+of tests that leg skips today, so a probe that silently fails (a shell that
+hangs, a missing extra) fails the leg instead of hiding as a skip. A new test
+that skips on some leg, by Python version or platform, needs that leg's bound
+raised in the same change.
+
 ## Running Benchmarks
 
 The `benchmarks/` directory (excluded from the sdist; stdlib + duho only, no

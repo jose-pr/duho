@@ -172,10 +172,14 @@ runner, for exactly the Python versions in its matrix
 (`.github/workflows/test.yml`'s `benchmark` job).
 
 `baseline.json` carries CI-matrix `3.9`/`3.13`/`3.14` entries. The gate
-compares only the keys an entry holds, so a metric the harness measures
-(`e2e_delta`, `first_build.complex`) is gated from the run that regenerates the
-baseline, and fails nothing before it. `calibration_ms` and
-`calibration_subprocess_ms` (see "Calibration" above) came from that same CI
-run's artifacts and its Regression gate step log, respectively -- measuring
-both references on the SAME run the rest of the baseline comes from is what
-makes the ratio-normalisation meaningful going forward.
+compares only the keys an entry holds, so a metric the harness starts to
+measure is gated from the run that regenerates the baseline, and fails nothing
+before it. Each entry comes from one benchmark job of one CI run: the
+Regression gate step's log gives `calibration_ms` and the warm medians, and
+that job's uploaded artifact gives `first_build.complex`, `python -c pass`
+(`calibration_subprocess_ms`) and the startup deltas. Taking a group's
+reference and its metrics from the same job is what makes the
+ratio-normalisation meaningful. Of the startup deltas the harness reports,
+the baseline records the ones named in `bench_startup.GATED_DELTAS`
+(`import_duho_delta`, `e2e_delta`); `e2e_large_delta` is reported only, since
+most of it is the interpreter compiling the padded probe file.

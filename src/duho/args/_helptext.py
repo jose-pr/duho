@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re as _re
 
 from .. import _compat as _compat
@@ -26,7 +28,7 @@ def _escape_stray_percent(text: str) -> str:
     """
     if "%" not in text:
         return text
-    pieces: "list[str]" = []
+    pieces: list[str] = []
     pos = 0
     for match in _PERCENT_PLACEHOLDER.finditer(text):
         pieces.append(text[pos : match.start()].replace("%", "%%"))

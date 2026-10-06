@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import dataclasses as _dataclasses
 import typing as _ty
@@ -29,11 +31,11 @@ if _ty.TYPE_CHECKING:
         checker, referenced exclusively through quoted annotations that are
         never evaluated at runtime."""
 
-        def parse_args(self, args=None, namespace: "_T | None" = None) -> _T:  # type: ignore
+        def parse_args(self, args=None, namespace: _T | None = None) -> _T:  # type: ignore
             raise NotImplementedError()
 
         def parse_known_args(  # type: ignore
-            self, args=None, namespace: "_T | None" = None
+            self, args=None, namespace: _T | None = None
         ) -> tuple[_T, list[str]]:
             raise NotImplementedError()
 
@@ -129,47 +131,47 @@ class Meta:
     # is what keeps every earlier field's positional index (`Meta("help
     # text")`, `Meta(..., kwargs={...})`) from silently shifting each time a
     # new one is added.
-    help: "_ty.Any" = _META_UNSET
-    env: "_ty.Any" = _META_UNSET
-    conflicts: "_ty.Any" = _META_UNSET
-    conflicts_required: "_ty.Any" = _META_UNSET
-    group: "_ty.Any" = _META_UNSET
-    action: "_ty.Any" = _META_UNSET
-    nargs: "_ty.Any" = _META_UNSET
-    const: "_ty.Any" = _META_UNSET
-    choices: "_ty.Any" = _META_UNSET
-    metavar: "_ty.Any" = _META_UNSET
-    required: "_ty.Any" = _META_UNSET
-    type: "_ty.Any" = _META_UNSET
-    version: "_ty.Any" = _META_UNSET
-    flags: "_ty.Any" = _META_UNSET
-    kwargs: "_ty.Any" = _META_UNSET
-    default: "_ty.Any" = _META_UNSET
-    enum_by: "_ty.Any" = _META_UNSET
-    literal_value: "_ty.Any" = _META_UNSET
+    help: _ty.Any = _META_UNSET
+    env: _ty.Any = _META_UNSET
+    conflicts: _ty.Any = _META_UNSET
+    conflicts_required: _ty.Any = _META_UNSET
+    group: _ty.Any = _META_UNSET
+    action: _ty.Any = _META_UNSET
+    nargs: _ty.Any = _META_UNSET
+    const: _ty.Any = _META_UNSET
+    choices: _ty.Any = _META_UNSET
+    metavar: _ty.Any = _META_UNSET
+    required: _ty.Any = _META_UNSET
+    type: _ty.Any = _META_UNSET
+    version: _ty.Any = _META_UNSET
+    flags: _ty.Any = _META_UNSET
+    kwargs: _ty.Any = _META_UNSET
+    default: _ty.Any = _META_UNSET
+    enum_by: _ty.Any = _META_UNSET
+    literal_value: _ty.Any = _META_UNSET
 
     def __init__(
         self,
-        help: "_ty.Any" = _META_UNSET,
-        env: "_ty.Any" = _META_UNSET,
-        conflicts: "_ty.Any" = _META_UNSET,
-        conflicts_required: "_ty.Any" = _META_UNSET,
-        group: "_ty.Any" = _META_UNSET,
-        action: "_ty.Any" = _META_UNSET,
-        nargs: "_ty.Any" = _META_UNSET,
-        const: "_ty.Any" = _META_UNSET,
-        choices: "_ty.Any" = _META_UNSET,
-        metavar: "_ty.Any" = _META_UNSET,
-        required: "_ty.Any" = _META_UNSET,
-        type: "_ty.Any" = _META_UNSET,
-        version: "_ty.Any" = _META_UNSET,
-        flags: "_ty.Any" = _META_UNSET,
-        kwargs: "_ty.Any" = _META_UNSET,
-        default: "_ty.Any" = _META_UNSET,
-        enum_by: "_ty.Any" = _META_UNSET,
-        literal_value: "_ty.Any" = _META_UNSET,
+        help: _ty.Any = _META_UNSET,
+        env: _ty.Any = _META_UNSET,
+        conflicts: _ty.Any = _META_UNSET,
+        conflicts_required: _ty.Any = _META_UNSET,
+        group: _ty.Any = _META_UNSET,
+        action: _ty.Any = _META_UNSET,
+        nargs: _ty.Any = _META_UNSET,
+        const: _ty.Any = _META_UNSET,
+        choices: _ty.Any = _META_UNSET,
+        metavar: _ty.Any = _META_UNSET,
+        required: _ty.Any = _META_UNSET,
+        type: _ty.Any = _META_UNSET,
+        version: _ty.Any = _META_UNSET,
+        flags: _ty.Any = _META_UNSET,
+        kwargs: _ty.Any = _META_UNSET,
+        default: _ty.Any = _META_UNSET,
+        enum_by: _ty.Any = _META_UNSET,
+        literal_value: _ty.Any = _META_UNSET,
         *,
-        dest: "_ty.Any" = _META_UNSET,
+        dest: _ty.Any = _META_UNSET,
     ) -> None:
         if dest is not _META_UNSET:
             # A dedicated message rather than the generic "unexpected keyword
@@ -196,7 +198,7 @@ class Meta:
         self.enum_by = enum_by
         self.literal_value = literal_value
 
-    def _duho_options_(self) -> "dict[str, object]":
+    def _duho_options_(self) -> dict[str, object]:
         """The explicitly-set metadata as a plain dict (unset fields omitted).
 
         Consumed by ``Args._getargs_`` in place of ``vars(self)`` so a
@@ -212,7 +214,7 @@ _HELPER_METADATA_KEYS = frozenset(
 )
 
 
-def _helper_options(kw: "dict[str, object]") -> "dict[str, object]":
+def _helper_options(kw: dict[str, object]) -> dict[str, object]:
     """Split a helper's keywords into metadata keys and raw `add_argument` ones."""
     options = {k: v for k, v in kw.items() if k in _HELPER_METADATA_KEYS}
     raw = {k: v for k, v in kw.items() if k not in _HELPER_METADATA_KEYS}
@@ -221,8 +223,8 @@ def _helper_options(kw: "dict[str, object]") -> "dict[str, object]":
 
 
 def Extend(
-    split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs: object
-) -> "_argparse.Namespace":
+    split: str | _ty.Callable[[str], _ty.Iterable], **kwargs: object
+) -> _argparse.Namespace:
     """Create a collection argument whose text is split on ``split`` first.
 
     A ``list[str]`` OPTION's own default builder already takes ``nargs=None``
@@ -262,12 +264,12 @@ def Extend(
     return _argparse.Namespace(split=splitter, **options)
 
 
-def Count(**kw: object) -> "_argparse.Namespace":
+def Count(**kw: object) -> _argparse.Namespace:
     """Create a count-action argument (e.g. `-vvv` -> 3)."""
     return NS(action="count", **_helper_options(kw))
 
 
-def Append(type: "Factory" = str, **kw: object) -> "_argparse.Namespace":
+def Append(type: Factory = str, **kw: object) -> _argparse.Namespace:
     """Create an append-action argument, accumulating repeated flag values.
 
     Explicitly clears nargs to `None` (one scalar value per flag occurrence)
@@ -278,11 +280,11 @@ def Append(type: "Factory" = str, **kw: object) -> "_argparse.Namespace":
     return NS(action="append", type=type, nargs=None, **_helper_options(kw))
 
 
-def Const(value: object, **kw: object) -> "_argparse.Namespace":
+def Const(value: object, **kw: object) -> _argparse.Namespace:
     """Create a store_const-action argument that stores `value` when present."""
     return NS(action="store_const", const=value, **_helper_options(kw))
 
 
-def Choice(*choices: object, **kw: object) -> "_argparse.Namespace":
+def Choice(*choices: object, **kw: object) -> _argparse.Namespace:
     """Restrict an argument's accepted values to `choices`."""
     return NS(choices=tuple(choices), **_helper_options(kw))

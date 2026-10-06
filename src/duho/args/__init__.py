@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import copy as _copy
 import dataclasses as _dataclasses

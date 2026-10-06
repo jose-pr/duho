@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 import weakref as _weakref
@@ -7,7 +9,7 @@ _LOGGER = _logging.getLogger("duho.args")
 #: Every sandwich-named (``_x_``) class attribute duho reads or defines on a
 #: command class. A name that resembles one of these without matching it is
 #: reported when the class's parser is first built.
-_KNOWN_ATTRS: "_ty.FrozenSet[str]" = frozenset(
+_KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
     (
         "_agent_help_",
         "_agent_help_env_",
@@ -51,7 +53,7 @@ _KNOWN_ATTRS: "_ty.FrozenSet[str]" = frozenset(
     )
 )
 
-_CHECKED: "_weakref.WeakSet[type]" = _weakref.WeakSet()
+_CHECKED: _weakref.WeakSet[type] = _weakref.WeakSet()
 
 #: Similarity an unknown attribute needs to be reported: a typo scores above it,
 #: a known name with a word added (``_config_dir_``) below.
@@ -86,9 +88,9 @@ def _warn_misspelled_attrs(cls: type) -> None:
             )
 
 
-def _claimed_keys(built: object) -> "_ty.Set[str]":
+def _claimed_keys(built: object) -> _ty.Set[str]:
     """Metadata keys a built argument accepts: every attribute its class declares."""
-    keys: "_ty.Set[str]" = set()
+    keys: _ty.Set[str] = set()
     for klass in type(built).__mro__:
         try:
             keys.update(getattr(klass, "__annotations__", None) or ())
@@ -98,7 +100,7 @@ def _claimed_keys(built: object) -> "_ty.Set[str]":
 
 
 def _warn_unknown_ns_keys(
-    cls: type, field: str, keys: "_ty.Iterable[str]", built: object
+    cls: type, field: str, keys: _ty.Iterable[str], built: object
 ) -> None:
     """Log each ``NS(...)`` key that is neither a ``Meta`` field nor claimed by ``built``."""
     from ._meta import Meta

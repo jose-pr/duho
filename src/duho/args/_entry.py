@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import logging as _logging
 import os as _os
@@ -17,7 +19,7 @@ from ._naming import _app_name
 from ._parserfix import _argv_before_subcommand
 
 
-def _logger_name_for(instance, root_cls: "type | None" = None) -> str:
+def _logger_name_for(instance, root_cls: type | None = None) -> str:
     """The logger a parsed command's ``-v``/``-q`` verbosity applies to.
 
     In order: a ``_logger_name_`` on the instance's own class (declared or
@@ -40,7 +42,7 @@ def _logger_name_for(instance, root_cls: "type | None" = None) -> str:
 
 
 def _setup_instance_logging(
-    instance, setup_logging: bool, root_cls: "type | None" = None
+    instance, setup_logging: bool, root_cls: type | None = None
 ) -> None:
     """Initialize stderr logging + apply verbosity for a parsed instance:
     the identical block ``duho.main`` and ``duho.app`` each ran
@@ -154,8 +156,8 @@ def _maybe_await(result):
 
 
 def _class_config_location(
-    cls: type, argv: "_ty.Optional[_ty.Sequence[str]]"
-) -> "_ty.Union[str, _pathlib.Path, None]":
+    cls: type, argv: _ty.Optional[_ty.Sequence[str]]
+) -> _ty.Union[str, _pathlib.Path, None]:
     """The config path ``cls`` names through ``_config_field_`` or ``_config_env_``.
 
     Order: the ``_config_field_`` field when the user gave it on the command
@@ -194,13 +196,13 @@ def _class_config_location(
 
 
 def main(
-    cls: "type[Args]",
-    argv: "_ty.Sequence[str] | None" = None,
+    cls: type[Args],
+    argv: _ty.Sequence[str] | None = None,
     *,
     setup_logging: bool = True,
-    config: "str | _pathlib.Path | None" = None,
-    utf8_stdio: "bool | None" = None,
-) -> "_ty.Any":
+    config: str | _pathlib.Path | None = None,
+    utf8_stdio: bool | None = None,
+) -> _ty.Any:
     """Build a parser for cls, parse argv, and dispatch the selected Cmd.
 
     Module-level (not a classmethod) so the Args subclass namespace stays
@@ -260,7 +262,7 @@ def main(
         config = _class_config_location(cls, argv)
 
     root_cls = cls
-    extra_cmds: "list[type]" = []
+    extra_cmds: list[type] = []
     completion_cls = None
     if (
         getattr(cls, "_mcp_command_", False) is not False
@@ -300,7 +302,7 @@ def main(
         # class, not this subclass -- so a nested `serve_running_app()` call
         # re-serves `cls`'s own tree, which never included the injected
         # subcommands to begin with (no separate exclusion logic needed).
-        extra_attrs: "dict[str, object]" = {
+        extra_attrs: dict[str, object] = {
             "__module__": cls.__module__,
             "__qualname__": cls.__qualname__,
             "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
@@ -344,12 +346,12 @@ def main(
 
 
 def parse(
-    spec: "type[_A] | _A",
-    argv: "_ty.Sequence[str] | None" = None,
+    spec: type[_A] | _A,
+    argv: _ty.Sequence[str] | None = None,
     *,
-    parser_kwargs: "_ty.Optional[_ty.Mapping[str, object]]" = None,
-    config: "str | _pathlib.Path | None" = None,
-) -> "_A":
+    parser_kwargs: _ty.Optional[_ty.Mapping[str, object]] = None,
+    config: str | _pathlib.Path | None = None,
+) -> _A:
     """Build a parser from `spec` and parse `argv` into a new instance.
 
     `spec` may be:
@@ -390,12 +392,12 @@ def parse(
 
 
 def parse_globals(
-    cls: "type[_A]",
-    argv: "_ty.Sequence[str] | None" = None,
+    cls: type[_A],
+    argv: _ty.Sequence[str] | None = None,
     *,
-    config: "str | _pathlib.Path | None" = None,
+    config: str | _pathlib.Path | None = None,
     **parser_kwargs: object,
-) -> "_A":
+) -> _A:
     """Parse ONLY a root command's global args, ignoring/relaxing subcommands.
 
     Builds ``cls``'s root parser (``cls._parser_(**parser_kwargs)``), applies
@@ -439,7 +441,7 @@ def parse_globals(
     return _prerun_parse(parser, argv)
 
 
-def finish_parse(namespace: "_argparse.Namespace") -> "Args":
+def finish_parse(namespace: _argparse.Namespace) -> Args:
     """Build the selected ``Cmd``/``Args`` instance from a ``Namespace``
     produced by attaching a duho subparser to a PLAIN, non-duho argparse
     parser -- the documented "manual subparsers" recipe

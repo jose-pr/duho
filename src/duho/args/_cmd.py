@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pathlib as _pathlib
 import sys as _sys
 import typing as _ty
@@ -42,7 +44,7 @@ class Cmd(Args):
     #: argv captured after the first literal ``--`` separator (parse-time);
     #: an empty list when no ``--`` was present. Populated on the parsed
     #: instance by ``_initparser_``'s patched ``parse_known_args``.
-    _passthrough_: "list[str]"
+    _passthrough_: list[str]
 
     #: ``False`` makes a non-empty ``--`` tail a usage error (exit 2) that
     #: names this command; ``True`` (default) captures it as ``_passthrough_``.
@@ -52,7 +54,7 @@ class Cmd(Args):
     #: On a group: the subcommand (name or alias) used when the first token
     #: that is not one of the group's own options names no subcommand.
     #: ``None`` (default) keeps the subcommand required. Read at parse time.
-    _default_subcommand_: "_ty.Optional[str]" = None
+    _default_subcommand_: _ty.Optional[str] = None
 
     def __call__(self):  # noqa: D401 - contract stub, overridden by subclasses
         """Run the command. Override ``__call__`` in a ``Cmd`` subclass.
@@ -66,7 +68,7 @@ class Cmd(Args):
         )
 
     @classmethod
-    def _register_subcmd_(cls, child: "_C") -> "_C":
+    def _register_subcmd_(cls, child: _C) -> _C:
         """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
 
         Appends ``child`` to a per-class list, materialized copy-on-write on
@@ -149,12 +151,12 @@ class Cli(Cmd):
     #: named fields are evaluated by ``typing.get_type_hints`` in
     #: ``_introspect.get_clsargs`` (before the ``_``-prefix filter drops them),
     #: so a ``|`` union would raise ``TypeError`` at parser-build time on 3.9.
-    _version_: "_ty.Optional[_ty.Union[str, _AutoVersion]]" = None
+    _version_: _ty.Optional[_ty.Union[str, _AutoVersion]] = None
 
     #: Distribution name override for ``_version_ = duho.AUTO`` when the import
     #: package differs from the PyPI distribution name. Read by
     #: ``_resolve_version``.
-    _distribution_: "_ty.Optional[str]" = None
+    _distribution_: _ty.Optional[str] = None
 
     #: When ``True``, inject ``--print-completion {bash,zsh,fish,powershell}``
     #: on the top-level parser. Read by ``_initparser_`` (``args.py``);
@@ -168,19 +170,19 @@ class Cli(Cmd):
     #: logged at debug) rather than raising -- an explicit ``config=`` kwarg to
     #: ``duho.main``/``duho.parse``/``duho.app`` stays strict. Read by
     #: ``_resolve_config_dict`` (``args.py``) via ``_apply_layers``.
-    _config_: "_ty.Optional[_ty.Union[str, _pathlib.Path]]" = None
+    _config_: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None
 
     #: Name of an environment variable holding the config file's path. A
     #: non-empty value outranks ``_config_`` (an explicit ``config=`` and
     #: ``_config_field_`` outrank it); a path named this way must exist.
-    _config_env_: "_ty.Optional[str]" = None
+    _config_env_: _ty.Optional[str] = None
 
     #: Name of a declared field whose value is the config file's path, when the
     #: user gave it on the command line or through its own env var. It
     #: outranks ``_config_env_`` and ``_config_`` (only an explicit
     #: ``config=`` outranks it); a path named this way must exist. A name that
     #: is not a declared field is a ``ValueError`` naming the class.
-    _config_field_: "_ty.Optional[str]" = None
+    _config_field_: _ty.Optional[str] = None
 
     #: Optional custom config loader ``Callable[[Path], dict]``. When set it
     #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
@@ -188,20 +190,20 @@ class Cli(Cmd):
     #: WITHOUT duho depending on it -- keeping the zero-runtime-deps contract.
     #: Read by ``_load_config`` (``args.py``) via ``_resolve_config_dict`` /
     #: ``duho.app``.
-    _config_loader_: "_ty.Optional[_ty.Callable[[_pathlib.Path], dict]]" = None
+    _config_loader_: _ty.Optional[_ty.Callable[[_pathlib.Path], dict]] = None
 
     #: Opt-in argparse help ``formatter_class``. ``None`` (default) uses
     #: argparse's plain formatter; set it to ``duho.DefaultsFormatter``,
     #: ``duho.ColorHelpFormatter``, ``duho.ColorDefaultsFormatter``, or any
     #: ``HelpFormatter`` subclass. Plumbed into ``formatter_class`` by
     #: ``Args._parser_`` (and inherited onto every subcommand parser).
-    _help_formatter_: "_ty.Optional[type]" = None
+    _help_formatter_: _ty.Optional[type] = None
 
     #: The static subcommand tree. ``None`` (the default) means "no declared
     #: subcommands"; self-registration lazily materializes a per-class list.
     #: Read via ``getattr(cls, "_subcommands_", None)`` (``args.py`` +
     #: ``runtime.py``) -- declaring it here does NOT change that contract.
-    _subcommands_: "_ty.Optional[_ty.Sequence[_ty.Type[Cmd]]]" = None
+    _subcommands_: _ty.Optional[_ty.Sequence[_ty.Type[Cmd]]] = None
 
     #: When ``True``, add the opt-in ``--help-agents`` flag (a detailed,
     #: machine-readable description of the whole CLI for AI agents). Read by
@@ -216,18 +218,18 @@ class Cli(Cmd):
     #: either truthy triggers). Set explicitly to check exactly that one
     #: variable instead -- replaces both defaults, no aliasing. Read by
     #: ``_AgentHelpAction`` (``args.py``) via ``agent_help_requested``.
-    _agent_help_env_: "_ty.Optional[str]" = None
+    _agent_help_env_: _ty.Optional[str] = None
 
     #: Optional examples surfaced in the agent-help document. A sequence of
     #: command strings, or of ``(command, description)`` pairs. ``None`` (default)
     #: lets duho synthesize a minimal invocation line. Read by
     #: ``duho.agenthelp`` when building the document.
-    _examples_: "_ty.Optional[_ty.Sequence[_ty.Any]]" = None
+    _examples_: _ty.Optional[_ty.Sequence[_ty.Any]] = None
 
     #: Optional exit-code overrides/additions for the agent-help document, as a
     #: ``{code: meaning}`` mapping merged over duho's defaults (0/1/2). ``None``
     #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
-    _exit_codes_: "_ty.Optional[_ty.Mapping[_ty.Any, str]]" = None
+    _exit_codes_: _ty.Optional[_ty.Mapping[_ty.Any, str]] = None
 
     #: When ``True`` (the default), ``duho.main``/``duho.app`` call
     #: :func:`duho.utf8_stdio` FIRST thing -- before the MCP launch trigger,
@@ -279,7 +281,7 @@ class Cli(Cmd):
     #: always reads this attribute directly. Quoted ``Union`` (not PEP 604
     #: ``|``) per the module's 3.9-quoting rule for declared class attrs
     #: (see ``_version_`` above).
-    _mcp_command_: "_ty.Union[str, bool]" = False
+    _mcp_command_: _ty.Union[str, bool] = False
 
     #: Opt-in built-in subcommand that prints a shell completion script,
     #: read by both ``duho.main`` and ``duho.app`` through the same
@@ -288,10 +290,10 @@ class Cli(Cmd):
     #: ``True``: a subcommand named ``"completion"``; a non-empty ``str``
     #: names it. It takes one positional, the shell (``bash``, ``zsh``,
     #: ``fish`` or ``powershell``), and is never an MCP tool.
-    _completion_command_: "_ty.Union[str, bool]" = False
+    _completion_command_: _ty.Union[str, bool] = False
 
     @classmethod
-    def subcommand(cls, child: "_C") -> "_C":
+    def subcommand(cls, child: _C) -> _C:
         """Decorator form of :meth:`_register_subcmd_`.
 
         Lets a command file self-attach to the root::
@@ -306,7 +308,7 @@ class Cli(Cmd):
         return cls._register_subcmd_(child)
 
 
-def subcommand(parent: "type[Cmd]") -> "_ty.Callable[[_C], _C]":
+def subcommand(parent: type[Cmd]) -> _ty.Callable[[_C], _C]:
     """Decorator factory: register the decorated class as a subcommand of ``parent``.
 
     ``parent`` is any ``Cmd`` (or ``Cli``) class acting as a group::
@@ -319,19 +321,19 @@ def subcommand(parent: "type[Cmd]") -> "_ty.Callable[[_C], _C]":
     ``parent._register_subcmd_(Build)``; registering twice is a no-op.
     """
 
-    def register(child: "_C") -> "_C":
+    def register(child: _C) -> _C:
         return parent._register_subcmd_(child)
 
     return register
 
 
 def command(
-    args_cls: "type[Args]",
-    func: "_ty.Callable[[_ty.Any], object]",
+    args_cls: type[Args],
+    func: _ty.Callable[[_ty.Any], object],
     *,
-    name: "str | None" = None,
-    module: "str | None" = None,
-) -> "type[Cmd]":
+    name: str | None = None,
+    module: str | None = None,
+) -> type[Cmd]:
     """Build a ``Cmd`` subclass from a data ``Args`` class and a callable.
 
     Lets a user attach behavior to an existing data ``Args`` without
@@ -378,7 +380,7 @@ def command(
         return _func(self)
 
     cls_name = name or getattr(args_cls, "__name__", "Command")
-    namespace: "dict[str, object]" = {
+    namespace: dict[str, object] = {
         "__call__": __call__,
         "_duho_constants_": {},
     }

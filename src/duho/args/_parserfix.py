@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import copy as _copy
 import typing as _ty
@@ -13,7 +15,7 @@ from ._meta import NOT_DEFINED, NS
 _VARIADIC_NARGS = ("*", "+", "?")
 
 
-def _has_variadic_positional(parser: "_argparse.ArgumentParser") -> bool:
+def _has_variadic_positional(parser: _argparse.ArgumentParser) -> bool:
     """True if ``parser`` has at least one variable-arity positional.
 
     Two DIFFERENT argparse papercuts both need this reorder, and between them
@@ -48,7 +50,7 @@ def _has_variadic_positional(parser: "_argparse.ArgumentParser") -> bool:
     return any(action.nargs in _VARIADIC_NARGS for action in positionals)
 
 
-def _keep_attached_double_dash(parser: "_argparse.ArgumentParser") -> None:
+def _keep_attached_double_dash(parser: _argparse.ArgumentParser) -> None:
     """Make an option's attached ``--`` value (``--k=--``, ``-k--``) reach the field.
 
     Some argparse versions strip a bare ``--`` from every action's values, so an
@@ -82,7 +84,7 @@ def _keep_attached_double_dash(parser: "_argparse.ArgumentParser") -> None:
     parser._duho_keeps_double_dash_ = True  # type: ignore[attr-defined]
 
 
-def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
+def _patch_parser_for_reorder(parser: _argparse.ArgumentParser) -> None:
     """Install JUST the flag-between-positionals reorder on a plain parser.
 
     For parsers built outside ``Args._initparser_`` -- a module command's
@@ -98,7 +100,7 @@ def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
     real_parse_known_args = parser.parse_known_args
 
     def parse_known_args(
-        args: "_ty.Sequence[str] | None" = None, namespace: "NS | None" = None
+        args: _ty.Sequence[str] | None = None, namespace: NS | None = None
     ):
         if args is not None and _has_variadic_positional(parser):
             args = _reorder_argv_for_variadic_positional(parser, list(args))
@@ -127,8 +129,8 @@ def _short_cluster(known, token: str):
 
 
 def _reorder_argv_for_variadic_positional(
-    parser: "_argparse.ArgumentParser", argv: "list[str]"
-) -> "list[str]":
+    parser: _argparse.ArgumentParser, argv: list[str]
+) -> list[str]:
     """Hoist recognized flags (+ their values) before the positional run.
 
     Preprocessing ONLY -- never decides an input is invalid. Scans ``argv``
@@ -173,8 +175,8 @@ def _reorder_argv_for_variadic_positional(
         for name in action.choices
     }
 
-    flags: "list[str]" = []
-    positionals: "list[str]" = []
+    flags: list[str] = []
+    positionals: list[str] = []
     i = 0
     n = len(argv)
     while i < n:
@@ -362,8 +364,8 @@ def _set_private_default(child_parser, dest, value) -> None:
 
 
 def _argv_before_subcommand(
-    parser: "_argparse.ArgumentParser", argv: "list[str]"
-) -> "list[str]":
+    parser: _argparse.ArgumentParser, argv: list[str]
+) -> list[str]:
     """Return the part of ``argv`` the root parser itself consumes.
 
     Stops at the first token that names one of ``parser``'s subcommands and is
@@ -414,7 +416,7 @@ def _argv_before_subcommand(
     return argv
 
 
-def _literal_value_flags(parser: "_argparse.ArgumentParser") -> "frozenset[str]":
+def _literal_value_flags(parser: _argparse.ArgumentParser) -> frozenset[str]:
     """Option strings of every ``literal_value`` option in ``parser``'s whole tree.
 
     Computed once per parser object, on its first parse.
@@ -422,8 +424,8 @@ def _literal_value_flags(parser: "_argparse.ArgumentParser") -> "frozenset[str]"
     cached = getattr(parser, "_duho_literal_flags_", None)
     if cached is not None:
         return cached
-    found: "set[str]" = set()
-    seen: "set[int]" = set()
+    found: set[str] = set()
+    seen: set[int] = set()
     pending = [parser]
     while pending:
         current = pending.pop()
@@ -440,14 +442,14 @@ def _literal_value_flags(parser: "_argparse.ArgumentParser") -> "frozenset[str]"
     return result
 
 
-def _join_literal_values(argv: "list[str]", flags: "frozenset[str]") -> "list[str]":
+def _join_literal_values(argv: list[str], flags: frozenset[str]) -> list[str]:
     """Join each literal-value option with the token after it (``--k=V`` / ``-kV``).
 
     Stops at the first bare ``--`` that is not such an option's value, leaving
     it and everything after it untouched. A short option followed by an empty
     value is left as it is, since ``-k`` + ``""`` would not keep its value.
     """
-    out: "list[str]" = []
+    out: list[str] = []
     i = 0
     n = len(argv)
     while i < n:
@@ -471,8 +473,8 @@ def _join_literal_values(argv: "list[str]", flags: "frozenset[str]") -> "list[st
 
 
 def _insert_default_subcommand(
-    parser: "_argparse.ArgumentParser", argv: "list[str]", default: str
-) -> "list[str]":
+    parser: _argparse.ArgumentParser, argv: list[str], default: str
+) -> list[str]:
     """Insert ``default`` before the first token that is not one of ``parser``'s own options.
 
     The scan skips this parser's registered options and their values. Returns

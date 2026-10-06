@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import copy as _copy
 import typing as _ty
@@ -49,7 +51,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         cls,
         name: str,
         decl: _introspect.ClsArgDeclaration,
-        factory: "Factory | None" = None,
+        factory: Factory | None = None,
     ):
         """Build this field's :class:`ArgumentBuilder` from its declaration.
 
@@ -74,7 +76,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         )
         default_flag = _default_long_flag(name)
         if flags_expr is None:
-            flags: "tuple[str, ...]" = (default_flag,)
+            flags: tuple[str, ...] = (default_flag,)
         else:
             flags = _normalise_flags(name, flags_expr, default_flag)
         required = None
@@ -174,7 +176,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 cls,
                 name: str,
                 decl: _introspect.ClsArgDeclaration,
-                factory: "Factory | None" = _factory,
+                factory: Factory | None = _factory,
             ):
                 builder = super()._argbuilder_(name, decl, factory or _factory)
                 _apply_argument_options(builder, kwargs)
@@ -183,7 +185,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         return Arg
 
 
-def _normalise_flags(name: str, flags: object, default_flag: str) -> "tuple[str, ...]":
+def _normalise_flags(name: str, flags: object, default_flag: str) -> tuple[str, ...]:
     """A declared flag sequence as a tuple, with the ``"--"`` shorthand expanded.
 
     A set (no defined order) or an empty sequence raises a ``ValueError``
@@ -205,7 +207,7 @@ def _normalise_flags(name: str, flags: object, default_flag: str) -> "tuple[str,
 _ENUM_BY = ("name", "value")
 
 
-def _enum_by_of(name: str, decl: "_introspect.ClsArgDeclaration") -> str:
+def _enum_by_of(name: str, decl: _introspect.ClsArgDeclaration) -> str:
     """The ``enum_by`` a field's ``Meta``/``NS`` metadata asks for (default ``"name"``)."""
     enum_by = "name"
     for opts in decl.annotations or ():
@@ -232,7 +234,7 @@ def _is_user_converter(func: object) -> bool:
     return module != "builtins" and module.split(".")[0] != "duho"
 
 
-def _keep_message(func: "_ty.Callable[[str], _ty.Any]"):
+def _keep_message(func: _ty.Callable[[str], _ty.Any]):
     """Wrap ``func`` so a ValueError/TypeError carrying text reaches the user.
 
     argparse replaces such an error with a generic ``invalid NAME value``;
@@ -256,7 +258,7 @@ def _keep_message(func: "_ty.Callable[[str], _ty.Any]"):
     return convert
 
 
-def _apply_argument_options(builder: "ArgumentBuilder", options: dict) -> None:
+def _apply_argument_options(builder: ArgumentBuilder, options: dict) -> None:
     """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built
     ``ArgumentBuilder``.
 
@@ -328,7 +330,7 @@ _ZERO_ARG_ACTION_DEFAULTS = {
 }
 
 
-def _is_positional(flags: "_ty.Sequence[str]") -> bool:
+def _is_positional(flags: _ty.Sequence[str]) -> bool:
     """A flag tuple whose sole entry has no leading ``-`` is a positional.
 
     The one place this decision is made -- ``ArgumentBuilder._kwargs``
@@ -358,41 +360,41 @@ class ArgumentBuilder(_argparse.Namespace):
     name: str
     flags: list[str]
     type: Factory
-    default: "None | object | _introspect.NotDefined"
+    default: None | object | _introspect.NotDefined
     help: str
-    required: "bool | None" = None
-    action: "str | type[_argparse.Action] | None" = None
-    nargs: "str|int|None" = None
-    choices: "_ty.Sequence | None" = None
-    metavar: "str | None" = None
-    const: "object | _introspect.NotDefined" = NOT_DEFINED
-    version: "str | None" = None
-    env: "str | None" = None
+    required: bool | None = None
+    action: str | type[_argparse.Action] | None = None
+    nargs: str | int | None = None
+    choices: _ty.Sequence | None = None
+    metavar: str | None = None
+    const: object | _introspect.NotDefined = NOT_DEFINED
+    version: str | None = None
+    env: str | None = None
     #: ``NS(conflicts=...)``/``Meta(conflicts=...)``'s mutually-exclusive-group
     #: key; ``None`` for a field in no group. Declared here (rather than read
     #: via ``getattr(..., "conflicts", None)``) so every consumed metadata key
     #: has ONE declaration, matching ``Meta``'s own field list.
-    conflicts: "str | None" = None
+    conflicts: str | None = None
     #: Whether THIS member's group must be satisfied (``NS(conflicts_required=True)``);
     #: a group is required if ANY of its members sets this.
     conflicts_required: bool = False
     #: ``NS(group=...)``/``Meta(group=...)``'s titled-argument-group heading;
     #: ``None`` puts the field directly on the parser/container instead.
-    group: "str | None" = None
+    group: str | None = None
     #: The raw ``add_argument`` escape hatch (``NS(kwargs={...})``/
     #: ``Meta(kwargs={...})``), applied LAST in :meth:`_kwargs` so it wins over
     #: every field-derived kwarg, including duho's own ``dest``.
-    kwargs: "_ty.Mapping[str, object] | None" = None
+    kwargs: _ty.Mapping[str, object] | None = None
     #: For a collection field (``list``/``set``/``tuple``) the target collection
     #: type; ``None`` for a scalar field. Recorded at build time so a layered
     #: (env/config) value converts to the SAME collection a CLI occurrence would
     #: produce (see :meth:`convert_layered`). ``self.type`` is then the *element*
     #: factory, not the collection factory.
-    collection: "_type | None" = None
+    collection: _type | None = None
     #: ``duho.Extend()``'s split callable, or ``None``. Consumed by
     #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
     #: the field's own element type; never read afterwards.
-    split: "_ty.Callable | None" = None
+    split: _ty.Callable | None = None
     #: True when `nargs` came from the type ladder (a `list`/`set`/`tuple`
     #: field) rather than an explicit `NS(nargs=...)` override. Lets
     #: `_kwargs` downgrade a repeatable OPTION to one value per occurrence

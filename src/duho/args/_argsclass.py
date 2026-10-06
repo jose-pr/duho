@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import copy as _copy
 import sys as _sys
@@ -52,13 +54,13 @@ if _ty.TYPE_CHECKING:
 #: set here (rather than as a real attribute) also keeps it OUT of
 #: `vars(instance)`, which would otherwise leak into the documented
 #: `type(self)(**self._get_kwargs())` clone pattern and instance equality/repr.
-_duho_explicit_instance_fields: "dict[int, frozenset]" = {}
+_duho_explicit_instance_fields: dict[int, frozenset] = {}
 
 #: {id(instance): {field: value}} -- what `Args.__init__` seeded for each field
 #: the caller did not pass. `duho.parse(instance)` counts a seeded field as set
 #: once its current value differs from this record. Kept out of `vars(instance)`
 #: and cleaned up like `_duho_explicit_instance_fields`.
-_duho_seeded_instance_values: "dict[int, dict[str, object]]" = {}
+_duho_seeded_instance_values: dict[int, dict[str, object]] = {}
 
 #: {id(instance): parser} recording which parser produced THIS specific
 #: instance, for `duho.value_sources`. Kept OUT of `vars(instance)` for the
@@ -71,7 +73,7 @@ _duho_seeded_instance_values: "dict[int, dict[str, object]]" = {}
 #: class attribute is overwritten. `value_sources` prefers this dict and
 #: only falls back to the class attribute for an instance that predates this
 #: fix, or one whose class isn't weak-referenceable.
-_duho_instance_last_parser_: "dict[int, object]" = {}
+_duho_instance_last_parser_: dict[int, object] = {}
 
 
 #: Thread-local guard against a class appearing in its own (possibly
@@ -111,14 +113,14 @@ def _guard_recursive_build(cls):
 
 
 def _add_fields(
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     cls: type,
-    exclusive_groups: "dict | None" = None,
+    exclusive_groups: dict | None = None,
     *,
-    parent_dests: "_ty.FrozenSet[str] | None" = None,
+    parent_dests: _ty.FrozenSet[str] | None = None,
     strict: bool = True,
     config_hint: bool = False,
-) -> "dict":
+) -> dict:
     """Add ``cls``'s own declared fields to ``parser`` (titled/mutually-
     exclusive groups included).
 
@@ -150,12 +152,12 @@ def _add_fields(
     # declares NS(conflicts_required=True). Groups are created lazily on the
     # first member, so pre-compute requiredness across all members here and
     # pass it at creation.
-    required_by_conflicts: "dict[str, bool]" = {}
+    required_by_conflicts: dict[str, bool] = {}
     # A `conflicts=` key must use the SAME `group=` title (or no title)
     # everywhere it appears -- otherwise members that share a conflicts=
     # string land in TWO separate mutex groups (one per title) and are no
     # longer mutually exclusive at all, silently.
-    conflicts_titles: "dict[str, object]" = {}
+    conflicts_titles: dict[str, object] = {}
     for arg in cls._getargs_():
         conflicts = arg.conflicts
         if conflicts:
@@ -192,7 +194,7 @@ def _add_fields(
     # Titled argument groups (NS(group="...")), created lazily per title.
     # Persisted on the parser so a parents=[...] merge / subclass override can
     # reuse them, mirroring `exclusive_groups`.
-    titled_groups: "dict[str, object]" = (
+    titled_groups: dict[str, object] = (
         getattr(parser, "_duho_titled_groups_", None) or {}
     )
 
@@ -302,7 +304,7 @@ class Args(_argparse.Namespace):
     #: ``run_command(SomeCmd, ...)`` failed type-checking even though they run
     #: correctly. Already excluded from CLI-field discovery like every
     #: other leading-underscore name, ``ClassVar`` or not.
-    _parsername_: "_ty.ClassVar[str]"
+    _parsername_: _ty.ClassVar[str]
 
     #: Pre-seeded empty class-body-constants cache. ``_class_constants``
     #: (``_introspect``) short-circuits on ``"_duho_constants_" in vars(cls)``,
@@ -342,7 +344,7 @@ class Args(_argparse.Namespace):
             setattr(self, key, value)
         if "_passthrough_" not in vars(self):
             self._passthrough_ = []
-        seeded: "dict[str, object]" = {}
+        seeded: dict[str, object] = {}
         for builder in type(self)._getargs_():
             name = builder.name
             if name in kwargs or name in vars(self):
@@ -367,7 +369,7 @@ class Args(_argparse.Namespace):
             pass
 
     @classmethod
-    def _getargs_(cls) -> "list[ArgumentBuilder]":
+    def _getargs_(cls) -> list[ArgumentBuilder]:
         """This class's own declared fields, as one :class:`ArgumentBuilder`
         per field, in declaration order.
 
@@ -388,7 +390,7 @@ class Args(_argparse.Namespace):
                 if _argparse.SUPPRESS in decl.annotations:
                     continue
                 options: dict = {}
-                ns_keys: "list[str]" = []
+                ns_keys: list[str] = []
                 for opts in decl.annotations:
                     # Only configuration-shaped metadata is consumed: a Mapping
                     # or a namespace-like object (has __dict__, e.g. NS(...)). A
@@ -440,15 +442,15 @@ class Args(_argparse.Namespace):
     @classmethod
     def _parser_(
         cls,
-        subparser: "_argparse._SubParsersAction | None" = None,
-        name: "str | None" = None,  # type: ignore
+        subparser: _argparse._SubParsersAction | None = None,
+        name: str | None = None,  # type: ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         _inherited_formatter_class_=None,
         _inherited_agent_root_cls_=None,
         _inherited_config_hint_=None,
         _skip_subcommands_=False,
         **kwargs,
-    ) -> "_Parser[_Self]":
+    ) -> _Parser[_Self]:
         """Build (or attach) this class's ``argparse.ArgumentParser``.
 
         ``subparser`` given -- a ``_SubParsersAction`` -- attaches a new
@@ -612,7 +614,7 @@ class Args(_argparse.Namespace):
                 # against every sibling's name and aliases the same way.
                 subcommands = list(dict.fromkeys(subcommands))
                 sibling_names = [_command_name(sub) for sub in subcommands]
-                seen_names: "dict[str, object]" = {}
+                seen_names: dict[str, object] = {}
                 for sibling, sibling_name in zip(subcommands, sibling_names):
                     own_names = [sibling_name] + list(
                         getattr(sibling, "_parseraliases_", None) or ()
@@ -692,9 +694,9 @@ class Args(_argparse.Namespace):
         cls,
         parser: _argparse.ArgumentParser,
         is_subcommand: bool = False,
-        parent_dests: "_ty.FrozenSet[str] | None" = None,
+        parent_dests: _ty.FrozenSet[str] | None = None,
         explicit_prog: bool = False,
-        agent_root_cls: "type | None" = None,
+        agent_root_cls: type | None = None,
         external_config: bool = False,
     ):
         """Populate an already-created ``parser`` with this class's own fields.
@@ -722,7 +724,7 @@ class Args(_argparse.Namespace):
         parent_dests = parent_dests if parent_dests is not None else frozenset()
 
         def parse_known_args(
-            args: "_ty.Sequence[str] | None" = None, namespace: "NS | None" = None
+            args: _ty.Sequence[str] | None = None, namespace: NS | None = None
         ):
             if namespace is None:
                 namespace = _argparse.Namespace()
@@ -737,7 +739,7 @@ class Args(_argparse.Namespace):
             # left side is parsed normally; the right side is stashed on the
             # constructed instance as `_passthrough_` (empty list when absent
             # or when multiple `--` appear, only the first splits).
-            passthrough: "list[str] | None" = None
+            passthrough: list[str] | None = None
             if not is_subcommand:
                 if args is None:
                     argv = _sys.argv[1:]
@@ -822,7 +824,7 @@ class Args(_argparse.Namespace):
                 # pops "#cls" and constructs the final instance.
                 return parsed, unk
 
-            _cls: "type[_Self]" = parsed.__dict__.pop("#cls")
+            _cls: type[_Self] = parsed.__dict__.pop("#cls")
             # Drop the `_CollectionAction`/`UpdateAction` sidecars
             # (`_duho_items_<dest>` / `_duho_dict_seen_<dest>`) before
             # constructing the instance so this internal bookkeeping never leaks

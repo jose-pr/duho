@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import sys as _sys
 import typing as _ty
@@ -41,10 +43,10 @@ def _top_level_dist_name(cls) -> str:
 #: `importlib.metadata` filesystem scan buys nothing. Caches a `None` (not
 #: found) result too, so a class using AUTO in a dev checkout is not
 #: re-scanned on every build either.
-_AUTO_VERSION_CACHE: "dict[str, str | None]" = {}
+_AUTO_VERSION_CACHE: dict[str, str | None] = {}
 
 
-def _resolve_auto_version(dist: str) -> "str | None":
+def _resolve_auto_version(dist: str) -> str | None:
     """Resolve (and cache) ``importlib.metadata.version(dist)`` for
     ``_version_ = duho.AUTO``. Never raises.
 
@@ -67,13 +69,13 @@ def _resolve_auto_version(dist: str) -> "str | None":
     # once per distinct distribution name thanks to the cache above.
     import importlib.metadata as _importlib_metadata
 
-    def _lookup(name: str) -> "str | None":
+    def _lookup(name: str) -> str | None:
         try:
             return _importlib_metadata.version(name)
         except _importlib_metadata.PackageNotFoundError:
             return None
 
-    version: "str | None" = None
+    version: str | None = None
     try:
         version = _lookup(dist)
         if version is None:
@@ -96,7 +98,7 @@ def _resolve_auto_version(dist: str) -> "str | None":
     return version
 
 
-def _resolve_version(cls) -> "str | None":
+def _resolve_version(cls) -> str | None:
     """Resolve a class's effective ``--version`` string, or None to skip it.
 
     ``_version_`` may be unset/None (no --version), an explicit str (used
@@ -162,7 +164,7 @@ def _command_name(command) -> str:
     return _kebabcase(class_name) if class_name else ""
 
 
-def _app_name(cls: "type | None", name: "str | None" = None) -> str:
+def _app_name(cls: type | None, name: str | None = None) -> str:
     """The one name an application goes by on every surface: the usage
     line, the completion script, the ``<NAME>_MCP`` variable, MCP tool names
     and the default logger. Independent of how the program was launched.
@@ -201,8 +203,8 @@ def _default_long_flag(name: str) -> str:
 
 
 def _expand_flag_shorthand(
-    name: str, flags: "_ty.Sequence[str]", default_flag: str
-) -> "tuple[str, ...]":
+    name: str, flags: _ty.Sequence[str], default_flag: str
+) -> tuple[str, ...]:
     """Expand a bare ``"--"`` entry in a declared flag tuple to
     ``default_flag`` (the field's default long flag). Any other entry passes
     through unchanged (an explicitly spelled flag is never rewritten). A

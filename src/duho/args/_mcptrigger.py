@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os as _os
 import sys as _sys
 import typing as _ty
@@ -13,10 +15,10 @@ _MCP_NAME_ALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 
 def _mcp_env_var_name(
-    cls: "_ty.Optional[type]",
+    cls: _ty.Optional[type],
     *,
     env: object = None,
-    name: "_ty.Optional[str]" = None,
+    name: _ty.Optional[str] = None,
 ) -> str:
     """The environment variable name the MCP launch trigger reads/consumes:
     ``<PREFIX>MCP`` -- the same key
@@ -36,12 +38,12 @@ def _mcp_env_var_name(
 
 
 def _maybe_serve_mcp_trigger(
-    cls: "_ty.Optional[type]",
+    cls: _ty.Optional[type],
     *,
     env: object = None,
-    name: "_ty.Optional[str]" = None,
-    core_factory: "_ty.Optional[_ty.Callable[[], object]]" = None,
-) -> "_ty.Optional[int]":
+    name: _ty.Optional[str] = None,
+    core_factory: _ty.Optional[_ty.Callable[[], object]] = None,
+) -> _ty.Optional[int]:
     """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger;
     called first thing by both :func:`main` and :func:`duho.runtime.app`,
     before anything else runs.

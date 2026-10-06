@@ -76,7 +76,9 @@ def _register_commands(
         # `_duho_module_command_` marker instead); it exists purely so
         # argparse can enforce "a subcommand is required".
         subparsers = parser.add_subparsers(
-            title="command", dest="_duho_command_", required=True
+            title="command",
+            dest="_duho_command_",
+            required=bool(resolved_commands),
         )
     else:
         # Names the root's own `_parser_` already wired up. Re-registering one

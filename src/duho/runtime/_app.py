@@ -4,6 +4,7 @@ import typing as _ty
 from pathlib import Path as _Path
 
 from .. import _compat as _compat
+from .. import parsers as _parsers
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
 from ..args._entry import _setup_instance_logging as _setup_instance_logging
@@ -106,6 +107,12 @@ def _run_app(
     # Class command (or the root itself if it is a runnable Cmd): dispatch the
     # parsed instance directly. It is already the deepest selected Cmd.
     if not isinstance(instance, _Cmd):
+        subparsers = _parsers.find_subparsers(parser)
+        if subparsers is None or not subparsers.choices:
+            parser.error(
+                "no commands are available: none came from commands=, source=, "
+                "entry_points= or CMDS_PATH, and the root is not runnable"
+            )
         raise NotImplementedError(
             f"{type(instance).__name__} holds data but is not runnable "
             f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "

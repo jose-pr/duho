@@ -101,8 +101,7 @@ class Meta:
     There is deliberately no ``dest`` field: an argument's ``dest`` is always
     its declared field name (the parsed instance attribute), so ``Meta`` raises
     a dedicated ``TypeError`` for ``dest=`` instead of a value that looks
-    honored but never is (as ``NS(dest=...)`` -- accepted, and silently
-    ignored -- does).
+    honored but never is (as ``NS(dest=...)`` -- accepted, and ignored -- does).
 
     ``flags`` is the typed, lint-clean way to give an explicit flag tuple
     (equivalent to the bare ``("-n", "--times")`` statement in the class body,
@@ -161,12 +160,11 @@ class Meta:
         dest: "_ty.Any" = _META_UNSET,
     ) -> None:
         if dest is not _META_UNSET:
-            # A dedicated message, not the generic "unexpected keyword
-            # argument" a bare **kwargs catch-all would give -- `dest` is the
-            # ONE NS(...) key `Meta` deliberately never accepts (see the
-            # class docstring), so it earns an explanation of what to use
-            # instead rather than looking like an ordinary typo.
-            raise TypeError("Meta has no 'dest' field; use NS(dest=...)")
+            # A dedicated message rather than the generic "unexpected keyword
+            # argument": `dest` is the one key `Meta` deliberately never accepts.
+            raise TypeError(
+                "Meta has no 'dest' field: an argument's dest is always its field name"
+            )
         self.help = help
         self.env = env
         self.conflicts = conflicts

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]  # PEP 639 license fields need 1.27
 build-backend = "hatchling.build"
 
 [project]
@@ -30,13 +30,15 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-colorama = ["colorama"]
-config = ["tomli; python_version < '3.11'"]
+# 0.4.6 adds just_fix_windows_console, which init_stderr_logging calls.
+colorama = ["colorama>=0.4.6,<0.5"]
+config = ["tomli>=2.0,<3; python_version < '3.11'"]
 dev = [
     "black",
     "build",
     "hatchling",
     "hypothesis",
+    "mypy",
     "pytest",
     "pytest-cov",
     "twine",

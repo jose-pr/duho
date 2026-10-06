@@ -407,3 +407,27 @@ def test_skip_check_fails_above_the_bound(tmp_path):
 def test_pytest_turns_warnings_into_errors():
     with pytest.raises(UserWarning):
         warnings.warn("a warning is an error here", UserWarning)
+
+
+# -- dependency ranges and their floors -----------------------------------------
+
+
+def test_build_backend_declares_the_hatchling_floor_the_license_fields_need():
+    assert 'requires = ["hatchling>=1.27"]' in _read(_PYPROJECT)
+
+
+@pytest.mark.parametrize("extra", ["colorama", "config"])
+def test_each_feature_extra_declares_a_floor_and_a_ceiling(extra):
+    text = _read(_PYPROJECT)
+    line = next(ln for ln in text.splitlines() if ln.startswith(f"{extra} = ["))
+    assert re.search(r">=\d[\w.]*,<\d", line), line
+
+
+def test_test_workflow_runs_the_suite_at_the_declared_floors():
+    text = _read(_WORKFLOWS / "test.yml")
+    assert "\n  floors:" in text
+    assert "pip install -c floors.txt" in text
+
+
+def test_dev_extra_carries_mypy_for_the_typing_surface_test():
+    assert '"mypy",' in _read(_PYPROJECT)

@@ -109,6 +109,46 @@ jobs:
           if skipped > limit:
               sys.exit("more tests skipped than this leg expects: see the -rs list above")
 
+  floors:
+    # The manifest's lowest declared version of every runtime dependency and
+    # feature extra, on the oldest supported Python: a range whose floor no
+    # longer works is caught here, not by a user.
+    name: Test at the declared dependency floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: Pin every declared dependency to its floor
+        shell: python
+        run: |
+          import re
+          import subprocess
+          import sys
+
+          subprocess.run([sys.executable, "-m", "pip", "install", "-q", "tomli"], check=True)
+          import tomli
+
+          project = tomli.load(open("pyproject.toml", "rb"))["project"]
+          specs = list(project.get("dependencies", []))
+          for extra, deps in project.get("optional-dependencies", {}).items():
+              if extra not in ("dev", "docs"):
+                  specs += deps
+          pins = []
+          for spec in specs:
+              m = re.match(r"^\s*([A-Za-z0-9._-]+)(\[[^\]]*\])?\s*[^;]*?>=\s*([^,;\s]+)", spec)
+              if m:
+                  pins.append("%s==%s" % (m.group(1), m.group(3)))
+          open("floors.txt", "w").write("\n".join(pins) + "\n")
+          print("\n".join(pins) or "(no floors declared)")
+      - name: Install at the floors
+        run: python -m pip install -c floors.txt -e ".[dev,colorama,config]"
+      - name: Run tests
+        run: python -m pytest -q
+
   format:
     # black is standard on this project (kb/PYTHON.md); --check makes CI fail
     # on unformatted code instead of relying on a developer running it locally.

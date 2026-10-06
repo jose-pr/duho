@@ -126,7 +126,7 @@ def app(
     root: "type | None" = None,
     *,
     commands: "_ty.Sequence[_Command] | None" = None,
-    source: "str | _Path | None" = None,
+    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]" = None,
     entry_points: "str | None" = None,
     argv: "_ty.Sequence[str] | None" = None,
     name: "str | None" = None,
@@ -138,6 +138,7 @@ def app(
     mcp: "bool | None" = None,
     mcp_command: "str | bool | None" = None,
     utf8_stdio: "bool | None" = None,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
 ) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
@@ -220,6 +221,15 @@ def app(
     ``dispatch`` is ``None`` the behavior is byte-identical to calling
     :func:`run_command` directly, so existing callers are unaffected.
 
+    ``source`` may also be a list or tuple of sources (a later source replaces
+    an earlier command of the same name; see :func:`~duho.discovery.discover_commands`).
+    ``on_error(source, exc)`` is the per-command error policy: it is passed to
+    discovery (``source`` is then the file or module that failed) and called
+    when registering one command raises (``source`` is then the command); returning
+    skips that command, raising aborts. ``None`` keeps the default: discovery skips
+    only ``ImportError``/``NotImplementedError`` with a warning and registration
+    errors propagate.
+
     **MCP launch trigger.** Checked FIRST, before ``argv``
     is parsed or anything else here runs: a ``<PREFIX>MCP``/``<NAME>_MCP``
     environment variable (name derived from ``env``'s prefix, else from
@@ -279,6 +289,7 @@ def app(
                 env=env,
                 config=config,
                 dispatch=dispatch,
+                on_error=on_error,
             )
 
         served = _maybe_serve_mcp_trigger(
@@ -298,7 +309,13 @@ def app(
     # its own warning.
     cmds_path_overridden: "set[str]" = set()
     resolved_commands = _resolve_commands(
-        root, commands, source, env, entry_points, overridden=cmds_path_overridden
+        root,
+        commands,
+        source,
+        env,
+        entry_points,
+        overridden=cmds_path_overridden,
+        on_error=on_error,
     )
 
     mcp_cls = _build_mcp_command_class(
@@ -324,6 +341,7 @@ def app(
         prepass_args,
         cmds_path_overridden,
         inherited_config_hint=config is not None,
+        on_error=on_error,
     )
 
     required_root_actions = _finalize_command_tree(
@@ -404,7 +422,7 @@ def _build_app_core(
     root: "type | None" = None,
     *,
     commands: "_ty.Sequence[_Command] | None" = None,
-    source: "str | _Path | None" = None,
+    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]" = None,
     entry_points: "str | None" = None,
     argv: "_ty.Sequence[str] | None" = None,
     name: "str | None" = None,
@@ -412,6 +430,7 @@ def _build_app_core(
     env: "_Env | None" = None,
     config: "str | _Path | None" = None,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
 ) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
     """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
     dispatching -- the building block :mod:`duho.mcp` needs to serve an
@@ -444,7 +463,13 @@ def _build_app_core(
     """
     cmds_path_overridden: "set[str]" = set()
     resolved_commands = _resolve_commands(
-        root, commands, source, env, entry_points, overridden=cmds_path_overridden
+        root,
+        commands,
+        source,
+        env,
+        entry_points,
+        overridden=cmds_path_overridden,
+        on_error=on_error,
     )
 
     parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
@@ -460,6 +485,7 @@ def _build_app_core(
         prepass_args,
         cmds_path_overridden,
         inherited_config_hint=config is not None,
+        on_error=on_error,
     )
 
     _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)

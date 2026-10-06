@@ -305,7 +305,8 @@ just its annotation.
   encoding" above.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
-  dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None) -> Any`** —
+  dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None, on_error=None)
+  -> Any`** —
   multi-command runner (return type is `Any`, not `int`,
   for the same reason as `main`: a command's non-`None`, non-`int` return value
   passes straight through). Base command-set precedence:
@@ -396,7 +397,8 @@ empty when absent).
 - **`import_from_path(base_name, path) -> ModuleType`** — import a `.py` file under a
   `sys.modules` key derived from `base_name` (uniquified), reusing a cached module on a
   repeat import of the same file (matched by resolved path + mtime).
-- **`discover_commands(source) -> list[Command]`** — walk a package or directory; collects
+- **`discover_commands(source, *, on_error=None, providers=False) -> list[Command]`** —
+  walk a package or directory; collects
   both class commands (module-boundary deduped) and one `ModuleCommand` per entrypoint
   module. Result sorted by subcommand name. **Resilience**: catches only `(ImportError,
   NotImplementedError)` per command (logs + skips); everything else (e.g. `SyntaxError`)

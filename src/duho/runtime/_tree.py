@@ -29,6 +29,7 @@ def _register_commands(
     prepass_args: object,
     cmds_path_overridden: "set[str]",
     inherited_config_hint: bool = False,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
 ) -> "tuple[_argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]]":
     """Register every resolved command on ``parser`` and resolve collisions.
 
@@ -43,6 +44,10 @@ def _register_commands(
     resolved class command (``commands=``/``source=``/CMDS_PATH) -- see that
     function's docstring for why a command resolved this way needs it too,
     not just one reachable via a root's static ``_subcommands_`` tree.
+
+    ``on_error(command, exc)``, when given, is called for an exception raised
+    while building one command's parser (a ``register`` hook included):
+    returning drops that command, raising aborts.
     """
     notices: "list[tuple[int, str]]" = []
 
@@ -167,27 +172,35 @@ def _register_commands(
                 if claimed[n][1] is prev_obj:
                     del claimed[n]
 
-        if kind == "class":
-            command_cls = _ty.cast(type, command)
-            child_parser = _register_class_command(
-                subparsers,
-                command_cls,
-                base_parser,
-                inherited_config_hint=inherited_config_hint,
-            )
-            # Link this class command's own parser to the app root
-            # so its (and, recursively, any of ITS OWN nested subcommands')
-            # provenance merges upward once actually selected -- the same
-            # mechanism the static `_subcommands_` tree gets in `Args._parser_`.
-            child_parser._duho_parent_parser_ = parser  # type: ignore[attr-defined]
-        else:
-            _register_module_command(
-                subparsers,
-                _ty.cast(_ModuleCommand, command),
-                base_parser,
-                prepass_args,
-                root_cls,
-            )
+        try:
+            if kind == "class":
+                command_cls = _ty.cast(type, command)
+                child_parser = _register_class_command(
+                    subparsers,
+                    command_cls,
+                    base_parser,
+                    inherited_config_hint=inherited_config_hint,
+                )
+                # Link this class command's own parser to the app root
+                # so its (and, recursively, any of ITS OWN nested subcommands')
+                # provenance merges upward once actually selected -- the same
+                # mechanism the static `_subcommands_` tree gets in `Args._parser_`.
+                child_parser._duho_parent_parser_ = parser  # type: ignore[attr-defined]
+            else:
+                _register_module_command(
+                    subparsers,
+                    _ty.cast(_ModuleCommand, command),
+                    base_parser,
+                    prepass_args,
+                    root_cls,
+                )
+        except (Exception, SystemExit) as exc:
+            if on_error is None:
+                raise
+            on_error(command, exc)
+            # Drop whatever the failed build left registered under its names.
+            _deregister_subparser(subparsers, cmd_name)
+            continue
         registry[cmd_name] = (kind, command)
         for n in names:
             claimed[n] = (kind, command)

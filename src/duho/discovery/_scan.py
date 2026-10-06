@@ -19,10 +19,32 @@ from ._command import (
     is_class_command,
 )
 from ._importing import import_from_path
+from ._providers import _match_provider
 
 # --------------------------------------------------------------------------
 # Discovery
 # --------------------------------------------------------------------------
+
+
+def _handle_error(
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]",
+    source: object,
+    exc: BaseException,
+    message: str,
+    *,
+    skippable: "tuple[type, ...]" = (ImportError, NotImplementedError),
+) -> None:
+    """Skip ``exc`` per the error policy, or re-raise the exception being handled.
+
+    With ``on_error`` the callback decides (it returns to skip, raises to abort).
+    Without one, only ``skippable`` exceptions are logged and skipped.
+    """
+    if on_error is not None:
+        on_error(source, exc)
+        return
+    if not isinstance(exc, skippable):
+        raise
+    _log_exception(_LOGGER, message, source, exc, level=_logging.WARNING)
 
 
 def _iter_class_commands(module: object) -> "_ty.Iterator[type]":
@@ -178,10 +200,34 @@ def _is_bare_drive_source(source: object) -> bool:
     return False
 
 
-def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
+def discover_commands(
+    source: "_ty.Union[str, _os.PathLike, _Path, _ty.Sequence[_ty.Union[str, _os.PathLike, _Path]]]",
+    *,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    providers: bool = False,
+) -> "list[Command]":
     """Discover commands from a package name or a directory, resiliently.
 
-    ``source`` is dispatched by shape:
+    ``source`` may also be a list or tuple of sources: each is discovered on its
+    own, a command of the same name in a later source replaces the earlier one,
+    and the merged result is sorted by name as below. An empty sequence gives
+    ``[]``. Each member goes through the same checks as a single source.
+
+    ``on_error(source, exc)``, when given, replaces the resilience rule below:
+    it is called for any exception (``SystemExit`` included) raised while
+    importing one file or one package module, building its commands, or building
+    a provider command, with ``source`` the file ``Path``, the dotted module
+    name, or the provider directory. Returning skips that one; raising aborts
+    discovery. ``None`` keeps the rule below.
+
+    ``providers=True`` (filesystem sources only) first offers the source
+    directory itself, then each of its child directories not starting with ``_``
+    or ``.``, to the registered command providers
+    (:func:`register_command_provider`); a matching one builds a command named
+    from the directory (``_`` as ``-``). A source directory a provider claims
+    yields that one command and its files are not scanned. Off by default.
+
+    A single ``source`` is dispatched by shape:
 
     * a ``Path``/``os.PathLike``, or a ``str`` containing ``/`` or ``\\`` ->
       **filesystem**: iterate ``sorted(dir.glob("*.py"))``, skip
@@ -230,6 +276,14 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
     The result is sorted by resolved subcommand name for deterministic
     ``--help`` output (filesystem iteration order is OS-dependent).
     """
+    if isinstance(source, (list, tuple)):
+        merged: "dict[str, Command]" = {}
+        for member in source:
+            for command in discover_commands(
+                member, on_error=on_error, providers=providers
+            ):
+                merged[_command_name(command)] = command
+        return sorted(merged.values(), key=_command_name)
     if _is_empty_source(source):
         raise ValueError(
             "discover_commands(): an empty source is never valid -- it would "
@@ -249,15 +303,24 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
         else []
     )
     if namespace_dirs:
-        commands = [c for d in namespace_dirs for c in _discover_from_path(d)]
+        commands = [
+            c
+            for d in namespace_dirs
+            for c in _discover_from_path(d, on_error=on_error, providers=providers)
+        ]
     elif _looks_like_path(source):
-        commands = _discover_from_path(_Path(source))
+        commands = _discover_from_path(
+            _Path(source), on_error=on_error, providers=providers
+        )
     else:
-        commands = _discover_from_package(str(source))
+        commands = _discover_from_package(str(source), on_error=on_error)
     return sorted(commands, key=_command_name)
 
 
-def _discover_from_package(dotted_name: str) -> "list[Command]":
+def _discover_from_package(
+    dotted_name: str,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+) -> "list[Command]":
     import pkgutil as _pkgutil
 
     package = _importlib.import_module(dotted_name)
@@ -279,19 +342,21 @@ def _discover_from_package(dotted_name: str) -> "list[Command]":
         try:
             submodule = _importlib.import_module(sub_name)
             commands.extend(_commands_in_module(submodule, stem=stem))
-        except (ImportError, NotImplementedError) as exc:
-            _log_exception(
-                _LOGGER,
-                "skipping command module %r during discovery: %s",
+        except (Exception, SystemExit) as exc:
+            _handle_error(
+                on_error,
                 sub_name,
                 exc,
-                level=_logging.WARNING,
+                "skipping command module %r during discovery: %s",
             )
-            continue
     return commands
 
 
-def _discover_from_path(directory: "_Path") -> "list[Command]":
+def _discover_from_path(
+    directory: "_Path",
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    providers: bool = False,
+) -> "list[Command]":
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
     Only a lower-case ``.py`` suffix counts: Windows' case-insensitive ``glob``
@@ -330,8 +395,18 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
     if not directory.is_dir():
         raise ImportError("not a directory: %s" % directory, path=_os.fspath(directory))
 
+    if providers:
+        claimed = _provider_command(directory, on_error)
+        if claimed is not None:
+            return claimed
+
     resolved_dir = directory.resolve()
     commands: "list[Command]" = []
+    if providers:
+        for child in sorted(directory.iterdir()):
+            if child.name.startswith(("_", ".")) or not child.is_dir():
+                continue
+            commands.extend(_provider_command(child, on_error) or ())
     dirstr = _os.fspath(directory)
     running = _running_script()
     for path in sorted(directory.glob("*.py")):
@@ -345,13 +420,9 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
         module = None
         try:
             module = import_from_path("duho._discovered." + stem, path)
-        except (ImportError, NotImplementedError) as exc:
-            _log_exception(
-                _LOGGER,
-                "skipping command file %s during discovery: %s",
-                path,
-                exc,
-                level=_logging.WARNING,
+        except (Exception, SystemExit) as exc:
+            _handle_error(
+                on_error, path, exc, "skipping command file %s during discovery: %s"
             )
             continue
         finally:
@@ -366,8 +437,46 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
                     continue
                 if _module_inside(_sys.modules.get(extra), resolved_dir):
                     _sys.modules.pop(extra, None)
-        commands.extend(_commands_in_module(module, stem=stem))
+        try:
+            commands.extend(_commands_in_module(module, stem=stem))
+        except (Exception, SystemExit) as exc:
+            _handle_error(
+                on_error,
+                path,
+                exc,
+                "skipping command file %s during discovery: %s",
+                skippable=(),
+            )
     return commands
+
+
+def _provider_command(
+    directory: "_Path",
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]",
+) -> "_ty.Optional[list[Command]]":
+    """The one-command list a registered provider builds for ``directory``, or ``None``.
+
+    ``None`` means no provider claims it. A build that fails is handled like a
+    failing command file, and gives ``[]`` when skipped.
+    """
+    builder = _match_provider(directory.absolute())
+    if builder is None:
+        return None
+    try:
+        return [
+            _ty.cast(
+                Command,
+                builder(directory.absolute(), directory.name.replace("_", "-")),
+            )
+        ]
+    except (Exception, SystemExit) as exc:
+        _handle_error(
+            on_error,
+            directory,
+            exc,
+            "skipping command directory %s during discovery: %s",
+        )
+        return []
 
 
 def _running_script() -> "_Path | None":

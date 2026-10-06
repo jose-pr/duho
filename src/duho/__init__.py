@@ -53,6 +53,7 @@ from .logging import (
     init_stderr_logging,
     parse_loglevels,
 )
+from .parsers import command_name
 from .presets import LoggingArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run_command
@@ -113,6 +114,7 @@ __all__ = [
     "ColorDefaultsFormatter",
     "ColorHelpFormatter",
     "command",
+    "command_name",
     "Command",
     "completion",
     "Const",

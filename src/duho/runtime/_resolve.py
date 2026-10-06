@@ -17,7 +17,10 @@ if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
 _LOGGER = _logging.getLogger(__package__)
 
 
-def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
+def _cmds_path_commands(
+    env: "_Env | None",
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+) -> "list[_Command]":
     """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
 
     Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
@@ -101,7 +104,7 @@ def _cmds_path_commands(env: "_Env | None") -> "list[_Command]":
             _LOGGER.warning("CMDS_PATH entry %r is not a directory; skipping", segment)
             continue
         try:
-            discovered.extend(_discover_commands(path))
+            discovered.extend(_discover_commands(path, on_error=on_error))
         except ImportError as exc:
             _log_exception(
                 _LOGGER,
@@ -155,10 +158,11 @@ def _merge_discovered(
 def _resolve_commands(
     root: "type | None",
     commands: "_ty.Sequence[_Command] | None",
-    source: "str | _Path | None",
+    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]",
     env: "_Env | None",
     entry_points: "str | None" = None,
     overridden: "set[str] | None" = None,
+    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
 ) -> "list[_Command]":
     """Resolve the command set for :func:`app` by precedence.
 
@@ -202,7 +206,7 @@ def _resolve_commands(
     if commands is not None:
         base = list(commands)
     elif source is not None:
-        base = _discover_commands(source)
+        base = _discover_commands(source, on_error=on_error)
     elif entry_points is not None:
         base = _discover_entry_points(entry_points)
     else:
@@ -210,7 +214,9 @@ def _resolve_commands(
             list(getattr(root, "_subcommands_", []) or []) if root is not None else []
         )
 
-    return _merge_discovered(base, _cmds_path_commands(env), overridden=overridden)
+    return _merge_discovered(
+        base, _cmds_path_commands(env, on_error), overridden=overridden
+    )
 
 
 def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":

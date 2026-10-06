@@ -421,6 +421,7 @@ class Args(_argparse.Namespace):
         _inherited_formatter_class_=None,
         _inherited_agent_root_cls_=None,
         _inherited_config_hint_=None,
+        _skip_subcommands_=False,
         **kwargs,
     ) -> "_Parser[_Self]":
         """Build (or attach) this class's ``argparse.ArgumentParser``.
@@ -561,7 +562,7 @@ class Args(_argparse.Namespace):
                 # An inherited list may name a class being built right now (a
                 # subcommand that subclasses its own root); leave that one out.
                 subcommands = [s for s in subcommands or () if id(s) not in _build_ids]
-            if subcommands:
+            if subcommands and not _skip_subcommands_:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
                 # A kebab-cased class-derived name can collide with
                 # a SIBLING's -- `FooBar` and `Foo_Bar` both resolve to

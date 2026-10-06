@@ -4,7 +4,6 @@ import typing as _ty
 from pathlib import Path as _Path
 
 from .. import logging as _duho_logging
-from .. import parsers as _parsers
 from ..args import Args as _Args
 from .._layers import (
     _apply_default_layers_one as _apply_default_layers_one,
@@ -71,16 +70,13 @@ def _build_parser(
     parser = root_cls._parser_(  # type: ignore[attr-defined]
         **parser_kwargs, _inherited_config_hint_=has_config
     )
-    base_parser = root_cls._parser_(  # type: ignore[attr-defined]
-        add_help=False, _inherited_config_hint_=has_config
-    )
     # base_parser exists only to donate the root's *options* to each subcommand
-    # via `parents=`. When the root carries `_subcommands_`, `_parser_` also gave
-    # it a subparsers action -- inheriting that would nest the whole command tree
-    # under every subcommand and make its `command` argument required again
-    # ("Root greet ... {hello} ... error: the following arguments are required:
-    # command"). Drop it; only optionals should flow downward.
-    _parsers.strip_subparsers(base_parser)
+    # via `parents=`. Inheriting a subparsers action would nest the whole command
+    # tree under every subcommand and make its `command` argument required
+    # again, so it is built without the root's `_subcommands_`.
+    base_parser = root_cls._parser_(  # type: ignore[attr-defined]
+        add_help=False, _inherited_config_hint_=has_config, _skip_subcommands_=True
+    )
     return parser, base_parser, root_cls
 
 

@@ -37,11 +37,13 @@ Three layers, thin glue between them:
   ``argparse`` subparsers action): such a node can never itself dispatch
   successfully, so it is not listed as a tool at all; its own fields are
   still merged into every one of its descendants' schemas, and it is still
-  reachable through them. Only the static class tree is exposed -- a command
-  reached only via ``duho.app``'s dynamic ``source=``/``commands=``/
-  ``CMDS_PATH`` resolution, or a module command, is out of scope for v1; the
-  ``<app>`` given to :func:`serve`/``python -m duho.mcp`` must be a
-  ``Cmd``/``Cli`` subclass.
+  reachable through them. Two kinds of tree are served: a ``Cmd``/``Cli``
+  class's static ``_subcommands_`` tree (what :func:`serve` and
+  ``python -m duho.mcp <app>`` take, so ``<app>`` there must be a
+  ``Cmd``/``Cli`` subclass), and a full ``duho.app()`` tree -- class AND
+  module commands from ``source=``/``commands=``/``CMDS_PATH`` -- served
+  through the ``<NAME>_MCP`` environment trigger, an ``mcp_command``
+  subcommand, or :func:`serve_running_app`.
 * :func:`call_tool` -- step 3. Resolves a tool name back to its node in that
   same cached tree, synthesizes an argv for its FULL path (its own ancestors'
   fields, in order, with the subcommand name token between each level, then

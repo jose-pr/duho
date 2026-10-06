@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -31,6 +32,22 @@ from duho import Cli, Cmd, LoggingArgs, _compat, app, main
 # --------------------------------------------------------------------------
 # Unit tests: duho._compat.utf8_stdio
 # --------------------------------------------------------------------------
+
+
+class _SysWithoutUtf8Mode:
+    """``sys`` as seen by ``duho._compat``, reporting Python's UTF-8 mode off."""
+
+    flags = types.SimpleNamespace(utf8_mode=0)
+
+    def __getattr__(self, name):
+        return getattr(sys, name)
+
+
+@pytest.fixture(autouse=True)
+def _utf8_mode_off(monkeypatch):
+    """The unit tests assume a locale-encoded interpreter, whatever
+    ``PYTHONUTF8`` the suite was started with (the flag is fixed at startup)."""
+    monkeypatch.setattr(_compat, "_sys", _SysWithoutUtf8Mode())
 
 
 def _fake_stream(encoding="cp1252", isatty=False):
@@ -133,7 +150,6 @@ def test_default_streams_target_real_stdout_and_stderr(monkeypatch):
     fake_err.reconfigure = _record  # type: ignore[method-assign]
     monkeypatch.setattr(sys, "stdout", fake_out)
     monkeypatch.setattr(sys, "stderr", fake_err)
-    monkeypatch.setattr(_compat, "_sys", sys)
     switched = _compat.utf8_stdio()
     assert switched == []  # both "failed" (by design) but neither raised
     assert calls == {"encoding": "utf-8", "errors": "backslashreplace"}

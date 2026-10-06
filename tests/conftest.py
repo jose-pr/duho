@@ -187,7 +187,13 @@ _RISKY_ENV_VARS = (
     "FORCE_COLOR",
     "PATHSEP",
     "DUHO_TRACEBACK",
+    "PYTHONUTF8",
+    "PYTHONIOENCODING",
 )
+
+# The terminal width argparse wraps help to; pinned so help-text assertions do
+# not depend on the width of the terminal the suite is run from.
+_PINNED_COLUMNS = "80"
 
 # Env-var prefixes used by fixture ``Env`` instances across the suite (e.g.
 # ``Env("ma")``); a stray same-prefixed variable in the outer environment
@@ -200,8 +206,11 @@ def _isolate_environ(monkeypatch: pytest.MonkeyPatch):
     for name in _RISKY_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     for name in list(os.environ):
-        if name.startswith(_RISKY_ENV_PREFIXES):
+        # A `<PROG>_MCP` variable launches the in-process `duho.main` as an MCP
+        # server, and the runner's own name (`PYTEST_MCP`) is such a variable.
+        if name.startswith(_RISKY_ENV_PREFIXES) or name.endswith("_MCP"):
             monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("COLUMNS", _PINNED_COLUMNS)
 
 
 # --------------------------------------------------------------------------

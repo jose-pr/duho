@@ -52,7 +52,7 @@ _PLUMBING = frozenset({">", ">>", "<", "|", "||", "&", "&&", ";"})
 _ERROR_COMMENT = re.compile(r"\s#\s*error\b")
 
 #: Fewer marked blocks than this means markers were dropped.
-_MARKED_FLOOR = 48
+_MARKED_FLOOR = 51
 
 
 def _marker_before(lines: "list[str]", fence_line: int) -> str:

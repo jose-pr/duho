@@ -1,15 +1,16 @@
 # duho
 
-[![PyPI version](https://img.shields.io/pypi/v/duho.svg)](https://pypi.org/project/duho/)
+[![Version](https://img.shields.io/pypi/v/duho.svg)](https://pypi.org/project/duho/)
 [![Python versions](https://img.shields.io/pypi/pyversions/duho.svg)](https://pypi.org/project/duho/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jose-pr/duho/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://jose-pr.github.io/duho/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/jose-pr/duho/blob/main/LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/jose-pr/duho/test.yml)](https://github.com/jose-pr/duho/actions/workflows/test.yml)
 
 **Duho** is a declarative CLI framework for Python that turns the complexity of building command-line applications into simple, type-safe class definitions.
 
 Named after the sacred Taíno ceremonial stool—a symbol of power and authority—duho provides the **foundation** from which you command your application.
 
-Full documentation: https://jose-pr.github.io/duho/
+[Full documentation](https://jose-pr.github.io/duho/)
 
 ## Features
 
@@ -18,12 +19,24 @@ Full documentation: https://jose-pr.github.io/duho/
 - **Logging**: Integrated colored logging with configurable verbosity levels
 - **Subcommands**: Easily compose multi-command CLI applications
 - **Extensible**: Customize argument behavior with protocols and builders
+- **Layered defaults**: Environment variables and TOML or JSON config files sit under the command line, and `duho.value_sources` reports which layer supplied each value
+- **Shell completion**: Static bash, zsh, fish and PowerShell completion scripts, generated from the same declarations
+- **Agent help**: A machine-readable `--help` document, and the same classes served as MCP tools
+- **Discovery**: Commands from loose files, packages or installed entry points, plus ordered step directories (RunPath)
+- **Opt-in modules**: Target fan-out, launcher scaffolding and the MCP server, none imported unless you ask
 
 ## Installation
 
 ```bash
 pip install duho
 ```
+
+duho has no required runtime dependencies. Each extra adds one optional integration:
+
+| Extra | Install | Adds |
+| --- | --- | --- |
+| `colorama` | `pip install duho[colorama]` | Named log colors (`color="red"`) and ANSI rendering on a legacy Windows console; log color itself needs no extra |
+| `config` | `pip install duho[config]` | `tomli`, to read TOML config files on Python 3.9 and 3.10 (3.11+ has `tomllib`); JSON config needs nothing |
 
 ### Optional Dependencies
 
@@ -79,6 +92,143 @@ explicit flags tuple only for:
 A bare `"--"` entry inside a tuple expands to that same default long flag, so
 you can pair a short flag with it without spelling it out:
 `("-n", "--")` → `("-n", "--name")`.
+
+### A runnable command
+
+`Args` is data; `Cmd` adds `__call__`, and `duho.main` builds the parser, parses
+`argv`, runs the command and returns its exit code:
+
+<!-- runnable -->
+```python
+import duho
+from duho import Cmd
+
+class Greet(Cmd):
+    """Print a greeting."""
+
+    name: str = "world"
+    "Who to greet"
+
+    def __call__(self):
+        print(f"Hello, {self.name}!")
+
+if __name__ == "__main__":
+    raise SystemExit(duho.main(Greet))
+```
+
+```bash
+python greet.py --name Alice
+```
+
+### Subcommands
+
+A root lists its subcommands in `_subcommands_`; `duho.main` dispatches to the
+selected one:
+
+<!-- runnable: commands -->
+```python
+import duho
+from duho import Cli, Cmd
+
+class Serve(Cmd):
+    """Start the development server."""
+
+    port: int = 8000
+    "Port to listen on"
+
+    def __call__(self):
+        print(f"serving on {self.port}")
+
+class Build(Cmd):
+    """Build the project."""
+
+    output: str = "dist"
+    "Output directory"
+
+    def __call__(self):
+        print(f"building to {self.output}")
+
+class App(Cli):
+    _subcommands_ = [Serve, Build]
+
+if __name__ == "__main__":
+    raise SystemExit(duho.main(App))
+```
+
+```bash
+python app.py serve --port 3000
+python app.py build
+python app.py --help
+```
+
+### Layered defaults
+
+A field can take its default from an environment variable (`NS(env=...)`) or a
+config file; the command line wins over both. `duho.value_sources` tells you
+which layer supplied each value:
+
+<!-- runnable -->
+```python
+import duho
+from duho import Arg, Cmd, NS
+
+class Deploy(Cmd):
+    """Deploy the application."""
+
+    token: Arg[str, NS(env="DEPLOY_TOKEN")] = "none"
+    "Auth token"
+
+    def __call__(self):
+        source = duho.value_sources(self)["token"]
+        print(f"token {self.token!r} came from {source}")
+
+if __name__ == "__main__":
+    raise SystemExit(duho.main(Deploy))
+```
+
+```bash
+python deploy.py --token abc
+```
+
+With `DEPLOY_TOKEN=abc` set and no `--token`, the same program reports `env`.
+
+## Command line
+
+Two opt-in modules run as `python -m`:
+
+| Command | What it does |
+| --- | --- |
+| `python -m duho.scaffold <app>` | Writes `bin/<app>` and `bin/<app>.cmd` launchers that run the app from a checkout (`--root`, `--libdir`, `--python`, `--force`) |
+| `python -m duho.mcp <app>` | Serves a CLI's commands as MCP tools over stdio; `<app>` is `module:ClassName` |
+
+```bash
+python -m duho.scaffold --help
+python -m duho.mcp --help
+```
+
+## API overview
+
+Everything in the first row is importable from the top-level `duho`; the other
+modules are imported by name. The full reference is on the
+[documentation site](https://jose-pr.github.io/duho/api/reference/).
+
+| Module | Purpose |
+| --- | --- |
+| `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`NS`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `value_sources`, `utf8_stdio`, `AUTO` |
+| `duho.discovery` | `discover_commands`, `discover_entry_points`, `CmdBuilder`, `ModuleCommand`, `register_command_provider` |
+| `duho.env` | `Env`, the prefixed, typed environment accessor |
+| `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
+| `duho.formatters` | `DefaultsFormatter`, `ColorHelpFormatter`, `ColorDefaultsFormatter` for `_help_formatter_` |
+| `duho.presets` | `LoggingArgs`, the `-v`/`-q`/`--loglevel` mixin |
+| `duho.agenthelp` | The machine-readable `--help` document (`describe`, `print_agent_help`) |
+| `duho.completion` | bash, zsh, fish and PowerShell completion-script generation |
+| `duho.text` | `expand`, `pysafe`, `camelcase`, `snakecase`, `kebabcase` |
+| `duho.qualname` | Dotted-name algebra for command qualified names |
+| `duho.parsers` | Subparser helpers (`pop_action`, `find_subparsers`, `command_name`, ...) |
+| `duho.fanout` | Opt-in: run one command against many targets and roll up the exit codes |
+| `duho.runpath` | Opt-in: ordered `NN-name.py` step directories as one command |
+| `duho.scaffold` | Opt-in: generate run-from-checkout launchers |
+| `duho.mcp` | Opt-in: expose a CLI as MCP tools |
 
 ## Guide
 
@@ -348,7 +498,7 @@ so give a field a docstring to see its `(default: …)`.)
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses
 `argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
 verbosity (for classes mixing in `LoggingArgs`), and runs the command. The class
-must be a `duho.Cmd` (see [Commands: Args vs Cmd](#commands-args-vs-cmd) below) —
+must be a `duho.Cmd` (see [Commands: Args vs Cmd](https://github.com/jose-pr/duho/#commands-args-vs-cmd) below) —
 `main` dispatches the parsed instance via `__call__`:
 
 > **`main` vs `app` — which entry point?** Use **`duho.main(cls)`** for a command
@@ -551,7 +701,7 @@ print(f"Deploying to {args.environment} (dry-run: {args.dry_run})")
 
 `duho.parser(cls, ...)` is the module-level entry point for building a parser
 (delegates to `cls._parser_(...)`). `duho.parse(spec, argv=None, *,
-parser_kwargs=None)` goes one step further and parses in a single call:
+parser_kwargs=None, config=None)` goes one step further and parses in a single call:
 
 ```python
 import duho
@@ -715,7 +865,7 @@ class MyApp(LoggingArgs, Cmd):
 
 `duho.main()` calls `self._set_loglevels_()` for you before dispatching the
 command (pass `setup_logging=False` to opt out). `-v`/`-q` raise the
-application's logger (see [the application's name](#the-applications-name))
+application's logger (see [the application's name](https://github.com/jose-pr/duho/#the-applications-name))
 for every command, whether or not the command is itself a `LoggingArgs`;
 `_logger_name_` on a command, or on the root, names a different one. If you drive the parser
 yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
@@ -766,7 +916,7 @@ python app.py --print-completion powershell | Out-String | Invoke-Expression
 `_completion_` is off by default (matches the `_version_` opt-in precedent) —
 set it to add the `--print-completion {bash,zsh,fish,powershell}` flag, which
 registers the emitted script under the [application's
-name](#the-applications-name). You can also generate a script without adding
+name](https://github.com/jose-pr/duho/#the-applications-name). You can also generate a script without adding
 the flag at all, via the standalone function:
 
 ```python
@@ -1006,7 +1156,7 @@ parent's list is never mutated by a subclass). It composes with a
 statically-declared `_subcommands_` (union + dedup — a child listed both ways
 appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form. Once the
 command files are imported, `duho.main(MyApp)` sees the full tree (use `duho.app` if
-you also want discovery/config/env — see [main vs app](#run-your-app)).
+you also want discovery/config/env — see [main vs app](https://github.com/jose-pr/duho/#run-your-app)).
 
 #### App-wide config & env with `duho.app`
 
@@ -1664,7 +1814,7 @@ stdio server.
 
 Every `Cmd` reachable through your root's `_subcommands_` tree, recursively,
 becomes one tool, named by its command path under the
-[application's name](#the-applications-name) (`app.parent.child`; e.g. a root
+[application's name](https://github.com/jose-pr/duho/#the-applications-name) (`app.parent.child`; e.g. a root
 named `my-app` with a `Deploy` child → `my-app.deploy`). A node whose own
 subcommand is mandatory — a root or group that only holds subcommands — is never
 listed as a tool: its fields are merged into the input schema of each descendant
@@ -1727,7 +1877,7 @@ $ MYAPP_MCP=stdio myapp
 
 The variable name is `<PREFIX>MCP` when the app supplies an `Env` (`app(env=Env
 ("myapp"))` → `MYAPP_MCP`), else `<NAME>_MCP` derived from the [application's
-name](#the-applications-name) (upper-cased, every character outside `[A-Z0-9]`
+name](https://github.com/jose-pr/duho/#the-applications-name) (upper-cased, every character outside `[A-Z0-9]`
 replaced by `_`) — e.g. an app named `some-app` → `SOME_APP_MCP`. Set to `stdio`, it serves the
 app's full tool tree over stdio instead of running any command; set to anything
 else, the process exits `2` naming the unsupported transport. The variable is
@@ -1761,7 +1911,7 @@ before anything is registered, never silently swallowed.
 
 The dotted tool-name namespace, and the `serverInfo` an MCP client sees in its
 `initialize` response, both follow the [application's
-name](#the-applications-name):
+name](https://github.com/jose-pr/duho/#the-applications-name):
 
 ```python
 app(Dotagents, name="dotagents")   # tools come out "dotagents.*"
@@ -1873,6 +2023,26 @@ the actual filesystem work — the point is the CLI); the other three show
 ## Development
 
 Contributions welcome! See [CONTRIBUTING.md](https://github.com/jose-pr/duho/blob/main/CONTRIBUTING.md) for guidelines.
+
+```bash
+git clone https://github.com/jose-pr/duho.git
+cd duho
+pip install -e ".[dev,colorama,config]"
+pytest
+python -m black --check src tests examples benchmarks
+```
+
+`pip install -e ".[dev,docs,colorama,config]"` adds the documentation tooling;
+`mkdocs build --strict` builds the site as CI does. Run the suite on the oldest
+supported Python (3.9) as well as the newest.
+
+### Releasing
+
+A release is a `v*` tag, pushed by a maintainer. The version is written in
+`pyproject.toml` and in `src/duho/__init__.py` (a test fails if they differ), the
+change is described in `CHANGELOG.md`, and the Release workflow tests, builds,
+verifies the wheel and publishes to PyPI. See
+[CONTRIBUTING.md](https://github.com/jose-pr/duho/blob/main/CONTRIBUTING.md#releasing).
 
 ## License
 

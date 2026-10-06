@@ -72,6 +72,10 @@ def _raw_env_values(cls, env=None) -> "dict[str, object]":
     return resolved
 
 
+class _TomlBackendMissing(RuntimeError):
+    """No TOML reader (``tomllib``/``tomli``) is importable."""
+
+
 def _load_config(
     path: "str | _pathlib.Path",
     loader: "_ty.Callable[[_pathlib.Path], dict] | None" = None,
@@ -118,7 +122,7 @@ def _load_config(
         try:
             import tomli as _toml  # type: ignore[import-not-found,no-redef]
         except ImportError:
-            raise RuntimeError(
+            raise _TomlBackendMissing(
                 "duho: reading a config file requires a TOML backend. "
                 "Python 3.11+ has one built in (tomllib); on earlier "
                 "versions, install the optional 'tomli' package "
@@ -200,9 +204,18 @@ def _resolve_config_or_error(
     parser: "_argparse.ArgumentParser", cls, config: "str | _pathlib.Path | None"
 ) -> dict:
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
-    config through ``parser.error`` like a bad value (usage line, exit 2)."""
+    config through ``parser.error`` like a bad value (usage line, exit 2).
+
+    A missing TOML backend is held on the parser and reported once parsing
+    finishes (:func:`_finalize_layers`), so ``--help`` and ``--version`` still
+    work; the config layer is then empty.
+    """
+    parser._duho_config_error_ = None  # type: ignore[attr-defined]
     try:
         return _resolve_config_dict(cls, config)
+    except _TomlBackendMissing as exc:
+        parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
+        return {}
     except ValueError as exc:
         parser.error(str(exc))
         raise  # pragma: no cover - parser.error always raises SystemExit
@@ -517,6 +530,9 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
     exit 2), never a raw traceback -- for THIS parser only, i.e. only
     once the user's invocation actually reached it.
     """
+    config_error = getattr(parser, "_duho_config_error_", None)
+    if config_error:
+        parser.error(config_error)
     placeholders: "dict[str, object]" = (
         getattr(parser, "_duho_placeholders_", None) or {}
     )

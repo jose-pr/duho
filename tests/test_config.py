@@ -487,7 +487,9 @@ def test_empty_env_str_field_keeps_empty_string(monkeypatch):
     sys.version_info >= (3, 11),
     reason="tomllib is always available on 3.11+; the fallback-missing path can't occur",
 )
-def test_missing_toml_backend_raises_clear_runtimeerror(tmp_path, monkeypatch):
+def test_missing_toml_backend_is_reported_with_a_clear_error(
+    tmp_path, monkeypatch, capsys
+):
     import builtins
 
     real_import = builtins.__import__
@@ -502,8 +504,10 @@ def test_missing_toml_backend_raises_clear_runtimeerror(tmp_path, monkeypatch):
     cfg = tmp_path / "duho.toml"
     cfg.write_text('host = "x"\n')
 
-    with pytest.raises(RuntimeError, match="tomli"):
+    with pytest.raises(SystemExit) as excinfo:
         duho.parse(ConfigArgs, [], config=cfg)
+    assert excinfo.value.code == 2
+    assert "tomli" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------

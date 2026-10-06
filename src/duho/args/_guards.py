@@ -1,4 +1,3 @@
-import difflib as _difflib
 import logging as _logging
 import typing as _ty
 import weakref as _weakref
@@ -49,6 +48,10 @@ _KNOWN_ATTRS: "_ty.FrozenSet[str]" = frozenset(
 
 _CHECKED: "_weakref.WeakSet[type]" = _weakref.WeakSet()
 
+#: Similarity an unknown attribute needs to be reported: a typo scores above it,
+#: a known name with a word added (``_config_dir_``) below.
+_ATTR_CUTOFF = 0.85
+
 
 def _warn_misspelled_attrs(cls: type) -> None:
     """Log, once per class, each sandwich attribute that nearly matches a known one."""
@@ -65,7 +68,10 @@ def _warn_misspelled_attrs(cls: type) -> None:
             or attr in _KNOWN_ATTRS
         ):
             continue
-        close = _difflib.get_close_matches(attr, _KNOWN_ATTRS, n=2, cutoff=0.8)
+        # Imported here: only a class that has such an attribute pays for it.
+        import difflib as _difflib
+
+        close = _difflib.get_close_matches(attr, _KNOWN_ATTRS, n=2, cutoff=_ATTR_CUTOFF)
         if len(close) == 1:
             _LOGGER.warning(
                 "%s declares %r, which duho does not read; did you mean %r?",
@@ -98,6 +104,8 @@ def _warn_unknown_ns_keys(
     for key in dict.fromkeys(keys):
         if key in known:
             continue
+        import difflib as _difflib
+
         close = _difflib.get_close_matches(key, sorted(Meta.__dataclass_fields__), n=1)
         hint = f"; closest Meta field: {close[0]!r}" if close else ""
         _LOGGER.warning(

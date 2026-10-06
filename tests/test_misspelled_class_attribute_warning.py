@@ -2,6 +2,8 @@
 
 import logging
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import duho
@@ -67,3 +69,39 @@ def test_header_attributes_are_known():
     names = set(re.findall(r"`(_[a-z][a-z_]*_)`", text))
     names = {n for n in names if not n.startswith("_duho_")}
     assert names - set(_KNOWN_ATTRS) == set()
+
+
+def test_a_known_name_with_a_word_added_is_silent(caplog):
+    class Longer(duho.Cli):
+        _config_dir_ = "etc"
+        _examples_dir_ = "examples"
+
+        def __call__(self):
+            return 0
+
+    with caplog.at_level(logging.WARNING, logger="duho.args"):
+        duho.parser(Longer)
+    assert _warnings(caplog) == []
+
+
+def test_a_clean_class_does_not_import_difflib():
+    from conftest import subprocess_env
+
+    code = (
+        "import sys, duho\n"
+        "class Clean(duho.Cmd):\n"
+        "    _version_ = '1'\n"
+        "    name: str = 'x'\n"
+        "    def __call__(self):\n"
+        "        return 0\n"
+        "assert duho.main(Clean, []) == 0\n"
+        "print('difflib' in sys.modules)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "False"

@@ -99,6 +99,20 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
     return index
 
 
+def _own_annotations(cls: type) -> "dict[str, object]":
+    """``cls``'s own (never inherited) annotations, without raising on one that
+    cannot be evaluated: on 3.14 (lazy annotations) such a value comes back as
+    a ``ForwardRef``; before that ``vars(cls)`` holds them already evaluated.
+    """
+    try:
+        import annotationlib  # type: ignore[import-not-found]  # 3.14+
+    except ImportError:
+        return dict(vars(cls).get("__annotations__", {}))
+    return dict(
+        annotationlib.get_annotations(cls, format=annotationlib.Format.FORWARDREF)
+    )
+
+
 def _pick_live_classdef(
     cls: type, candidates: "list[_ast.ClassDef]"
 ) -> "_ast.ClassDef | None":
@@ -132,7 +146,7 @@ def _pick_live_classdef(
             if firstlineno in lines:
                 return node
 
-    own_annotations = set(vars(cls).get("__annotations__", {}))
+    own_annotations = set(_own_annotations(cls))
     own_doc = cls.__doc__
 
     def _annotated_names(node: "_ast.ClassDef") -> "set[str]":
@@ -290,26 +304,9 @@ def _class_constants(cls: type) -> "dict[str, list]":
     if cls.__module__ not in _SKIP_MODULES:
         clsdef = getclsdef(cls)
         if clsdef is None:
-            # Never `getattr(cls, "__annotations__", None)`: on Python 3.9,
-            # that FOLLOWS THE MRO when `cls` itself declares no annotations
-            # of its own, silently returning an ancestor's `__annotations__`
-            # instead -- so a plain subclass with no fields of its own
-            # (RunPath's generated command classes, e.g.) spuriously
-            # inherited its base's annotations and logged this warning on
-            # every run. `inspect.get_annotations` (3.10+) is the correct,
-            # non-inheriting way to ask "does `cls` ITSELF declare any" --
-            # it also transparently handles PEP 649's lazy `__annotate__`
-            # (3.14+), where a class's own annotations are NOT necessarily
-            # materialized into `vars(cls)["__annotations__"]` at all, so a
-            # plain `vars(cls).get("__annotations__")` would (wrongly) never
-            # find them even for a class that plainly declares its own.
-            # `inspect.get_annotations` doesn't exist yet on the 3.9 floor,
-            # where `vars(cls)` alone is already correct (no lazy mechanism
-            # to account for).
-            if hasattr(_inspect, "get_annotations"):
-                has_own_annotations = bool(_inspect.get_annotations(cls))
-            else:
-                has_own_annotations = bool(vars(cls).get("__annotations__"))
+            # `getattr(cls, "__annotations__")` would follow the MRO on 3.9 and
+            # report an ancestor's fields as this class's own.
+            has_own_annotations = bool(_own_annotations(cls))
             if has_own_annotations:
                 # A class with annotated fields whose source we could not locate
                 # (a PyInstaller/py2exe freeze, a .pyc-only install, Nuitka, REPL/
@@ -500,7 +497,7 @@ def _raw_public_annotations(base: type) -> "dict[str, object]":
             if isinstance(node, _ast.AnnAssign) and isinstance(node.target, _ast.Name):
                 raw[node.target.id] = _ast.unparse(node.annotation)
     else:
-        raw = dict(vars(base).get("__annotations__", {}))
+        raw = _own_annotations(base)
     return {k: v for k, v in raw.items() if not k.startswith("_")}
 
 

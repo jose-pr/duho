@@ -113,6 +113,34 @@ is no `dest=` override; `NS(kwargs={"dest": ...})` is the raw `add_argument` esc
 hatch). `subcommand` on a `Cli` subclass is a *different*, non-raising gotcha — see
 above.
 
+### Class attributes
+
+Every sandwich-named attribute duho reads. `Cli` declares the root ones as typed
+attributes; each is also honoured through `getattr`, so a plain `Cmd` (or any class) may
+set it. A "root" attribute is read on the class `main`/`app` was called with; a
+"command" attribute on each command class.
+
+| Attribute | Type | Default | Applies to | Effect |
+| --- | --- | --- | --- | --- |
+| `_version_` | `str \| duho.AUTO \| None` | `None` | root | adds `--version`; `AUTO` reads installed package metadata |
+| `_distribution_` | `str \| None` | `None` | root | distribution name for `AUTO` when it differs from the import package |
+| `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
+| `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |
+| `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in JSON/TOML dispatch |
+| `_help_formatter_` | `type \| None` | `None` | root, command | argparse `formatter_class`; a root's value propagates to its subcommands |
+| `_subcommands_` | `Sequence[type[Cmd]] \| None` | `None` | root, command | the static subcommand tree; nests |
+| `_agent_help_` | `bool` | `False` | root | adds the `--help-agents` flag |
+| `_agent_help_env_` | `str \| None` | `None` | root | the one env var that switches `--help` to agent mode, replacing `AGENT_HELP`/`AGENTS_HELP` |
+| `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
+| `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
+| `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
+| `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
+| `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
+| `_parsername_` | `str` | kebab-case class name | command | the subcommand name (and the application's name on a root) |
+| `_parseraliases_` | `Sequence[str]` | none | command | extra subcommand names |
+| `_runpath_dir_` | `Path \| None` | `None` | `duho.runpath.RunPathCmd` subclass | the directory of `NN-name.py` steps; the provider sets it |
+| `_logger_name_` | `str \| None` | the application's name | root, command | the logger `-v`/`-q`/`--loglevel` raise and `self._logger_` returns; a command's own wins over the root's |
+
 ### Field metadata helpers (use inside `Arg[T, ...]`)
 
 `Arg` is `typing.Annotated` (`from typing import Annotated as Arg`; same runtime object,
@@ -132,6 +160,8 @@ just its annotation.
   class-definition time instead of `NS(dest=...)`'s silently-ignored value. `flags=`
   and `default=` are the typed equivalents of `NS(flags=...)`/`NS(default=...)`. Only
   explicitly-set fields are merged; an unknown keyword to `Meta(...)` is a `TypeError`.
+- **`argparse.SUPPRESS`** — placed anywhere in a field's metadata (`Arg[str, argparse.SUPPRESS]`)
+  it hides the field from the command line entirely: no flag, no parsed value.
 - **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.
 - **`Const(value, **kw)`** — `store_const`-action: stores `value` when the flag is present.
 - **`Count(**kw)`** — count-action (`-vvv` → `3`).
@@ -324,7 +354,10 @@ empty when absent).
 - **`ModuleCommand`** — adapts a command `.py` module (plain wrapper, not a `ModuleType`
   subclass). `_parsername_` = module `_parsername_` override, else file stem with
   `_`→`-`. Entrypoint `main` (fallback `run`/`call`); optional hooks `register`/`init`/
-  `success`/`finally_`. A module with no entrypoint raises `NotImplementedError` (→ skipped).
+  `success`/`finally_`, held as plain attributes (`cmd.register`, ...) that may be
+  reassigned. `cmd.module` is the wrapped module. A module-level `_mcp_ = False` leaves
+  the command out of the MCP tools. A module with no entrypoint raises
+  `NotImplementedError` (→ skipped).
   `args_cls` — an optional module-level `Args` declaring the module's own CLI fields
   DECLARATIVELY, an alternative to adding everything imperatively in `register`. Either
   a real `Args` subclass (strict, not `Args`/`Cmd` themselves — a bare `from duho import
@@ -427,7 +460,9 @@ empty when absent).
   flags — long spellings work alongside the short ones), and `--loglevel
   [NAME:]LEVEL[,...]` (a per-logger level spec, NOT a generic `KEY=VALUE` dict grammar —
   `LEVEL` matches a registered level name case-insensitively or a plain integer, e.g.
-  `--loglevel mypkg.sub:DEBUG,other:20`). `_logger_` (the logger `-v`/`-q` apply to: a
+  `--loglevel mypkg.sub:DEBUG,other:20`). Its fields are `verbose: int`, `quiet: int`
+  (the two counts, readable as `self.verbose`/`self.quiet`) and `loglevels: dict[str, int]`.
+  `_logger_` (the logger `-v`/`-q` apply to: a
   `_logger_name_` on the command's class, else one on the root that dispatched it, else
   the application's name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the NUMERIC level,
   e.g. `logging.DEBUG` — not a level name). `VERBOSE_LEVELS` is most-severe-first;

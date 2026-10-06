@@ -83,3 +83,62 @@ def test_every_exported_name_is_mentioned_in_header(module_name):
     assert (
         not missing
     ), f"{module_name}.__all__ names missing from {_HEADER_PATH.name}: {missing}"
+
+
+# --- class-attribute table -------------------------------------------------
+
+#: Sandwich-named attributes duho reads through ``getattr`` that ``Cli`` does
+#: not declare; the header's attribute table documents each.
+_EXTRA_CLASS_ATTRIBUTES = ("_parsername_", "_parseraliases_", "_logger_name_")
+
+#: Names the source scan can match that are methods, instance members or
+#: placeholders in a docstring rather than configuration attributes.
+_NOT_CONFIGURATION = frozenset(
+    {
+        "_logger_",
+        "_x_",
+        "_register_subcmd_",
+        "_argbuilder_",
+        "_passthrough_",
+        "_set_loglevels_",
+        "_verbose_loglevel_",
+        "_wants_app_shape_",
+    }
+)
+
+_ATTRIBUTE_NAME = re.compile(r"_[a-z][a-z0-9]*(?:_[a-z0-9]+)*_")
+_GETATTR_NAME = re.compile(
+    r"""getattr\(\s*[\w.()]+\s*,\s*["'](_[a-z][a-z0-9_]*_)["']"""
+)
+
+
+def _attribute_table_names(text: str) -> "set[str]":
+    """First-column names of the header's "Class attributes" table."""
+    section = text.split("### Class attributes", 1)[1].split("\n#", 1)[0]
+    names = set()
+    for line in section.splitlines():
+        if line.startswith("|"):
+            cell = line.split("|")[1].strip().strip("`")
+            if _ATTRIBUTE_NAME.fullmatch(cell):
+                names.add(cell)
+    return names
+
+
+def _configuration_attributes() -> "set[str]":
+    declared = {
+        name
+        for name in vars(duho.Cli)
+        if _ATTRIBUTE_NAME.fullmatch(name) and not name.startswith("_duho_")
+    }
+    read = set()
+    for path in sorted(_HEADER_PATH.parent.rglob("*.py")):
+        read.update(_GETATTR_NAME.findall(path.read_text(encoding="utf-8")))
+    read = {name for name in read if not name.startswith("_duho_")}
+    return (declared | read | set(_EXTRA_CLASS_ATTRIBUTES)) - _NOT_CONFIGURATION
+
+
+def test_class_attribute_table_covers_every_attribute_duho_reads():
+    """Every ``Cli`` attribute and every name read via ``getattr`` is tabulated."""
+    text = _HEADER_PATH.read_text(encoding="utf-8")
+    missing = sorted(_configuration_attributes() - _attribute_table_names(text))
+    assert not missing, f"class attributes missing from the header table: {missing}"

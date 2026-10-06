@@ -161,6 +161,39 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
     return _factory
 
 
+def _enum_value_factory(enum_cls: type, field: str) -> "Factory":
+    """Build a factory that resolves CLI text to an enum member by ``str(value)``.
+
+    Two members whose values render to the same text cannot be told apart, so
+    that is a build-time ``ValueError`` naming ``field``. An alias (a second
+    name for the same member) is not a clash. Raises :class:`_ConversionError`
+    for text that matches no member, like :func:`_enum_name_factory`.
+    """
+    by_text: "dict[str, object]" = {}
+    for member in enum_cls.__members__.values():
+        text = str(member.value)
+        prior = by_text.setdefault(text, member)
+        if prior is not member:
+            raise ValueError(
+                f"argument {field!r}: enum_by='value' needs distinct value "
+                f"text, but {prior.name} and {member.name} of "
+                f"{enum_cls.__name__} both render as {text!r}"
+            )
+    canonical = tuple(str(member.value) for member in enum_cls)
+
+    def _factory(text: str, /, _by_text=by_text, _canonical=canonical):
+        try:
+            return _by_text[text]
+        except (KeyError, TypeError):
+            raise _ConversionError(
+                f"invalid choice: {text!r} (choose from {', '.join(_canonical)})"
+            ) from None
+
+    _factory._duho_choices_ = canonical  # type: ignore[attr-defined]
+    _factory.__name__ = enum_cls.__name__
+    return _factory
+
+
 class _CollectionAction(_argparse.Action):
     """Extend-and-coerce action for ``list``/``set``/``tuple`` collection
     fields.
@@ -471,7 +504,7 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
     return _FieldSpec(factory, tuple(args), metavar, None, None, NOT_DEFINED, None)
 
 
-def _union_spec(members: "list", name: str) -> "_FieldSpec":
+def _union_spec(members: "list", name: str, enum_by: str = "name") -> "_FieldSpec":
     """Spec for a Union of ``members`` (``None`` already stripped).
 
     Each member is resolved through :func:`_factory_for` so a member like
@@ -490,7 +523,7 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
     bare type conversion happens not to raise -- a union field never
     gets argparse's own ``choices=`` kwarg, so this is the only enforcement.
     """
-    member_specs = [_member_spec(m, name) for m in members]
+    member_specs = [_member_spec(m, name, enum_by) for m in members]
     resolved_factories = [
         spec.factory if spec.factory is not None else member
         for member, spec in zip(members, member_specs)
@@ -551,17 +584,21 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
     return _scalar_spec(factory)
 
 
-def _enum_spec(tp: type) -> "_FieldSpec":
-    """Spec for an ``enum.Enum`` annotation: a choose-by-name factory
-    plus a ``{member,...}`` metavar built from the same canonical names."""
-    names = tuple(member.name for member in tp)
+def _enum_spec(tp: type, name: str = "", enum_by: str = "name") -> "_FieldSpec":
+    """Spec for an ``enum.Enum`` annotation: a choose-by-name (or, with
+    ``enum_by="value"``, by-value-text) factory plus a ``{member,...}``
+    metavar built from the same canonical choices."""
+    if enum_by == "value":
+        factory = _enum_value_factory(tp, name)
+        names = factory._duho_choices_  # type: ignore[attr-defined]
+    else:
+        factory = _enum_name_factory(tp)
+        names = tuple(member.name for member in tp)
     metavar = "{" + ",".join(names) + "}"
-    return _FieldSpec(
-        _enum_name_factory(tp), None, metavar, None, None, NOT_DEFINED, None
-    )
+    return _FieldSpec(factory, None, metavar, None, None, NOT_DEFINED, None)
 
 
-def _dict_spec(key_ty, val_ty, name: str) -> "_FieldSpec":
+def _dict_spec(key_ty, val_ty, name: str, enum_by: str = "name") -> "_FieldSpec":
     """Spec for a ``dict[K, V]`` annotation: ``KEY=VALUE`` tokens merged via
     :class:`UpdateAction`. Bare ``dict`` == ``dict[str, str]``. Only ``str``
     keys are supported (a CLI token's key half is always text); rejected
@@ -572,14 +609,16 @@ def _dict_spec(key_ty, val_ty, name: str) -> "_FieldSpec":
             f"argument {name!r}: dict key type must be str, got {key_ty!r} "
             f"(a CLI KEY=VALUE token's key is always text)"
         )
-    val_factory, _val_choices, _val_metavar = _element_spec(val_ty, name, "dict value")
+    val_factory, _val_choices, _val_metavar = _element_spec(
+        val_ty, name, "dict value", enum_by
+    )
     return _FieldSpec(
         _KVFactory(name, val_factory), None, "KEY=VALUE", UpdateAction, None, {}, dict
     )
 
 
 def _sequence_spec(
-    collection: type, elem_ty, name: str, what: str, default
+    collection: type, elem_ty, name: str, what: str, default, enum_by: str = "name"
 ) -> "_FieldSpec":
     """Spec for a homogeneous ``list``/``set``/``frozenset``/variadic
     ``tuple[T, ...]`` annotation.
@@ -590,7 +629,7 @@ def _sequence_spec(
     ``"*"`` nargs are identical across all four, so this is the one place
     that wiring is written.
     """
-    factory, choices, metavar = _element_spec(elem_ty, name, what)
+    factory, choices, metavar = _element_spec(elem_ty, name, what, enum_by)
     return _FieldSpec(
         factory,
         choices,
@@ -631,14 +670,14 @@ def _unwrap_type_alias(tp):
         return tp
 
 
-def _member_spec(member, name: str) -> "_FieldSpec":
+def _member_spec(member, name: str, enum_by: str = "name") -> "_FieldSpec":
     """:func:`_factory_for` for a Union member or a collection element, except
     that a type with its own ``_argbuilder_`` (the ``Argument`` protocol)
     supplies its factory, choices and metavar through that builder.
     """
     builder_hook = getattr(member, "_argbuilder_", None)
     if not (isinstance(member, type) and callable(builder_hook)):
-        return _factory_for(member, name)
+        return _factory_for(member, name, enum_by)
     from ._introspect import ClsArgDeclaration
 
     built = builder_hook(
@@ -652,7 +691,7 @@ def _member_spec(member, name: str) -> "_FieldSpec":
     )
 
 
-def _element_spec(elem_ty, name: str, what: str) -> "tuple":
+def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> "tuple":
     """Resolve a collection ELEMENT or dict VALUE type through the same
     ladder a top-level field uses, so an enum element matches by
     name, a date element parses ISO text, a bool element parses strictly,
@@ -667,7 +706,7 @@ def _element_spec(elem_ty, name: str, what: str) -> "tuple":
     argparse's own ``choices=`` kwarg (it validates the whole collection's
     converted value, not each element).
     """
-    spec = _member_spec(elem_ty, name)
+    spec = _member_spec(elem_ty, name, enum_by)
     if spec.action is not None or spec.collection is not None:
         raise ValueError(
             f"argument {name!r}: {what} element type {elem_ty!r} is itself "
@@ -688,7 +727,7 @@ def _element_spec(elem_ty, name: str, what: str) -> "tuple":
     return factory, spec.choices, spec.metavar
 
 
-def _factory_for(tp, name: str) -> "_FieldSpec":
+def _factory_for(tp, name: str, enum_by: str = "name") -> "_FieldSpec":
     """Resolve a single annotation type to its :class:`_FieldSpec`.
 
     The one dispatch ladder shared by the top-level field, every Union
@@ -721,19 +760,21 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
         return _literal_spec(args)
 
     if isinstance(tp, type) and issubclass(tp, _enum.Enum):
-        return _enum_spec(tp)
+        return _enum_spec(tp, name, enum_by)
 
     if origin is list or tp is list:
         elem_ty = args[0] if args else str
-        return _sequence_spec(list, elem_ty, name, "list", [])
+        return _sequence_spec(list, elem_ty, name, "list", [], enum_by)
 
     if origin is set or tp is set:
         elem_ty = args[0] if args else str
-        return _sequence_spec(set, elem_ty, name, "set", set())
+        return _sequence_spec(set, elem_ty, name, "set", set(), enum_by)
 
     if origin is frozenset or tp is frozenset:
         elem_ty = args[0] if args else str
-        return _sequence_spec(frozenset, elem_ty, name, "frozenset", frozenset())
+        return _sequence_spec(
+            frozenset, elem_ty, name, "frozenset", frozenset(), enum_by
+        )
 
     if origin is tuple or tp is tuple:
         # Only variadic homogeneous ``tuple[T, ...]`` and bare ``tuple``
@@ -745,14 +786,14 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
                 f"variadic homogeneous tuple, or bare tuple"
             )
         elem_ty = args[0] if args else str
-        return _sequence_spec(tuple, elem_ty, name, "tuple", ())
+        return _sequence_spec(tuple, elem_ty, name, "tuple", (), enum_by)
 
     if origin is dict or tp is dict:
         # ``dict[K, V]`` -- ``KEY=VALUE`` tokens merged via ``UpdateAction``.
         # Bare ``dict`` == ``dict[str, str]``.
         key_ty = args[0] if args else str
         val_ty = args[1] if len(args) > 1 else str
-        return _dict_spec(key_ty, val_ty, name)
+        return _dict_spec(key_ty, val_ty, name, enum_by)
 
     try:
         is_isoformat = tp in _ISOFORMAT_FACTORIES
@@ -766,7 +807,7 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
 
     if origin in _compat.UNION_ORIGINS:
         non_none = [a for a in args if a is not _NONETYPE]
-        return _union_spec(non_none, name)
+        return _union_spec(non_none, name, enum_by)
 
     if origin is not None:
         # Some other subscripted generic this ladder doesn't know how to

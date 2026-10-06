@@ -66,7 +66,7 @@ _MAX_OBJECT_PROPERTIES = 1000
 # --------------------------------------------------------------------------
 
 
-def _schema_for_type(tp: object) -> "dict":
+def _schema_for_type(tp: object, enum_by: str = "name") -> "dict":
     """Map one declared annotation to a JSON Schema type fragment (no title/description).
 
     Standalone recursive dispatch, mirroring ``duho.args._factory_for``'s own
@@ -80,7 +80,8 @@ def _schema_for_type(tp: object) -> "dict":
       (which is not JSON-serialisable at all).
     * an ``Enum`` subclass -> ``{"type": "string", "enum": [member names]}``
       (member NAME, not value -- reuses :func:`duho.agenthelp._enum_members`,
-      duho's standing convention).
+      duho's standing convention; ``enum_by="value"`` lists ``str(member.value)``
+      instead).
     * ``list[T]`` -> ``array`` with ``items`` = ``T``'s own schema, capped at
       ``maxItems`` (:data:`_MAX_ARRAY_ITEMS`) -- enforced by
       :func:`_validate_arguments` before dispatch, so an oversized
@@ -127,13 +128,13 @@ def _schema_for_type(tp: object) -> "dict":
         return schema
 
     if isinstance(tp, type) and issubclass(tp, _enum.Enum):
-        return {"type": "string", "enum": _agenthelp._enum_members(tp)}
+        return {"type": "string", "enum": _agenthelp._enum_members(tp, enum_by)}
 
     if origin is list or tp is list:
         elem = args[0] if args else str
         return {
             "type": "array",
-            "items": _schema_for_type(elem),
+            "items": _schema_for_type(elem, enum_by),
             "maxItems": _MAX_ARRAY_ITEMS,
         }
 
@@ -141,7 +142,7 @@ def _schema_for_type(tp: object) -> "dict":
         elem = args[0] if args else str
         return {
             "type": "array",
-            "items": _schema_for_type(elem),
+            "items": _schema_for_type(elem, enum_by),
             "uniqueItems": True,
             "maxItems": _MAX_ARRAY_ITEMS,
         }
@@ -150,7 +151,7 @@ def _schema_for_type(tp: object) -> "dict":
         elem = args[0] if args else str
         return {
             "type": "array",
-            "items": _schema_for_type(elem),
+            "items": _schema_for_type(elem, enum_by),
             "maxItems": _MAX_ARRAY_ITEMS,
         }
 
@@ -158,16 +159,16 @@ def _schema_for_type(tp: object) -> "dict":
         val = args[1] if len(args) > 1 else str
         return {
             "type": "object",
-            "additionalProperties": _schema_for_type(val),
+            "additionalProperties": _schema_for_type(val, enum_by),
             "maxProperties": _MAX_OBJECT_PROPERTIES,
         }
 
     if origin in _compat.UNION_ORIGINS:
         members = [a for a in args if a is not _NONETYPE]
         if len(members) == 1:
-            return _schema_for_type(members[0])
+            return _schema_for_type(members[0], enum_by)
         if len(members) > 1:
-            return {"anyOf": [_schema_for_type(m) for m in members]}
+            return {"anyOf": [_schema_for_type(m, enum_by) for m in members]}
         return {"type": "string"}
 
     if isinstance(tp, type) and issubclass(tp, _pathlib.PurePath):
@@ -273,7 +274,8 @@ def json_schema_for_field(
     resolves to. The description text is resolved by :func:`_description_for`.
     """
     tp = decl.type if decl is not None and decl.type is not _NOT_DEFINED else None
-    schema = _schema_for_type(tp) if tp is not None else {"type": "string"}
+    enum_by = getattr(builder, "enum_by", "name")
+    schema = _schema_for_type(tp, enum_by) if tp is not None else {"type": "string"}
 
     if builder._kwargs().get("action") == "count":
         # An LLM-controlled count has no reason to exceed this, or to be
@@ -286,7 +288,7 @@ def json_schema_for_field(
     if not required:
         effective_default = builder._effective_default_()
         if effective_default is not _NOT_DEFINED:
-            schema["default"] = _agenthelp._jsonable(effective_default)
+            schema["default"] = _agenthelp._jsonable(effective_default, enum_by)
         else:
             schema.setdefault("default", None)
 

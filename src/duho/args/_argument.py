@@ -13,7 +13,7 @@ from .._fieldspec import _LayeredChoiceError as _LayeredChoiceError
 from .._fieldspec import _NegatedBoolAction as _NegatedBoolAction
 
 from ._helptext import _escape_help
-from ._meta import NOT_DEFINED, _NONETYPE, _T, _type
+from ._meta import NOT_DEFINED, _META_UNSET, _NONETYPE, _T, _type
 from ._naming import _default_long_flag, _expand_flag_shorthand
 
 
@@ -104,7 +104,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             # One dispatch ladder, shared by the top level and every Union member.
             # A plain/custom type yields factory=None -- keep the seeded
             # `_factory` (e.g. a `from_type` custom factory) for that case.
-            spec = _factory_for(cls, name)
+            spec = _factory_for(cls, name, _enum_by_of(name, decl))
             if spec.factory is not None:
                 _factory = spec.factory
             if spec.choices is not None:
@@ -200,6 +200,28 @@ def _normalise_flags(name: str, flags: object, default_flag: str) -> "tuple[str,
     if not flags:
         raise ValueError(f"argument {name!r}: flags must not be empty")
     return _expand_flag_shorthand(name, flags, default_flag)
+
+
+_ENUM_BY = ("name", "value")
+
+
+def _enum_by_of(name: str, decl: "_introspect.ClsArgDeclaration") -> str:
+    """The ``enum_by`` a field's ``Meta``/``NS`` metadata asks for (default ``"name"``)."""
+    enum_by = "name"
+    for opts in decl.annotations or ():
+        if isinstance(opts, _ty.Mapping):
+            found = opts.get("enum_by")
+        else:
+            found = getattr(opts, "enum_by", None)
+            if found is _META_UNSET:
+                found = None
+        if found is not None:
+            enum_by = found
+    if enum_by not in _ENUM_BY:
+        raise ValueError(
+            f"argument {name!r}: enum_by must be 'name' or 'value', got {enum_by!r}"
+        )
+    return enum_by
 
 
 def _is_user_converter(func: object) -> bool:
@@ -381,6 +403,9 @@ class ArgumentBuilder(_argparse.Namespace):
     #: and is neither a builtin type nor one of duho's own factories; the
     #: command-line conversion then keeps that callable's own error message.
     _user_type_: bool = False
+    #: ``"name"`` (default) or ``"value"``: how an Enum field's text is matched
+    #: (``Meta(enum_by=...)``). Read by agent help and the MCP schema.
+    enum_by: str = "name"
 
     @property
     def is_positional(self) -> bool:

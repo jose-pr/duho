@@ -103,6 +103,10 @@ class Meta:
     a dedicated ``TypeError`` for ``dest=`` instead of a value that looks
     honored but never is (as ``NS(dest=...)`` -- accepted, and ignored -- does).
 
+    ``enum_by="value"`` matches an Enum field against ``str(member.value)``
+    (command line, env and config alike) instead of the member name; the
+    default, ``"name"``, is the rule when it is not set.
+
     ``flags`` is the typed, lint-clean way to give an explicit flag tuple
     (equivalent to the bare ``("-n", "--times")`` statement in the class body,
     which some checkers flag as an unused expression)::
@@ -137,6 +141,7 @@ class Meta:
     flags: "_ty.Any" = _META_UNSET
     kwargs: "_ty.Any" = _META_UNSET
     default: "_ty.Any" = _META_UNSET
+    enum_by: "_ty.Any" = _META_UNSET
 
     def __init__(
         self,
@@ -156,6 +161,7 @@ class Meta:
         flags: "_ty.Any" = _META_UNSET,
         kwargs: "_ty.Any" = _META_UNSET,
         default: "_ty.Any" = _META_UNSET,
+        enum_by: "_ty.Any" = _META_UNSET,
         *,
         dest: "_ty.Any" = _META_UNSET,
     ) -> None:
@@ -181,6 +187,7 @@ class Meta:
         self.flags = flags
         self.kwargs = kwargs
         self.default = default
+        self.enum_by = enum_by
 
     def _duho_options_(self) -> "dict[str, object]":
         """The explicitly-set metadata as a plain dict (unset fields omitted).

@@ -168,7 +168,7 @@ just its annotation.
   `conflicts_required=`, `group=` titled-group name, `metavar`, `nargs`, `action`,
   `const`, `default`, `choices`, `required`, `type`, `version`, `kwargs=` raw
   `add_argument` passthrough, …) — a misspelled key is silently dropped.
-- **`Meta(help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, *, dest)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
+- **`Meta(help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, *, dest)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
   same fields as `NS` (`help`, `env`, `conflicts`, `conflicts_required`, `group`,
   `action`, `nargs`, `const`, `default`, `choices`, `metavar`, `required`, `type`,
   `version`, `flags`, `kwargs`) EXCEPT `dest` — `Meta` has no `dest` field at all (a

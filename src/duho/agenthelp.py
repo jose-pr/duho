@@ -170,26 +170,27 @@ def _render_annotation(tp):
     return _render_type(tp)
 
 
-def _jsonable(value):
+def _jsonable(value, enum_by="name"):
     """Coerce an argparse default to a JSON-serialisable value.
 
     ``SUPPRESS`` (an inherited-and-suppressed root option on a child parser) and
     duho's ``NOT_DEFINED`` (a required field with no default) both map to
     ``None``. Enums render by member name, Paths by string, and
     list/set/tuple/dict recurse; anything else falls back to ``str()``.
+    ``enum_by="value"`` renders an Enum by ``str(member.value)`` instead.
     """
     if value is _argparse.SUPPRESS or value is _NOT_DEFINED:
         return None
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, _enum.Enum):
-        return value.name
+        return str(value.value) if enum_by == "value" else value.name
     if isinstance(value, _pathlib.PurePath):
         return str(value)
     if isinstance(value, (list, tuple, set)):
-        return [_jsonable(v) for v in value]
+        return [_jsonable(v, enum_by) for v in value]
     if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items()}
+        return {str(k): _jsonable(v, enum_by) for k, v in value.items()}
     return str(value)
 
 
@@ -226,27 +227,33 @@ def _type_of(dest, clsargs, action):
     return "str"
 
 
-def _enum_members(tp):
+def _enum_members(tp, enum_by="name"):
     """Member names of an Enum annotation (directly or inside a Union), else None.
+
+    ``enum_by="value"`` lists ``str(member.value)`` instead of the names.
 
     An ``Enum`` field validates by member NAME through a factory + metavar rather
     than argparse ``choices`` (unlike ``Literal``, which sets real choices), so
     its valid values must be recovered from the declared annotation.
     """
     if isinstance(tp, type) and issubclass(tp, _enum.Enum):
-        return [member.name for member in tp]
+        return [_member_text(member, enum_by) for member in tp]
     for arg in _ty.get_args(tp):
         if isinstance(arg, type) and issubclass(arg, _enum.Enum):
-            return [member.name for member in arg]
+            return [_member_text(member, enum_by) for member in arg]
     return None
 
 
-def _choices(action, decl):
+def _member_text(member, enum_by):
+    return str(member.value) if enum_by == "value" else member.name
+
+
+def _choices(action, decl, enum_by="name"):
     choices = getattr(action, "choices", None)
     if choices:
         return [str(c) for c in choices]
     if decl is not None and decl.type is not _NOT_DEFINED:
-        return _enum_members(decl.type)
+        return _enum_members(decl.type, enum_by)
     return None
 
 
@@ -336,7 +343,9 @@ def _default_and_source(dest, builder, action, sources):
         # No declaration behind this action: its default may have been
         # computed from the environment, so none is published.
         return None, None
-    class_default = _jsonable(builder._effective_default_())
+    class_default = _jsonable(
+        builder._effective_default_(), getattr(builder, "enum_by", "name")
+    )
     source = (sources or {}).get(dest)
     if source == "env":
         env_var = getattr(builder, "env", None)
@@ -359,7 +368,9 @@ def _describe_option(action, clsargs, builders, prog: str, sources=None):
         "takes_value": action.nargs != 0,
         "repeatable": _repeatable(action, builder),
         "default": default,
-        "choices": _choices(action, clsargs.get(dest)),
+        "choices": _choices(
+            action, clsargs.get(dest), getattr(builder, "enum_by", "name")
+        ),
         "metavar": _metavar(action),
     }
     if default_source is not None:
@@ -385,7 +396,9 @@ def _describe_positional(action, clsargs, builders, prog: str, sources=None):
         "required": action.nargs not in ("?", "*"),
         "repeatable": action.nargs in ("*", "+"),
         "default": default,
-        "choices": _choices(action, clsargs.get(dest)),
+        "choices": _choices(
+            action, clsargs.get(dest), getattr(builder, "enum_by", "name")
+        ),
         "metavar": _metavar(action),
     }
     if default_source is not None:

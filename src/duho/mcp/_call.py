@@ -375,6 +375,7 @@ def call_tool(
                     arguments,
                     skip=shadowed,
                     ancestor_forbidden=ancestor_forbidden,
+                    pin_positionals=i + 1 < len(chain),
                 )
             )
             ancestor_forbidden = ancestor_forbidden | _sibling_names(step.parser)

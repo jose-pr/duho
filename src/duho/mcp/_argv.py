@@ -1,8 +1,10 @@
 import argparse as _argparse
 import typing as _ty
+from pathlib import PurePath as _PurePath
 
 from .. import parsers as _parsers
 from ..args import ArgumentBuilder as _ArgumentBuilder
+from ..args import _raw_config_values, _raw_env_values
 from .._fieldspec import _KVFactory as _KVFactory
 
 from ._errors import InvalidArgumentsError
@@ -167,6 +169,28 @@ def _bool_action_kind(action: "_ty.Optional[_argparse.Action]") -> "_ty.Optional
     return _BOOL_ACTION_KINDS.get(type(action).__name__)
 
 
+def _pinned_default(
+    cls: type, builder: "_ArgumentBuilder", parser: "_argparse.ArgumentParser"
+) -> "_ty.Optional[str]":
+    """The argv token that spells an optional single-value positional's own
+    default, or ``None`` when it has no plain default to spell or a value can
+    come from the environment or a config file (which must keep winning)."""
+    action = _dest_action(parser, builder.name)
+    if action is None or action.nargs != "?":
+        return None
+    default = action.default
+    if isinstance(default, bool) or not isinstance(
+        default, (str, int, float, _PurePath)
+    ):
+        return None
+    config_table = getattr(parser, "_duho_raw_config_table_", None) or {}
+    if builder.name in _raw_env_values(cls) or builder.name in _raw_config_values(
+        cls, config_table
+    ):
+        return None
+    return str(default)
+
+
 def _synthesize_argv(
     cls: type,
     arguments: "dict",
@@ -174,6 +198,7 @@ def _synthesize_argv(
     *,
     skip: "_ty.Optional[frozenset]" = None,
     ancestor_forbidden: "frozenset" = frozenset(),
+    pin_positionals: bool = False,
 ) -> "list[str]":
     """Turn a JSON ``arguments`` object into argv for ``cls``'s OWN fields.
 
@@ -231,6 +256,11 @@ def _synthesize_argv(
     swallowed by an ancestor's own optional/variadic positional and
     reinterpreted as ITS subcommand selector once the literal name tokens
     shift -- see :func:`_reject_unsafe_positional`), is refused outright.
+
+    ``pin_positionals`` (set for every level that is followed by a deeper
+    subcommand name) emits the default of an omitted optional positional
+    explicitly: argparse otherwise lets that positional take the next
+    subcommand name and reads the token after it as the subcommand.
     """
     argv: "list[str]" = []
     forbidden = _sibling_names(parser) | ancestor_forbidden
@@ -238,6 +268,11 @@ def _synthesize_argv(
         name = builder.name
         if skip is not None and name in skip:
             continue
+        if pin_positionals and builder.is_positional:
+            pinned = _pinned_default(cls, builder, parser)
+            if pinned is not None and arguments.get(name) is None:
+                argv.append(pinned)
+                continue
         if name not in arguments:
             continue
         value = arguments[name]
@@ -417,6 +452,7 @@ def _synthesize_step_argv(
     *,
     skip: "frozenset",
     ancestor_forbidden: "frozenset",
+    pin_positionals: bool = False,
 ) -> "list[str]":
     """One chain step's own argv contribution, dispatching to
     :func:`_synthesize_argv` (a real declared class -- a class command, or a
@@ -441,4 +477,5 @@ def _synthesize_step_argv(
         step.parser,
         skip=skip,
         ancestor_forbidden=ancestor_forbidden,
+        pin_positionals=pin_positionals,
     )

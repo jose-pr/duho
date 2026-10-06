@@ -7,6 +7,7 @@ import pytest
 
 from duho import Cli, Cmd, LoggingArgs
 from duho.mcp import call_tool
+from duho.mcp._call import _client_visible_parse_error
 
 
 class Visible(Cmd):
@@ -50,7 +51,6 @@ class Root(LoggingArgs, Cli):
     [
         {"since": "not-a-date"},
         {"loglevels": {"x": "BOGUS"}},
-        {"name": "zzz"},
     ],
 )
 def test_parse_failure_text_does_not_name_the_excluded_command(arguments):
@@ -72,3 +72,25 @@ def test_positional_value_equal_to_an_excluded_name_is_not_singled_out():
     assert "isError" not in other
     assert "isError" not in guessed
     assert guessed["content"][0]["text"] == other["content"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
+            "usage: root [-h] {visible,secret} ...\n"
+            "root: error: argument {visible,secret}: invalid choice: 'zzz' "
+            "(choose from 'visible', 'secret')",
+            "root: error: argument {visible}: invalid choice: 'zzz' "
+            "(choose from 'visible')",
+        ),
+        (
+            "usage: root [-h]\nroot: error: argument command: invalid choice: "
+            "'zzz' (choose from visible, secret)",
+            "root: error: argument command: invalid choice: 'zzz' "
+            "(choose from visible)",
+        ),
+    ],
+)
+def test_choice_lists_drop_excluded_names(text, expected):
+    assert _client_visible_parse_error(text, frozenset({"secret"})) == expected

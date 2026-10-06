@@ -385,20 +385,41 @@ class SharedClassRoot(Cli):
     _subcommands_ = [SharedGroup, SharedLeaf]
 
 
+class UnpinnableRoot(Cli):
+    """Like `SharedClassRoot`, but its positional is a variadic one whose
+    default cannot be spelled out, so an omitted value still shifts."""
+
+    _parsername_ = "unpinnable-root"
+
+    paths: "list" = []
+    "a variadic positional"
+    ("paths",)
+
+    _subcommands_ = [SharedGroup, SharedLeaf]
+
+
 def test_shared_class_reached_via_the_wrong_nesting_is_refused():
     # No value collides with any subcommand name here (`arguments` is
-    # empty) -- omitting "path" lets the literal "SharedGroup" token this
-    # module inserts get swallowed by the root's own optional positional,
+    # empty) -- omitting "paths" lets the literal "SharedGroup" token this
+    # module inserts get swallowed by the root's own variadic positional,
     # shifting the ROOT'S OWN direct "SharedLeaf" subcommand into the slot
     # instead of descending into SharedGroup first. `type(instance) is
     # node.cls` alone would pass (SharedLeaf either way); only the
     # dispatch-path marker distinguishes "ran via SharedGroup" from "ran
     # directly at the root".
+    result = call_tool(UnpinnableRoot, "unpinnable-root.shared-group.shared-leaf", {})
+    assert result.get("isError") is True
+    assert "did not resolve to the requested command" in result["content"][0]["text"]
+
+
+def test_optional_positional_default_is_pinned_so_the_right_nesting_runs():
+    # An omitted single-value optional positional is emitted with its default,
+    # so the group name is not swallowed and nothing shifts.
     result = call_tool(
         SharedClassRoot, "shared-class-root.shared-group.shared-leaf", {}
     )
-    assert result.get("isError") is True
-    assert "did not resolve to the requested command" in result["content"][0]["text"]
+    assert result.get("isError") is not True
+    assert json.loads(result["content"][0]["text"]) == {"ran": "SharedLeaf"}
 
 
 def test_shared_class_reached_via_the_right_nesting_still_works():

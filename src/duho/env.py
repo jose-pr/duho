@@ -24,40 +24,24 @@ _T = _ty.TypeVar("_T")
 
 _LOGGER = _logging.getLogger(__name__)
 
-#: Alias for the builtin, used in annotations that live in the SAME class body
-#: as a method named ``bool`` (see :meth:`Env.bool`). Under PEP 649 lazy
-#: annotations (Python 3.14+), an UNQUOTED ``bool`` written directly in that
-#: class body would resolve to the class-scope name -- the ``Env.bool`` method
-#: itself -- rather than the builtin type, because the annotate function's
-#: scope sees the class namespace being built. Referencing this module-level
-#: alias instead sidesteps the shadow entirely, on every Python version.
+#: Alias for the builtin ``bool``: in ``Env``'s class body the ``Env.bool``
+#: method would shadow an unquoted ``bool`` annotation under PEP 649 (3.14+).
 _bool = bool
 
-#: Same alias trick as ``_bool`` above, for ``list``: ``Env`` also declares a
-#: method named ``list`` (:meth:`Env.list`), so a quoted ``"list[_T]"``
-#: annotation elsewhere in the class body (e.g. :meth:`Env.paths`'s return
-#: type) resolves, under static type-checking, to the sibling METHOD rather
-#: than the builtin generic -- mypy reported ``Function "duho.env.Env.list"
-#: is not valid as a type``. Referencing this alias instead of the bare name
-#: sidesteps the shadow.
+#: Same trick for ``list``: the ``Env.list`` method would shadow ``"list[_T]"``
+#: in annotations such as :meth:`Env.paths`'s return type, which mypy rejects.
 _List = list
 
-#: A prefix is only ever auto-loaded as a companion-module name after this
-#: matches its NORMALISED form (upper-cased, ``-`` -> ``_``, trailing ``_``
-#: ensured -- see ``__init__``). Restricting autoload to ``[A-Za-z0-9_]``
-#: keeps a dotted prefix like ``"my.app"`` (normalised to ``"MY.APP_"``) from
-#: importing an unrelated top-level package (``my``) while looking for
-#: ``my.app_env``.
+#: A prefix is auto-loaded as a companion module only if it matches this, so a
+#: dotted prefix like ``"my.app"`` cannot import an unrelated top-level package
+#: (``my``) while looking for ``my.app_env``.
 _VALID_PREFIX_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 )
 
-#: A bare drive segment (``"C:"``, no trailing separator/backslash) -- Windows
-#: resolves this to "the current directory on drive C", an implicit, ambient
-#: lookup that is never a legitimate :meth:`Env.paths` entry. Splitting an
-#: absolute Windows path on its OWN drive-letter colon (e.g. a ``PATHSEP``
-#: of ``"\\"`` splitting ``"C:\...\cmds"``) produces exactly this segment as
-#: its first piece -- rejecting it outright closes that route to the CWD.
+#: A bare drive segment (``"C:"``) means "the current directory on drive C", an
+#: ambient lookup never valid as a :meth:`Env.paths` entry; splitting a Windows
+#: path on a ``PATHSEP`` of ``"\\"`` yields one, so it is rejected.
 _BARE_DRIVE_RE = _re.compile(r"^[A-Za-z]:$")
 
 __all__ = ["Env"]
@@ -118,31 +102,22 @@ class Env(_abc.MutableMapping):
         #: write. Outranks BOTH the real environment and the companion
         #: module -- a caller/runtime write is a deliberate override.
         self._env: dict[str, str] = {}
-        #: Companion-module-seeded values. Genuinely lowest precedence: a
-        #: shipped default must never shadow a real exported environment
-        #: variable (that inversion was a bug -- see module CHANGELOG entry).
-        #: Kept separate from `self._env` so `__getitem__` can consult
-        #: `os.environ` BEFORE falling back to this layer.
+        #: Companion-module-seeded values: lowest precedence, so a shipped default
+        #: never shadows an exported variable; `__getitem__` consults `os.environ`
+        #: before this layer.
         self._defaults: dict[str, str] = {}
-        #: Tombstones: keys explicitly `del`eted that are still visible via
-        #: `os.environ`/`self._defaults` (an override in `self._env` is
-        #: removed outright instead -- see `__delitem__`). Makes the
-        #: `MutableMapping` surface (`pop`/`clear`/`popitem`/`in`) consistent
-        #: WITHOUT ever mutating the real process environment.
+        #: Tombstones for keys `del`eted but still visible via `os.environ` or
+        #: `self._defaults` (see `__delitem__`), so `MutableMapping` stays
+        #: consistent without mutating the real environment.
         self._deleted: set[str] = set()
         if autoload and prefix and _VALID_PREFIX_CHARS.issuperset(prefix):
             modname = f"{prefix.lower()}env"
             try:
                 module = _importlib.import_module(modname)
             except ModuleNotFoundError as exc:
-                # A missing companion module is normal, not an error: an app
-                # may or may not ship a "<prefix>env.py" of defaults. Narrowed
-                # to the companion's OWN absence (its name, or a missing
-                # PARENT package of it for a dotted prefix) -- anything else
-                # (a plain `ImportError`, or a `ModuleNotFoundError` for some
-                # OTHER name raised by code inside an existing companion
-                # module) propagates instead of silently discarding every
-                # shipped default.
+                # No companion module is normal; only its own absence (or its
+                # parent package's) is swallowed, so any other import error
+                # propagates instead of silently discarding shipped defaults.
                 missing = exc.name or ""
                 if missing != modname and not modname.startswith(missing + "."):
                     raise
@@ -178,14 +153,9 @@ class Env(_abc.MutableMapping):
         if key in self._env:
             del self._env[key]
             return
-        # Not an explicit override: this key (if it exists at all) is served
-        # from `os.environ`/`self._defaults`. NEVER mutate the real process
-        # environment -- record a tombstone that `__getitem__`/`__iter__`
-        # honour instead, so `pop()`/`clear()`/`popitem()` (the stdlib
-        # `MutableMapping` mixins, built on `__delitem__`+`__iter__`) see the
-        # key as gone without touching `os.environ`. Raise `KeyError`
-        # only when the key is not visible from ANY layer, matching a normal
-        # mapping's `del`.
+        # Not an override: record a tombstone instead of touching `os.environ`,
+        # so `pop`/`clear`/`popitem` see the key as gone; KeyError only when no
+        # layer shows it.
         envkey = f"{self.prefix}{key}"
         if key in self._deleted or (
             envkey not in _os.environ and key not in self._defaults
@@ -244,29 +214,15 @@ class Env(_abc.MutableMapping):
         return [ty(part) for part in raw.split(sep)]
 
     def _resolve_pathsep(self) -> str:
-        """Resolve the separator :meth:`paths` splits on: ``<PREFIX>PATHSEP``
-        if set and valid, else ``os.pathsep``.
+        """The separator :meth:`paths` splits on: ``<PREFIX>PATHSEP`` if set and
+        valid, else ``os.pathsep``.
 
-        **Never a bare/global lookup.** An EMPTY prefix (``Env("")``) has no
-        scoped key to read at all -- ``self.get("PATHSEP")`` would otherwise
-        read the bare, unscoped ``PATHSEP`` straight off ``os.environ`` (its
-        own ``envkey`` is ``f"{self.prefix}{key}"``, which is just ``"PATHSEP"``
-        when ``self.prefix`` is ``""``), letting ANY process-wide ``PATHSEP``
-        (set for a wholly unrelated program) bypass every safety rule
-        :meth:`paths` applies, for every unprefixed ``Env`` on the system --
-        a security-relevant fix. So an empty prefix always uses
-        ``os.pathsep``, full stop.
-
-        **Validated, not trusted verbatim.** A set value must be EXACTLY one
-        character and not ``/``, ``\\``, or ``.`` -- a multi-character
-        separator splits nothing (the whole value survives as one "segment"),
-        and ``/``/``\\``/``.`` each let an absolute path's own directory
-        separator (or the path itself) smuggle the current working directory
-        past :meth:`paths`'s other safety rules (e.g. a Windows path's
-        drive-letter colon split on its own backslash). An invalid value is
-        WARNED at :data:`logging.WARNING` (naming the bad value, never
-        silently ignored) and ``os.pathsep`` is used instead, exactly like an
-        unset one.
+        An empty prefix always uses ``os.pathsep``: ``self.get("PATHSEP")`` would
+        read the bare process-wide ``PATHSEP``, letting an unrelated program's
+        value bypass every safety rule of :meth:`paths`. A set value must be one
+        character and not ``/``, ``\\`` or ``.``, which would let an absolute
+        path's own separator smuggle in the current directory; an invalid value
+        logs a warning naming it and falls back to ``os.pathsep``.
         """
         if not self.prefix:
             return _os.pathsep
@@ -382,12 +338,9 @@ class Env(_abc.MutableMapping):
         a separate, unrelated decision for non-path lists.
         """
         sep = self._resolve_pathsep()
-        # Only when this app's OWN <PREFIX>PATHSEP actually overrides the
-        # platform default does an implicit relative segment become
-        # suspect -- see the new rejection rule below. An unset/invalid
-        # PATHSEP (sep falls back to os.pathsep) never triggers it: an
-        # ordinary relative CMDS_PATH entry a caller wrote by hand is not
-        # the product of any mis-split under the platform's own separator.
+        # Only a PATHSEP that overrides the platform default makes an implicit
+        # relative segment suspect (rejected below); an ordinary relative entry
+        # written by hand under ``os.pathsep`` is not a mis-split.
         overridden = sep != _os.pathsep
         raw = self.get(key, "")
         if not raw:

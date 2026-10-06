@@ -7,7 +7,7 @@ The annotation decides how duho converts the string argparse hands it.
 | `str`, `int`, `float` | Direct conversion. A conversion failure is a normal argparse error. |
 | `bool` | Default `False` (or no default) → a simple `--flag` switch. Default `True` → `--flag` / `--no-flag`, so the default can be turned back off. |
 | `typing.Literal["a", "b"]` | Becomes `choices`. Mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips. |
-| `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the member itself. |
+| `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the member itself. `Meta(enum_by="value")` matches the value text instead. |
 | `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — space-separated (`--x a b`) is **not** the default; pass `NS(nargs="*")` to opt back into it. As a POSITIONAL: variadic and space-separated (`nargs="*"`) unconditionally. Bare `list` elements are `str`. Defaults to `[]`. |
 | `datetime.date` / `datetime.datetime` / `datetime.time` | Parsed via `fromisoformat`. See [Dates and times](#dates-and-times) below. |
 | `typing.Optional[T]` / `T \| None` | Not required; converts with `T`. |
@@ -64,6 +64,39 @@ $ app --color 2         # error: invalid choice
 ```
 
 `--help` shows the member names, and unknown names are rejected.
+
+### Matching by value
+
+`Meta(enum_by="value")` (or `NS(enum_by="value")`) matches the text against
+`str(member.value)` instead of the member name. It applies on the command line, in
+env and in config (a TOML number `2` matches the value `2`); `--help`, the error
+text, shell completion, agent help and the MCP schema all list the value text. The
+parsed field is still the member:
+
+<!-- runnable -->
+```python
+import enum
+from duho import Args, Arg, Meta
+
+class Mode(enum.Enum):
+    FAST = "f"
+    SLOW = "s"
+
+class App(Args):
+    mode: Arg[Mode, Meta(enum_by="value")] = Mode.FAST
+    "Speed"
+```
+
+```bash
+$ app --mode s       # -> Mode.SLOW
+$ app --mode SLOW    # error: invalid choice: 'SLOW' (choose from f, s)
+```
+
+It applies to a plain `Enum`, an `Optional[Enum]` and the elements of a
+`list`/`set`/`tuple` or the values of a `dict`; a `Literal` of `Enum` members is
+unchanged. Two members whose value text is the same (aliases excepted) raise
+`ValueError` naming the field when the parser is built, and so does any `enum_by`
+other than `"name"` or `"value"`.
 
 ### Enums inside a Union
 
@@ -212,5 +245,35 @@ class App(Args):
     ("--set",)
 ```
 
+When your converter raises `ValueError` or `TypeError` with a message, that message
+is the usage error:
+
+<!-- runnable -->
+```python
+from duho import Args, Arg, NS
+
+def port(text: str) -> int:
+    value = int(text)
+    if not 1 <= value <= 65535:
+        raise ValueError("port must be 1..65535")
+    return value
+
+class App(Args):
+    port: Arg[int, NS(type=port)] = 8080
+```
+
+```bash
+$ app --port 99999
+app: error: argument --port: port must be 1..65535
+```
+
+An empty message, a builtin type, duho's own factories and a converter that raises
+`argparse.ArgumentTypeError` keep argparse's own text. This covers an explicit
+`type=`, not a class used as the annotation (`port: SomeClass`), and a bad value from
+the env or config layers never echoes the value or the message.
+
 For richer control, implement the `Argument` protocol and provide an
-`_argbuilder_` classmethod — see the [API reference](../api/args.md).
+`_argbuilder_` classmethod — see the [API reference](../api/args.md). The hook also
+applies to such a type as a member of an `Optional`/`Union` or the element of a
+`list`, `set`, `tuple` or `dict`; there only the builder's factory (`type`),
+`choices` and `metavar` are used.

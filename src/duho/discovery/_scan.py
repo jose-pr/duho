@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib as _importlib
 import logging as _logging
 import os as _os
@@ -27,12 +29,12 @@ from ._providers import _match_provider
 
 
 def _handle_error(
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]",
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]],
     source: object,
     exc: BaseException,
     message: str,
     *,
-    skippable: "tuple[type, ...]" = (ImportError, NotImplementedError),
+    skippable: tuple[type, ...] = (ImportError, NotImplementedError),
 ) -> None:
     """Skip ``exc`` per the error policy, or re-raise the exception being handled.
 
@@ -47,7 +49,7 @@ def _handle_error(
     _log_exception(_LOGGER, message, source, exc, level=_logging.WARNING)
 
 
-def _iter_class_commands(module: object) -> "_ty.Iterator[type]":
+def _iter_class_commands(module: object) -> _ty.Iterator[type]:
     """Yield ``Cmd`` subclasses *defined in* ``module`` (module-boundary dedup).
 
     The ``obj.__module__ == module.__name__`` filter is what stops a naive
@@ -77,9 +79,7 @@ def _iter_class_commands(module: object) -> "_ty.Iterator[type]":
         yield obj
 
 
-def _commands_in_module(
-    module: object, *, stem: "str | None" = None
-) -> "list[Command]":
+def _commands_in_module(module: object, *, stem: str | None = None) -> list[Command]:
     """Collect BOTH command shapes from one already-imported module.
 
     * every class command defined in the module (``_iter_class_commands``);
@@ -89,7 +89,7 @@ def _commands_in_module(
     A module may contribute both (a file with a ``main`` *and* ``Cmd``
     subclasses) or neither (a helpers-only file -- silently nothing).
     """
-    commands: "list[Command]" = list(_iter_class_commands(module))
+    commands: list[Command] = list(_iter_class_commands(module))
     if _module_entrypoint(module) is not None:
         name = _resolved_module_name(module, stem=stem)
         commands.append(_ty.cast(Command, ModuleCommand(module, name=name)))
@@ -111,7 +111,7 @@ def _importable_spec(name: str) -> object:
         return None
 
 
-def _namespace_locations(name: str) -> "list[_Path]":
+def _namespace_locations(name: str) -> list[_Path]:
     """Directories of ``name`` when it resolves only to a namespace package.
 
     A namespace package (no ``__init__.py``, no origin) is a directory of loose
@@ -201,11 +201,13 @@ def _is_bare_drive_source(source: object) -> bool:
 
 
 def discover_commands(
-    source: "_ty.Union[str, _os.PathLike, _Path, _ty.Sequence[_ty.Union[str, _os.PathLike, _Path]]]",
+    source: _ty.Union[
+        str, _os.PathLike, _Path, _ty.Sequence[_ty.Union[str, _os.PathLike, _Path]]
+    ],
     *,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
     providers: bool = False,
-) -> "list[Command]":
+) -> list[Command]:
     """Discover commands from a package name or a directory, resiliently.
 
     ``source`` may also be a list or tuple of sources: each is discovered on its
@@ -277,7 +279,7 @@ def discover_commands(
     ``--help`` output (filesystem iteration order is OS-dependent).
     """
     if isinstance(source, (list, tuple)):
-        merged: "dict[str, Command]" = {}
+        merged: dict[str, Command] = {}
         for member in source:
             for command in discover_commands(
                 member, on_error=on_error, providers=providers
@@ -319,8 +321,8 @@ def discover_commands(
 
 def _discover_from_package(
     dotted_name: str,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-) -> "list[Command]":
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+) -> list[Command]:
     import pkgutil as _pkgutil
 
     package = _importlib.import_module(dotted_name)
@@ -332,7 +334,7 @@ def _discover_from_package(
             name=dotted_name,
         )
 
-    commands: "list[Command]" = []
+    commands: list[Command] = []
     prefix = dotted_name + "."
     for module_info in _pkgutil.iter_modules(search_path, prefix=prefix):
         sub_name = module_info.name
@@ -353,10 +355,10 @@ def _discover_from_package(
 
 
 def _discover_from_path(
-    directory: "_Path",
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    directory: _Path,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
     providers: bool = False,
-) -> "list[Command]":
+) -> list[Command]:
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
     Only a lower-case ``.py`` suffix counts: Windows' case-insensitive ``glob``
@@ -401,7 +403,7 @@ def _discover_from_path(
             return claimed
 
     resolved_dir = directory.resolve()
-    commands: "list[Command]" = []
+    commands: list[Command] = []
     if providers:
         for child in sorted(directory.iterdir()):
             if child.name.startswith(("_", ".")) or not child.is_dir():
@@ -451,9 +453,9 @@ def _discover_from_path(
 
 
 def _provider_command(
-    directory: "_Path",
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]",
-) -> "_ty.Optional[list[Command]]":
+    directory: _Path,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]],
+) -> _ty.Optional[list[Command]]:
     """The one-command list a registered provider builds for ``directory``, or ``None``.
 
     ``None`` means no provider claims it. A build that fails is handled like a
@@ -479,7 +481,7 @@ def _provider_command(
         return []
 
 
-def _running_script() -> "_Path | None":
+def _running_script() -> _Path | None:
     """Resolved path of the script being run (``__main__``), or ``None``.
 
     A launcher that scans its own directory must not import itself as a command.
@@ -493,7 +495,7 @@ def _running_script() -> "_Path | None":
         return None
 
 
-def _module_inside(module: object, directory: "_Path") -> bool:
+def _module_inside(module: object, directory: _Path) -> bool:
     """True if ``module``'s own file resolves to a path inside ``directory``.
 
     Used by :func:`_discover_from_path` to decide whether a module pulled into

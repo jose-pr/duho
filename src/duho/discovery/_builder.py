@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib as _importlib
 import os as _os
 import typing as _ty
@@ -56,12 +58,12 @@ class CmdBuilder:
     #: ``duho.app(commands=[CmdBuilder(...).command])`` recipe as a properly
     #: typed ``Command``, not the ``object`` a provider's own loose
     #: ``Callable[[Path, str], object]`` signature would otherwise infer.
-    command: "Command"
+    command: Command
 
     def __init__(
         self,
-        qualname: "str | _PythonName",
-        source: "_Path | str | _os.PathLike | _ModuleType | Command | None" = None,
+        qualname: str | _PythonName,
+        source: _Path | str | _os.PathLike | _ModuleType | Command | None = None,
     ) -> None:
         self.qualname = str(qualname)
 
@@ -79,7 +81,7 @@ class CmdBuilder:
 
     # -- resolution branches ------------------------------------------------
 
-    def _from_path(self, path: "_Path") -> "Command":
+    def _from_path(self, path: _Path) -> Command:
         path = path.absolute()
         builder = _match_provider(path)
         if builder is not None:
@@ -109,7 +111,7 @@ class CmdBuilder:
         module = import_from_path("duho._cmdbuilder." + self.qualname, path)
         return self._wrap_module(module, stem=path.stem)
 
-    def _import_package_at(self, path: "_Path") -> "Command":
+    def _import_package_at(self, path: _Path) -> Command:
         """Import ``self.qualname`` as a package, verified to resolve to ``path``.
 
         ``find_spec`` on a dotted qualname is only consulted for its own
@@ -138,7 +140,7 @@ class CmdBuilder:
         module = _importlib.import_module(self.qualname)
         return self._wrap_module(module)
 
-    def _from_import(self, qualname: str) -> "Command":
+    def _from_import(self, qualname: str) -> Command:
         import importlib.util as _importutil
 
         try:
@@ -160,8 +162,6 @@ class CmdBuilder:
         module = _importlib.import_module(qualname)
         return self._wrap_module(module)
 
-    def _wrap_module(
-        self, module: object, stem: "str | None" = None
-    ) -> "ModuleCommand":
+    def _wrap_module(self, module: object, stem: str | None = None) -> ModuleCommand:
         name = _resolved_module_name(module, stem=stem)
         return ModuleCommand(module, name=name)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect as _inspect
 import logging as _logging
 import typing as _ty
@@ -65,7 +67,7 @@ def is_module_command(obj: object) -> bool:
     return isinstance(obj, ModuleCommand)
 
 
-def _own_callable(module: object, name: str) -> "_ty.Callable[..., object] | None":
+def _own_callable(module: object, name: str) -> _ty.Callable[..., object] | None:
     """Return ``module``'s attribute ``name`` only if it is genuinely DEFINED there.
 
     Guards the entrypoint (``main``/``run``/``call``) and the lifecycle hooks
@@ -123,7 +125,7 @@ def _own_callable(module: object, name: str) -> "_ty.Callable[..., object] | Non
     return fn
 
 
-def _module_entrypoint(module: object) -> "_ty.Callable[..., object] | None":
+def _module_entrypoint(module: object) -> _ty.Callable[..., object] | None:
     """Return a module's entrypoint callable (``main`` > ``run`` > ``call``), or None.
 
     Only a callable actually DEFINED in the module counts (see
@@ -151,7 +153,7 @@ def _module_entrypoint(module: object) -> "_ty.Callable[..., object] | None":
     return None
 
 
-def _resolved_module_name(module: object, stem: "str | None" = None) -> str:
+def _resolved_module_name(module: object, stem: str | None = None) -> str:
     """Resolve a module command's subcommand name.
 
     A module-level ``_parsername_`` wins (explicit override); otherwise the
@@ -260,8 +262,8 @@ class ModuleCommand:
         self,
         module: object,
         *,
-        name: "str | None" = None,
-        entrypoint: "_ty.Callable[..., object] | None" = None,
+        name: str | None = None,
+        entrypoint: _ty.Callable[..., object] | None = None,
     ) -> None:
         self.module = module
         self._parsername_ = name or _resolved_module_name(module)
@@ -300,7 +302,7 @@ class ModuleCommand:
         # `Cli`) still passes, since `not in (_Args, _Cmd)` only excludes the
         # two bare base classes themselves.
         args_cls = getattr(module, "Args", None)
-        self.args_cls: "type | None" = (
+        self.args_cls: type | None = (
             args_cls
             if _inspect.isclass(args_cls) and args_cls not in (_Args, _Cmd)
             else None
@@ -319,7 +321,7 @@ class ModuleCommand:
         self.finally_ = _own_callable(module, "finally_") or _noop
 
     @property
-    def entrypoint(self) -> "_ty.Callable[..., object]":
+    def entrypoint(self) -> _ty.Callable[..., object]:
         """The resolved callable (``main``/``run``/``call`` or the one passed in)."""
         return self._entrypoint
 
@@ -334,14 +336,14 @@ class ModuleCommand:
         lines = self.description.splitlines()
         return lines[0] if lines else ""
 
-    def _logger_for(self, args: object) -> "_logging.Logger":
+    def _logger_for(self, args: object) -> _logging.Logger:
         """Resolve the logger for a run: the args instance's ``_logger_`` if any."""
         logger = getattr(args, "_logger_", None)
         if isinstance(logger, _logging.Logger):
             return logger
         return _HOOK_LOGGER
 
-    def main(self, args: "object | None" = None) -> object:
+    def main(self, args: object | None = None) -> object:
         """Run the command by invoking the wrapped module's entrypoint.
 
         Called with the parsed args instance during dispatch. Kept
@@ -352,7 +354,7 @@ class ModuleCommand:
             return self._entrypoint()
         return self._entrypoint(args)
 
-    def __call__(self, args: "object | None" = None) -> object:
+    def __call__(self, args: object | None = None) -> object:
         """A ``ModuleCommand`` is directly callable; delegates to :meth:`main`."""
         return self.main(args)
 

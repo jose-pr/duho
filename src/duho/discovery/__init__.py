@@ -29,6 +29,8 @@ Two design points worth calling out:
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import importlib as _importlib
 import inspect as _inspect
 import logging as _logging

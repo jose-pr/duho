@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 from types import ModuleType as _ModuleType
@@ -20,7 +22,7 @@ from ._command import (
 # --------------------------------------------------------------------------
 
 
-def _coerce_entry_point_command(obj: object, name: "str | None") -> "Command | None":
+def _coerce_entry_point_command(obj: object, name: str | None) -> Command | None:
     """Coerce an ``EntryPoint.load()`` result to a :class:`Command`, or None.
 
     An entry point may resolve to any of the command shapes the other sources
@@ -63,7 +65,7 @@ def _coerce_entry_point_command(obj: object, name: "str | None") -> "Command | N
     return None
 
 
-def discover_entry_points(group: str) -> "list[Command]":
+def discover_entry_points(group: str) -> list[Command]:
     """Discover commands from installed-distribution entry points in ``group``.
 
     This is the plugin-discovery source behind ``duho.app(root,
@@ -82,7 +84,7 @@ def discover_entry_points(group: str) -> "list[Command]":
     the load. The result is sorted by resolved subcommand name for
     deterministic ``--help`` output.
     """
-    commands: "list[Command]" = []
+    commands: list[Command] = []
     for entry_point in _compat.iter_entry_points(group):
         ep_name = getattr(entry_point, "name", None)
         try:

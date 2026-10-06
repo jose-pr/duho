@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as _ty
 from pathlib import Path as _Path
 
@@ -13,14 +15,14 @@ from ._command import _LOGGER
 #: builder takes ``(path, qualname)`` and returns a ``Command`` (or object
 #: fulfilling it). Registered newest-first so a later registration can override
 #: an earlier one for the same shape.
-_PROVIDERS: (
-    "list[tuple[_ty.Callable[[_Path], bool], _ty.Callable[[_Path, str], object]]]"
-) = []
+_PROVIDERS: list[
+    tuple[_ty.Callable[[_Path], bool], _ty.Callable[[_Path, str], object]]
+] = []
 
 
 def register_command_provider(
-    predicate: "_ty.Callable[[_Path], bool]",
-    builder: "_ty.Callable[[_Path, str], object]",
+    predicate: _ty.Callable[[_Path], bool],
+    builder: _ty.Callable[[_Path, str], object],
 ) -> None:
     """Register an external provider that builds a ``Command`` from a directory.
 
@@ -42,8 +44,8 @@ def register_command_provider(
 
 
 def unregister_command_provider(
-    predicate: "_ty.Callable[[_Path], bool]",
-    builder: "_ty.Callable[[_Path, str], object]",
+    predicate: _ty.Callable[[_Path], bool],
+    builder: _ty.Callable[[_Path, str], object],
 ) -> None:
     """Remove a provider previously registered with
     :func:`register_command_provider` -- the exact ``(predicate, builder)``
@@ -61,7 +63,7 @@ def unregister_command_provider(
         pass
 
 
-def _match_provider(path: "_Path") -> "_ty.Callable[[_Path, str], object] | None":
+def _match_provider(path: _Path) -> _ty.Callable[[_Path, str], object] | None:
     """Return the builder of the first provider whose predicate matches ``path``."""
     for predicate, builder in _PROVIDERS:
         try:

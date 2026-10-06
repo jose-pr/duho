@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os as _os
 import sys as _sys
 import threading as _threading
@@ -30,7 +32,7 @@ def _unique_module_name(base: str) -> str:
 #: unbounded ``sys.modules`` growth and duplicate module-body side effects
 #: were the failure mode this closes. Keyed on ``(path, mtime)`` so editing the
 #: file (mtime changes) still gets a fresh import.
-_IMPORTED_BY_PATH: "dict[str, tuple[str, object]]" = {}
+_IMPORTED_BY_PATH: dict[str, tuple[str, object]] = {}
 
 
 #: Serialises the cache check, module execution and cache write so concurrent
@@ -39,7 +41,7 @@ _IMPORTED_BY_PATH: "dict[str, tuple[str, object]]" = {}
 _IMPORT_LOCK = _threading.RLock()
 
 
-def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
+def _import_from_path(name: str, path: _Path) -> _ModuleType:
     """Import a ``.py`` file at ``path`` under module key ``name`` and return it.
 
     Uses ``spec_from_file_location`` + ``exec_module`` (stdlib only). The module
@@ -58,7 +60,7 @@ def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
         return _import_from_path_locked(name, path)
 
 
-def _import_from_path_locked(name: str, path: "_Path") -> "_ModuleType":
+def _import_from_path_locked(name: str, path: _Path) -> _ModuleType:
     import importlib.util as _importutil
 
     resolved = _os.fspath(_Path(path).resolve())
@@ -97,7 +99,7 @@ def _import_from_path_locked(name: str, path: "_Path") -> "_ModuleType":
     return module
 
 
-def import_from_path(base_name: str, path: "_Path") -> "_ModuleType":
+def import_from_path(base_name: str, path: _Path) -> _ModuleType:
     """Import a ``.py`` file at ``path`` under a ``sys.modules`` key derived
     from ``base_name``, guaranteed not to clobber an existing module of that
     name (:func:`_unique_module_name`) and reused across repeat imports of

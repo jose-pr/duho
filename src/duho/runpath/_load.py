@@ -127,14 +127,11 @@ def _load_steps(
     """Resolve, filter, import and order one RunPath directory's steps.
 
     Returns ``(ordered_enabled_steps, present_names, broken_names)``:
-    ``present_names`` is every name on disk, enabled or not; ``broken_names``
-    is enabled steps whose import failed and were skipped.
-
-    Only enabled steps are imported, so a disabled step never enters the
-    ordering graph. Two enabled files with the same name raise ``ValueError``
-    regardless of strict mode; a disabled duplicate never hides an enabled one.
-    An ``ImportError``/``NotImplementedError`` on import follows the step's own
-    strict setting; any other error always surfaces.
+    every name on disk, and enabled steps whose import failed and were skipped.
+    Only enabled steps are imported, so a disabled one never enters the graph.
+    Two enabled files with one name raise ``ValueError``; a disabled duplicate
+    never hides an enabled one. ``ImportError``/``NotImplementedError`` on import
+    follows the step's own strict setting; any other error surfaces.
     """
     present_names: list[str] = []
     seen: dict[str, _ty.Tuple[_Path, bool]] = {}

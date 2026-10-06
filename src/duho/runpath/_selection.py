@@ -14,14 +14,10 @@ from ._steps import _Opts, _STRICT_TOKEN, _Step, _split_tokens, _strict_or_warn
 class _Selection:
     """A parsed ``--rcopts`` decision: per-step enable/disable plus a strict flag.
 
-    ``patterns`` holds ``(pattern, _Opts)`` in declaration order; later matches
-    win. ``_Opts.enabled`` is always a concrete ``bool``; ``_Opts.strict`` is
-    ``None`` unless that entry carried its own ``strict``/``!strict`` token, and
-    then applies only to the steps it matches.
-
-    ``strict``/``strict_explicit`` are the run-wide flag, set only by a bare
-    ``strict``/``!strict`` entry; when explicit it overrides every step's own
-    setting (precedence: filename, then per-pattern token, then run-wide).
+    ``patterns`` holds ``(pattern, _Opts)`` in order; later matches win.
+    ``_Opts.strict`` is ``None`` unless the entry has its own strict token, which
+    then scopes to its matches. ``strict``/``strict_explicit`` are the run-wide
+    flag from a bare ``strict`` entry, which overrides every step's own setting.
     """
 
     def __init__(

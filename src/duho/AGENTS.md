@@ -490,8 +490,10 @@ empty when absent).
   `False` when disabled, so `LogRecord.exc_info` stays `None` like an undecorated record).
 - **`DefaultFormatter`** (log-record formatter, this module) / **`DefaultsFormatter` /
   `ColorDefaultsFormatter` / `ColorHelpFormatter`** (argparse help formatters,
-  `duho.formatters`) — colored output via optional `colorama`, gated by
-  `NO_COLOR`/`FORCE_COLOR`/TTY detection (see "Environment variables" above);
+  `duho.formatters`) — colored output in raw ANSI codes, no dependency needed (the optional
+  `colorama` only resolves a named color for `add_logging_level` and patches a legacy
+  Windows console), gated by `NO_COLOR`/`FORCE_COLOR`/TTY detection (see "Environment
+  variables" above);
   `ColorHelpFormatter` is a no-op on Python 3.14+, which has its own native argparse
   color support.
 

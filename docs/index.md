@@ -7,8 +7,10 @@ subcommands, config layering, and shell completion included.
 Named after the sacred Taíno ceremonial stool — a symbol of power and authority —
 duho is the **foundation** from which you command your application.
 
-It has zero required runtime dependencies. Colored logging (`colorama`) and TOML
-config on Python 3.9/3.10 (`tomli`) are optional extras, imported only when used.
+It has zero required runtime dependencies. Colored logging works without one;
+`colorama` is an optional extra that resolves named colors and patches a legacy
+Windows console, and TOML config on Python 3.9/3.10 (`tomli`) is the other.
+Both are imported only when used.
 
 ## Why duho
 
@@ -34,7 +36,7 @@ pip install duho
 Optional extras:
 
 ```bash
-pip install duho[colorama]   # colored log output
+pip install duho[colorama]   # named log colors; legacy Windows consoles
 pip install duho[config]     # TOML config files on Python 3.9/3.10
 ```
 
@@ -70,16 +72,20 @@ Hello, Alice!
 Hello, Alice!
 
 $ python greet.py --help
-usage: Greet [-h] [--name NAME] [--count COUNT]
+usage: greet [-h] [--name NAME] [--count COUNT]
 
 Print a greeting.
 
 options:
-  -h, --help            show this help message and exit
-  --name NAME, -n NAME  Who to greet
-  --count COUNT, -c COUNT
-                        How many times
+  -h, --help         show this help message and exit
+  --name, -n NAME    Who to greet
+  --count, -c COUNT  How many times
 ```
+
+The `--help` text above is from Python 3.14; `argparse` words and lays out its
+help a little differently on older versions (`optional arguments:` on 3.9, and
+each flag repeats its metavar). A script run directly is named after its class,
+`Greet` → `greet`.
 
 ## Where to next
 

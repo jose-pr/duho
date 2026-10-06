@@ -19,6 +19,7 @@ Named after the sacred Taíno ceremonial stool—a symbol of power and authority
 
 ## Quick Start
 
+<!-- runnable: commands -->
 ```python
 from duho import Args
 
@@ -83,6 +84,7 @@ pip install duho[colorama]
 
 Define arguments using class annotations. The docstring becomes the help text, and expressions after the annotation become argument flags:
 
+<!-- runnable -->
 ```python
 from duho import Args
 import typing as ty
@@ -228,6 +230,7 @@ evaluated: at class-definition time on Python 3.9-3.13 with eager
 annotations, or at first parser build on 3.14+ (PEP 649), under string
 annotations, or with `from __future__ import annotations`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, Meta
 
@@ -250,7 +253,9 @@ Set `NS(conflicts="group-name")` on the fields that must not be used together.
 Duho builds one `argparse` mutually-exclusive group per distinct `conflicts`
 value, so only one option from the group may appear on the command line:
 
+<!-- runnable -->
 ```python
+import duho
 from duho import Args, Arg, NS
 
 class Archive(Args):
@@ -264,6 +269,9 @@ class Archive(Args):
 
     none: Arg[bool, NS(conflicts="compression")] = False
     "Store uncompressed."
+
+if __name__ == "__main__":
+    print(duho.parse(Archive))
 ```
 
 ```bash
@@ -454,6 +462,7 @@ top-level import package (`cls.__module__.split(".")[0]`); set `_distribution_`
 to override it when the import name differs from the distribution name on
 PyPI:
 
+<!-- runnable -->
 ```python
 import duho
 
@@ -605,6 +614,7 @@ passed on the CLI.
 
 **Environment variables**: annotate a field with `NS(env="VAR_NAME")`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, NS
 
@@ -685,6 +695,7 @@ duho.value_sources(result)  # {"token": "env", "verbose": "config", ...}
 
 Combine with `LoggingArgs` for structured logging:
 
+<!-- runnable -->
 ```python
 from duho import LoggingArgs, Cmd
 
@@ -728,6 +739,7 @@ Generate a self-contained bash/zsh/fish/PowerShell completion script from your
 parser — **static** generation (no runtime dependency, no per-keystroke
 re-invocation of your program, unlike argcomplete):
 
+<!-- runnable -->
 ```python
 import duho
 
@@ -793,6 +805,7 @@ AGENT_HELP=1 python app.py deploy --help    # scoped to the subcommand
 python app.py --help-agents
 ```
 
+<!-- runnable -->
 ```python
 import duho
 
@@ -838,6 +851,7 @@ too, not just declarative ones.
 need to attach duho commands to a parser you build yourself, pass the
 subparsers action to `_parser_`:
 
+<!-- runnable -->
 ```python
 import argparse
 import duho
@@ -926,6 +940,7 @@ config file, a subcommand tree. `duho.Cli` is an **opt-in** mixin over `Cmd` tha
 gives those a typed home. Subclass `Cli` for your app root; keep leaf commands as
 plain `Cmd`:
 
+<!-- runnable -->
 ```python
 import duho
 from duho import Cli, LoggingArgs
@@ -1017,6 +1032,7 @@ run. Precedence is unchanged: CLI > env > config > class default.
 sharing a common prefix. The prefix is uppercased with `-`→`_` and a trailing `_`
 ensured, so `Env("my-app")` reads `MY_APP_*` keys:
 
+<!-- runnable -->
 ```python
 from pathlib import Path
 import duho
@@ -1048,6 +1064,7 @@ field; `Env` is the app-level accessor a driver reads settings through.
 `duho.expand` expands `[a-b]` brace ranges into concrete strings — handy for
 turning a host pattern into a target list. Output is **not** zero-padded:
 
+<!-- runnable -->
 ```python
 import duho
 
@@ -1085,6 +1102,7 @@ myapp/
     └── backup.py     # a module command
 ```
 
+<!-- runnable -->
 ```python
 # myapp/cmds/deploy.py
 import duho
@@ -1096,6 +1114,7 @@ class Deploy(duho.Cmd):
         print("deployed", self.name)
 ```
 
+<!-- runnable -->
 ```python
 # myapp/cmds/backup.py
 """Back things up."""
@@ -1165,6 +1184,7 @@ files into a single command that runs them **in order**. It plugs into the
 discovery provider hook above and needs no core changes — core `duho` never
 imports it; you activate it explicitly:
 
+<!-- runnable -->
 ```python
 import duho.runpath   # importing it registers the RunPath provider
 ```
@@ -1179,6 +1199,7 @@ release/
 └── 30-publish.py
 ```
 
+<!-- runnable -->
 ```python
 # 10-build.py — a step's body is its top-level main/run/call (same precedence
 # as module commands). It receives the parsed command instance.
@@ -1197,6 +1218,7 @@ shared root is a custom `LoggingArgs` subclass carrying its own methods, call
 `register(base=MyAppRoot)` once, early, so every RunPath command your app
 builds inherits those methods too:
 
+<!-- runnable -->
 ```python
 import duho.runpath
 
@@ -1259,6 +1281,7 @@ already uses for "this directory's entrypoint" (as in `python -m package`), no
 new naming convention invented. Its own leading `_` already excludes it from
 step discovery. It defines up to three optional callables:
 
+<!-- runnable -->
 ```python
 # __main__.py — runs once per invocation, before any step
 def init(cmd, logger):
@@ -1271,6 +1294,7 @@ def finally_(ctx, cmd, logger):
     ctx.close()                    # always runs, success or failure
 ```
 
+<!-- runnable -->
 ```python
 # 20-provision.py — a step opting into ctx just adds a 2nd parameter
 def main(cmd, ctx):
@@ -1399,6 +1423,7 @@ deliberately **not** on the top-level `duho.*` surface — RunPath is opt-in.
 A **module command** is a plain `.py` file. Its entrypoint is `main` (preferred),
 falling back to `run` or `call`, and receives the parsed args instance:
 
+<!-- runnable -->
 ```python
 """Restore from a backup."""   # docstring -> subcommand help
 
@@ -1438,6 +1463,7 @@ either **2-arg** `register(parser, args)` or **3-arg**
 `register(parser, args, logger)` — duho inspects your hook's signature and calls
 the form you declared:
 
+<!-- runnable -->
 ```python
 def register(parser, args):                 # 2-arg form
     parser.add_argument("--force", action="store_true")
@@ -1447,6 +1473,7 @@ def main(args):
         ...
 ```
 
+<!-- runnable -->
 ```python
 def register(parser, args, logger):         # 3-arg form: logger is supplied
     logger.debug("registering deploy flags")
@@ -1602,6 +1629,7 @@ launcher is never silently clobbered.
 
 The same thing from Python:
 
+<!-- runnable -->
 ```python
 from duho.scaffold import generate_launchers
 
@@ -1764,6 +1792,7 @@ disclosed either way. A subclass of an excluded command inherits the exclusion
 without redeclaring it (plain attribute lookup). A **module command** gets the same
 opt-out via a module-level `_mcp_ = False`:
 
+<!-- runnable -->
 ```python
 # secrets.py
 """Print resolved secrets."""

@@ -125,6 +125,7 @@ files, which slot into the same ladder.
 Set `_subcommands_` to a sequence of `Cmd` subclasses. duho wires up
 `add_subparsers()` for you and dispatches to the selected one's `__call__`:
 
+<!-- runnable: commands -->
 ```python
 import duho
 from duho import Cmd
@@ -192,6 +193,7 @@ a positional command, such as tar's `-c` and `-x`. Keep that application-specifi
 vocabulary at the entry-point boundary by normalizing `argv` before passing it to
 `duho.main`; the command classes and generated subcommand help remain unchanged:
 
+<!-- runnable -->
 ```python
 import sys
 
@@ -253,6 +255,7 @@ ignored.
 To read the version from installed package metadata instead of hardcoding it, use
 the `duho.AUTO` sentinel:
 
+<!-- runnable -->
 ```python
 import duho
 
@@ -317,6 +320,7 @@ unchanged unless you set the attribute):
   the plain formatter, so piped/redirected help stays clean and aligned.
 - **`duho.ColorDefaultsFormatter`** — both, composed.
 
+<!-- runnable -->
 ```python
 import duho
 

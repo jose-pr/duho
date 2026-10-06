@@ -74,6 +74,7 @@ logger.trace("very fine detail")
 
 Add your own levels with `duho.add_logging_level`:
 
+<!-- runnable -->
 ```python
 import duho
 

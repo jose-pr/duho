@@ -2,6 +2,7 @@
 
 A duho CLI is a class. Each annotated field becomes an argument.
 
+<!-- runnable -->
 ```python
 from duho import Args
 
@@ -103,6 +104,7 @@ becomes optional (duho gives it `nargs="?"`):
 Anything `parser.add_argument()` accepts is reachable through `Arg[T, NS(...)]`,
 where `Arg` is `typing.Annotated` and `NS` is `argparse.Namespace`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, NS
 
@@ -128,6 +130,7 @@ annotation is evaluated: at class-definition time on Python 3.9-3.13 with
 eager annotations, or at first parser build on 3.14+ (PEP 649), under string
 annotations, or with `from __future__ import annotations`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, Meta
 
@@ -183,6 +186,7 @@ inside the titled section.
 
 Common `NS(...)` combinations have shorthands:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, Count, Append, Const, Choice, Extend
 

@@ -3,6 +3,7 @@
 `duho.runpath` turns a directory of numbered `.py` files into a single command
 that runs them **in order**. It is opt-in — core `duho` never imports it:
 
+<!-- runnable -->
 ```python
 import duho.runpath   # importing it registers the RunPath provider
 ```
@@ -17,6 +18,7 @@ release/
 └── 30-publish.py
 ```
 
+<!-- runnable -->
 ```python
 # 10-build.py — a step's body is its top-level main/run/call, same
 # precedence as a module command. It receives the parsed command instance.
@@ -35,6 +37,7 @@ A RunPath directory may define a `__main__.py` — the same dunder Python
 already uses for "this directory's entrypoint" — with up to three optional
 callables:
 
+<!-- runnable -->
 ```python
 # __main__.py — runs once per invocation, before any step
 def init(cmd, logger):
@@ -47,6 +50,7 @@ def finally_(ctx, cmd, logger):
     ctx.close()                    # always runs, success or failure
 ```
 
+<!-- runnable -->
 ```python
 # 20-provision.py — a step opting into ctx just adds a 2nd parameter
 def main(cmd, ctx):
@@ -77,6 +81,7 @@ just before it runs; it receives the entrypoint and returns the callable to call
 instead. That makes the step signature an app-wide convention rather than
 something every step file opts into with a decorator:
 
+<!-- runnable -->
 ```python
 import duho.runpath
 

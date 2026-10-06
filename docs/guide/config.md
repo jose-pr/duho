@@ -15,6 +15,7 @@ command line.
 
 Annotate a field with `NS(env="VAR_NAME")`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, NS
 

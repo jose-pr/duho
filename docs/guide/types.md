@@ -44,6 +44,7 @@ A `True` default uses `argparse.BooleanOptionalAction` — without it, a
 
 Enum members are matched by **name**, not value:
 
+<!-- runnable -->
 ```python
 import enum
 from duho import Args
@@ -107,6 +108,7 @@ $ app --tag a b           # error: unrecognized arguments: b
 Space-separated multi-value (`--tag a b`) is not the default for an option —
 pass an explicit `NS(nargs="*")` to opt back into it:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, NS
 
@@ -137,6 +139,7 @@ $ app a b     # -> ["a", "b"]
 `datetime.date`, `datetime.datetime`, and `datetime.time` fields are parsed
 with the type's own `fromisoformat`:
 
+<!-- runnable -->
 ```python
 import datetime
 from duho import Args
@@ -196,6 +199,7 @@ exception from a custom type propagates rather than being silently swallowed.
 
 Any callable taking a single string works as a type via `NS(type=...)`:
 
+<!-- runnable -->
 ```python
 from duho import Args, Arg, NS
 

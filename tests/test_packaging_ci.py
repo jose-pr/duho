@@ -9,7 +9,11 @@ just to assert on a few keys.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tarfile
+import textwrap
 import zipfile
 from pathlib import Path
 
@@ -25,6 +29,22 @@ def _read(path: Path) -> str:
     if not path.is_file():
         pytest.skip(f"{path} not present (running against an installed package)")
     return path.read_text(encoding="utf-8")
+
+
+def _step_script(text: str, step_name: str) -> str:
+    """The ``run: |`` body of the workflow step named ``step_name``, dedented."""
+    lines = text.splitlines()
+    start = next(
+        i for i, ln in enumerate(lines) if ln.strip() == f"- name: {step_name}"
+    )
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip())
+    body = []
+    for ln in lines[run + 1 :]:
+        if ln.strip() and len(ln) - len(ln.lstrip()) <= indent:
+            break
+        body.append(ln)
+    return textwrap.dedent("\n".join(body)) + "\n"
 
 
 # -- *.local.* neither gitignored nor excluded from sdist/wheel --------------
@@ -241,3 +261,47 @@ def test_docs_workflow_self_enables_pages():
     text = _read(_WORKFLOWS / "docs.yml")
     assert "enablement: true" in text
     assert "pages: write" in text
+
+
+# -- the tag must name the version that was built -----------------------------
+
+
+def _run_tag_check(tmp_path, tag, filenames):
+    pytest.importorskip("packaging")
+    script = _step_script(
+        _read(_WORKFLOWS / "release.yml"), "The tag names the version that was built"
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    for name in filenames:
+        (dist / name).write_text("", encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "TAG": tag},
+        capture_output=True,
+        text=True,
+    )
+
+
+_BUILT = ["duho-0.6.5-py3-none-any.whl", "duho-0.6.5.tar.gz"]
+
+
+@pytest.mark.parametrize("tag", ["v0.6.5", "0.6.5"])
+def test_release_build_accepts_a_tag_naming_the_built_version(tmp_path, tag):
+    done = _run_tag_check(tmp_path, tag, _BUILT)
+    assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize("tag", ["v0.6.6", "v0.6.5rc1"])
+def test_release_build_rejects_a_tag_naming_another_version(tmp_path, tag):
+    done = _run_tag_check(tmp_path, tag, _BUILT)
+    assert done.returncode != 0
+    assert "0.6.5" in done.stderr
+
+
+def test_release_build_rejects_artifacts_of_two_versions(tmp_path):
+    done = _run_tag_check(
+        tmp_path, "v0.6.5", ["duho-0.6.5-py3-none-any.whl", "duho-0.6.4.tar.gz"]
+    )
+    assert done.returncode != 0

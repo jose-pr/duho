@@ -32,9 +32,31 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install build tooling
-        run: python -m pip install --upgrade build
+        run: python -m pip install --upgrade build packaging
       - name: Build sdist and wheel
         run: python -m build
+      # A tag on the wrong commit would otherwise publish a release named for
+      # one version that carries another version's artifacts.
+      - name: The tag names the version that was built
+        shell: python
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          import os
+          import pathlib
+          import sys
+
+          from packaging.utils import parse_sdist_filename, parse_wheel_filename
+          from packaging.version import Version
+
+          tag = os.environ["TAG"]
+          want = Version(tag[1:] if tag.startswith("v") else tag)
+          dist = pathlib.Path("dist")
+          built = {str(parse_wheel_filename(p.name)[1]) for p in dist.glob("*.whl")}
+          built |= {str(parse_sdist_filename(p.name)[1]) for p in dist.glob("*.tar.gz")}
+          if built != {str(want)}:
+              sys.exit("tag %s is version %s, but dist/ holds %s" % (tag, want, sorted(built)))
+          print("tag %s matches the built version %s" % (tag, want))
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -152,5 +174,6 @@ jobs:
         with:
           # A partially-completed release re-run must not hard-fail on files
           # already uploaded (PyPI never lets a version be replaced); skip
-          # them and publish only what's missing.
+          # them and publish only what's missing. The build job's tag/version
+          # check keeps it from masking a wrong tag.
           skip-existing: true

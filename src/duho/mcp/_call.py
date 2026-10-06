@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import contextlib as _contextlib
 import io as _io
@@ -41,7 +43,7 @@ def _matches_schema_type(value: object, expected: object) -> bool:
     return any(_SCHEMA_TYPE_CHECKS.get(t, lambda v: True)(value) for t in types)
 
 
-def _validate_arguments(schema: "dict", arguments: "dict") -> None:
+def _validate_arguments(schema: dict, arguments: dict) -> None:
     """Reject ``arguments`` against ``schema`` before any argv is
     synthesized or anything is dispatched. Checked, each against every
     supplied argument (not stopping at the first problem found):
@@ -152,7 +154,7 @@ _ERROR_LINE = _re.compile(r"^(?!usage:)[^\n]*?: error: ", _re.MULTILINE)
 _CHOICE_LIST = _re.compile(r"\(choose from ([^)]*)\)|\{([^}]*)\}")
 
 
-def _client_visible_parse_error(text: str, hidden: "frozenset") -> str:
+def _client_visible_parse_error(text: str, hidden: frozenset) -> str:
     """argparse's error text for a client: the ``error:`` line only (no usage
     block) with the names of commands excluded from the tool surface removed
     from any list of choices it quotes."""
@@ -160,7 +162,7 @@ def _client_visible_parse_error(text: str, hidden: "frozenset") -> str:
     if found:
         text = text[found.start() :]
 
-    def _scrub(match: "_re.Match") -> str:
+    def _scrub(match: _re.Match) -> str:
         inner = match.group(1) if match.group(1) is not None else match.group(2)
         sep = ", " if match.group(1) is not None else ","
         kept = [n for n in inner.split(sep) if n.strip("'\"") not in hidden]
@@ -171,14 +173,14 @@ def _client_visible_parse_error(text: str, hidden: "frozenset") -> str:
     return _CHOICE_LIST.sub(_scrub, text)
 
 
-def _text_result(text: str, *, is_error: bool = False) -> "dict":
-    result: "dict" = {"content": [{"type": "text", "text": text}]}
+def _text_result(text: str, *, is_error: bool = False) -> dict:
+    result: dict = {"content": [{"type": "text", "text": text}]}
     if is_error:
         result["isError"] = True
     return result
 
 
-def _systemexit_result(exc: SystemExit, stdout_text: str, stderr_text: str) -> "dict":
+def _systemexit_result(exc: SystemExit, stdout_text: str, stderr_text: str) -> dict:
     """Map a command's own run-time ``SystemExit`` to a tool result:
     ``None``/``0`` -> success; an int -> ``isError`` with an
     ``"exit code: N"`` trailer; anything else (e.g. ``sys.exit("message")``)
@@ -193,7 +195,7 @@ def _systemexit_result(exc: SystemExit, stdout_text: str, stderr_text: str) -> "
 
 
 @_contextlib.contextmanager
-def _muted_color(parsers: "_ty.Iterable[_argparse.ArgumentParser]"):
+def _muted_color(parsers: _ty.Iterable[_argparse.ArgumentParser]):
     """Temporarily force ``parser.color = False`` on every parser in
     ``parsers`` that has the attribute (argparse's native color, Python
     3.14+): a usage/error string captured as MCP tool output must be plain
@@ -253,8 +255,8 @@ def _rebound_stderr_logging(active_stream: object, idle_stream: object):
 
 
 def call_tool(
-    root_cls: "_ty.Union[type, _ServerCore]", name: object, arguments: object
-) -> "dict":
+    root_cls: _ty.Union[type, _ServerCore], name: object, arguments: object
+) -> dict:
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
     ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
@@ -371,13 +373,13 @@ def call_tool(
     # (security-relevant: a shared JSON `arguments` dict is otherwise a way
     # for a leaf's own field to flip an unrelated ancestor flag it never
     # named, e.g. a hidden `--force`).
-    field_owner: "dict[str, int]" = {}
+    field_owner: dict[str, int] = {}
     for i, step in enumerate(chain):
         for fname in _step_field_names(step):
             field_owner[fname] = i
     try:
-        argv: "list[str]" = []
-        ancestor_forbidden: "frozenset" = frozenset()
+        argv: list[str] = []
+        ancestor_forbidden: frozenset = frozenset()
         for i, step in enumerate(chain):
             shadowed = frozenset(
                 fname for fname, owner in field_owner.items() if owner != i

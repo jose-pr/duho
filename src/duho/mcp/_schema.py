@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import datetime as _datetime
 import enum as _enum
@@ -66,7 +68,7 @@ _MAX_OBJECT_PROPERTIES = 1000
 # --------------------------------------------------------------------------
 
 
-def _schema_for_type(tp: object, enum_by: str = "name") -> "dict":
+def _schema_for_type(tp: object, enum_by: str = "name") -> dict:
     """Map one declared annotation to a JSON Schema type fragment (no title/description).
 
     Standalone recursive dispatch, mirroring ``duho.args._factory_for``'s own
@@ -120,7 +122,7 @@ def _schema_for_type(tp: object, enum_by: str = "name") -> "dict":
     if origin is _ty.Literal:
         values = list(args)
         types = {type(v) for v in values}
-        schema: "dict" = {"enum": [_agenthelp._jsonable(v) for v in values]}
+        schema: dict = {"enum": [_agenthelp._jsonable(v) for v in values]}
         if len(types) == 1:
             json_type = _JSON_SCALARS.get(next(iter(types)))
             if json_type:
@@ -184,7 +186,7 @@ def _schema_for_type(tp: object, enum_by: str = "name") -> "dict":
     return {"type": "string"}
 
 
-def _is_required(builder: "_ArgumentBuilder") -> bool:
+def _is_required(builder: _ArgumentBuilder) -> bool:
     """Whether a field must be supplied (no usable default at all).
 
     Derived from ``builder._kwargs()`` -- the SAME kwargs
@@ -229,7 +231,7 @@ def _is_required(builder: "_ArgumentBuilder") -> bool:
 
 
 def _description_for(
-    decl: "_introspect.ClsArgDeclaration | None", builder: "_ArgumentBuilder"
+    decl: _introspect.ClsArgDeclaration | None, builder: _ArgumentBuilder
 ) -> str:
     """The MCP description text for one field.
 
@@ -256,8 +258,8 @@ def _description_for(
 
 
 def json_schema_for_field(
-    decl: "_introspect.ClsArgDeclaration | None", builder: "_ArgumentBuilder"
-) -> "tuple[dict, bool]":
+    decl: _introspect.ClsArgDeclaration | None, builder: _ArgumentBuilder
+) -> tuple[dict, bool]:
     """Build ``(json_schema, required)`` for one field from its declaration + builder.
 
     Consumes the same per-field data ``duho.agenthelp`` collects (a field's
@@ -299,7 +301,7 @@ def json_schema_for_field(
     return schema, required
 
 
-def input_schema_for_command(cls: "type[_Cmd]") -> "dict":
+def input_schema_for_command(cls: type[_Cmd]) -> dict:
     """Assemble a JSON-Schema ``object`` describing ``cls``'s own fields.
 
     ``properties``/``required``/``additionalProperties: false`` from
@@ -318,8 +320,8 @@ def input_schema_for_command(cls: "type[_Cmd]") -> "dict":
     :func:`_input_schema_for_node`.
     """
     clsargs = _introspect.get_clsargs(cls)
-    properties: "dict" = {}
-    required: "list[str]" = []
+    properties: dict = {}
+    required: list[str] = []
     for builder in cls._getargs_():
         name = builder.name
         decl = clsargs.get(name)

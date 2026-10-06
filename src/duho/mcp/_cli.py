@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pkgutil as _pkgutil
 import sys as _sys
 import typing as _ty
@@ -15,7 +17,7 @@ from ._stdio import _real_stdio_streams, serve
 # --------------------------------------------------------------------------
 
 
-def _resolve_app(spec: str) -> "type[_Cmd]":
+def _resolve_app(spec: str) -> type[_Cmd]:
     """Resolve the ``<app>`` CLI argument (a dotted qualname) to a root ``Cmd``/``Cli`` class.
 
     Uses the stdlib ``pkgutil.resolve_name`` (3.9+): it accepts BOTH the
@@ -79,7 +81,7 @@ class _McpMain(_Cli):
         return serve(root_cls, stdin=stream_in, stdout=stream_out)
 
 
-def main(argv: "_ty.Sequence[str] | None" = None) -> int:
+def main(argv: _ty.Sequence[str] | None = None) -> int:
     """``python -m duho.mcp <app>`` entry point: resolve ``<app>`` and run :func:`serve`.
 
     A duho CLI like any other: ``-h``/``--help`` and ``--version`` print to

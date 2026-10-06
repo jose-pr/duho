@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import os as _os
 import sys as _sys
@@ -61,13 +63,13 @@ def serve_running_app(transport: str = "stdio") -> int:
     return serve(core)
 
 
-def _reject_constant(name: str) -> "_ty.NoReturn":
+def _reject_constant(name: str) -> _ty.NoReturn:
     """``json.loads`` hook: ``NaN``/``Infinity`` are not JSON, so a line
     carrying one is a parse error rather than a value echoed back unparsable."""
     raise ValueError("%s is not valid JSON" % (name,))
 
 
-def _write_message(stream: object, message: "dict | list") -> None:
+def _write_message(stream: object, message: dict | list) -> None:
     import json
 
     # `message` is a `list` only for a JSON-RPC *batch* reply (one combined
@@ -103,7 +105,7 @@ def _write_message(stream: object, message: "dict | list") -> None:
         flush()
 
 
-def _real_stdio_streams() -> "tuple":
+def _real_stdio_streams() -> tuple:
     """Take ownership of the real stdio fds for the JSON-RPC protocol channel,
     and isolate fd 0/1 from anything a dispatched command does.
 
@@ -148,10 +150,10 @@ def _real_stdio_streams() -> "tuple":
 
 
 def serve(
-    root_cls: "_ty.Union[type, _ServerCore]",
+    root_cls: _ty.Union[type, _ServerCore],
     *,
-    stdin: "_ty.Optional[_ty.TextIO]" = None,
-    stdout: "_ty.Optional[_ty.TextIO]" = None,
+    stdin: _ty.Optional[_ty.TextIO] = None,
+    stdout: _ty.Optional[_ty.TextIO] = None,
 ) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
 

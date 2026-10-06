@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 
@@ -32,7 +34,7 @@ _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 _SERVER_NAME = "duho.mcp"
 
 
-def _error_response(req_id: object, code: int, message: str) -> "dict":
+def _error_response(req_id: object, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
@@ -84,7 +86,7 @@ def _line_nesting_exceeds(line: str, limit: int) -> bool:
     return False
 
 
-def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
+def _server_info(root_cls: _ty.Union[type, _ServerCore]) -> dict:
     """``serverInfo`` for the ``initialize`` response.
 
     ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
@@ -113,7 +115,7 @@ def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
     }
 
 
-def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
+def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
     ``None`` means "no response" -- either the request was a **notification**

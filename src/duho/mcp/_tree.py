@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import typing as _ty
 import weakref as _weakref
@@ -80,7 +82,7 @@ class _Node:
         self.excluded = excluded
 
 
-def _effective_cls(node_or_step: "_Node") -> "_ty.Optional[type]":
+def _effective_cls(node_or_step: _Node) -> _ty.Optional[type]:
     """The class to read field declarations from for one tree node: ``cls``
     for a class command, else its module command's own declared ``args_cls``
     (``None`` when it declared none -- the bare-actions fallback then
@@ -92,15 +94,15 @@ def _effective_cls(node_or_step: "_Node") -> "_ty.Optional[type]":
 #: class (a naive implementation would rebuild the whole tree on every
 #: whole tree). A ``WeakKeyDictionary`` so a throwaway root class (as tests
 #: define per test) does not leak for the life of the process.
-_TREE_CACHE: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
+_TREE_CACHE: _weakref.WeakKeyDictionary = _weakref.WeakKeyDictionary()
 
 
 #: Parsers of the nodes `_walk_tree` marked excluded (`_mcp_ = False`); their
 #: names are never shown to, or compared against values from, an MCP client.
-_EXCLUDED_PARSERS: "_weakref.WeakSet" = _weakref.WeakSet()
+_EXCLUDED_PARSERS: _weakref.WeakSet = _weakref.WeakSet()
 
 
-def _hidden_choice_names(parser: "_argparse.ArgumentParser") -> "frozenset":
+def _hidden_choice_names(parser: _argparse.ArgumentParser) -> frozenset:
     """Names (canonical and alias) under which ``parser`` registers a
     subcommand that is excluded from the MCP tool surface."""
     action = _parsers.find_subparsers(parser)
@@ -111,7 +113,7 @@ def _hidden_choice_names(parser: "_argparse.ArgumentParser") -> "frozenset":
     )
 
 
-def _own_mcp_value(cls: type, root_cls: "_ty.Optional[type]") -> bool:
+def _own_mcp_value(cls: type, root_cls: _ty.Optional[type]) -> bool:
     """``cls``'s ``_mcp_`` for the per-command exclusion test, inherited
     like any attribute except that a value it only gets from the served
     root class (or a base of it) is ignored: there ``_mcp_`` means "no
@@ -126,10 +128,10 @@ def _own_mcp_value(cls: type, root_cls: "_ty.Optional[type]") -> bool:
 
 
 def _walk_tree(
-    root_parser: "_argparse.ArgumentParser",
-    root_cls: "_ty.Optional[type]",
+    root_parser: _argparse.ArgumentParser,
+    root_cls: _ty.Optional[type],
     root_name: str,
-) -> "dict[str, _Node]":
+) -> dict[str, _Node]:
     """Walk an ALREADY-BUILT (and, for a class tree, already layered) parser
     tree and return ``{dotted_name: _Node}`` -- the shared core both
     :func:`_tree_for` (a static ``_subcommands_`` class tree) and
@@ -159,8 +161,8 @@ def _walk_tree(
     ``_mcp_`` keeps its separate trigger-only meaning. An excluded node's
     exclusion is inherited by its whole subtree via ``parent_excluded``.
     """
-    nodes: "dict[str, _Node]" = {}
-    seen: "set" = set()
+    nodes: dict[str, _Node] = {}
+    seen: set = set()
 
     def _walk(parser, cls, dotted_parts, own_name, ancestors, parent_excluded=False):
         module_command = None
@@ -219,7 +221,7 @@ def _walk_tree(
     return nodes
 
 
-def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
+def _tree_for(root_cls: type[_Cmd]) -> tuple:
     """Return (and cache) ``root_cls``'s ``(root_parser, {dotted_name: _Node})``.
 
     Builds ``root_cls._parser_()`` exactly once and applies the SAME env/
@@ -273,7 +275,7 @@ class _ServerCore:
         self.root_cls = root_cls
 
 
-def _core_for_class(root_cls: "type[_Cmd]") -> "_ServerCore":
+def _core_for_class(root_cls: type[_Cmd]) -> _ServerCore:
     """Build a :class:`_ServerCore` for a class's static ``_subcommands_``
     tree -- the ``serve(root_cls)``/``python -m duho.mcp <app>`` path,
     unchanged from before this module grew ``app()`` support. ``dispatch``
@@ -290,7 +292,7 @@ def _core_for_class(root_cls: "type[_Cmd]") -> "_ServerCore":
     return _ServerCore(root_parser, nodes, _dispatch, root_cls)
 
 
-def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerCore":
+def _core_for_app(root: type | None = None, **app_kwargs: object) -> _ServerCore:
     """Build a :class:`_ServerCore` for a full ``app()`` command tree --
     class AND module commands, from discovered files, ``CMDS_PATH``, entry
     points, or an explicit ``commands=`` list, exactly as ``duho.app`` itself
@@ -314,7 +316,7 @@ def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerC
     return _ServerCore(parser, nodes, dispatch, root_cls)
 
 
-def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
+def _is_namespace_node(parser: _argparse.ArgumentParser) -> bool:
     """True when ``parser`` owns a MANDATORY subparsers action.
 
     duho's static ``_subcommands_`` tree always registers
@@ -330,7 +332,7 @@ def _is_namespace_node(parser: "_argparse.ArgumentParser") -> bool:
     return bool(getattr(subparsers_action, "required", False))
 
 
-def _is_mcp_command_node(node: "_Node") -> bool:
+def _is_mcp_command_node(node: _Node) -> bool:
     """True when ``node``'s class IS (or subclasses) :class:`McpCmd` -- the
     self-serving command an app may register under any name. Checked
     alongside :func:`_is_namespace_node` everywhere a node's callability as
@@ -343,8 +345,8 @@ def _is_mcp_command_node(node: "_Node") -> bool:
 
 
 def _drop_layer_satisfied(
-    required: "list[str]", cls: type, parser: "_argparse.ArgumentParser"
-) -> "list[str]":
+    required: list[str], cls: type, parser: _argparse.ArgumentParser
+) -> list[str]:
     """Fields whose value can come from ``NS(env=...)``/``_config_`` even
     though the MCP call omits them are not required over MCP.
 
@@ -362,7 +364,7 @@ def _drop_layer_satisfied(
     return [name for name in required if name not in satisfied]
 
 
-def _own_dests(parser: "_argparse.ArgumentParser") -> "_ty.Optional[set]":
+def _own_dests(parser: _argparse.ArgumentParser) -> _ty.Optional[set]:
     """The dest names ``runtime._register_module_command`` stashed as this
     module command's OWN (``_duho_module_own_dests_``) -- ``None`` for
     anything else (a class command, or the root of either tree kind), which
@@ -370,7 +372,7 @@ def _own_dests(parser: "_argparse.ArgumentParser") -> "_ty.Optional[set]":
     return getattr(parser, "_duho_module_own_dests_", None)
 
 
-def _step_field_names(step: "_Node") -> "list[str]":
+def _step_field_names(step: _Node) -> list[str]:
     """Every field name ``step`` itself declares, for whichever kind of node
     it is: a class command's/module command's own declared ``Args`` fields
     (:func:`_effective_cls`, filtered to dests actually present on this
@@ -390,7 +392,7 @@ def _step_field_names(step: "_Node") -> "list[str]":
     return sorted(_own_dests(step.parser) or ())
 
 
-def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
+def _schema_for_action(action: _argparse.Action) -> tuple[dict, bool]:
     """Best-effort ``(json_schema, required)`` for one bare argparse
     ``Action``, with no duho field declaration behind it at all (a module
     command with no declared ``Args``, its fields added directly by a
@@ -405,7 +407,7 @@ def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
     factory = getattr(action, "type", None)
     scalar = _JSON_SCALARS.get(factory) if isinstance(factory, type) else None
     if choices:
-        schema: "dict" = {"type": scalar or "string", "enum": [str(c) for c in choices]}
+        schema: dict = {"type": scalar or "string", "enum": [str(c) for c in choices]}
     elif action.nargs == 0:
         schema = {"type": "boolean"}
     elif isinstance(action, _argparse._AppendAction) or action.nargs in ("*", "+"):
@@ -433,14 +435,14 @@ def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
     return schema, required
 
 
-def _merge_bare_actions(step: "_Node", properties: "dict") -> "tuple[list, list]":
+def _merge_bare_actions(step: _Node, properties: dict) -> tuple[list, list]:
     """:func:`_input_schema_for_node`'s per-step merge, for a step with
     neither ``cls`` nor ``args_cls`` -- derives fields straight from this
     subparser's OWN actions (:func:`_own_dests`/:func:`_schema_for_action`)
     rather than any duho field declaration."""
     own = _own_dests(step.parser) or set()
-    level_names: "list[str]" = []
-    level_required: "list[str]" = []
+    level_names: list[str] = []
+    level_required: list[str] = []
     for action in step.parser._actions:
         if action.dest not in own:
             continue
@@ -452,7 +454,7 @@ def _merge_bare_actions(step: "_Node", properties: "dict") -> "tuple[list, list]
     return level_names, level_required
 
 
-def _input_schema_for_node(node: "_Node") -> "dict":
+def _input_schema_for_node(node: _Node) -> dict:
     """The full ``inputSchema`` :func:`describe_tools`/:func:`call_tool` use
     for one tree node: ``node``'s own fields merged with every ancestor's own
     fields (Decision -- a nested tool's schema must include its ancestors'
@@ -471,8 +473,8 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     every published tool advertises it, not just ones whose own ``__call__``
     happens to read ``self._passthrough_``.
     """
-    properties: "dict" = {}
-    required: "list[str]" = []
+    properties: dict = {}
+    required: list[str] = []
     for step in node.ancestors + (node,):
         eff_cls = _effective_cls(step)
         if eff_cls is None:
@@ -530,7 +532,7 @@ def _input_schema_for_node(node: "_Node") -> "dict":
     }
 
 
-def _conflict_note(cls: "_ty.Optional[type]") -> str:
+def _conflict_note(cls: _ty.Optional[type]) -> str:
     """A short human-readable note for ``cls``'s ``NS(conflicts=...)`` groups.
 
     Exclusive groups are surfaced only as tool-description text in v1 (no
@@ -553,7 +555,7 @@ def _conflict_note(cls: "_ty.Optional[type]") -> str:
     return "Mutually exclusive: " + "; ".join(parts) + "."
 
 
-def _tool_spec(node: "_Node") -> "dict":
+def _tool_spec(node: _Node) -> dict:
     """Build one MCP ``{name, description, inputSchema}`` tool spec for ``node``."""
     description = (node.parser.description or "").replace("%%", "%").strip()
     input_schema = _input_schema_for_node(node)
@@ -567,7 +569,7 @@ def _tool_spec(node: "_Node") -> "dict":
     }
 
 
-def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
+def describe_tools(root_cls: _ty.Union[type, _ServerCore]) -> list[dict]:
     """Describe every callable command in ``root_cls``'s tree as MCP tool specs.
 
     ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``

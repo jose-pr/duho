@@ -112,6 +112,8 @@ request -> one result.
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import contextlib as _contextlib
 import datetime as _datetime

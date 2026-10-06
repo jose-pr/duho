@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as _ty
 
 from ..args import Cmd as _Cmd
@@ -22,7 +24,7 @@ class McpCmd(_Cmd):
     recursively take over stdio again makes no sense.
     """
 
-    transport: "_ty.Literal['stdio']" = "stdio"
+    transport: _ty.Literal["stdio"] = "stdio"
     "MCP transport to serve this CLI over"
     ("--transport",)
 

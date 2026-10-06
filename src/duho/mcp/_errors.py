@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class UnknownToolError(ValueError):
     """Raised by :func:`call_tool` for a tool name that does not resolve to a
     callable node in the root class's tree (including a namespace node whose

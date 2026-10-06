@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import typing as _ty
 from pathlib import PurePath as _PurePath
@@ -15,7 +17,7 @@ from ._tree import _Node, _effective_cls, _hidden_choice_names, _own_dests
 # --------------------------------------------------------------------------
 
 
-def _long_flag_or_first(builder: "_ArgumentBuilder") -> "tuple[str, bool]":
+def _long_flag_or_first(builder: _ArgumentBuilder) -> tuple[str, bool]:
     """The flag to encode a value under, and whether it is a long flag.
 
     Prefers the first declared ``--long`` flag (a value can then always be
@@ -28,7 +30,7 @@ def _long_flag_or_first(builder: "_ArgumentBuilder") -> "tuple[str, bool]":
     return builder.flags[0], False
 
 
-def _looks_like_negative_number(token: str, parser: "_argparse.ArgumentParser") -> bool:
+def _looks_like_negative_number(token: str, parser: _argparse.ArgumentParser) -> bool:
     """True when ``token`` is safe as a positional because argparse's OWN
     negative-number exemption would accept it (mirrors
     ``ArgumentParser._negative_number_matcher``/``_has_negative_number_optionals``).
@@ -41,9 +43,9 @@ def _looks_like_negative_number(token: str, parser: "_argparse.ArgumentParser") 
 
 def _reject_unsafe_positional(
     token: str,
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     *,
-    forbidden: "frozenset" = frozenset(),
+    forbidden: frozenset = frozenset(),
 ) -> None:
     """Refuse a positional token argparse would parse as an option or as the
     ``--`` passthrough separator, rather than silently mis-parsing it or
@@ -78,11 +80,11 @@ def _reject_unsafe_positional(
 
 
 def _emit_option(
-    argv: "list[str]",
+    argv: list[str],
     flag: str,
     is_long: bool,
     token: str,
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
 ) -> None:
     """Append one option occurrence for ``token``: a long flag is
     always attached with ``=`` so argparse never reinterprets the value; a
@@ -108,7 +110,7 @@ def _emit_option(
     argv.extend([flag, token])
 
 
-def _sibling_names(parser: "_argparse.ArgumentParser") -> "frozenset":
+def _sibling_names(parser: _argparse.ArgumentParser) -> frozenset:
     """Every subcommand name (canonical + alias) registered DIRECTLY on
     ``parser`` -- empty when it has no subparsers action at all. Used to
     refuse a positional value that collides with one of THIS level's own
@@ -127,8 +129,8 @@ def _sibling_names(parser: "_argparse.ArgumentParser") -> "frozenset":
 
 
 def _dest_action(
-    parser: "_argparse.ArgumentParser", dest: str
-) -> "_ty.Optional[_argparse.Action]":
+    parser: _argparse.ArgumentParser, dest: str
+) -> _ty.Optional[_argparse.Action]:
     """The already-built ``argparse.Action`` registered for ``dest`` on
     ``parser``, or ``None``. Reading the REAL parser (built once by
     ``cls._parser_()`` + ``_apply_layers``, see :func:`_tree_for`) is what
@@ -156,7 +158,7 @@ _BOOL_ACTION_KINDS = {
 }
 
 
-def _bool_action_kind(action: "_ty.Optional[_argparse.Action]") -> "_ty.Optional[str]":
+def _bool_action_kind(action: _ty.Optional[_argparse.Action]) -> _ty.Optional[str]:
     """Classify ``action`` as ``"store_true"``/``"store_false"``/
     ``"boolean_optional"``, or ``None`` for anything else (including
     ``None`` itself, or an explicit non-bool ``action=`` override that
@@ -170,8 +172,8 @@ def _bool_action_kind(action: "_ty.Optional[_argparse.Action]") -> "_ty.Optional
 
 
 def _pinned_default(
-    cls: type, builder: "_ArgumentBuilder", parser: "_argparse.ArgumentParser"
-) -> "_ty.Optional[str]":
+    cls: type, builder: _ArgumentBuilder, parser: _argparse.ArgumentParser
+) -> _ty.Optional[str]:
     """The argv token that spells an optional single-value positional's own
     default, or ``None`` when it has no plain default to spell or a value can
     come from the environment or a config file (which must keep winning)."""
@@ -193,13 +195,13 @@ def _pinned_default(
 
 def _synthesize_argv(
     cls: type,
-    arguments: "dict",
-    parser: "_argparse.ArgumentParser",
+    arguments: dict,
+    parser: _argparse.ArgumentParser,
     *,
-    skip: "_ty.Optional[frozenset]" = None,
-    ancestor_forbidden: "frozenset" = frozenset(),
+    skip: _ty.Optional[frozenset] = None,
+    ancestor_forbidden: frozenset = frozenset(),
     pin_positionals: bool = False,
-) -> "list[str]":
+) -> list[str]:
     """Turn a JSON ``arguments`` object into argv for ``cls``'s OWN fields.
 
     Iterates ``cls._getargs_()`` in declaration order. A field named in
@@ -262,7 +264,7 @@ def _synthesize_argv(
     explicitly: argparse otherwise lets that positional take the next
     subcommand name and reads the token after it as the subcommand.
     """
-    argv: "list[str]" = []
+    argv: list[str] = []
     forbidden = _sibling_names(parser) | ancestor_forbidden
     for builder in cls._getargs_():
         name = builder.name
@@ -378,12 +380,12 @@ def _synthesize_argv(
 
 
 def _synthesize_argv_from_actions(
-    step: "_Node",
-    arguments: "dict",
+    step: _Node,
+    arguments: dict,
     *,
-    skip: "_ty.Optional[frozenset]" = None,
-    ancestor_forbidden: "frozenset" = frozenset(),
-) -> "list[str]":
+    skip: _ty.Optional[frozenset] = None,
+    ancestor_forbidden: frozenset = frozenset(),
+) -> list[str]:
     """:func:`_synthesize_argv`'s counterpart for a bare module command --
     one with no declared ``Args`` (:func:`_effective_cls` is ``None``): maps
     ``arguments`` onto ``step.parser``'s own actions (:func:`_own_dests`)
@@ -396,8 +398,8 @@ def _synthesize_argv_from_actions(
     request-level safety checks (:func:`_reject_unsafe_positional`/
     :func:`_emit_option`) for every emitted token.
     """
-    argv: "list[str]" = []
-    subparser_choice: "_ty.Optional[str]" = None
+    argv: list[str] = []
+    subparser_choice: _ty.Optional[str] = None
     parser = step.parser
     forbidden = _sibling_names(parser) | ancestor_forbidden
     own = _own_dests(parser) or set()
@@ -462,13 +464,13 @@ def _synthesize_argv_from_actions(
 
 
 def _synthesize_step_argv(
-    step: "_Node",
-    arguments: "dict",
+    step: _Node,
+    arguments: dict,
     *,
-    skip: "frozenset",
-    ancestor_forbidden: "frozenset",
+    skip: frozenset,
+    ancestor_forbidden: frozenset,
     pin_positionals: bool = False,
-) -> "list[str]":
+) -> list[str]:
     """One chain step's own argv contribution, dispatching to
     :func:`_synthesize_argv` (a real declared class -- a class command, or a
     module command with its own ``Args``) or :func:`_synthesize_argv_from_actions`

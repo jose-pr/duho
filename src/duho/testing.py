@@ -72,11 +72,11 @@ def invoke(
     old_stdin = _sys.stdin
     _sys.stdin = _io.StringIO(stdin or "")
     try:
-        with (
-            _environ(env),
-            _contextlib.redirect_stdout(out),
-            _contextlib.redirect_stderr(err),
-        ):
+        # An ExitStack, not a parenthesized `with`: that form is 3.10 grammar.
+        with _contextlib.ExitStack() as stack:
+            stack.enter_context(_environ(env))
+            stack.enter_context(_contextlib.redirect_stdout(out))
+            stack.enter_context(_contextlib.redirect_stderr(err))
             try:
                 if app_kwargs:
                     code = _app(root, argv=list(argv), **app_kwargs)

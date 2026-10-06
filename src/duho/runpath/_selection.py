@@ -12,25 +12,16 @@ from ._steps import _Opts, _STRICT_TOKEN, _Step, _split_tokens, _strict_or_warn
 
 
 class _Selection:
-    """A parsed ``--rcopts`` decision: per-step enable/disable + a strict flag.
+    """A parsed ``--rcopts`` decision: per-step enable/disable plus a strict flag.
 
-    ``patterns`` is a list of ``(pattern, _Opts)`` in declaration order; later
-    entries win when several match a step. Each entry's ``_Opts.enabled`` is
-    always a concrete ``bool`` (the leading ``!``/``enable`` token already
-    folded in, same as a file's own resolved opts); ``_Opts.strict`` stays
-    ``Optional[bool]`` -- ``None`` unless that entry carried its own explicit
-    ``strict``/``!strict`` token, in which case it overrides the matching
-    step's own effective strict setting, scoped to just that pattern's
-    matches, NOT run-wide (an entry such as ``pattern:enable``, with no
-    strict token, does not force every matching step strict).
+    ``patterns`` holds ``(pattern, _Opts)`` in declaration order; later matches
+    win. ``_Opts.enabled`` is always a concrete ``bool``; ``_Opts.strict`` is
+    ``None`` unless that entry carried its own ``strict``/``!strict`` token, and
+    then applies only to the steps it matches.
 
-    ``strict``/``strict_explicit`` are the separate RUN-WIDE flag, set only by
-    a BARE standalone ``strict``/``!strict`` entry (no attached pattern). It
-    governs run-wide fatality (an unmatched ``--rcopts`` pattern, a missing
-    ``REQUIRED`` dep) and, when explicit, overrides every step's own filename/
-    per-pattern strict setting (the outermost layer of the
-    precedence: hardcoded base -> filename -> per-pattern ``--rcopts`` token ->
-    the bare run-wide ``--rcopts strict`` token, which wins last of all).
+    ``strict``/``strict_explicit`` are the run-wide flag, set only by a bare
+    ``strict``/``!strict`` entry; when explicit it overrides every step's own
+    setting (precedence: filename, then per-pattern token, then run-wide).
     """
 
     def __init__(
@@ -47,22 +38,11 @@ class _Selection:
     def parse(cls, opts: _ty.Sequence[str]) -> _Selection:
         """Parse ``--rcopts`` comma-entries into a :class:`_Selection`.
 
-        Each entry is ``[!]pattern`` optionally followed by ``:``/``;``-separated
-        option tokens (``key``/``!key``/``key=value`` -- see :class:`_Opts`),
-        the SAME grammar a step's own filename uses
-        (:func:`_parse_file_modifiers`): a leading ``!`` disables steps
-        matching ``pattern`` -- exactly equivalent to a ``pattern:!enable``
-        token (``!step1`` and ``step1:!enable`` disable the same steps); if
-        both are somehow present the EXPLICIT ``enable``/``!enable`` token
-        wins (more specific than the whole-entry ``!`` shorthand), same
-        precedence as the filename side. A BARE entry that is exactly
-        ``strict``/``!strict`` (no pattern, no other tokens) toggles the
-        RUN-WIDE strict flag. An entry WITH a pattern AND a ``strict``/
-        ``!strict`` token (e.g. ``step1:!strict``) instead scopes that strict
-        override to steps matching ``step1`` only -- the CLI-side equivalent
-        of a filename's own ``!strict`` token. The pattern itself is
-        ``.strip()``-ed, so a spaced-out entry like ``build : !strict``
-        still matches ``build``, not ``"build "``.
+        An entry is ``[!]pattern`` plus optional ``:``/``;`` option tokens, the
+        grammar of :func:`_parse_file_modifiers`; the pattern is stripped. A
+        leading ``!`` equals ``:!enable``, but an explicit ``enable`` token wins.
+        A bare ``strict``/``!strict`` entry sets the run-wide flag; with a
+        pattern (``step1:!strict``) it scopes to the matching steps.
         """
         patterns: list[_ty.Tuple[str, _Opts]] = []
         strict = False
@@ -76,15 +56,12 @@ class _Selection:
             pattern, *raw_tokens = _split_tokens(rest)
             pattern = pattern.strip()
             if pattern == _STRICT_TOKEN and not raw_tokens:
-                # A bare `strict`/`!strict` entry (no pattern, no tokens of
-                # its own) is the run-wide toggle, unchanged from before.
+                # Bare entry: the run-wide toggle.
                 strict = not bang_disabled
                 strict_explicit = True
                 continue
             pattern_opts = _Opts.parse(raw_tokens)
-            # An explicit `enable`/`!enable` token wins over the leading
-            # `!` when both are present (the token is more specific); absent
-            # a token, the leading `!` alone decides.
+            # An explicit token wins over the leading `!`.
             enabled = (
                 (not bang_disabled)
                 if pattern_opts.enabled is None
@@ -103,16 +80,11 @@ class _Selection:
         return cls(patterns, strict, strict_explicit)
 
     def step_strict(self, name: str, file_strict: bool) -> bool:
-        """Resolve whether step ``name``'s own failure should be fatal.
+        """Whether step ``name``'s own failure should be fatal.
 
-        Precedence (each layer overrides the previous): the step's own
-        ``file_strict`` (filename-derived, default ``True``), then a
-        per-pattern ``--rcopts`` entry matching ``name`` that carries an
-        EXPLICIT ``strict``/``!strict`` token (later matching entries win,
-        same as :meth:`decide`) -- an entry with no such token never touches
-        this at all, regardless of what other tokens it has -- then an
-        EXPLICIT bare ``--rcopts strict``/``!strict`` (run-wide, wins last of
-        all).
+        Precedence, last wins: the step's ``file_strict``, then the last matching
+        ``--rcopts`` entry with an explicit ``strict`` token, then an explicit
+        bare run-wide ``strict``/``!strict``.
         """
         result = file_strict
         for pattern, opts in self.patterns:
@@ -123,15 +95,10 @@ class _Selection:
         return result
 
     def decide(self, name: str, default: bool = True) -> bool:
-        """Return whether the step ``name`` is enabled under this selection.
+        """Whether step ``name`` is enabled: the last matching pattern decides.
 
-        ``default`` is the step's own base enabled state before any
-        ``--rcopts`` pattern is applied -- ``True`` unless the caller passes the
-        entry's filename-derived ``opts.enabled`` (the ``!`` prefix), per the
-        confirmed precedence (filename default, then ``--rcopts`` on top, CLI
-        wins last). With no patterns a step keeps exactly ``default``.
-        Otherwise a step is enabled iff the last pattern that matches it is an
-        enable pattern; a step matched by no pattern keeps ``default``.
+        ``default`` is the step's own base state (its filename ``!``); a step
+        matched by no pattern keeps it.
         """
         result = default
         for pattern, opts in self.patterns:

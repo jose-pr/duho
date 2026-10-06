@@ -52,16 +52,10 @@ class RunPathCmd(_Cmd):
     ("-O", "--rcopts")  # type: ignore
 
     def _runpath_logger_(self) -> _logging.Logger:
-        """Resolve the run logger: the instance's ``_logger_`` if it has one.
+        """The instance's ``_logger_`` if it has one, else the ``duho.runpath`` logger.
 
-        A ``RunPathCmd`` combined with ``LoggingArgs`` (the usual app shape)
-        exposes a ``_logger_`` property scoped to the parser name; a bare
-        ``RunPathCmd`` with no logging mixin has none, so fall back to the
-        ``duho.runpath`` module logger (the 0.5.3 logger-naming change).
-
-        This deliberately differs from ``ModuleCommand._logger_for``, whose
-        fallback stays the plain ``"duho"`` logger: that one is handed to USER
-        hook code, which should not have to know duho's module layout.
+        ``ModuleCommand._logger_for`` falls back to the plain ``"duho"`` logger
+        instead, because that one is handed to user hook code.
         """
         logger = getattr(self, "_logger_", None)
         if isinstance(logger, _logging.Logger):
@@ -97,10 +91,8 @@ class RunPathCmd(_Cmd):
                 ctx = lifecycle.init(self, logger)
                 _reject_coroutine(ctx, "%s __main__.init()" % self._parsername_)
             except Exception as exc:
-                # `init` failure is always fatal (Design decision): every step
-                # depends on ctx, so there is no meaningful resilient partial
-                # init -- log then re-raise unconditionally, regardless of
-                # --rcopts strict.
+                # An `init` failure is fatal whatever --rcopts says: every
+                # step depends on ctx.
                 _log_exception(logger, "__main__.py init() failed: %s", exc)
                 raise
 
@@ -108,10 +100,8 @@ class RunPathCmd(_Cmd):
         codes: list[int] = [0]
         try:
             for step in steps:
-                # A step whose own REQUIRED dependency actually ran (or
-                # tried to import) and failed is skipped too, rather than
-                # running against a broken prerequisite. Fatality for the
-                # SKIPPED dependent follows its own strict setting.
+                # A step whose REQUIRED dependency failed is skipped; whether
+                # that is fatal follows the skipped step's own strict setting.
                 unmet = [dep for dep in step.required if dep in failed_names]
                 if unmet:
                     failed_names.add(step.name)
@@ -131,10 +121,8 @@ class RunPathCmd(_Cmd):
                     result = entrypoint(self, ctx) if wants_ctx else entrypoint(self)
                     _reject_coroutine(result, "step %s" % step.name)
                 except Exception as exc:
-                    # A non-strict step failure is SWALLOWED (the run
-                    # continues), so this log line is the only record of
-                    # where it broke -- DUHO_TRACEBACK=1 turns it into a full
-                    # traceback.
+                    # A non-strict failure is swallowed, so this log line is the
+                    # only record; DUHO_TRACEBACK=1 makes it a full traceback.
                     _log_exception(logger, "step %s failed: %s", step.name, exc)
                     failed_names.add(step.name)
                     codes.append(1)
@@ -142,9 +130,8 @@ class RunPathCmd(_Cmd):
                         raise
                     continue
 
-                # A step's return value follows ModuleCommand's own
-                # convention: None -> success; a non-zero int -> failure.
-                # Anything else is not an exit code.
+                # Same convention as ModuleCommand: None is success, a non-zero
+                # int is failure, anything else is not an exit code.
                 code = result if isinstance(result, int) else 0
                 codes.append(code)
                 if code:
@@ -154,13 +141,9 @@ class RunPathCmd(_Cmd):
                         % (step.name, result)
                     )
                     if selection.step_strict(step.name, step.file_strict):
-                        # Unlike a raised exception (which still propagates
-                        # as a traceback), a non-zero RETURN under strict
-                        # ends the run cleanly: log it, let the enclosing
-                        # try/finally still run __main__.py's finally_, and
-                        # report this step's own code through the aggregate
-                        # below -- never a generic exception that would lose
-                        # the actual numeric code.
+                        # Strict stops on a non-zero return without raising, so
+                        # finally_ still runs and the step's own code survives
+                        # in the aggregate.
                         logger.error(message)
                         break
                     logger.warning(message)
@@ -180,9 +163,7 @@ class RunPathCmd(_Cmd):
                         result, "%s __main__.finally_()" % self._parsername_
                     )
                 except Exception as exc:
-                    # A raising finally_ must not mask the real step failure
-                    # (if any is currently propagating) nor the aggregate exit
-                    # code: log and swallow it (matches
-                    # discovery.run_command's own guarded finally_).
+                    # A raising finally_ must not mask a propagating step
+                    # failure or the aggregate exit code.
                     _log_exception(logger, "__main__.py finally_() failed: %s", exc)
         return _worst(codes)

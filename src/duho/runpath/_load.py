@@ -23,20 +23,12 @@ _LOGGER = _logging.getLogger(__package__)
 def _iter_step_files(
     directory: _Path,
 ) -> _ty.Iterator[_ty.Tuple[int, str, _Path, _Opts]]:
-    """Yield ``(NN, name, path, opts)`` for each step file in ``directory``.
+    """Yield ``(NN, name, path, opts)`` for each step file, sorted by ``(NN, name)``.
 
-    Filename modifiers (``!``/``:key`` -- see :func:`_parse_file_modifiers`)
-    are stripped from the stem BEFORE the ``NN-name`` split, so a modifier never
-    affects numeric-prefix/name parsing. Sorted by ``(NN, name)`` for a
-    deterministic default order; ``_``-prefixed files are skipped (private/helper
-    convention, same as discovery) -- checked against the RAW name so ``__main__.py``
-    is never mistaken for a step regardless of modifiers.
-
-    Matches the ``.py`` suffix with a case-SENSITIVE comparison via
-    ``Path.suffix`` rather than ``Path.glob("*.py")``: on Windows, ``glob``
-    matches ``10-a.PY`` too (the filesystem is case-insensitive), but Python's
-    own import machinery refuses that spelling, so the file would be
-    imported-and-fail on Windows while POSIX silently ignored it.
+    Filename modifiers are stripped before the ``NN-name`` split; ``_``-prefixed
+    files (checked on the raw name, so ``__main__.py``) are skipped. The ``.py``
+    suffix is compared case-sensitively because ``Path.glob`` on Windows would
+    match ``10-a.PY``, which the import machinery then refuses.
     """
     found: list[_ty.Tuple[int, str, _Path, _Opts]] = []
     for path in directory.iterdir():
@@ -80,11 +72,8 @@ def _normalize_step_names(
 ) -> list[str]:
     """Normalize a step's ``REQUIRED``/``BEFORE``/``AFTER`` to ``list[str]``.
 
-    A bare string (``REQUIRED = "provision"``) is an easy slip: iterated
-    directly it yields one-character "dependencies", and for ``BEFORE``/
-    ``AFTER`` (whose missing names are a silent no-op) it does NOTHING with no
-    diagnostic at all. Wrap it in a single-element list instead, and
-    warn so the author notices.
+    A bare string is wrapped in a list and warned about: iterated, it would
+    yield one-character names (or silently do nothing for ``BEFORE``/``AFTER``).
     """
     if not value:
         return []
@@ -109,11 +98,9 @@ def _resolve_priority(
     strict: bool,
     logger: _logging.Logger,
 ) -> int:
-    """Resolve a step's ordering ``PRIORITY``, defaulting to its ``NN`` prefix.
+    """A step's ordering ``PRIORITY``, defaulting to its ``NN`` prefix.
 
-    A non-numeric ``PRIORITY`` is reported naming the step and file, and
-    follows the normal strict-vs-resilient policy (falling back to the
-    filename prefix when resilient).
+    A non-numeric value follows the strict-or-warn policy, falling back to ``NN``.
     """
     priority = getattr(module, "PRIORITY", None)
     if priority is None:
@@ -140,37 +127,14 @@ def _load_steps(
     """Resolve, filter, import and order one RunPath directory's steps.
 
     Returns ``(ordered_enabled_steps, present_names, broken_names)``:
+    ``present_names`` is every name on disk, enabled or not; ``broken_names``
+    is enabled steps whose import failed and were skipped.
 
-    * ``present_names`` -- every step name found on disk, enabled or not (in
-      file-listing order), so the caller's REQUIRED/``--rcopts`` diagnostics
-      can tell "genuinely missing" from "present but disabled";
-    * ``broken_names`` -- enabled steps whose IMPORT failed and were skipped
-      resiliently, so a dependent step's ``REQUIRED`` can be resolved against
-      them too (see the module docstring's "REQUIRED and a failed dependency").
-
-    Only ENABLED steps (``selection.decide(name, opts.enabled)``) are ever
-    imported: a disabled or deselected step's module body never runs,
-    which also means it never enters :func:`_order_steps`'s graph, so it can
-    never transitively reorder an enabled step via a stale ``PRIORITY``/
-    ``BEFORE``/``AFTER``/``REQUIRED``.
-
-    Two files that resolve to the SAME step name are a duplicate ONLY when both
-    would actually be enabled (post ``--rcopts``): this always raises
-    ``ValueError`` naming both files -- regardless of strict mode -- rather
-    than one silently overwriting the other's ordering edges in the graph
-    (which is keyed by name). A DISABLED duplicate never wins the name and
-    never hides an enabled one, regardless of file order: whichever file among
-    the same-named entries is enabled is the one that is loaded, and no
-    warning/error is raised for the harmless disabled-vs-enabled case.
-
-    A step whose **import** fails with an ``ImportError``/``NotImplementedError``
-    (an *environmental* failure: a missing optional dependency, a not-yet-provided
-    integration) is skipped/re-raised following the STEP'S OWN effective strict
-    setting (``selection.step_strict``), not just the run-wide flag -- a step
-    marked resilient by its own filename token stays resilient even when
-    ``--rcopts strict`` is not given, and vice versa. Non-environmental body
-    errors (``SyntaxError``, ``NameError``, ...) always surface -- they are
-    bugs, not environment.
+    Only enabled steps are imported, so a disabled step never enters the
+    ordering graph. Two enabled files with the same name raise ``ValueError``
+    regardless of strict mode; a disabled duplicate never hides an enabled one.
+    An ``ImportError``/``NotImplementedError`` on import follows the step's own
+    strict setting; any other error always surfaces.
     """
     present_names: list[str] = []
     seen: dict[str, _ty.Tuple[_Path, bool]] = {}
@@ -181,24 +145,16 @@ def _load_steps(
         if prior is not None:
             prior_path, prior_enabled = prior
             if prior_enabled and enabled_here:
-                # Two ENABLED steps racing for the same name is always an
-                # error -- not just under `--rcopts strict` -- since letting
-                # one silently drop out of the ordering graph regardless of
-                # strictness would leave a REQUIRED/BEFORE/AFTER dependent
-                # resolved against whichever file happened to be kept.
+                # Always an error, not only under strict: the graph is keyed
+                # by name, so one file would silently drop out of it.
                 raise ValueError(
                     "duho.runpath: duplicate step name %r: %s and %s"
                     % (name, prior_path, path)
                 )
             if not enabled_here:
-                # A disabled duplicate never displaces whatever is already
-                # on record for this name (enabled or disabled) -- it simply
-                # has no effect, so it can never hide an already-seen
-                # enabled step of the same name.
+                # A disabled duplicate never displaces what is on record.
                 continue
-            # `enabled_here` and not `prior_enabled`: this file takes over
-            # the name from a disabled duplicate, which never competed for
-            # it in the first place.
+            # Enabled over a disabled duplicate: this file takes the name.
         else:
             present_names.append(name)
         seen[name] = (path, enabled_here)
@@ -264,46 +220,13 @@ def _order_steps(
 ) -> list[_Step]:
     """Order steps via Kahn's algorithm over a merged REQUIRED/BEFORE/AFTER graph.
 
-    Ties (no remaining predecessor) break by the step's RANK in the
-    ``(priority, name)``-sorted base order, popped from a min-heap -- this is
-    what makes the sort STABLE: whole "passes" over the remaining steps
-    would let a step reordered by one dependency jump ahead of every
-    unrelated LATER step in the same pass instead of only past its own
-    dependency. With the heap, only steps that
-    are actually ready compete, always picking the lowest-ranked one among
-    them, so an unrelated later step never overtakes a step whose dependency
-    just became satisfied.
+    ``REQUIRED`` and ``AFTER`` are predecessors of the declaring step; ``BEFORE``
+    is rewritten onto the named target. Names matching no step are dropped.
+    Ties pop from a min-heap by rank in the ``(priority, name)`` order, so an
+    unrelated later step never overtakes one whose dependency just resolved.
 
-    Edge relations, merged into one predecessor graph:
-
-    * ``REQUIRED`` (hard dependency) and ``AFTER`` (soft ordering, same
-      direction) both contribute directly as predecessors of the declaring
-      step ("X before me");
-    * ``BEFORE`` is the mirror direction ("me before X") and is rewritten onto
-      the NAMED TARGET's predecessor set.
-
-    A merged-graph name that matches no step in ``steps`` is silently dropped
-    -- ordering never fails on a missing/disabled name; the run-time selection
-    layer raises the missing/disabled ``REQUIRED`` warning/error.
-    Since :func:`_load_steps` passes only ENABLED steps here, a
-    disabled step is absent from this graph, so its edges can never
-    reorder an enabled step.
-
-    A genuine cycle (spanning any mix of the three relations) is broken
-    deterministically: when no ready step remains, the chain of unresolved
-    predecessors starting from the smallest-ranked stuck step is walked until
-    it revisits a node, which identifies the actual cycle (a step merely
-    stuck BEHIND a cycle, without being part of it, is never included -- see
-    below); the smallest-ranked ``(priority, name)`` step AMONG THAT CYCLE
-    (not the smallest stuck step overall, which may not even be on the cycle)
-    is then forced through, as if its remaining predecessors were satisfied,
-    and a single warning names every step in the cycle. Forcing a step
-    outside the cycle through would let it jump its own still-unsatisfied
-    ``REQUIRED``/``AFTER`` predecessor, instead of only breaking the actual
-    deadlock. Ordering then resumes normally: any step that was only blocked
-    by the forced one gets emitted next via the heap, and only a NEW dead end
-    (if the mix has more than one entangled cycle) triggers another
-    warning+break.
+    A cycle is broken at its smallest-ranked member, with one warning (or an
+    error when strict) naming the cycle's steps; ordering then resumes.
     """
     ordered = sorted(steps, key=lambda s: (s.priority, s.name))
     by_name = {s.name: s for s in ordered}
@@ -348,13 +271,9 @@ def _order_steps(
             _emit(step)
             continue
         stuck = [s for s in ordered if s.name not in done]
-        # Name only the steps in the ACTUAL cycle containing the step about to
-        # be forced through, not every step merely blocked behind it:
-        # a step whose own dependency chain leads into a cycle, without being
-        # part of it, must not be reported as if it were. Chase one unresolved
-        # predecessor at a time from the step about to break; the walk must
-        # eventually revisit a node (everything here is still pending), and
-        # the loop from that revisit is the real cycle.
+        # Find the actual cycle, not steps merely blocked behind it: follow
+        # one unresolved predecessor at a time until a node repeats; the loop
+        # from that repeat is the cycle.
         start = stuck[0].name
         path: list[str] = []
         seen_at: dict[str, int] = {}
@@ -367,12 +286,8 @@ def _order_steps(
                 break
             node = min(remaining, key=rank.__getitem__)
         cycle_names = path[seen_at[node] :] if node in seen_at else [start]
-        # Force through the smallest-ranked step that is actually IN the
-        # cycle, not `stuck[0]` (the smallest-ranked stuck step overall) --
-        # `stuck[0]` can be a step merely blocked behind the cycle via its
-        # own REQUIRED/AFTER on a cycle member, and forcing that one through
-        # would let it run ahead of a predecessor it still legitimately
-        # depends on, instead of only breaking the real deadlock.
+        # Break at a step in the cycle, not `stuck[0]`, which may only be
+        # blocked behind it and would jump a predecessor it still depends on.
         break_name = min(cycle_names, key=lambda n: rank[n])
         message = (
             "duho.runpath: unresolved dependency cycle among %s "

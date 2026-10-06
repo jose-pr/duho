@@ -41,19 +41,11 @@ def _load_lifecycle(
     qualname: str,
     logger: _logging.Logger = _LOGGER,
 ) -> _ty.Optional[_Lifecycle]:
-    """Load ``__main__.py`` from ``directory``, if present; else ``None``.
+    """Load ``__main__.py`` from ``directory`` and read its optional hooks; ``None`` if absent.
 
-    ``None`` means "no lifecycle" -- callers must treat this as byte-identical
-    to before this lifecycle existed (no ``ctx``, steps called with ``self``
-    only). When present, imports it the same way steps are imported (the
-    public ``discovery.import_from_path``, ending in ``.__main__`` rather than
-    the stale ``._init``) and reads the three optional hooks off it.
-
-    Called BEFORE :func:`_load_steps`: a ``__main__.py`` doing
-    module-level setup (e.g. adding a sibling ``lib/`` to ``sys.path`` for
-    shared step helpers) must already be in effect by the time step modules
-    are imported, or those imports fail and are silently skipped as
-    environmental errors.
+    Runs before :func:`_load_steps`: module-level setup in ``__main__.py`` (such
+    as extending ``sys.path``) must be in effect before step modules import,
+    or those imports fail and are skipped as environmental errors.
     """
     path = directory / _LIFECYCLE_FILENAME
     if not path.is_file():

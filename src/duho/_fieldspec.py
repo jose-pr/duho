@@ -1,18 +1,12 @@
 """The type -> argparse-spec ladder: one annotation, resolved once.
 
 :func:`_factory_for` is the single dispatch ladder shared by a top-level
-field, every Union member, and every collection element/dict value:
-``Literal``, ``Enum``, ``list``/``set``/``frozenset``/``tuple[T, ...]``,
-``dict[str, V]``, the ISO-format date/datetime/time types, ``Union``/
-``Optional``, and a plain/custom scalar fallthrough. Each branch returns a
-:class:`_FieldSpec` -- the one small namedtuple bundling everything that
-branch determines about the field (its text-to-value ``factory``, argparse
-``choices``, ``metavar``, ``action``, ``nargs``, empty ``default``, and
-``collection`` type).
-
-This ladder, and the env/config layering pipeline in ``_layers.py``, are the
-two subsystems ``duho.args`` itself and ``duho.mcp`` both depend on. Public
-names (``Factory``, ``UpdateAction``) are re-exported from ``duho.args``.
+field, every Union member and every collection element or dict value
+(``Literal``, ``Enum``, collections, ``dict``, ISO date types, ``Union``,
+scalars). Each branch returns a :class:`_FieldSpec` bundling what it
+determines: ``factory``, ``choices``, ``metavar``, ``action``, ``nargs``, the
+empty ``default`` and ``collection``. ``Factory`` and ``UpdateAction`` are
+re-exported from ``duho.args``.
 """
 
 from __future__ import annotations
@@ -41,29 +35,20 @@ Factory = _ty.Callable[[str], _T]
 class _ConversionError(_argparse.ArgumentTypeError, ValueError):
     """Raised by duho's own text factories so argparse shows OUR message.
 
-    argparse's ``_get_value`` only preserves a type function's own message for
-    ``ArgumentTypeError``; a plain ``ValueError``/``TypeError`` is replaced
-    with a generic ``invalid <type> value: ...`` that discards whatever
-    detail the factory raised -- so a crafted "choose from ..."/"expected
-    KEY=VALUE" message never reached the user. Subclassing
-    ``ValueError`` too means every existing ``except (TypeError, ValueError)``
-    catch (the Union/Literal try-loops, the env/config layers) keeps working
-    unchanged.
+    argparse keeps a type function's message only for ``ArgumentTypeError``; a
+    plain ``ValueError`` gets a generic ``invalid <type> value``. Also a
+    ``ValueError`` so the Union/Literal try-loops and the env/config layers,
+    which catch ``(TypeError, ValueError)``, treat it as a rejection.
     """
 
 
 class _LayeredChoiceError(ValueError):
-    """A layered (env/config) value fails its field's ``choices`` membership
-    check.
+    """A layered (env/config) value fails its field's ``choices`` check.
 
-    Deliberately does NOT embed the offending value in its message the way
-    a CLI ``_ConversionError`` does -- an env var or config value can be
-    secret, and this error's text reaches the layering pipeline's own
-    redaction (``_layers.py``), which otherwise always collapses a
-    conversion failure to a generic "expected <type>" (to avoid echoing a
-    raw secret back). Carrying ``choices`` separately lets that redaction
-    show the SAME "invalid choice" wording the CLI gives -- just never the
-    value.
+    The message omits the offending value, since an env or config value can be
+    secret and the layering redaction otherwise collapses a failure to
+    "expected <type>". Carrying ``choices`` lets that redaction show the CLI's
+    "invalid choice" wording without the value.
     """
 
     def __init__(self, choices) -> None:
@@ -76,15 +61,10 @@ class _LayeredChoiceError(ValueError):
 def _bool_from_text(text, /):
     """Strict CLI-text-to-bool factory.
 
-    Plain ``bool`` is never a valid CLI/element/value factory: ``bool(text)``
-    is true for almost any non-empty string, so ``--flag False`` would be
-    ``True``. This shares the token table
-    (:data:`duho.text.BOOL_TRUE`/:data:`duho.text.BOOL_FALSE`) the layered
-    (env/config) converter uses, so the CLI and
-    env/config agree on the very same field. A real ``bool`` passes
-    through unchanged (a native TOML/JSON value, or a value already
-    converted upstream); any other non-string is rejected the same as
-    unrecognized text, rather than crashing on ``.strip()``.
+    Plain ``bool`` is not a valid factory (``bool("False")`` is true). Uses the
+    token table shared with the env/config converter
+    (:data:`duho.text.BOOL_TRUE`/:data:`duho.text.BOOL_FALSE`), passes a real
+    ``bool`` through, and rejects any other non-string like unrecognized text.
     """
     if isinstance(text, bool):
         return text
@@ -123,19 +103,10 @@ def _choice_checked(factory: Factory, choices) -> Factory:
 def _enum_name_factory(enum_cls: type) -> Factory:
     """Build a factory that resolves CLI text to an enum member by NAME.
 
-    Validates against ``enum_cls.__members__`` rather than iterating
-    the enum: iteration skips ALIASES (a second name for the same value) and,
-    since Python 3.11, skips multi-bit ``Flag`` composite members too, so a
-    declaration that worked on the 3.9 floor could reject a composite name on
-    the ceiling. ``__members__`` includes both on every supported version.
-    The "choose from" text still lists only the canonical (non-alias) names
-    from iteration, matching the metavar built alongside this factory.
-
-    Raises :class:`_ConversionError` (a ``ValueError`` subclass) so
-    argparse shows the crafted "choose from ..." message instead of its own
-    generic "invalid <x> value", and so callers that catch
-    ``(TypeError, ValueError)`` (e.g. the Union-branch try-loop) can still
-    treat a non-matching name as "this sub-factory rejects text" and fall
+    Validates against ``enum_cls.__members__``, not iteration: iteration skips
+    aliases and, since 3.11, multi-bit ``Flag`` composites. The "choose from"
+    text lists only canonical names, matching the metavar. Raises
+    :class:`_ConversionError` so argparse shows it and a Union try-loop falls
     through.
     """
     canonical = tuple(member.name for member in enum_cls)
@@ -151,10 +122,8 @@ def _enum_name_factory(enum_cls: type) -> Factory:
     # Completion reads the canonical names from here; argparse's own
     # ``choices`` stays unset because it would compare converted members.
     _factory._duho_choices_ = canonical
-    # Named after the enum, not left as the generic "_factory" a conversion
-    # error's "invalid <type> value"/"expected <type>" text would otherwise
-    # show (argparse, and duho's own layered-value redaction, both read a
-    # factory's `__name__` for that -- see `_field_type_desc`).
+    # Named after the enum: argparse and `_field_type_desc` read ``__name__``
+    # for "invalid <type> value"/"expected <type>".
     _factory.__name__ = enum_cls.__name__
     return _factory
 
@@ -193,26 +162,15 @@ def _enum_value_factory(enum_cls: type, field: str) -> Factory:
 
 
 class _CollectionAction(_argparse.Action):
-    """Extend-and-coerce action for ``list``/``set``/``tuple`` collection
-    fields.
+    """Extend-and-coerce action for ``list``/``set``/``tuple`` fields.
 
-    argparse's built-in ``extend`` action only extends a *list* and starts
-    from whatever is already on the namespace (a layered default), so a CLI
-    occurrence merges onto it instead of replacing it. This action instead
-    starts its sidecar EMPTY on the first call of a parse, so the first CLI
-    occurrence always REPLACES a class/env/config/instance default -- the
-    same "CLI wins" semantics for every collection kind -- and
-    further occurrences accumulate onto that (repeated flags still add up:
-    ``--x a --x b`` -> both). It gathers elements in insertion order across
-    both invocation forms -- repeated flags (``--x a --x b``) and
-    space-separated (``--x a b``) -- then stores the final field value
-    coerced to the target collection type.
-
-    The running elements are kept in insertion order on a private sidecar
-    attribute (``_duho_items_<dest>``) so a ``tuple`` field's order is stable
-    regardless of how many times the flag appears; ``set`` dedups at coercion.
-    The declared collection type is bound at build time as ``_collection_``
-    (``list``, ``set``, ``tuple``, or ``frozenset``).
+    argparse's ``extend`` starts from the namespace value, so a CLI occurrence
+    would merge onto a layered default. This action keeps its running elements
+    in insertion order on a private sidecar (``_duho_items_<dest>``) that starts
+    empty each parse: the first CLI occurrence REPLACES any class, env, config
+    or instance default and later ones (repeated flags or space-separated
+    values) accumulate. The final value is coerced to ``_collection_`` (``list``,
+    ``set``, ``tuple`` or ``frozenset``, bound at build time); ``set`` dedups.
     """
 
     #: Target collection type; bound at construction.
@@ -229,21 +187,14 @@ class _CollectionAction(_argparse.Action):
             # `UpdateAction` at module scope to classify actions for env/
             # config layering).
             if isinstance(values, _LayeredDefault):
-                # `values` is a not-yet-converted env/config/instance
-                # placeholder, not a real collection default -- pass it
-                # through UNCHANGED so `_finalize_layers` still sees the
-                # exact same object (`is`, not `==`) and converts it; wrapping
-                # it in `self._collection_(...)` here would either raise
-                # (the placeholder isn't iterable) or silently discard it.
+                # A not-yet-converted placeholder: pass it through unchanged so
+                # `_finalize_layers` still sees the same object (`is`) and
+                # converts it; coercing it would raise or discard it.
                 setattr(namespace, self.dest, values)
                 return
-            # A REAL collection default (no layer touched this field): coerce
-            # a FRESH one from it instead of treating it as a user-supplied
-            # value -- otherwise a `set` default crashes (`set([<the default
-            # set>])`, unhashable) and a `list` default gets doubled. The
-            # fresh coercion also means the returned instance never aliases
-            # the action's default object, so a later mutation can't leak
-            # into a future parse.
+            # A real default: coerce a fresh collection from it. Otherwise a
+            # `set` default crashes (unhashable), a `list` is doubled, and the
+            # result would alias the action's default across parses.
             setattr(namespace, self.dest, self._collection_(values))
             return
         sidecar = "_duho_items_" + self.dest
@@ -268,19 +219,14 @@ def _collection_action(collection: type) -> type[_argparse.Action]:
 
 
 class _AppendAction(_argparse.Action):
-    """``duho.Append()``'s action: one scalar value per flag occurrence,
-    accumulated into a *list*.
+    """``duho.Append()``'s action: one scalar per flag occurrence, accumulated
+    into a *list*.
 
-    argparse's own stdlib ``"append"`` action starts from whatever is
-    ALREADY on the namespace -- a class/env/config/instance default -- so
-    the FIRST CLI occurrence merges onto it instead of replacing it, unlike
-    every other collection action duho builds (see :class:`_CollectionAction`,
-    which exists for exactly this reason). This mirrors that same fix: the
-    running list lives on a private per-parse sidecar
-    (``_duho_items_<dest>``), never read back off ``namespace.<dest>``
-    itself, so the first occurrence always starts a FRESH list -- a layered
-    default is replaced, not appended to -- and later occurrences accumulate
-    onto that same list.
+    Like :class:`_CollectionAction`, the running list lives on a private
+    per-parse sidecar (``_duho_items_<dest>``), never read from
+    ``namespace.<dest>``, so the first occurrence starts a fresh list and
+    replaces a layered default instead of appending to it (stdlib ``append``
+    would).
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -294,28 +240,14 @@ class _AppendAction(_argparse.Action):
 
 
 class _NegatedBoolAction(_argparse.Action):
-    """A bool flag whose OWN declared spelling already reads as a negation
-    (``no_verify`` -> ``--no-verify``), given a way back to ``False`` from
-    the CLI when a layer (env/config) can supply ``True``.
+    """A bool flag whose own spelling reads as a negation (``no_verify`` ->
+    ``--no-verify``), with a way back to ``False`` when env/config supply ``True``.
 
-    ``argparse.BooleanOptionalAction`` cannot do this: it refuses ANY
-    ``--no-``-prefixed option string outright (3.9-3.14+ alike), so it is
-    never reachable for this shape (see ``ArgumentBuilder.add_to_parser``,
-    the only caller). This does the same job by hand, as ONE action
-    carrying BOTH the field's own declared flags (``negative`` --
-    presence sets ``True``, this field's own honest "on" spelling) and an
-    EXTRA, stripped positive-sense counterpart argparse also registers
-    under the SAME dest (presence sets ``False``) -- never a SECOND action:
-    duho's env/config layering pipeline keys everything off exactly one
-    action per dest (``_layers.py``'s several ``{action.dest: action for
-    action in parser._actions}`` maps would otherwise silently pick
-    whichever action happens to be LAST for that dest).
-
-    Never reads back whatever is already on ``namespace.<dest>`` -- it
-    always overwrites outright from ``option_string`` alone -- so it is
-    safe against a not-yet-converted ``_LayeredDefault`` placeholder the
-    same way a plain ``store_true``/``store_false`` is (see
-    ``_layers._REPLACE_SEMANTICS_ACTION_TYPES``, where it is listed).
+    ``argparse.BooleanOptionalAction`` refuses ``--no-`` option strings, so this
+    one action carries the declared flags (``negative``, set ``True``) and a
+    stripped positive-sense counterpart (set ``False``) under one dest: the
+    layering code keys on one action per dest. It overwrites from
+    ``option_string`` alone, so a ``_LayeredDefault`` placeholder is safe.
     """
 
     def __init__(self, option_strings, dest, negative, **kwargs):
@@ -362,12 +294,8 @@ class _KVFactory:
         try:
             converted = self.value_factory(value)
         except (TypeError, ValueError):
-            # Never let argparse fall back to its own generic message here:
-            # `self.value_factory` is an internal callable (a bound method, a
-            # closure) with no useful `__name__` of its own, so that fallback
-            # showed its raw object repr (`invalid <_KVFactory object at
-            # 0x...> value`) instead of naming the field and the value type
-            # the way every other conversion error does.
+            # An internal callable has no useful ``__name__``, so argparse's
+            # fallback would show its raw repr; name the field and value type.
             type_name = getattr(self.value_factory, "__name__", None) or "value"
             raise _ConversionError(
                 f"argument {self.name!r}: value {value!r} for key {key!r} "
@@ -379,27 +307,16 @@ class _KVFactory:
 def _isoformat_factory(cls: type) -> Factory:
     """Build the ``fromisoformat`` factory for a date/datetime/time `cls`.
 
-    Before Python 3.11, ``fromisoformat`` only accepts its OWN ``isoformat()``
-    output: no trailing ``Z`` (RFC 3339's UTC marker, and the form most tools
-    emit) and no basic ``YYYYMMDD`` format. duho.mcp advertises
-    ``format: date-time`` (RFC 3339) on every version regardless, so a
-    schema-valid MCP call could fail on the 3.9 floor. This rewrites a
-    trailing ``Z``/``z`` before delegating to ``fromisoformat`` -- on EVERY
-    version, not only <3.11: 3.11+'s own ``fromisoformat`` accepts an
-    uppercase ``Z`` natively but rejects a lowercase ``z``, and RFC 3339
-    treats the two as equivalent, so leaving the floor's shim as the only
-    place that normalized case made ``--field ...z`` behave differently
-    depending on which Python duho happened to run on. Basic (no-dash)
-    formats stay unsupported on every version -- out of scope here.
+    Before 3.11 ``fromisoformat`` rejects a trailing ``Z``, which RFC 3339 (and
+    the ``date-time`` format ``duho.mcp`` advertises) allows. A trailing ``Z`` or
+    ``z`` is rewritten on every version: 3.11+ accepts only an uppercase ``Z``.
+    Basic (``YYYYMMDD``) formats stay unsupported.
     """
     accepts_z_natively = _sys.version_info >= (3, 11)
 
     def _factory(text: str, /, _cls=cls, _accepts_z=accepts_z_natively):
-        # A non-str `text` (a native TOML/JSON date/datetime object passed
-        # through the env/config layer) has no `.endswith` -- let
-        # `fromisoformat` itself reject it (a TypeError, caught by
-        # `_convert_non_str`'s fallback, as on 3.11+) instead of crashing here
-        # with an unrelated AttributeError.
+        # A non-str `text` (a native TOML/JSON date) has no `.endswith`; let
+        # `fromisoformat` reject it with a TypeError, not an AttributeError.
         if isinstance(text, str) and text.endswith(("Z", "z")):
             text = text[:-1] + ("Z" if _accepts_z else "+00:00")
         return _cls.fromisoformat(text)
@@ -447,10 +364,8 @@ def _literal_spec(args: tuple) -> _FieldSpec:
             # with "--flag False" silently became True.
             factory: Factory = _bool_from_text
         elif isinstance(lit_ty, type) and issubclass(lit_ty, _enum.Enum):
-            # A Literal of specific Enum MEMBERS (a bare Enum annotation goes
-            # through `_enum_spec`). The enum class looks members up by VALUE,
-            # but the advertised choices are names, so resolve by NAME, scoped
-            # to the members this Literal lists, as `_enum_spec` does.
+            # A Literal of Enum MEMBERS: the enum looks up by VALUE but the
+            # choices are names, so resolve by NAME among this Literal's members.
             names = tuple(member.name for member in args)
             valid = frozenset(names)
 
@@ -468,10 +383,9 @@ def _literal_spec(args: tuple) -> _FieldSpec:
         else:
             factory = lit_ty
     else:
-        # Mixed-type Literal: try each declared literal's own type, but only
-        # accept a conversion that round-trips to one of the declared values (a
-        # naive "first type that doesn't raise" would let str('1') shadow int(1),
-        # and a naive bool(text) would let True shadow every other member).
+        # Mixed-type Literal: try each literal's own type, accepting only a
+        # conversion that round-trips to a declared value (so str('1') cannot
+        # shadow int(1) and bool(text) cannot shadow every other member).
         def factory(text: str, /, _literals=tuple(args)):  # type: ignore[misc]
             for lit in _literals:
                 lit_ty = type(lit)
@@ -487,11 +401,9 @@ def _literal_spec(args: tuple) -> _FieldSpec:
             )
 
         if bool in literal_types:
-            # A mixed-type Literal that ALSO accepts bool (e.g.
-            # ``Literal[True, "auto"]``) must still accept a native bool from
-            # an env/config layer -- `ArgumentBuilder._convert_non_str` reads
-            # this attribute to widen a raw bool for a composite factory it
-            # doesn't otherwise recognize by identity.
+            # A mixed Literal that also accepts bool must accept a native bool
+            # from env/config: `_convert_non_str` reads this attribute to widen a
+            # raw bool for a composite factory.
             factory._duho_union_bool_ok_ = True  # type: ignore[attr-defined]
 
     return _FieldSpec(factory, tuple(args), metavar, None, None, NOT_DEFINED, None)
@@ -500,21 +412,13 @@ def _literal_spec(args: tuple) -> _FieldSpec:
 def _union_spec(members: list, name: str, enum_by: str = "name") -> _FieldSpec:
     """Spec for a Union of ``members`` (``None`` already stripped).
 
-    Each member is resolved through :func:`_factory_for` so a member like
-    ``list[int]`` or ``Literal[...]`` gets its full spec. A single remaining
-    member (an ``Optional[T]``) adopts T's ENTIRE spec -- element conversion,
-    action, choices, default (this is also why a bare/``Optional`` ``bool``
-    keeps `store_true`/`BooleanOptionalAction`: its single-member spec's
-    factory stays the raw ``bool`` builtin, untouched below). A multi-member
-    union composes the member factories in declaration order (the
-    enum-by-name rule preserved), but rejects any member that needs a special
-    ``action`` (a collection): argparse cannot switch actions per value within
-    one option. Within that multi-member composition, a raw ``bool`` member
-    is routed through the strict :func:`_bool_from_text` and any
-    member carrying ``choices`` (e.g. a Literal) is membership-checked before
-    the try-loop can silently accept a value only because a LATER member's
-    bare type conversion happens not to raise -- a union field never
-    gets argparse's own ``choices=`` kwarg, so this is the only enforcement.
+    Each member goes through :func:`_factory_for`. A single member
+    (``Optional[T]``) adopts T's entire spec, so an ``Optional[bool]`` keeps its
+    flag action. A multi-member union composes the member factories in order and
+    rejects a member needing a special ``action`` (a collection), since argparse
+    cannot switch actions per value. In that composition a ``bool`` member uses
+    the strict :func:`_bool_from_text` and a member with ``choices`` is
+    membership-checked, because a union field never gets argparse's ``choices=``.
     """
     member_specs = [_member_spec(m, name, enum_by) for m in members]
     resolved_factories = [
@@ -543,11 +447,8 @@ def _union_spec(members: list, name: str, enum_by: str = "name") -> _FieldSpec:
         factories.append(f)
     factories = tuple(factories)
 
-    # For the error message only: the ORIGINAL annotation types (`int`,
-    # `str`, ...), not `_factories` -- those are the resolved conversion
-    # CALLABLES (bound closures, `_bool_from_text`, a `_choice_checked`
-    # wrapper), whose `repr()` is an unreadable
-    # `<function ... at 0x...>` rather than the member type the user wrote.
+    # For the error message only: the original annotation types, not the
+    # resolved callables, whose repr is an unreadable ``<function ... at 0x...>``.
     _member_names = tuple(getattr(m, "__name__", repr(m)) for m in members)
 
     def factory(text: str, /, _factories=factories, _names=_member_names):
@@ -560,18 +461,13 @@ def _union_spec(members: list, name: str, enum_by: str = "name") -> _FieldSpec:
             f"could not convert {text!r} using any of {', '.join(_names)}"
         )
 
-    # Named after the union's own members, not left as the generic
-    # "factory" a layered conversion-failure message's "expected <type>"
-    # text would otherwise show (see `_field_type_desc`) -- an unreadable
-    # internal name, not the "int or float" a user actually declared.
+    # Named after the members: a layered failure message's "expected <type>"
+    # reads ``__name__`` (see `_field_type_desc`).
     factory.__name__ = " or ".join(_member_names)
 
     if bool in members:
-        # A multi-member Union that ALSO accepts bool (e.g.
-        # ``Union[bool, int]``) must still accept a native bool from an
-        # env/config layer -- `ArgumentBuilder._convert_non_str` reads this
-        # attribute to widen a raw bool for a composite factory it doesn't
-        # otherwise recognize by identity.
+        # A Union that also accepts bool must accept a native bool from env/config
+        # (`_convert_non_str` reads this attribute).
         factory._duho_union_bool_ok_ = True  # type: ignore[attr-defined]
 
     return _scalar_spec(factory)
@@ -640,17 +536,12 @@ _TypeAliasType = getattr(_ty, "TypeAliasType", None)
 
 
 def _unwrap_type_alias(tp):
-    """Unwrap a PEP 695 ``type X = ...`` alias (3.12+) or a ``typing.NewType``
-    down to the real type it describes, looping so a chain of aliases
-    resolves fully.
+    """Unwrap a PEP 695 ``type X = ...`` alias (3.12+) or ``typing.NewType`` to
+    the real type, looping through a chain.
 
-    Neither is safe to hand straight to argparse's ``type=``: a
-    ``TypeAliasType`` instance is not callable at all (``type Port = int``
-    crashes every parser build with "Port is not callable"), and a
-    ``NewType`` IS callable but is the identity function at runtime, so
-    ``UserId("5")`` silently returns the string ``'5'`` where the annotation
-    promises an ``int``. Both attribute probes are safe on every supported
-    version -- neither exists on a plain type.
+    Neither works as argparse's ``type=``: a ``TypeAliasType`` is not callable,
+    and a ``NewType`` is the identity function, so ``UserId("5")`` returns the
+    string ``'5'``. The attribute probes are safe on every version.
     """
     while True:
         if _TypeAliasType is not None and isinstance(tp, _TypeAliasType):
@@ -685,19 +576,14 @@ def _member_spec(member, name: str, enum_by: str = "name") -> _FieldSpec:
 
 
 def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> tuple:
-    """Resolve a collection ELEMENT or dict VALUE type through the same
-    ladder a top-level field uses, so an enum element matches by
-    name, a date element parses ISO text, a bool element parses strictly,
-    and a Literal element carries its own membership check. Raises a
-    build-time ValueError naming the field when the element type is itself a
-    collection -- argparse cannot switch actions/nargs per element (mirrors
-    the check `_union_spec` makes for a collection Union member).
+    """Resolve a collection ELEMENT or dict VALUE type through the ladder a
+    top-level field uses, so an enum element matches by name, a date parses ISO
+    text, a bool parses strictly and a Literal checks membership. Raises
+    ``ValueError`` naming the field when the element is itself a collection.
 
-    Returns ``(factory, choices, metavar)``; ``choices`` is already enforced
-    INSIDE `factory` via :func:`_choice_checked` when the element spec
-    carried any (e.g. a Literal element) -- element/value fields never get
-    argparse's own ``choices=`` kwarg (it validates the whole collection's
-    converted value, not each element).
+    Returns ``(factory, choices, metavar)``; any ``choices`` are enforced inside
+    `factory` via :func:`_choice_checked`, since argparse's ``choices=`` would
+    validate the whole collection, not each element.
     """
     spec = _member_spec(elem_ty, name, enum_by)
     if spec.action is not None or spec.collection is not None:
@@ -707,13 +593,8 @@ def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> tuple
         )
     factory = spec.factory if spec.factory is not None else elem_ty
     if factory is bool:
-        # `elem_ty is bool` alone misses an `Optional[bool]` element: its
-        # single-member Union spec RESOLVES to the raw `bool` builtin (see
-        # `_union_spec`'s single-member branch) without `elem_ty` itself
-        # ever being literally `bool`. Checking the RESOLVED factory instead
-        # catches that case too, so `list[Optional[bool]]`/`dict[str,
-        # Optional[bool]]` reject "false" the same strict way a bare
-        # `bool` element does, instead of silently truthy-casting the text.
+        # Test the resolved factory, not `elem_ty`: an `Optional[bool]` element
+        # resolves to the raw `bool` builtin and must reject "false" strictly too.
         factory = _bool_from_text
     if spec.choices is not None:
         factory = _choice_checked(factory, spec.choices)
@@ -723,15 +604,12 @@ def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> tuple
 def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
     """Resolve a single annotation type to its :class:`_FieldSpec`.
 
-    The one dispatch ladder shared by the top-level field, every Union
-    member, and every collection element/dict value. Ordering
-    matches the historical branch order (Literal, Enum, list, set, frozenset,
-    tuple, dict, iso-date, Union, fallthrough). A plain/custom type returns
-    ``factory=None`` so the caller keeps whatever factory it seeded (e.g. a
-    ``duho.Argument.from_type`` custom factory) -- EXCEPT when `tp` was
-    itself a type alias/NewType that had to be unwrapped to reach that plain
-    type, since the caller's seeded factory is the un-unwrapped original,
-    which is not usable as-is.
+    The one dispatch ladder shared by the top-level field, every Union member
+    and every collection element or dict value. A plain/custom type returns
+    ``factory=None`` so the caller keeps its seeded factory (such as a
+    ``duho.Argument.from_type`` one), unless `tp` was a type alias or NewType
+    unwrapped to reach it: the seeded factory is then the un-unwrapped original
+    and unusable.
     """
     original_tp = tp
     tp = _unwrap_type_alias(tp)
@@ -802,10 +680,8 @@ def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
         return _union_spec(non_none, name, enum_by)
 
     if origin is not None:
-        # Some other subscripted generic this ladder doesn't know how to
-        # build a factory for (frozenset is handled above; this catches
-        # things like Sequence[str]/Iterable[str]: calling the raw typing
-        # alias per value would fail at PARSE time, not once at build time).
+        # Some other subscripted generic (``Sequence[str]``, ``Iterable[str]``):
+        # calling the raw typing alias per value would fail at parse time.
         raise ValueError(
             f"argument {name!r}: unsupported annotation {tp!r}; duho does "
             f"not know how to build a CLI factory for this generic type "
@@ -824,10 +700,8 @@ def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
         )
 
     if tp is not original_tp:
-        # `tp` was unwrapped from a TypeAliasType/NewType above and fell
-        # through to here as a plain scalar type -- `original_tp` (the
-        # caller's seeded factory) is not itself usable, so hand back the
-        # real, callable, unwrapped type instead of `None`.
+        # Unwrapped from a TypeAliasType/NewType: the caller's seeded factory is
+        # the original alias and not callable, so return the unwrapped type.
         return _scalar_spec(tp)
 
     return _scalar_spec(None)
@@ -848,10 +722,8 @@ class UpdateAction(_argparse.Action):
     ) -> None:
         sidecar = "_duho_dict_seen_" + self.dest
         if not getattr(namespace, sidecar, False):
-            # First CLI occurrence of THIS parse: start from an empty dict so
-            # a class/env/config/instance default is REPLACED, not merged
-            # onto -- matching list/set/tuple's own replace-then-
-            # accumulate semantics.
+            # First CLI occurrence of this parse: start empty so a layered
+            # default is replaced, not merged onto.
             items: dict = {}
             setattr(namespace, sidecar, True)
         else:
@@ -860,15 +732,9 @@ class UpdateAction(_argparse.Action):
         if isinstance(values, (list, tuple)) and all(
             isinstance(v, _ty.Mapping) for v in values
         ):
-            # NS(nargs="*") on a `dict[str, V]` field: argparse passes
-            # a LIST of one-pair dicts (one per space-separated KEY=VALUE
-            # token, each already converted by the per-token `type=` factory)
-            # rather than a single dict -- merge each in order instead of
-            # handing the whole list to dict.update(), which raises. A plain
-            # single dict (the ordinary nargs=None case), or any other
-            # update()-compatible value a custom `type=` produces (e.g. a
-            # list of `[key, value]` pairs, as `examples/fileinstall.py`
-            # does), is NOT a list of Mappings and falls through unchanged.
+            # ``NS(nargs="*")`` on a dict field gives a LIST of one-pair dicts
+            # (each already converted); merge them in order, since ``dict.update``
+            # on the list raises. Any other update()-compatible value falls through.
             for one in values:
                 items.update(one)
         else:

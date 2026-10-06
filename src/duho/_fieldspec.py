@@ -761,6 +761,16 @@ def _factory_for(tp, name: str) -> "_FieldSpec":
             f"Literal, Enum, Union/Optional, or a plain scalar type)"
         )
 
+    if tp is _ty.Any or tp is object:
+        # Nothing to convert to: the text as given.
+        return _scalar_spec(str)
+
+    if tp is _NONETYPE:
+        raise ValueError(
+            f"argument {name!r}: a None annotation has no CLI value to parse; "
+            f"declare the field's type, e.g. Optional[str]"
+        )
+
     if tp is not original_tp:
         # `tp` was unwrapped from a TypeAliasType/NewType above and fell
         # through to here as a plain scalar type -- `original_tp` (the

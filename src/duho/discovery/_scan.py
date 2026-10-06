@@ -89,6 +89,20 @@ def _importable_spec(name: str) -> object:
         return None
 
 
+def _namespace_locations(name: str) -> "list[_Path]":
+    """Directories of ``name`` when it resolves only to a namespace package.
+
+    A namespace package (no ``__init__.py``, no origin) is a directory of loose
+    files, not an importable package, so its command files are imported by path.
+    Empty when ``name`` is a regular package, a module, or unresolvable.
+    """
+    spec = _importable_spec(name)
+    locations = getattr(spec, "submodule_search_locations", None)
+    if spec is None or getattr(spec, "origin", None) is not None or not locations:
+        return []
+    return [_Path(entry) for entry in locations]
+
+
 def _looks_like_path(source: object) -> bool:
     """True if ``source`` should be treated as a filesystem path, not a dotted name.
 
@@ -229,7 +243,14 @@ def discover_commands(source: "str | _os.PathLike | _Path") -> "list[Command]":
             "resolves it to the current directory on that drive; use an "
             "actual path, or '.' for the current directory" % (source,)
         )
-    if _looks_like_path(source):
+    namespace_dirs = (
+        _namespace_locations(source)
+        if isinstance(source, str) and not _looks_like_path(source)
+        else []
+    )
+    if namespace_dirs:
+        commands = [c for d in namespace_dirs for c in _discover_from_path(d)]
+    elif _looks_like_path(source):
         commands = _discover_from_path(_Path(source))
     else:
         commands = _discover_from_package(str(source))

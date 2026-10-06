@@ -1,7 +1,7 @@
 import argparse as _argparse
 import typing as _ty
 
-from ._meta import NS
+from ._meta import NOT_DEFINED, NS
 
 #: `nargs` values that make a positional variable-arity -- the shape that
 #: triggers argparse's greedy positional-run-matching papercut (bpo-15112)
@@ -279,9 +279,11 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
     on the root (``root_dests``), set the action's default to ``SUPPRESS`` so
     that, when the flag is absent from the subcommand's argv, argparse leaves the
     namespace value the root already parsed (from an option given before the
-    subcommand) intact. Only optional (flagged, non-required) actions are
-    touched -- positionals and required options keep their behavior, and the
+    subcommand) intact. Only flagged actions are touched -- positionals keep
+    their behavior, and the
     subparsers action itself (``dest="_duho_command_"``) is never a root field.
+    A required option of the root is made non-required on the child (the root
+    enforces it) and keeps rendering as required in the child's usage.
 
     ``root_defaults`` (optional ``{dest: effective_default}``) lets the caller
     skip suppression for a dest the child DELIBERATELY re-declares with a default
@@ -298,6 +300,16 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
         if not action.option_strings:  # positional
             continue
         if getattr(action, "required", False):
+            if root_defaults.get(action.dest) is not NOT_DEFINED:
+                continue
+            # The root enforces a required option it declares itself, so the
+            # child's copy must not demand it again after the subcommand name.
+            action.required = False
+            action.default = _argparse.SUPPRESS
+            action._duho_display_required_ = True  # type: ignore[attr-defined]
+            from ..formatters import install_required_usage_formatter
+
+            install_required_usage_formatter(child_parser)
             continue
         if (
             action.dest in root_defaults

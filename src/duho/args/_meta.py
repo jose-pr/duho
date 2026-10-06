@@ -193,6 +193,21 @@ class Meta:
         return {k: v for k, v in vars(self).items() if v is not _META_UNSET}
 
 
+#: Metadata keys the helpers below accept directly (as `Meta` does); every
+#: other keyword is passed through to `add_argument`.
+_HELPER_METADATA_KEYS = frozenset(
+    {"help", "env", "conflicts", "conflicts_required", "group", "flags"}
+)
+
+
+def _helper_options(kw: "dict[str, object]") -> "dict[str, object]":
+    """Split a helper's keywords into metadata keys and raw `add_argument` ones."""
+    options = {k: v for k, v in kw.items() if k in _HELPER_METADATA_KEYS}
+    raw = {k: v for k, v in kw.items() if k not in _HELPER_METADATA_KEYS}
+    options["kwargs"] = raw
+    return options
+
+
 def Extend(
     split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs: object
 ) -> "_argparse.Namespace":
@@ -220,7 +235,8 @@ def Extend(
     when the flag is absent and replaced -- like any other collection option
     -- on the first CLI occurrence.
     """
-    kwargs.setdefault("nargs", None)
+    options = _helper_options(kwargs)
+    options["kwargs"].setdefault("nargs", None)  # type: ignore[union-attr]
     if isinstance(split, str):
         splitter: _ty.Callable[[str], list] = lambda x: x.split(split)  # type: ignore
     else:
@@ -231,12 +247,12 @@ def Extend(
                 return result
             return list(result)
 
-    return _argparse.Namespace(split=splitter, kwargs=kwargs)
+    return _argparse.Namespace(split=splitter, **options)
 
 
 def Count(**kw: object) -> "_argparse.Namespace":
     """Create a count-action argument (e.g. `-vvv` -> 3)."""
-    return NS(action="count", kwargs=kw)
+    return NS(action="count", **_helper_options(kw))
 
 
 def Append(type: "Factory" = str, **kw: object) -> "_argparse.Namespace":
@@ -247,14 +263,14 @@ def Append(type: "Factory" = str, **kw: object) -> "_argparse.Namespace":
     `NS(nargs=...)`, so `append()` always collects one scalar per occurrence
     instead of gathering a list of tokens per occurrence.
     """
-    return NS(action="append", type=type, nargs=None, kwargs=kw)
+    return NS(action="append", type=type, nargs=None, **_helper_options(kw))
 
 
 def Const(value: object, **kw: object) -> "_argparse.Namespace":
     """Create a store_const-action argument that stores `value` when present."""
-    return NS(action="store_const", const=value, kwargs=kw)
+    return NS(action="store_const", const=value, **_helper_options(kw))
 
 
 def Choice(*choices: object, **kw: object) -> "_argparse.Namespace":
     """Restrict an argument's accepted values to `choices`."""
-    return NS(choices=tuple(choices), kwargs=kw)
+    return NS(choices=tuple(choices), **_helper_options(kw))

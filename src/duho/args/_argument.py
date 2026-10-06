@@ -849,7 +849,8 @@ class ArgumentBuilder(_argparse.Namespace):
                 kwargs["action"] = _NegatedBoolAction
                 kwargs["negative"] = self.flags
                 flags = self.flags + positive_flags
-        action = parser.add_argument(*flags, help=help, **kwargs)
+        kwargs.setdefault("help", help)
+        action = parser.add_argument(*flags, **kwargs)
         if isinstance(action, _argparse.BooleanOptionalAction):
             # 3.9/3.10's BooleanOptionalAction.__init__ unconditionally
             # appends " (default: %(default)s)" to any non-None help

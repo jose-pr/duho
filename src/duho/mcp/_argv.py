@@ -6,7 +6,7 @@ from ..args import ArgumentBuilder as _ArgumentBuilder
 from .._fieldspec import _KVFactory as _KVFactory
 
 from ._errors import InvalidArgumentsError
-from ._tree import _Node, _effective_cls, _own_dests
+from ._tree import _Node, _effective_cls, _hidden_choice_names, _own_dests
 
 # --------------------------------------------------------------------------
 # Step 3: argv synthesis + call_tool
@@ -115,11 +115,13 @@ def _sibling_names(parser: "_argparse.ArgumentParser") -> "frozenset":
     and ``call_tool``'s accumulation of ``ancestor_forbidden`` as it walks
     the chain. Scoped to one parser at a time, never the whole tree, so a
     same-named command living elsewhere (a different, unrelated node
-    entirely) never triggers it by coincidence."""
+    entirely) never triggers it by coincidence. A command excluded from the
+    tool surface is left out, so a client cannot confirm its name by being
+    refused; the dispatch-identity guard still stops a shifted dispatch."""
     action = _parsers.find_subparsers(parser)
     if action is None:
         return frozenset()
-    return frozenset(action.choices or ())
+    return frozenset(action.choices or ()) - _hidden_choice_names(parser)
 
 
 def _dest_action(

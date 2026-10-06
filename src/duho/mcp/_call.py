@@ -2,6 +2,7 @@ import argparse as _argparse
 import contextlib as _contextlib
 import io as _io
 import logging as _logging
+import re as _re
 import sys as _sys
 import typing as _ty
 
@@ -13,6 +14,7 @@ from ._errors import InvalidArgumentsError, UnknownToolError
 from ._tree import (
     _ServerCore,
     _core_for_class,
+    _hidden_choice_names,
     _input_schema_for_node,
     _is_mcp_command_node,
     _is_namespace_node,
@@ -142,6 +144,29 @@ def _validate_arguments(schema: "dict", arguments: "dict") -> None:
             errors.append("argument %r: every item must be a string" % (key,))
     if errors:
         raise InvalidArgumentsError("; ".join(errors))
+
+
+_ERROR_LINE = _re.compile(r"^(?!usage:)[^\n]*?: error: ", _re.MULTILINE)
+_CHOICE_LIST = _re.compile(r"\(choose from ([^)]*)\)|\{([^}]*)\}")
+
+
+def _client_visible_parse_error(text: str, hidden: "frozenset") -> str:
+    """argparse's error text for a client: the ``error:`` line only (no usage
+    block) with the names of commands excluded from the tool surface removed
+    from any list of choices it quotes."""
+    found = _ERROR_LINE.search(text)
+    if found:
+        text = text[found.start() :]
+
+    def _scrub(match: "_re.Match") -> str:
+        inner = match.group(1) if match.group(1) is not None else match.group(2)
+        sep = ", " if match.group(1) is not None else ","
+        kept = [n for n in inner.split(sep) if n.strip("'\"") not in hidden]
+        if match.group(1) is not None:
+            return "(choose from %s)" % sep.join(kept)
+        return "{%s}" % sep.join(kept)
+
+    return _CHOICE_LIST.sub(_scrub, text)
 
 
 def _text_result(text: str, *, is_error: bool = False) -> "dict":
@@ -380,9 +405,12 @@ def call_tool(
                     try:
                         instance = root_parser.parse_args(argv)
                     except SystemExit as exc:
-                        message = err.getvalue().strip() or (
-                            "argument error (exit code %r)" % (exc.code,)
+                        hidden = frozenset().union(
+                            *(_hidden_choice_names(n.parser) for n in nodes.values())
                         )
+                        message = _client_visible_parse_error(
+                            err.getvalue().strip(), hidden
+                        ) or ("argument error (exit code %r)" % (exc.code,))
                         return _text_result(message, is_error=True)
                     actual_path = getattr(instance, "_duho_mcp_path_", None)
                     # Popped (not merely peeked), mirroring `runtime._run_app`'s

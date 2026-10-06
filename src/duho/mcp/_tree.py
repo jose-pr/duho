@@ -95,6 +95,22 @@ def _effective_cls(node_or_step: "_Node") -> "_ty.Optional[type]":
 _TREE_CACHE: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
 
 
+#: Parsers of the nodes `_walk_tree` marked excluded (`_mcp_ = False`); their
+#: names are never shown to, or compared against values from, an MCP client.
+_EXCLUDED_PARSERS: "_weakref.WeakSet" = _weakref.WeakSet()
+
+
+def _hidden_choice_names(parser: "_argparse.ArgumentParser") -> "frozenset":
+    """Names (canonical and alias) under which ``parser`` registers a
+    subcommand that is excluded from the MCP tool surface."""
+    action = _parsers.find_subparsers(parser)
+    if action is None:
+        return frozenset()
+    return frozenset(
+        name for name, sub in (action.choices or {}).items() if sub in _EXCLUDED_PARSERS
+    )
+
+
 def _walk_tree(
     root_parser: "_argparse.ArgumentParser",
     root_cls: "_ty.Optional[type]",
@@ -158,6 +174,8 @@ def _walk_tree(
             excluded=excluded,
         )
         nodes[node.dotted_name] = node
+        if excluded:
+            _EXCLUDED_PARSERS.add(parser)
         # A dispatch-identity marker (see `call_tool`'s guard against a
         # positional swallowing the literal subcommand-name token this
         # module inserts between chain levels): tag EVERY subparser with the

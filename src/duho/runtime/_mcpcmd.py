@@ -57,7 +57,7 @@ def _existing_command_names(
     root: type | None, resolved_commands: _ty.Sequence[_Command]
 ) -> set[str]:
     """Every name (primary + aliases) already claimed by ``root``'s own
-    static ``_subcommands_`` plus ``resolved_commands`` -- used to reject an
+    static ``_subcommands_`` plus ``resolved_commands`` -- serves to reject an
     ``mcp_command`` name that collides with one of them, the same "every
     name a command claims" accounting :func:`_full_names` gives
     :func:`_register_commands`'s own collision handling, just checked
@@ -93,7 +93,7 @@ def _build_mcp_command_class(
     ``root``'s opt-in MCP subcommand (``mcp_command=``/``root``'s own
     ``_mcp_command_``) -- the ONE place :func:`app` and ``duho.main`` both
     go through (the latter via a lazy ``from . import runtime``, since
-    ``args.py`` never imports this module at load time), so the resolution
+    ``duho.args`` never imports this module at load time), so the resolution
     rules and the exact ``ValueError`` text never drift between the two
     entry points.
 

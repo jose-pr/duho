@@ -13,8 +13,8 @@ objects (class commands -- ``Cmd`` subclasses -- and module commands --
 
 **Composed on the shipped parser, not a parallel one.** The whole point of this
 layer is that it reuses duho's existing ``_parser_``/``_initparser_``/``"#cls"``
-machinery rather than introducing a second parser class. The four parser
-behaviors clients rely on are reproduced on that path:
+machinery rather than introducing a second parser class. The parser
+behaviors clients rely on are carried over on that path:
 
 * **Parent-arg inheritance** -- every subcommand parser is built with argparse
   ``parents=[<root parser>]`` so global/root options appear on each subcommand.
@@ -36,9 +36,8 @@ behaviors clients rely on are reproduced on that path:
 * **``_passthrough_``** -- argv after the first literal ``--`` is captured by the
   root parser's patched ``parse_known_args`` and reaches the dispatched command.
 
-All union annotations are quoted so the module imports cleanly on Python 3.9.
 No target fan-out / thread pools live here -- a single command is dispatched.
-Parallel/fan-out patterns are a documented client wrapper and a future add-on.
+Parallel fan-out is in :mod:`duho.fanout`.
 """
 
 from __future__ import annotations

@@ -79,7 +79,7 @@ def _run_app(
     # documented CMDS_PATH-over-a-base-command override is INFO; anything
     # else the registration loop collected (two independently-resolved
     # commands genuinely colliding) is WARNING -- and it alone, not both, so
-    # the documented override no longer warns on every run.
+    # the documented override does not warn on every run.
     for overridden_name in sorted(cmds_path_overridden):
         _LOGGER.info("CMDS_PATH command %r overrides the built-in", overridden_name)
     for level, message in notices:

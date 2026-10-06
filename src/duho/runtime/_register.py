@@ -33,7 +33,7 @@ def _register_class_command(
     nested ``_subcommands_``), while ``parents=`` makes the root/global options
     appear on the subcommand too. Returns the built subparser so the caller can
     link it to the app's root (``_duho_parent_parser_``) for the
-    lazy env/config layering and provenance-merge machinery in ``args.py``.
+    lazy env/config layering and provenance-merge machinery in ``duho.args``.
 
     ``inherited_config_hint`` is ``app()``'s own ``config is not None``
     (whether a config FILE is coming, whatever ``command`` itself declares) --
@@ -67,15 +67,15 @@ def _wants_logger_arg(register: _ty.Callable[..., object]) -> bool:
     of any kind (see :func:`_wants_logger_by_keyword` for which of these
     calling conventions to actually use). If the signature cannot be
     introspected (a builtin / C callable / anything ``inspect`` refuses), we
-    conservatively default to ``False`` (the 2-arg call), which is the
-    historical shape and never over-supplies an argument the hook can't take.
+    conservatively default to ``False`` (the 2-arg call), which never
+    over-supplies an argument the hook can't take.
 
     Inspects with ``follow_wrapped=False``: a hook wrapped with
     ``functools.wraps`` (e.g. a user decorator around ``register``) must be
     read on its OWN signature, not the wrapped function's -- otherwise the
     wrapper's own extra/different parameters are invisible and the wrong
-    calling convention is chosen (the same bug ``runpath._step_wants_ctx``
-    had before the fix).
+    calling convention is chosen (``runpath._step_wants_ctx`` follows the
+    same rule).
     """
     try:
         params = _inspect.signature(register, follow_wrapped=False).parameters
@@ -157,7 +157,7 @@ def _module_args_cls(command: _ModuleCommand, root_cls: type) -> type | None:
     # same reason `Cmd`/`Cli` (and `duho.command()`) seed one on
     # themselves. `type(...)` gives this class `__module__` = wherever `type`
     # was actually called from -- `duho.runtime` -- so without a seed,
-    # `_class_constants` would AST-parse `runtime.py` itself looking for a
+    # `_class_constants` would AST-parse the `duho.runtime` source itself looking for a
     # `_Args` ClassDef that was never there, on every module command that
     # declares its own `Args` (a real, measured cold-start cost this class
     # has no source body to justify paying).
@@ -179,9 +179,8 @@ def _add_module_declared_fields(
     conflicts with an inherited global, matching a module command's existing
     contract.
 
-    A module command's declared fields now support ``NS(conflicts=...)``/
-    ``NS(group=...)`` the same as a class command's -- that support used to
-    live only in ``_initparser_``'s own, separate copy of this wiring.
+    A module command's declared fields support ``NS(conflicts=...)``/
+    ``NS(group=...)`` the same as a class command's.
     """
     _add_fields(parser, args_cls, strict=False)
 
@@ -247,18 +246,13 @@ def _register_module_command(
         add_help=True,
     )
     # Mark this subparser's selection with a PRIVATE, per-parser dest
-    # rather than relying on the shared `command`/`_duho_command_` subparsers
-    # dest to name it. That dest is shared with every nested `_subcommands_`
-    # tree (a class command's own subparsers) AND any root field a user
-    # happens to declare -- `app()`'s dispatch used to read it via
-    # `getattr(instance, "command", None)`, so a nested `remote list` class
-    # subcommand silently ran the top-level `list.py` module command instead
-    # (same dest, same name), and a root `--command` field's value was
-    # overwritten by whichever subcommand ran. `set_defaults` only applies
-    # when THIS subparser is the one argparse actually selected, so `app()`
-    # can now identify "a module command was chosen, and this is which one"
-    # directly, with no dependence on any dest a user or a nested tree could
-    # ever collide with.
+    # rather than the shared `command`/`_duho_command_` subparsers dest, which
+    # is shared with every nested `_subcommands_` tree AND any root field a
+    # user declares: a nested `remote list` class subcommand would be taken
+    # for the top-level `list.py` module command, and a root `--command`
+    # value overwritten. `set_defaults` only applies when THIS subparser is
+    # the one argparse selected, so `app()` can tell that a module command
+    # was chosen and which one.
     parser.set_defaults(_duho_module_command_=command)
 
     # Snapshot the dest names already present (inherited root/global options
@@ -285,7 +279,7 @@ def _register_module_command(
     # could introspect the WRONG arity for a wrapper whose signature differs
     # from the module's original hook. `is not _discovery_noop` is the
     # identity check for "a real hook was bound" (`_noop` is a shared
-    # module-level singleton in `discovery.py`, so identity comparison is
+    # module-level singleton in `duho.discovery`, so identity comparison is
     # reliable even after a caller wraps `command.register` with something
     # else, since a caller-supplied wrapper is by definition not `_noop`).
     if callable(register) and register is not _discovery_noop:

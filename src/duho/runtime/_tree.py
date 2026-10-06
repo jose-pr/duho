@@ -80,8 +80,8 @@ def _register_commands(
         # A private dest -- matches the one a class root's own
         # static `_subcommands_` tree uses (`Args._parser_`) -- so a root
         # field a user happens to name `command` is never silently
-        # overwritten by subcommand selection. Dispatch below no longer reads
-        # this dest at all (a module command is identified by its own
+        # overwritten by subcommand selection. Dispatch below does not read
+        # this dest (a module command is identified by its own
         # `_duho_module_command_` marker instead); it exists purely so
         # argparse can enforce "a subcommand is required".
         subparsers = parser.add_subparsers(
@@ -303,8 +303,8 @@ def _finalize_command_tree(
                 action.default = _argparse.SUPPRESS
                 action._duho_display_required_ = True  # type: ignore[attr-defined]
         _formatters._install_required_usage_formatter(sub_parser)
-        # A root-inherited option's default may now be `_argparse.SUPPRESS`
-        # (set just above for a formerly-required global, or by
+        # A root-inherited option's default may be `_argparse.SUPPRESS`
+        # (set just above for a required global, or by
         # `_suppress_inherited_defaults` for an optional one) so the child's
         # absence of the flag defers to whatever the root/parent actually
         # parsed. But argparse's OWN raw `%(default)s` expansion

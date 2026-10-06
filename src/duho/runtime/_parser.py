@@ -84,7 +84,7 @@ def _build_parser(
 
 
 def _deregister_subparser(subparsers: _argparse._SubParsersAction, name: str) -> None:
-    """Remove a previously-registered subparser ``name``, and every alias of
+    """Remove a registered subparser ``name``, and every alias of
     the SAME subparser, from ``subparsers``.
 
     argparse's ``add_parser`` raises ``ArgumentError('conflicting subparser')``
@@ -165,7 +165,7 @@ def _apply_app_config_layers(
       since its subparser IS built through ``_parser_``/``_initparser_``
       (``_register_class_command`` already links it to the app root via
       ``_duho_parent_parser_``, so its provenance merges upward too);
-    * a **module command** with a declared ``args_cls`` (since 0.4.1 a
+    * a **module command** with a declared ``args_cls`` (a
       module command may declare a module-level ``Args`` class) has NO
       ``_initparser_`` hook at all (its subparser is a deliberately bare
       stdlib one -- see this module's own docstring), so its table is applied by
@@ -208,7 +208,7 @@ def _apply_app_config_layers(
         # `Args` -- gets this protection, not only one whose own field was
         # just laid on above: a module command's subparser is a plain
         # `add_parser()` instance with its own ordinary argparse `-h`/
-        # `--help` action -- it never goes through `args.py`'s
+        # `--help` action -- it never goes through `duho.args`'s
         # `_install_agent_help`/`_AgentHelpAction` (this command
         # deliberately has no `_duho_cls_` of its own; see this function's
         # own docstring) -- so without this its help text would render a
@@ -278,9 +278,9 @@ def _prepare_app_parser(
     # best-effort prepass: `prerun_parse` detaches `parser`'s subparsers action
     # for the call (restoring it before returning, so registration below still
     # sees it) -- which is what makes this safe to run even when `root` already
-    # has built-in `_subcommands_` (previously a KeyError('#cls') here, from the
-    # relaxed subparsers action re-entering this same parser's own patched
-    # parse_known_args and double-popping the selection marker) -- and
+    # has built-in `_subcommands_` (otherwise the relaxed subparsers action
+    # re-enters this same parser's own patched parse_known_args and
+    # double-pops the selection marker, a KeyError('#cls')) -- and
     # `quiet=True` so a required/unknown-arg error, and every terminal action
     # (--version, --print-completion, --help-agents, -h/--help), stays fully
     # silent here; the real parse below is what actually reports/prints,

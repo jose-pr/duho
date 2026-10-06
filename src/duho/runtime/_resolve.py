@@ -33,7 +33,7 @@ def _cmds_path_commands(
     NOT a hard-coded ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter
     is mis-split into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
 
-    **Empty segments never mean the CWD (a security-relevant fix).** ``env.paths``
+    **Empty segments never mean the CWD.** ``env.paths``
     already drops an empty/whitespace-only segment before converting it to a
     ``Path`` (a leading, trailing, or doubled separator -- the common
     ``X="$X:/extra"`` append idiom run while ``X`` was unset -- must never
@@ -56,14 +56,14 @@ def _cmds_path_commands(
     **One bad entry (a bare drive, or one resolving to the CWD -- see
     :meth:`duho.env.Env.paths`) must not drop every OTHER entry.** Requests
     ``strict=False`` so :meth:`Env.paths` skips a rejected segment instead of
-    raising for the whole call (a security/robustness fix -- raising here used
-    to be swallowed by the bare ``except Exception`` below, silently dropping
-    the ENTIRE ``CMDS_PATH``, valid entries included, with no log at all).
+    raising for the whole call (raising here would be swallowed by the bare
+    ``except Exception`` below, silently dropping the ENTIRE ``CMDS_PATH``,
+    valid entries included, with no log at all).
     Each rejected segment is collected via ``on_reject`` and logged at
     WARNING once resolution succeeds. A duck-typed ``env`` (not a real
     :class:`duho.env.Env`) may not accept those keywords at all -- caught
     separately and retried with the plain two-arg call, so such a caller
-    keeps its previous best-effort behavior unchanged.
+    keeps best-effort behavior.
     """
     if env is None:
         return []
@@ -170,10 +170,9 @@ def _resolve_commands(
     (source)`` > ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
     ``env``-derived paths (``CMDS_PATH``) then ALWAYS merge on top of whichever
     base source produced the list -- a LAYER, not a branch reachable only when
-    no other source was given. (Before this fix, passing an explicit
-    ``commands=``/``source=``/``entry_points=`` silently disabled ``CMDS_PATH``
-    entirely, even when ``env=`` was also passed -- the operator's exported
-    variable did nothing, with no warning.)
+    no other source was given: passing an explicit
+    ``commands=``/``source=``/``entry_points=`` does not disable ``CMDS_PATH``,
+    even when ``env=`` was also passed.
 
     ``CMDS_PATH`` is additive: an app's base commands stay available and the
     discovered ones are added alongside. Setting it to drop the base commands
@@ -226,9 +225,9 @@ def _full_names(command: object, cmd_name: str, kind: str) -> list[str]:
     ``_parseraliases_`` (argparse's ``add_parser(..., aliases=...)`` registers
     each alias as an extra ``_name_parser_map`` key pointing at the same
     subparser object). A module command has no alias mechanism and claims
-    only its primary name. Used to detect -- and, on an override, fully
+    only its primary name. Serves to detect -- and, on an override, fully
     undo -- a collision against ANY of a command's names, not just its
-    primary one: checking only ``cmd_name`` missed the case where an
+    primary one: checking only ``cmd_name`` would miss the case where an
     INCOMING command's alias collides with an already-registered name/alias,
     which argparse itself only reports at ``add_parser()`` time (raising on
     3.11+, silently overwriting on 3.9).

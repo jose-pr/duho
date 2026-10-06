@@ -15,13 +15,8 @@ from ..args._naming import _command_name as _command_name
 _LOGGER = _logging.getLogger(__package__)
 
 
-# `_command_name` used to be a byte-for-byte copy of
-# `discovery._command_name` (the same "`_parsername_` if set, else the class
-# name" rule was ALSO inlined again in `args.py` and `mcp.py`); imported from
-# `discovery` above instead so there is exactly one copy for this module and
-# `discovery` to share, rather than two definitions that could silently drift
-# apart (the import direction only allows it this way round: `discovery.py`
-# already imports from `.args`, so `args.py`/`mcp.py` still keep their own).
+# `_command_name` (the "`_parsername_` if set, else the class name" rule) is
+# imported from `duho.args`, the one definition `duho.discovery` shares too.
 
 
 def _reject_coroutine(result: object, where: str) -> None:
@@ -36,7 +31,7 @@ def _reject_coroutine(result: object, where: str) -> None:
     ``RuntimeWarning`` raised later from the coroutine's own ``__del__``. This
     turns that into an immediate, loud failure instead. Mirrors
     :func:`duho.runpath._reject_coroutine` -- a separate copy, since
-    ``runtime.py`` and ``runpath.py`` intentionally don't import each other.
+    ``duho.runtime`` and ``duho.runpath`` intentionally don't import each other.
     """
     if _inspect.iscoroutine(result):
         result.close()
@@ -61,8 +56,9 @@ def run_command(
 
     ``instance`` is the parsed args/command instance produced by parsing (for a
     class command it IS the command; for a module command it is the root/parent
-    instance carrying the parsed globals). Returns an exit code: a command that
-    returns ``None`` maps to ``0``; a returned int is propagated.
+    instance carrying the parsed globals). Returns what the command returns:
+    ``None`` becomes ``0``, an ``int`` propagates, and anything else (e.g. a
+    JSON-serialisable object) passes through unchanged.
 
     * **Class command** (a ``Cmd``): the parsed ``instance`` is itself the
       command, so this calls ``instance()`` (``Cmd.__call__`` is the entrypoint).
@@ -73,7 +69,7 @@ def run_command(
       instance)`` inside a ``try`` whose ``finally`` always runs
       ``command.finally_(ctx, instance)``. If ``context`` is passed it overrides
       the ``init`` result (the driver builds the context once and threads it in).
-      ``main``'s return value (or ``None`` -> ``0``) is the exit code; an
+      ``main``'s return value (``None`` -> ``0``) is the result; an
       exception from ``main`` propagates after ``finally_`` runs.
 
     ``adapter(entrypoint)``, when given, is called with a module command's

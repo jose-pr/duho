@@ -97,8 +97,10 @@ means a real regression, not jitter. The baseline is keyed by Python
 `major.minor`; a version with no committed entry is skipped (not failed).
 
 **Updating the baseline (only after an intentional, understood perf change).**
-Run on a quiet machine, once per Python version you can run locally, then commit
-`benchmarks/baseline.json`:
+A local run is a sanity check, not baseline-grade evidence (see "Baseline
+provenance" in `benchmarks/README.md`): run it on a machine of the kind CI
+compares against, ideally the CI runner itself, once per Python version, then
+commit `benchmarks/baseline.json`:
 
 ```bash
 python benchmarks/update_baseline.py        # merges the current interpreter's entry

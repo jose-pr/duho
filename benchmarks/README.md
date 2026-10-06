@@ -114,7 +114,8 @@ crashing.
 
 ## Result JSON schema
 
-Every script's `--save`/`--json` writes the same envelope
+`run.py`, `bench_startup.py` and `bench_discovery.py` (the scripts that take
+`--save`/`--json`) write the same envelope
 (`_bench.result_envelope`/`_bench.save_result`):
 
 ```json
@@ -133,24 +134,20 @@ Every script's `--save`/`--json` writes the same envelope
 ```
 
 `metrics` maps a metric name to `{min_ms, median_ms, max_ms}` (or, for a
-handful of derived scalars such as the startup deltas, a bare float --
-`$ENGINEERING_OVERLAY_ROOT/tools/compare_bench.py` reads both forms). **Compare
+handful of derived scalars such as the startup deltas, a bare float). **Compare
 on median** -- a single sample hides real run-to-run noise, which is exactly
 why every metric here is min/median/max over repeated samples rather than one
 `timeit` average.
 
 ## Results directory
 
-`--save` writes to `benchmarks/results/<name>.json`. This directory is
-**tracked and committed** -- that is what makes a before/after perf claim
-recoverable from the repo instead of living only on one contributor's machine.
-Save a CI benchmark artifact into it at each release.
+`--save` writes to `benchmarks/results/<name>.json`. Nothing in that directory is
+committed: `baseline.json` is the only benchmark record in the repository, and a
+saved file stays local unless you commit it. The `benchmark` CI job uploads its
+JSON as a workflow artifact, which expires with the run.
 
-To compare two saved runs:
-
-```
-py -3 $ENGINEERING_OVERLAY_ROOT/tools/compare_bench.py benchmarks/results/old.json benchmarks/results/new.json
-```
+To compare two saved runs, read `metrics[<name>]["median_ms"]` from each file
+(a derived scalar such as a startup delta is a bare number).
 
 ## Reproduce a full pass
 

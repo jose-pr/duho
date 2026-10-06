@@ -194,7 +194,8 @@ def test_gitignore_no_longer_excludes_results():
 def test_readme_documents_schema_and_reproduce():
     readme = (_HERE / "README.md").read_text()
     assert "median_ms" in readme
-    assert "tracked and committed" in readme
+    assert "tracked and committed" not in readme
+    assert "baseline.json" in readme
     assert "check_baseline.py" in readme
 
 

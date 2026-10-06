@@ -107,6 +107,10 @@ class Meta:
     (command line, env and config alike) instead of the member name; the
     default, ``"name"``, is the rule when it is not set.
 
+    ``literal_value=True`` on an option that takes one value makes the token
+    after it always that value, even when it looks like an option (``--k --``,
+    ``--k -x``); the default is the usual argparse rule.
+
     ``flags`` is the typed, lint-clean way to give an explicit flag tuple
     (equivalent to the bare ``("-n", "--times")`` statement in the class body,
     which some checkers flag as an unused expression)::
@@ -142,6 +146,7 @@ class Meta:
     kwargs: "_ty.Any" = _META_UNSET
     default: "_ty.Any" = _META_UNSET
     enum_by: "_ty.Any" = _META_UNSET
+    literal_value: "_ty.Any" = _META_UNSET
 
     def __init__(
         self,
@@ -162,6 +167,7 @@ class Meta:
         kwargs: "_ty.Any" = _META_UNSET,
         default: "_ty.Any" = _META_UNSET,
         enum_by: "_ty.Any" = _META_UNSET,
+        literal_value: "_ty.Any" = _META_UNSET,
         *,
         dest: "_ty.Any" = _META_UNSET,
     ) -> None:
@@ -188,6 +194,7 @@ class Meta:
         self.kwargs = kwargs
         self.default = default
         self.enum_by = enum_by
+        self.literal_value = literal_value
 
     def _duho_options_(self) -> "dict[str, object]":
         """The explicitly-set metadata as a plain dict (unset fields omitted).

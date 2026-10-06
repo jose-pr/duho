@@ -406,6 +406,9 @@ class ArgumentBuilder(_argparse.Namespace):
     #: ``"name"`` (default) or ``"value"``: how an Enum field's text is matched
     #: (``Meta(enum_by=...)``). Read by agent help and the MCP schema.
     enum_by: str = "name"
+    #: ``Meta(literal_value=True)``: the token after this option's flag is
+    #: always its value. Applied by the root parser before argv is split.
+    literal_value: bool = False
 
     @property
     def is_positional(self) -> bool:
@@ -929,6 +932,13 @@ class ArgumentBuilder(_argparse.Namespace):
                 flags = self.flags + positive_flags
         kwargs.setdefault("help", help)
         action = parser.add_argument(*flags, **kwargs)
+        if self.literal_value:
+            if not action.option_strings or action.nargs is not None:
+                raise ValueError(
+                    f"argument {self.name!r}: literal_value applies only to an "
+                    f"option that takes exactly one value"
+                )
+            action._duho_literal_value_ = True  # type: ignore[attr-defined]
         if isinstance(action, _argparse.BooleanOptionalAction):
             # 3.9/3.10's BooleanOptionalAction.__init__ unconditionally
             # appends " (default: %(default)s)" to any non-None help

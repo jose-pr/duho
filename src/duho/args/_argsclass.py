@@ -24,6 +24,8 @@ from ._naming import _app_name, _command_name, _resolve_version
 from ._parserfix import (
     _has_variadic_positional,
     _insert_default_subcommand,
+    _join_literal_values,
+    _literal_value_flags,
     _keep_attached_double_dash,
     _reorder_argv_for_variadic_positional,
     _suppress_inherited_defaults,
@@ -741,6 +743,9 @@ class Args(_argparse.Namespace):
                     argv = _sys.argv[1:]
                 else:
                     argv = list(args)
+                literal_flags = _literal_value_flags(parser)
+                if literal_flags:
+                    argv = _join_literal_values(argv, literal_flags)
                 if "--" in argv:
                     idx = argv.index("--")
                     passthrough = argv[idx + 1 :]

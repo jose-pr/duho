@@ -414,6 +414,62 @@ def _argv_before_subcommand(
     return argv
 
 
+def _literal_value_flags(parser: "_argparse.ArgumentParser") -> "frozenset[str]":
+    """Option strings of every ``literal_value`` option in ``parser``'s whole tree.
+
+    Computed once per parser object, on its first parse.
+    """
+    cached = getattr(parser, "_duho_literal_flags_", None)
+    if cached is not None:
+        return cached
+    found: "set[str]" = set()
+    seen: "set[int]" = set()
+    pending = [parser]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        for action in current._actions:  # type: ignore[attr-defined]
+            if isinstance(action, _argparse._SubParsersAction):  # type: ignore[attr-defined]
+                pending.extend(action.choices.values())
+            elif getattr(action, "_duho_literal_value_", False):
+                found.update(action.option_strings)
+    result = frozenset(found)
+    parser._duho_literal_flags_ = result  # type: ignore[attr-defined]
+    return result
+
+
+def _join_literal_values(argv: "list[str]", flags: "frozenset[str]") -> "list[str]":
+    """Join each literal-value option with the token after it (``--k=V`` / ``-kV``).
+
+    Stops at the first bare ``--`` that is not such an option's value, leaving
+    it and everything after it untouched. A short option followed by an empty
+    value is left as it is, since ``-k`` + ``""`` would not keep its value.
+    """
+    out: "list[str]" = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        token = argv[i]
+        if token == "--":
+            out.extend(argv[i:])
+            return out
+        if token in flags and i + 1 < n:
+            value = argv[i + 1]
+            if token.startswith("--"):
+                out.append(token + "=" + value)
+                i += 2
+                continue
+            if value:
+                out.append(token + value)
+                i += 2
+                continue
+        out.append(token)
+        i += 1
+    return out
+
+
 def _insert_default_subcommand(
     parser: "_argparse.ArgumentParser", argv: "list[str]", default: str
 ) -> "list[str]":

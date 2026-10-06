@@ -55,7 +55,7 @@ def build_entry(startup_samples=10):
         "calibration_ms": calibration["median_ms"],
         "calibration_subprocess_ms": startup["abs"]["python_pass"]["median_ms"],
         "warm": {k: v["median_ms"] for k, v in warm.items()},
-        "startup": startup["deltas"],
+        "startup": {k: startup["deltas"][k] for k in bench_startup.GATED_DELTAS},
         "measured": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 

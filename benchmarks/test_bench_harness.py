@@ -286,7 +286,7 @@ def test_baseline_may_carry_e2e_delta():
     data = json.loads((_HERE / "baseline.json").read_text())
     for entry in data.values():
         startup = entry.get("startup", {})
-        assert set(startup) <= {"import_duho_delta", "e2e_delta"}
+        assert set(startup) <= set(bench_startup.GATED_DELTAS)
 
 
 # ---------------------------------------------------------------------------

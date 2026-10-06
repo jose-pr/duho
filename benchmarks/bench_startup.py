@@ -152,15 +152,20 @@ def measure(n):
             "e2e_build_parse_large": _stats(*e2e_large),
             "e2e_no_source": _stats(*e2e_no_source),
         },
-        # The gated deltas: duho's added cost over bare python (min-vs-min).
-        # See the module docstring for what this delta does and does not
-        # normalize.
+        # duho's added cost over bare python (min-vs-min); GATED_DELTAS names
+        # the ones the baseline holds. See the module docstring for what a
+        # delta does and does not normalize.
         "deltas": {
             "import_duho_delta": round(duho_[0] - base[0], 2),
             "e2e_delta": round(e2e[0] - base[0], 2),
             "e2e_large_delta": round(e2e_large[0] - base[0], 2),
         },
     }
+
+
+#: The deltas the baseline records and the gate compares. `e2e_large_delta` is
+#: reported only: most of it is the interpreter compiling the padded probe file.
+GATED_DELTAS = ("import_duho_delta", "e2e_delta")
 
 
 def main(argv=None):

@@ -209,21 +209,22 @@ def test_main_reports_unresolvable_app():
     assert proc.stdout == ""
 
 
-def test_main_with_no_args_reports_usage(capsys):
-    rc = main([])
-    assert rc == 2
+def test_main_with_no_args_is_a_usage_error(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main([])
+    assert excinfo.value.code == 2
     captured = capsys.readouterr()
+    assert captured.out == ""
     assert "usage" in captured.err
 
 
 @pytest.mark.parametrize("flag", ["-h", "--help"])
-def test_main_help_flag_reports_usage_without_trying_to_resolve_it(capsys, flag):
-    # "-h"/"--help" used to be handed straight to `_resolve_app` as an <app>
-    # spec, which always failed with a confusing "could not resolve" error.
-    rc = main([flag])
-    assert rc == 0
+def test_main_help_flag_prints_usage_to_stdout_without_resolving(capsys, flag):
+    with pytest.raises(SystemExit) as excinfo:
+        main([flag])
+    assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert "usage" in captured.err
+    assert "usage" in captured.out
     assert "could not resolve" not in captured.err
 
 

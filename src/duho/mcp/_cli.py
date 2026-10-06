@@ -3,7 +3,10 @@ import sys as _sys
 import typing as _ty
 
 from .. import _compat as _compat
+from ..args import AUTO as _AUTO
+from ..args import Cli as _Cli
 from ..args import Cmd as _Cmd
+from ..args import main as _main
 
 from ._stdio import _real_stdio_streams, serve
 
@@ -36,51 +39,54 @@ def _resolve_app(spec: str) -> "type[_Cmd]":
     return obj
 
 
+class _McpMain(_Cli):
+    """Serve a duho CLI as an MCP server over stdio.
+
+    <app> is the dotted name of the root Cmd/Cli class, as module:Class or
+    module.Class. Usage: python -m duho.mcp <app>
+    """
+
+    _parsername_ = "duho.mcp"
+    _version_ = _AUTO
+    _distribution_ = "duho"
+    _mcp_ = False
+
+    app: str
+    "Dotted name of the root Cmd/Cli class to serve (module:Class)."
+    ("app",)  # type: ignore
+
+    def __call__(self) -> int:
+        # Stdio is taken over BEFORE the app is imported: resolution can
+        # write to the original fd 1 directly (a module-level print, a C
+        # extension, a thread started at import), and every such write then
+        # lands on stderr for the rest of the process, never on the protocol
+        # stream.
+        stream_in, stream_out = _real_stdio_streams()
+        try:
+            root_cls = _resolve_app(self.app)
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
+            # `self.app`/`exc` can carry arbitrary text; `write_human`
+            # cannot raise on a stderr that is not UTF-8.
+            _compat.write_human(
+                "duho.mcp: could not resolve app %r: %s\n" % (self.app, exc),
+                _sys.stderr,
+            )
+            return 1
+        return serve(root_cls, stdin=stream_in, stdout=stream_out)
+
+
 def main(argv: "_ty.Sequence[str] | None" = None) -> int:
     """``python -m duho.mcp <app>`` entry point: resolve ``<app>`` and run :func:`serve`.
 
-    ``<app>`` is a dotted qualname to a ``Cmd``/``Cli`` subclass (see
-    :func:`_resolve_app`). No arguments prints a usage line to stderr and
-    returns ``2``; ``-h``/``--help`` prints the same usage line and returns
-    ``0`` (previously treated as an ``<app>`` spec and reported as
-    unresolvable) -- neither of these touches stdio at all. Otherwise, takes
-    over the real stdio fds for the protocol channel via
-    :func:`_real_stdio_streams` **before** resolving ``<app>`` (importing
-    it), and never restores them in between: resolution can write to the
-    ORIGINAL fd 1 directly -- a module-level ``print``, ``os.write(1, ...)``,
-    a C extension, a background thread started at import time that keeps
-    writing after import returns -- and every one of those writes now lands
-    on the real fd 2 (stderr) for the rest of the process's life, because
-    ``_real_stdio_streams`` already repointed fd 1 there before resolution
-    ever ran. An earlier version resolved ``<app>`` through a SEPARATE,
-    temporary fd-1-to-fd-2 redirect that RESTORED fd 1 to the original pipe
-    immediately after import finished, then only isolated stdio once
-    :func:`serve` started -- a window between those two steps during which a
-    thread STILL RUNNING from import (daemon or otherwise) could write
-    straight into the client-facing pipe ahead of the first protocol
-    response. Prints a one-line error to stderr and returns a non-zero exit
-    code if ``<app>`` does not resolve (stdio has already been taken over by
-    then, but the process exits right after, so nothing depends on restoring
-    it); otherwise runs the stdio loop against the already-captured protocol
-    streams and returns its exit code.
+    A duho CLI like any other: ``-h``/``--help`` and ``--version`` print to
+    stdout and succeed, a missing ``<app>``, an unknown option or an extra
+    argument is a usage error (exit ``2``, nothing on stdout). ``<app>`` is a
+    dotted qualname to a ``Cmd``/``Cli`` subclass (see :func:`_resolve_app`);
+    one that does not resolve prints a one-line error to stderr and returns
+    ``1``. Only then are the real stdio fds taken over for the protocol
+    channel (see :func:`_real_stdio_streams`), before ``<app>`` is imported;
+    the exit code is that of the stdio loop.
     """
-    args = list(argv) if argv is not None else _sys.argv[1:]
-    if not args:
-        _compat.write_human("usage: python -m duho.mcp <app>\n", _sys.stderr)
-        return 2
-    if args[0] in ("-h", "--help"):
-        _compat.write_human("usage: python -m duho.mcp <app>\n", _sys.stderr)
-        return 0
-    stream_in, stream_out = _real_stdio_streams()
-    try:
-        root_cls = _resolve_app(args[0])
-    except Exception as exc:  # noqa: BLE001 - report, don't traceback, a bad app spec
-        # `args[0]`/`exc` can both carry arbitrary (env- or user-supplied)
-        # text -- `write_human`, not a raw `print(..., file=sys.stderr)`,
-        # so a non-ASCII app spec or exception message can't raise even on
-        # a stderr this module cannot assume is UTF-8.
-        _compat.write_human(
-            "duho.mcp: could not resolve app %r: %s\n" % (args[0], exc), _sys.stderr
-        )
-        return 1
-    return serve(root_cls, stdin=stream_in, stdout=stream_out)
+    return _main(_McpMain, argv)

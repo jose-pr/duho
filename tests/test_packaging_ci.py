@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import textwrap
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -398,3 +399,11 @@ def test_skip_check_passes_at_and_below_the_bound(tmp_path):
 
 def test_skip_check_fails_above_the_bound(tmp_path):
     assert _run_skip_check(tmp_path, 21, 20).returncode != 0
+
+
+# -- warnings are errors in the suite -----------------------------------------
+
+
+def test_pytest_turns_warnings_into_errors():
+    with pytest.raises(UserWarning):
+        warnings.warn("a warning is an error here", UserWarning)

@@ -73,6 +73,8 @@ class _McpMain(_Cli):
                 "duho.mcp: could not resolve app %r: %s\n" % (self.app, exc),
                 _sys.stderr,
             )
+            stream_in.close()
+            stream_out.close()
             return 1
         return serve(root_cls, stdin=stream_in, stdout=stream_out)
 

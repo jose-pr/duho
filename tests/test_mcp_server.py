@@ -209,6 +209,16 @@ def test_main_reports_unresolvable_app():
     assert proc.stdout == ""
 
 
+def test_main_closes_the_protocol_streams_when_the_app_does_not_resolve(monkeypatch):
+    stream_in, stream_out = io.BytesIO(), io.StringIO()
+    monkeypatch.setattr(
+        "duho.mcp._cli._real_stdio_streams", lambda: (stream_in, stream_out)
+    )
+    assert main(["no.such.module:Nope"]) == 1
+    assert stream_in.closed
+    assert stream_out.closed
+
+
 def test_main_with_no_args_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as excinfo:
         main([])

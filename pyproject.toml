@@ -76,6 +76,7 @@ exclude = ["*.local.*", "CLAUDE*"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests", "benchmarks"]
+filterwarnings = ["error"]
 markers = [
     "requires_toml: skip when neither tomllib (3.11+) nor the tomli backport is importable",
 ]

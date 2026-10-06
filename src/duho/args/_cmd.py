@@ -170,6 +170,18 @@ class Cli(Cmd):
     #: ``_resolve_config_dict`` (``args.py``) via ``_apply_layers``.
     _config_: "_ty.Optional[_ty.Union[str, _pathlib.Path]]" = None
 
+    #: Name of an environment variable holding the config file's path. A
+    #: non-empty value outranks ``_config_`` (an explicit ``config=`` and
+    #: ``_config_field_`` outrank it); a path named this way must exist.
+    _config_env_: "_ty.Optional[str]" = None
+
+    #: Name of a declared field whose value is the config file's path, when the
+    #: user gave it on the command line or through its own env var. It
+    #: outranks ``_config_env_`` and ``_config_`` (only an explicit
+    #: ``config=`` outranks it); a path named this way must exist. A name that
+    #: is not a declared field is a ``ValueError`` naming the class.
+    _config_field_: "_ty.Optional[str]" = None
+
     #: Optional custom config loader ``Callable[[Path], dict]``. When set it
     #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
     #: format duho does not ship (e.g. YAML via their own ``yaml.safe_load``)

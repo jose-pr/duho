@@ -1,5 +1,6 @@
 import argparse as _argparse
 import logging as _logging
+import os as _os
 import pathlib as _pathlib
 import sys as _sys
 import typing as _ty
@@ -7,6 +8,7 @@ import typing as _ty
 from .. import _compat as _compat
 from .. import logging as _duho_logging
 from .._layers import _apply_layers as _apply_layers
+from .._layers import value_sources as _value_sources
 
 from ._argsclass import Args, _duho_instance_last_parser_
 from ._mcptrigger import _maybe_serve_mcp_trigger
@@ -151,6 +153,46 @@ def _maybe_await(result):
     return _asyncio.run(_await_result())
 
 
+def _class_config_location(
+    cls: type, argv: "_ty.Optional[_ty.Sequence[str]]"
+) -> "_ty.Union[str, _pathlib.Path, None]":
+    """The config path ``cls`` names through ``_config_field_`` or ``_config_env_``.
+
+    Order: the ``_config_field_`` field when the user gave it on the command
+    line or through its own environment variable (read with the same globals
+    prepass :func:`parse_globals` runs, with no config layer), then the
+    non-empty ``_config_env_`` variable. ``None`` means neither applied and
+    ``_config_`` is used. A ``_config_field_`` naming no declared field is a
+    ``ValueError`` naming ``cls``.
+    """
+    field = getattr(cls, "_config_field_", None)
+    env_name = getattr(cls, "_config_env_", None)
+    if field is None and not env_name:
+        return None
+    if field is not None:
+        if field not in {b.name for b in cls._getargs_()}:
+            raise ValueError(
+                f"{cls.__qualname__}._config_field_ = {field!r} names no declared field"
+            )
+        from ..parsers import prerun_parse as _prerun_parse
+
+        parser = cls._parser_(_inherited_config_hint_=True)
+        _apply_layers(parser, cls, config={})
+        tokens = _argv_before_subcommand(
+            parser, list(_sys.argv[1:] if argv is None else argv)
+        )
+        parsed = _prerun_parse(parser, tokens)
+        if _value_sources(parsed).get(field) in ("cli", "env"):
+            value = getattr(parsed, field, None)
+            if value is not None and str(value) != "":
+                return value
+    if env_name:
+        value = _os.environ.get(env_name, "")
+        if value:
+            return value
+    return None
+
+
 def main(
     cls: "type[Args]",
     argv: "_ty.Sequence[str] | None" = None,
@@ -213,6 +255,9 @@ def main(
     served = _maybe_serve_mcp_trigger(cls)
     if served is not None:
         return served
+
+    if config is None:
+        config = _class_config_location(cls, argv)
 
     root_cls = cls
     extra_cmds: "list[type]" = []
@@ -326,6 +371,10 @@ def parse(
     `duho.value_sources` reports such a field as ``"instance"``.
     """
     parser_kwargs = parser_kwargs or {}
+    if config is None:
+        config = _class_config_location(
+            spec if isinstance(spec, type) else type(spec), argv
+        )
     if isinstance(spec, type):
         cls = spec
         parser = cls._parser_(
@@ -378,6 +427,8 @@ def parse_globals(
     """
     from ..parsers import prerun_parse as _prerun_parse
 
+    if config is None:
+        config = _class_config_location(cls, argv)
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)
     # A static tree's real parse hands everything after the subcommand name to

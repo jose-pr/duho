@@ -142,6 +142,8 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |
 | `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in JSON/TOML dispatch |
+| `_config_env_` | `str \| None` | `None` | root | name of an environment variable holding the config file's path; outranks `_config_`, and the file must exist |
+| `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist |
 | `_help_formatter_` | `type \| None` | `None` | root, command | argparse `formatter_class`; a root's value propagates to its subcommands |
 | `_subcommands_` | `Sequence[type[Cmd]] \| None` | `None` | root, command | the static subcommand tree; nests |
 | `_default_subcommand_` | `str \| None` | `None` | root, command | the subcommand used when the first argument that is not one of the group's options names none of its subcommands |

@@ -7,6 +7,7 @@ from .. import _compat as _compat
 from .. import parsers as _parsers
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
+from ..args._entry import _class_config_location as _class_config_location
 from ..args._entry import _setup_instance_logging as _setup_instance_logging
 from ..discovery import Command as _Command, ModuleCommand as _ModuleCommand
 
@@ -322,6 +323,9 @@ def app(
         )
         if served is not None:
             return served
+
+    if config is None and root is not None:
+        config = _class_config_location(root, argv)
 
     run = _default_run(dispatch, adapter)
     # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).

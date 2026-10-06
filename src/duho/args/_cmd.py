@@ -44,6 +44,11 @@ class Cmd(Args):
     #: instance by ``_initparser_``'s patched ``parse_known_args``.
     _passthrough_: "list[str]"
 
+    #: ``False`` makes a non-empty ``--`` tail a usage error (exit 2) that
+    #: names this command; ``True`` (default) captures it as ``_passthrough_``.
+    #: Read from the command the parse selects, so a subcommand sets its own.
+    _allow_passthrough_: bool = True
+
     def __call__(self):  # noqa: D401 - contract stub, overridden by subclasses
         """Run the command. Override ``__call__`` in a ``Cmd`` subclass.
 

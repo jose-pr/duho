@@ -803,6 +803,10 @@ class Args(_argparse.Namespace):
             ]:
                 del parsed.__dict__[_sidecar]
             parsed.__dict__.pop("_duho_command_", None)
+            if passthrough and not getattr(_cls, "_allow_passthrough_", True):
+                parser.error(
+                    f"{_command_name(_cls)}: arguments after '--' are not accepted"
+                )
             instance = _cls(**parsed.__dict__)
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []

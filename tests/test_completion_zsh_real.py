@@ -98,3 +98,12 @@ def test_flag_name_text_is_never_run_as_a_command(tmp_path):
     parser.add_argument("--a:b: touch PWN_flagname:c")
     _tab_output(tmp_path, completion.zsh(parser), "flagx", ["flagx --a "])
     assert not [p for p in os.listdir(tmp_path) if p.startswith("PWN")]
+
+
+def test_choices_starting_with_an_equals_sign_are_offered_as_written(tmp_path):
+    parser = argparse.ArgumentParser(prog="eq")
+    parser.add_argument("--op", choices=["alpha", "=ls", "==", "!=", "beta"])
+    (shown,) = _tab_output(tmp_path, completion.zsh(parser), "eq", ["eq --op "])
+    for choice in ("alpha", "=ls", "==", "!=", "beta"):
+        assert choice in shown
+    assert "not found" not in shown

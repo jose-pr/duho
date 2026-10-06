@@ -63,9 +63,11 @@ def _zsh_word(value: object) -> str:
     pass literally: whitespace, ``$`` `` ` `` ``()[]{}`` ``;|&<>`` ``'"``
     ``*?~#^!`` and ``:`` all become a literal character instead of shell
     syntax. Apply this FIRST, then wrap the joined result in `_sq` for the
-    static parse.
+    static parse. A leading ``=`` is escaped too: zsh's ``=cmd`` expansion
+    would otherwise replace the word with the path of that command.
     """
-    return "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
+    word = "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
+    return "\\" + word if word.startswith("=") else word
 
 
 # Unlike zsh, fish expands a bare `%self`/`%<job>` job-id token even inside a

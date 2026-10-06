@@ -296,7 +296,7 @@ def parse_loglevels(
         if resolved is None:
             resolved = levelmapping.get(level_text.upper())
         if resolved is None:
-            if level_text.lstrip("-").isdigit():
+            if _re.fullmatch(r"-?[0-9]+", level_text):
                 resolved = int(level_text)
             else:
                 raise _argparse.ArgumentTypeError(

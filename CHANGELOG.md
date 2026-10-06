@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - A `_logger_name_` on a root now applies to every command it dispatches.
   Declare `_parsername_` (and `_logger_name_` for the logger) to keep a name
   fixed wherever the class lives.
+- `duho.args`, `duho.mcp`, `duho.runtime`, `duho.runpath`, `duho.completion`
+  and `duho.discovery` are now packages of private submodules instead of
+  single files. Every import path, public or private, still resolves, and
+  `python -m duho.mcp` runs as before. What you may see change:
+  - An object's `__module__` (and so its `repr`) names the private submodule
+    that defines it, for example `duho.args._argsclass`, not `duho.args`.
+  - Code that rebinds `duho.runpath._BASE`, `_ADAPTER` or `_REGISTERED`, or
+    `duho.args._AUTO_VERSION_CACHE`, on the package no longer affects duho:
+    the value lives in the submodule that owns it (`duho.runpath._provider`,
+    `duho.runpath._adapter`, `duho.args._naming`). Reading the three runpath
+    names from the package still returns the live value.
 
 ### Fixed
 

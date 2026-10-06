@@ -15,8 +15,10 @@ Purely informational (no API surface of its own) for someone reading the install
 source tree; every name below is still reachable as `duho.*`/`duho.args.*` etc.
 regardless of which internal module implements it:
 
-- `args.py` — `Args`/`Cmd`/`Cli`/`ArgumentBuilder` and most module-level public
-  functions (`parse`, `main`, `command`, `print_completion`, ...).
+- `args/` — `Args`/`Cmd`/`Cli`/`ArgumentBuilder` and most module-level public
+  functions (`parse`, `main`, `command`, `print_completion`, ...). `completion/`,
+  `discovery/`, `mcp/`, `runpath/` and `runtime/` are likewise packages of private
+  `_*.py` submodules whose `__init__` re-exports every name.
 - `_fieldspec.py` — the type-to-`ArgumentBuilder` ladder (`int`/`bool`/collections/
   `Enum`/`date`-like/`Literal`/...); exposes `Factory` (a `Callable[[str], T]` type
   alias for a text-to-value converter).

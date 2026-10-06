@@ -23,9 +23,8 @@ no permanent mutation of global logging config). The current target is carried i
 a :class:`contextvars.ContextVar` set at the top of each worker call, so
 concurrent worker threads tag their own records without cross-talk. The filter
 never rewrites the record's own ``msg``/``args``; it defers rendering the
-prefixed text until the record is actually formatted, by overriding
-``getMessage`` for that call with a small, picklable object (never a closure --
-see :class:`_PrefixedMessage`), so a mismatched-args log call still fails the
+prefixed text until the record is actually formatted, by retagging the record
+as a picklable :class:`_TargetRecord` whose ``getMessage`` adds the prefix, so a mismatched-args log call still fails the
 same "--- Logging error ---" way it would outside a fan-out instead of raising
 into the target, and a tagged record still survives ``pickle.dumps``
 (:class:`logging.handlers.SocketHandler`/``QueueHandler``).
@@ -90,36 +89,25 @@ current_target: "_contextvars.ContextVar[object]" = _contextvars.ContextVar(
 )
 
 
-class _PrefixedMessage:
-    """A picklable, closure-free replacement for a tagged record's ``getMessage``.
+class _TargetRecord(_logging.LogRecord):
+    """A :class:`logging.LogRecord` whose message renders as ``[<target>] <message>``.
 
-    Renders ``[<target>] <message>`` from a SNAPSHOT of the record's own
-    ``msg``/``args`` -- taken at filter time, when both are already fully
-    populated -- rather than holding a reference to the ``LogRecord`` itself
-    (a bound-method closure over it, this class's predecessor, is a local
-    object :mod:`pickle` always rejects). A plain, MODULE-LEVEL class with
-    only simple attributes (a target label plus the record's own msg/args)
-    survives ``pickle.dumps`` instead: :class:`logging.handlers.SocketHandler`
-    and ``QueueHandler`` both pickle a copy of ``record.__dict__`` verbatim,
-    including whatever ``record.getMessage`` was overridden to.
-
-    ``__call__`` mirrors :meth:`logging.LogRecord.getMessage`'s own
-    ``str(msg) % args if args else str(msg)`` exactly, so the ``%``-expansion
-    still happens lazily, at FORMAT time (inside the same ``emit``/
-    ``handleError`` protection a handler already gives its own formatting),
-    not eagerly when the filter tags the record.
+    A module-level class (not a closure), so a tagged record survives
+    ``pickle.dumps`` (``SocketHandler``, ``QueueHandler`` over a
+    ``multiprocessing.Queue``). A handler such as ``QueueHandler`` folds the
+    already-prefixed text, traceback included, into ``msg`` and clears ``args``
+    to ``None``; ``getMessage`` then returns that ``msg`` unchanged instead of
+    prefixing it again. Otherwise ``%``-expansion happens at format time, so a
+    mismatched-args call fails in the handler's own error protection.
     """
 
-    def __init__(self, target: object, msg: object, args: object) -> None:
-        self._target = target
-        self._msg = msg
-        self._args = args
+    _duho_target_: object = None
+    _duho_tagged_args_: object = None
 
-    def __call__(self) -> str:
-        text = str(self._msg)
-        if self._args:
-            text = text % self._args
-        return "[%s] %s" % (self._target, text)
+    def getMessage(self) -> str:
+        if self.args is None and self._duho_tagged_args_ is not None:
+            return str(self.msg)
+        return "[%s] %s" % (self._duho_target_, super().getMessage())
 
 
 class TargetPrefixFilter(_logging.Filter):
@@ -132,11 +120,9 @@ class TargetPrefixFilter(_logging.Filter):
     a no-op, so it is safe to leave installed across code that is not fanning
     out (though :func:`target_logging` removes it promptly regardless).
 
-    The prefix is applied by overriding the record's own ``getMessage`` with a
-    :class:`_PrefixedMessage` instance that renders ``[<target>] ...`` from a
-    SNAPSHOT of the record's own ``msg``/``args`` (already fully populated by
-    the time a handler's filter runs) -- deferred until whatever formats the
-    record (a :class:`logging.Formatter`, or a handler that calls
+    The prefix is applied by retagging the record as a :class:`_TargetRecord`,
+    whose ``getMessage`` renders ``[<target>] ...`` -- deferred until whatever
+    formats the record (a :class:`logging.Formatter`, or a handler that calls
     ``record.getMessage()`` directly) actually calls it. Rendering eagerly
     here, outside the ``emit``/``handleError`` protection every handler gives its
     own formatting, would let a mismatched-``%``-args log call raise a
@@ -145,13 +131,10 @@ class TargetPrefixFilter(_logging.Filter):
     notice, or nothing under ``logging.raiseExceptions = False``), not by
     marking the target as failed.
 
-    A snapshot rather than a closure over the record's own bound ``getMessage``
-    (an earlier version of this filter) specifically so a tagged record
-    survives ``pickle.dumps`` -- :class:`logging.handlers.SocketHandler` and
-    ``QueueHandler`` both pickle ``record.__dict__`` (or a plain copy of it)
-    verbatim, including this attribute, and a closure over a per-call bound
-    method is a local object pickle always rejects, regardless of what it
-    captures.
+    A module-level class rather than a closure, so a tagged record survives
+    ``pickle.dumps`` (:class:`logging.handlers.SocketHandler` and
+    ``QueueHandler``), and a record a handler has already rewritten (prefix and
+    traceback folded into ``msg``, ``args`` cleared) renders as it was left.
 
     **Isolation across handlers.** A single filter instance is installed on
     every effective handler of the target logger (:func:`target_logging`), and
@@ -177,9 +160,9 @@ class TargetPrefixFilter(_logging.Filter):
         if _sys.version_info >= (3, 12):
             record = _copy.copy(record)
         record._duho_target_tagged_ = True  # type: ignore[attr-defined]
-        record.getMessage = _PrefixedMessage(  # type: ignore[method-assign]
-            target, record.msg, record.args
-        )
+        record._duho_target_ = target  # type: ignore[attr-defined]
+        record._duho_tagged_args_ = record.args  # type: ignore[attr-defined]
+        record.__class__ = _TargetRecord
         return record if _sys.version_info >= (3, 12) else True
 
 

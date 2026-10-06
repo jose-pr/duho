@@ -161,7 +161,8 @@ def _walk(
             if getattr(a, "help", None) is _argparse.SUPPRESS:
                 suppressed_dests.add(dest)
             else:
-                help_by_name[dest] = getattr(a, "help", None) or ""
+                # argparse help is a %-template; `%%` is a literal percent sign.
+                help_by_name[dest] = (getattr(a, "help", None) or "").replace("%%", "%")
         suppressed_parsers = {
             id(choices[dest]) for dest in suppressed_dests if dest in choices
         }

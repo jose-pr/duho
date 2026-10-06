@@ -1,4 +1,4 @@
-# Duho
+# duho
 
 [![PyPI version](https://img.shields.io/pypi/v/duho.svg)](https://pypi.org/project/duho/)
 [![Python versions](https://img.shields.io/pypi/pyversions/duho.svg)](https://pypi.org/project/duho/)
@@ -9,6 +9,8 @@
 
 Named after the sacred Taíno ceremonial stool—a symbol of power and authority—duho provides the **foundation** from which you command your application.
 
+Full documentation: https://jose-pr.github.io/duho/
+
 ## Features
 
 - **Declarative**: Define CLI arguments as class annotations—no boilerplate argparse setup
@@ -17,7 +19,24 @@ Named after the sacred Taíno ceremonial stool—a symbol of power and authority
 - **Subcommands**: Easily compose multi-command CLI applications
 - **Extensible**: Customize argument behavior with protocols and builders
 
-## Quick Start
+## Installation
+
+```bash
+pip install duho
+```
+
+### Optional Dependencies
+
+Colored logging works out of the box (gated on a TTY / `NO_COLOR` / `FORCE_COLOR`,
+raw ANSI codes, no dependency required). `colorama` is only needed to resolve a
+*named* color (e.g. `color="red"` on `duho.add_logging_level`) and to patch a
+legacy Windows console so it renders ANSI codes instead of showing them literally:
+
+```bash
+pip install duho[colorama]
+```
+
+## Quick start
 
 <!-- runnable: commands -->
 ```python
@@ -61,26 +80,11 @@ A bare `"--"` entry inside a tuple expands to that same default long flag, so
 you can pair a short flag with it without spelling it out:
 `("-n", "--")` → `("-n", "--name")`.
 
-## Installation
+## Guide
 
-```bash
-pip install duho
-```
+### Core Concepts
 
-### Optional Dependencies
-
-Colored logging works out of the box (gated on a TTY / `NO_COLOR` / `FORCE_COLOR`,
-raw ANSI codes, no dependency required). `colorama` is only needed to resolve a
-*named* color (e.g. `color="red"` on `duho.add_logging_level`) and to patch a
-legacy Windows console so it renders ANSI codes instead of showing them literally:
-
-```bash
-pip install duho[colorama]
-```
-
-## Core Concepts
-
-### Args: Declare Your CLI
+#### Args: Declare Your CLI
 
 Define arguments using class annotations. The docstring becomes the help text, and expressions after the annotation become argument flags:
 
@@ -138,7 +142,7 @@ class Copy(Args):
     source: Arg[str, Meta(flags=("-s", "--source"), help="Source path")]
 ```
 
-### Supported Field Types
+#### Supported Field Types
 
 | Annotation | Behavior |
 | --- | --- |
@@ -160,7 +164,7 @@ class Copy(Args):
 handles them as long as no option is itself declared to look like `-1`). If you
 truly need a `-1`-style flag, use the `NS(kwargs=...)` escape hatch.
 
-### Positional arguments
+#### Positional arguments
 
 A flags-tuple whose single entry does **not** start with `-` declares a
 positional instead of an option. Duho picks the `nargs` for you from the type
@@ -189,7 +193,7 @@ gets `nargs="?"` — without it argparse would make the positional required and
 ignore the default. A `list`/`list[T]` positional becomes variadic
 (`nargs="*"`), defaulting to `[]`. `required=` is never emitted for positionals.
 
-### An option between two positionals just works
+#### An option between two positionals just works
 
 argparse's own greedy positional matching normally breaks when an option is
 placed BETWEEN a fixed positional and a variadic one after it (a well-known
@@ -220,7 +224,7 @@ identically. A genuinely unrecognized/misspelled flag still raises argparse's
 own honest "unrecognized arguments" error; the fix never silently absorbs a
 typo as a phantom positional value.
 
-### Field metadata: `NS` or `Meta`
+#### Field metadata: `NS` or `Meta`
 
 Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `NS(...)`
 (an `argparse.Namespace`) is the untyped form; `duho.Meta` is the typed,
@@ -247,7 +251,7 @@ class-definition time instead of `NS(dest=...)`'s silently-ignored value.
 `NS` keeps working forever. Any metadata object exposing a str
 `.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
 
-### Mutually exclusive options
+#### Mutually exclusive options
 
 Set `NS(conflicts="group-name")` on the fields that must not be used together.
 Duho builds one `argparse` mutually-exclusive group per distinct `conflicts`
@@ -297,7 +301,7 @@ python app.py            # error: one of the arguments --push --pull is required
 python app.py --push     # ok
 ```
 
-### Titled argument groups
+#### Titled argument groups
 
 Set `NS(group="Section title")` to bucket fields under a named section in
 `--help`. Fields sharing a title join the same section; the rest stay under the
@@ -315,7 +319,7 @@ class App(Args):
 A field may combine `group=` and `conflicts=`: the mutually-exclusive group is
 nested inside the titled section (still exclusive, and shown under the title).
 
-### Prettier help: defaults & color
+#### Prettier help: defaults & color
 
 Set a class-level `_help_formatter_` to opt into a richer `--help`. duho ships
 three `argparse.HelpFormatter` subclasses (all off by default, so plain help is
@@ -339,7 +343,7 @@ styles the whole app. You can also point it at any custom `HelpFormatter`
 subclass. (Note: argparse only renders defaults for options that *have* help text,
 so give a field a docstring to see its `(default: …)`.)
 
-### Run your app
+#### Run your app
 
 `duho.main(cls, argv=None, *, setup_logging=True)` builds the parser, parses
 `argv` (or `sys.argv` when omitted), optionally wires up stderr logging and
@@ -476,7 +480,7 @@ isn't installed), duho does **not** add a `--version` flag at all — it logs a
 debug message via `logging.getLogger("duho")` instead of printing a bogus
 `0.0.0+unknown`-style version or raising.
 
-### The application's name
+#### The application's name
 
 An application has one name, and every surface uses it: the usage line, the
 name a `--print-completion` script binds, the `<NAME>_MCP` launch variable, the
@@ -490,7 +494,7 @@ name never comes from the script's file name, so `python app.py`, `python tools/
 the name wherever the class lives. A subcommand's name is its own
 `_parsername_`, else the kebab-case of its class name (`Create` → `create`).
 
-### Output encoding
+#### Output encoding
 
 `duho.main`/`duho.app` call `duho.utf8_stdio()` first thing, before anything
 else runs. It reconfigures `sys.stdout`/`sys.stderr` to UTF-8 whenever nothing
@@ -534,7 +538,7 @@ PowerShell still needs the *console itself* set to UTF-8 for the text to
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 ```
 
-### Build and Parse
+#### Build and Parse
 
 ```python
 parser = Deploy._parser_()
@@ -543,7 +547,7 @@ args = parser.parse_args()
 print(f"Deploying to {args.environment} (dry-run: {args.dry_run})")
 ```
 
-### Quick parse
+#### Quick parse
 
 `duho.parser(cls, ...)` is the module-level entry point for building a parser
 (delegates to `cls._parser_(...)`). `duho.parse(spec, argv=None, *,
@@ -576,7 +580,7 @@ Precedence: **CLI args > instance field values > class defaults**. This also
 means a required field with no class default becomes effectively optional
 for that call if the instance already supplies a value.
 
-### Parsing only the globals (config before commands)
+#### Parsing only the globals (config before commands)
 
 Sometimes you need to read a root/global option *before* you can build the full
 subcommand parser — for example, a `--config` path (or an env-derived setting)
@@ -598,7 +602,7 @@ only); it is the public form of the prepass `duho.app` runs internally. Pass any
 `cls._parser_` keyword through it (e.g. `add_help=False`). If you also want the
 leftover argv, call `parser.parse_known_args` directly instead.
 
-### Configuration layers
+#### Configuration layers
 
 Beyond instance overrides, `duho.parse`/`duho.main` support two more default
 layers: per-field environment variables and a TOML config file. Combined
@@ -691,7 +695,7 @@ result = duho.parse(Deploy, [], config="./deploy.toml")
 duho.value_sources(result)  # {"token": "env", "verbose": "config", ...}
 ```
 
-### Logging Integration
+#### Logging Integration
 
 Combine with `LoggingArgs` for structured logging:
 
@@ -733,7 +737,7 @@ opposite directions and can be combined (e.g. `-vv -q` nets one step more verbos
 than the default); each end of the scale (`CRITICAL`/`TRACE`) clamps rather than
 wrapping or erroring.
 
-### Shell completion
+#### Shell completion
 
 Generate a self-contained bash/zsh/fish/PowerShell completion script from your
 parser — **static** generation (no runtime dependency, no per-keystroke
@@ -784,7 +788,7 @@ completion. The PowerShell emitter registers a `Register-ArgumentCompleter
 -Native` script block resolving the subcommand path to its flags/choices, with
 file completion falling through to PowerShell's defaults.
 
-### Agent help (machine-readable `--help`)
+#### Agent help (machine-readable `--help`)
 
 Alongside the compact, human-facing `--help`, duho can emit a **complete,
 machine-readable JSON description** of your CLI — enough for an AI agent (or any
@@ -845,7 +849,7 @@ JSON document, `(from env DEPLOY_TOKEN)` appended to the option's help in
 human `--help`. This covers a module command's own env/config-bound fields
 too, not just declarative ones.
 
-### Manual subparsers
+#### Manual subparsers
 
 `_subcommands_` (above) is the recommended way to build command trees. If you
 need to attach duho commands to a parser you build yourself, pass the
@@ -881,7 +885,7 @@ cmd = duho.finish_parse(args)   # -> a real Serve instance
 raise SystemExit(cmd())
 ```
 
-## Commands: Args vs Cmd
+### Commands: Args vs Cmd
 
 `Args` classes are **pure data** — a typed namespace of parsed values. To make one
 *runnable*, subclass `duho.Cmd` and implement `__call__(self)`. A `Cmd` instance is
@@ -932,7 +936,7 @@ raise SystemExit(duho.main(GreetCmd))
 (recommended base order — data mixin first, executable base last) to get logging
 plus a runnable command.
 
-## Cli: the application root
+### Cli: the application root
 
 A leaf `Cmd` is lean — it declares its own flags and a `__call__`. The **root** of
 a multi-command app usually wants more: a `--version` flag, shell completion, a
@@ -959,7 +963,7 @@ inherits `Cmd.__call__` unchanged), and a plain `Cmd` root still works everywher
 so your CLI-field namespace stays 100% yours. `LoggingArgs` stays orthogonal — mix
 it in when you want `-v`/`-q` verbosity, leave it out when you don't.
 
-### Self-registration: `@MyApp.subcommand`
+#### Self-registration: `@MyApp.subcommand`
 
 Instead of the root listing every child in `_subcommands_`, a leaf command file can
 **attach itself** to the root with the `@MyApp.subcommand` decorator. This keeps
@@ -1004,7 +1008,7 @@ appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form. Once
 command files are imported, `duho.main(MyApp)` sees the full tree (use `duho.app` if
 you also want discovery/config/env — see [main vs app](#run-your-app)).
 
-### App-wide config & env with `duho.app`
+#### App-wide config & env with `duho.app`
 
 `duho.app(root, ...)` threads a `Cli` root's `_config_` and any `env` down to the
 dispatched subcommand. TOML top-level keys apply to the root's fields; a
@@ -1026,7 +1030,7 @@ raise SystemExit(duho.app(MyApp, source="myapp.commands",
 Pass `config="other.toml"` to `duho.app` to override the root's `_config_` for one
 run. Precedence is unchanged: CLI > env > config > class default.
 
-## Environment access
+### Environment access
 
 `duho.Env(prefix)` is an app-wide, typed view over the environment variables
 sharing a common prefix. The prefix is uppercased with `-`→`_` and a trailing `_`
@@ -1059,7 +1063,7 @@ so disable it if the prefix is not fully under your control. This is distinct fr
 the per-field `NS(env="VAR")` default layer above — that resolves one argparse
 field; `Env` is the app-level accessor a driver reads settings through.
 
-## String/target expansion
+### String/target expansion
 
 `duho.expand` expands `[a-b]` brace ranges into concrete strings — handy for
 turning a host pattern into a target list. Output is **not** zero-padded:
@@ -1087,7 +1091,7 @@ is acronym-aware and is the rule behind a class-derived command name and a
 field's default flag, both above), and `duho.gettext` (a `gettext` shim) round
 out the text utilities.
 
-## Dynamic command discovery
+### Dynamic command discovery
 
 Instead of listing subcommands by hand, point `duho.app` at a package or directory
 and it discovers every command living there. Commands come in two shapes — a
@@ -1150,7 +1154,7 @@ logged with a warning and skipped, so one broken command never takes down the re
 A genuine bug in a command file (e.g. a `SyntaxError`) is *not* swallowed — it
 surfaces so you can fix it.
 
-### Plugins via entry points
+#### Plugins via entry points
 
 For commands that ship in **separately-installed packages**, point `duho.app` at
 an entry-point **group** instead of a local package. Every entry point advertised
@@ -1177,7 +1181,7 @@ to a command is logged and skipped, so one bad plugin never takes the app down.
 `entry_points=` never pays its import cost. Call `duho.discover_entry_points(group)`
 directly to get the `list[Command]`.
 
-## RunPath: ordered step commands (opt-in)
+### RunPath: ordered step commands (opt-in)
 
 `duho.runpath` is an **opt-in** module that turns a directory of numbered `.py`
 files into a single command that runs them **in order**. It plugs into the
@@ -1207,7 +1211,7 @@ def main(args):
     args._logger_.info("building")
 ```
 
-### Inheriting your app's shared root (`register(base=...)`)
+#### Inheriting your app's shared root (`register(base=...)`)
 
 `args._logger_` above works out of the box: by default every RunPath command
 this module builds ALSO inherits `duho.LoggingArgs` (alongside `RunPathCmd`
@@ -1229,7 +1233,7 @@ class MyAppRoot(duho.LoggingArgs):
 duho.runpath.register(base=MyAppRoot)   # before building/running any RunPath command
 ```
 
-### Giving steps your app's own signature (`register(step_adapter=...)`)
+#### Giving steps your app's own signature (`register(step_adapter=...)`)
 
 Steps are called `main(cmd)` or `main(cmd, ctx)`. If your app's *module*
 commands take a different shape — say `run(client, args, logger)` — steps and
@@ -1274,7 +1278,7 @@ is its ordering key. A step module may override ordering and declare dependencie
   above). `REQUIRED`'s hardness is independent of `BEFORE`/`AFTER` and of a
   step's own filename modifiers (below): all three are separate axes.
 
-### The optional `__main__.py` lifecycle
+#### The optional `__main__.py` lifecycle
 
 A RunPath directory may define a `__main__.py` file — the same dunder Python
 already uses for "this directory's entrypoint" (as in `python -m package`), no
@@ -1307,7 +1311,7 @@ raising is **always fatal**, regardless of `--rcopts strict` — every step
 depends on `ctx`, so there is no meaningful partial/resilient init. A directory
 with no `__main__.py` behaves exactly as before this lifecycle existed.
 
-### Filename-encoded per-step options
+#### Filename-encoded per-step options
 
 Before a step file's `NN-name` prefix is parsed, its stem is checked for a
 leading `!` and `:`/`;`-separated option tokens (both stripped first, so
@@ -1361,7 +1365,7 @@ cmd = duho.CmdBuilder("release", Path("release")).command
 raise SystemExit(cmd()())   # build → test → publish, in order
 ```
 
-### Selecting steps with `--rcopts` (`-O`)
+#### Selecting steps with `--rcopts` (`-O`)
 
 `--rcopts` takes a comma-separated list of entries, each an [fnmatch] pattern
 matched against step names, optionally followed by `:`/`;`-separated option
@@ -1390,7 +1394,7 @@ all then re-enables everything matching `build-*`.
                                     #   filename-derived strict setting
 ```
 
-### Strict vs. resilient
+#### Strict vs. resilient
 
 A step is **strict** by default: a step whose body raises (or returns a non-zero
 code) stops the run at that step with its traceback, and later steps never run.
@@ -1418,7 +1422,7 @@ deliberately **not** on the top-level `duho.*` surface — RunPath is opt-in.
 
 [fnmatch]: https://docs.python.org/3/library/fnmatch.html
 
-## Module commands & lifecycle
+### Module commands & lifecycle
 
 A **module command** is a plain `.py` file. Its entrypoint is `main` (preferred),
 falling back to `run` or `call`, and receives the parsed args instance:
@@ -1455,7 +1459,7 @@ There is **no separate `logger` parameter**: hooks read the logger from the args
 instance's `_logger_` (present on `LoggingArgs`-based commands), falling back to
 `logging.getLogger("duho")`.
 
-## Customizing a subcommand parser
+### Customizing a subcommand parser
 
 A module command's optional `register` hook hands you the raw argparse subparser
 so you can add arguments the declarative layer doesn't cover. It may be written
@@ -1504,7 +1508,7 @@ not 2; write `-vv` on one side to count both.
 > clear error naming your command and the offending flag (rather than argparse's
 > bare "conflicting option string"), so pick a different flag.
 
-## Passthrough args
+### Passthrough args
 
 Argv after the first literal `--` separator is captured at parse time and exposed
 on the parsed instance as `_passthrough_: list[str]` — useful for forwarding
@@ -1526,7 +1530,7 @@ accept a value starting with `-`. So a value that genuinely needs to start
 with `-` (the POSIX `rm -- -oddfile.txt` idiom) cannot be given after a `--`
 to a duho command; it is captured into `_passthrough_` instead, read or not.
 
-## Target fan-out (`duho.fanout`, opt-in)
+### Target fan-out (`duho.fanout`, opt-in)
 
 duho dispatches **one** command per run by design. When you need to run that one
 command against a list of targets (hosts, environments, datasets) and roll their
@@ -1574,7 +1578,7 @@ instance is app-specific) and each is dispatched via `duho.run_command`. Pass
 `aggregate=any` or a custom reducer to change the exit-code policy. You can still
 hand-roll a `ThreadPoolExecutor` wrapper if you prefer.
 
-### Composing `app()`: the `dispatch=` seam
+#### Composing `app()`: the `dispatch=` seam
 
 `duho.app(...)` owns discovery, parser build, registration, config/env thread-down,
 parsing, and logging setup, then runs **one** selected command. To keep all of that
@@ -1598,7 +1602,7 @@ The callable receives the resolved command and the parsed instance and returns a
 `app()` behaves exactly as before, calling `duho.run_command` — existing callers are
 unaffected.
 
-## Generating launchers (`duho.scaffold`, opt-in)
+### Generating launchers (`duho.scaffold`, opt-in)
 
 An app laid out as `bin/` + a `lib/` (or `src/`) package can be run straight from a
 checkout — no install — with a tiny launcher that puts the package on `PYTHONPATH`
@@ -1639,7 +1643,7 @@ paths = generate_launchers("myapp", ".", libdir="src")   # -> [Path("bin/myapp")
 The CLI dogfoods duho itself — `duho.scaffold.ScaffoldCmd` is an ordinary `duho.Cli`
 command.
 
-## MCP tool surface (`duho.mcp`, opt-in)
+### MCP tool surface (`duho.mcp`, opt-in)
 
 Expose the *same* `Cmd`/`Cli` classes that back a duho CLI as **MCP tools** (the
 [Model Context Protocol](https://modelcontextprotocol.io)) — zero redeclaration.
@@ -1702,7 +1706,7 @@ field with no registered override is passed through as a plain string; an
 streaming/long-running commands. See [`examples/mcp_app.py`](https://github.com/jose-pr/duho/blob/main/examples/mcp_app.py) for
 a runnable app plus a note on wiring it into an MCP client.
 
-### Serving a full `duho.app()` tree
+#### Serving a full `duho.app()` tree
 
 `describe_tools`/`call_tool`/`serve` also accept a `duho.app()`-built tree — class
 AND module commands, from discovered files, `CMDS_PATH`, entry points, or an
@@ -1711,7 +1715,7 @@ command with its own declared `Args` (or none at all) is listed **and callable**
 exactly like a class command, through the same one dispatch path and the same
 security checks.
 
-### Launching a server from the CLI itself
+#### Launching a server from the CLI itself
 
 No MCP-specific code is required to make an existing CLI servable: every
 `duho.main(cls)`/`duho.app(...)` call checks a launch-trigger environment variable
@@ -1753,7 +1757,7 @@ requires the app to already have at least one OTHER subcommand, and a chosen nam
 that collides with an existing command/alias is a build-time error — both checked
 before anything is registered, never silently swallowed.
 
-### Naming and identity
+#### Naming and identity
 
 The dotted tool-name namespace, and the `serverInfo` an MCP client sees in its
 `initialize` response, both follow the [application's
@@ -1769,7 +1773,7 @@ string (a literal, `duho.AUTO`, or a class-level `__version__` fallback — see
 "Version flag" above); otherwise it reports the empty string. duho's own version is
 never reported as the served app's.
 
-### Excluding a command from the tool surface
+#### Excluding a command from the tool surface
 
 A command that should never be reachable over MCP — one that prints secrets, or
 returns something a client has no business asking for — opts out with
@@ -1809,7 +1813,7 @@ meaning (the launch-trigger opt-out above) — it is never treated as this
 per-command exclusion, and `duho.mcp.McpCmd`'s own registered subcommand is always
 excluded regardless of this attribute.
 
-## Examples
+### Examples
 
 [`examples/`](https://github.com/jose-pr/duho/tree/main/examples) holds five runnable apps. Two are
 self-contained CLIs that each build a small umbrella app with an `install`
@@ -1866,11 +1870,7 @@ the actual filesystem work — the point is the CLI); the other three show
   python examples/fileinstall.py install --type dir -O k=v src dst
   ```
 
-## Documentation
-
-Full documentation: https://jose-pr.github.io/duho/
-
-## Contributing
+## Development
 
 Contributions welcome! See [CONTRIBUTING.md](https://github.com/jose-pr/duho/blob/main/CONTRIBUTING.md) for guidelines.
 

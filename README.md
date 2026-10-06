@@ -687,6 +687,7 @@ from duho import LoggingArgs, Cmd
 class MyApp(LoggingArgs, Cmd):
     command: str
     "The command to run"
+    ("command",)
 
     def __call__(self):
         logger = self._logger_

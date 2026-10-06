@@ -30,6 +30,11 @@ def serve_running_app(transport: str = "stdio") -> int:
     :class:`McpCmd`) instead of the ``<PREFIX>MCP``/``<NAME>_MCP`` env
     trigger.
 
+    Output printed while the app was built (module-command imports,
+    ``register()`` hooks) was written before this was called, so on this path
+    it reaches stdout ahead of the first reply; the environment trigger takes
+    stdio over before building and has no such output.
+
     Raises ``RuntimeError`` when called outside such a dispatch (a bare
     script that never went through ``duho.main``/``duho.app`` at all has no
     running app context to serve). Raises ``ValueError`` for an unsupported

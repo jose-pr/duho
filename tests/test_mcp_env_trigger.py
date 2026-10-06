@@ -1,4 +1,4 @@
-"""The environment MCP trigger serves an app() tree through its own dispatch=."""
+"""The environment MCP trigger: app() dispatch= and the protocol stream."""
 
 import json
 import subprocess
@@ -72,3 +72,36 @@ def test_env_trigger_runs_commands_through_the_app_dispatch(tmp_path):
     replies = [json.loads(line) for line in proc.stdout.decode().splitlines()]
     call = [r for r in replies if r.get("id") == 3][0]
     assert call["result"]["content"][0]["text"].split() == ["GATE-CALLED", "hello-ran"]
+
+
+_NOISY_COMMAND = """
+print("BANNER-AT-IMPORT")
+
+
+def register(parser, args):
+    print("BANNER-IN-REGISTER")
+
+
+def main(args):
+    print("hello-ran")
+    return 0
+"""
+
+_NOISY_APP = """
+    import pathlib
+    import sys
+    import duho
+
+    cmds = pathlib.Path(__file__).parent / "cmds"
+    sys.exit(duho.app(duho.Cli, source=cmds, name="dapp"))
+"""
+
+
+def test_env_trigger_keeps_discovery_output_off_the_protocol_stream(tmp_path):
+    cmds = tmp_path / "cmds"
+    cmds.mkdir()
+    (cmds / "hello.py").write_text(_NOISY_COMMAND)
+    proc = run_app_script(tmp_path, _NOISY_APP, {"DAPP_MCP": "stdio"})
+    replies = [json.loads(line) for line in proc.stdout.decode().splitlines()]
+    assert [r["id"] for r in replies] == [1, 3]
+    assert b"BANNER-AT-IMPORT" in proc.stderr

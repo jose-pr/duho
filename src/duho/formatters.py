@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse as _argparse
 import os as _os
 import sys as _sys
+import typing as _ty
 
 from ._compat import BOOL_TRUE as _BOOL_TRUE
 from .logging import _asicode
@@ -159,11 +160,11 @@ class ColorHelpFormatter(_argparse.HelpFormatter):
     output without the measurement ever seeing a color code.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: _ty.Any, **kwargs: _ty.Any) -> None:
         super().__init__(*args, **kwargs)
         self._duho_color_ = False if _NATIVE_HELP_COLOR else _color_enabled()
 
-    def start_section(self, heading):
+    def start_section(self, heading: _ty.Optional[str]) -> None:
         if self._duho_color_ and heading is not None:
             heading = f"{_HEADING_CODE}{heading}{_RESET}"
         super().start_section(heading)

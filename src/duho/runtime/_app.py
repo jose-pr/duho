@@ -20,9 +20,7 @@ from ._resolve import _resolve_commands
 from ._run import run_command
 from ._tree import _finalize_command_tree, _register_commands
 
-if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
-    from ..env import Env as _Env
-
+from ..env import Env as _Env
 
 _LOGGER = _logging.getLogger(__package__)
 

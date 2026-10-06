@@ -851,7 +851,13 @@ class UpdateAction(_argparse.Action):
     `_CollectionAction` gives list/set/tuple fields.
     """
 
-    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore
+    def __call__(
+        self,
+        parser: _argparse.ArgumentParser,
+        namespace: _argparse.Namespace,
+        values: object,
+        option_string: _ty.Optional[str] = None,
+    ) -> None:
         sidecar = "_duho_dict_seen_" + self.dest
         if not getattr(namespace, sidecar, False):
             # First CLI occurrence of THIS parse: start from an empty dict so

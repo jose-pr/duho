@@ -33,9 +33,7 @@ from ._parserfix import (
     _suppress_inherited_defaults,
 )
 
-if _ty.TYPE_CHECKING:
-    from ._meta import _Parser, _Self
-
+from ._meta import _Parser, _Self
 
 #: {id(instance): frozenset(explicitly-passed field names)} for every `Args`
 #: instance built via `__init__`. `Args.__init__` seeds a class-body
@@ -445,11 +443,11 @@ class Args(_argparse.Namespace):
         subparser: _ty.Optional[_argparse._SubParsersAction] = None,
         name: _ty.Optional[str] = None,  # type: ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
-        _inherited_formatter_class_=None,
-        _inherited_agent_root_cls_=None,
-        _inherited_config_hint_=None,
-        _skip_subcommands_=False,
-        **kwargs,
+        _inherited_formatter_class_: _ty.Optional[type] = None,
+        _inherited_agent_root_cls_: _ty.Optional[type] = None,
+        _inherited_config_hint_: _ty.Optional[bool] = None,
+        _skip_subcommands_: bool = False,
+        **kwargs: _ty.Any,
     ) -> _Parser[_Self]:
         """Build (or attach) this class's ``argparse.ArgumentParser``.
 
@@ -698,7 +696,7 @@ class Args(_argparse.Namespace):
         explicit_prog: bool = False,
         agent_root_cls: _ty.Optional[type] = None,
         external_config: bool = False,
-    ):
+    ) -> _argparse.ArgumentParser:
         """Populate an already-created ``parser`` with this class's own fields.
 
         Called by :meth:`_parser_` right after creating/attaching the parser:

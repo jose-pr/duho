@@ -202,7 +202,9 @@ def find_subparsers(
     return None
 
 
-def strip_subparsers(parser: _argparse.ArgumentParser):
+def strip_subparsers(
+    parser: _argparse.ArgumentParser,
+) -> _ty.Optional[_ty.Tuple[_argparse.Action, int, object, _ty.Optional[int]]]:
     """Detach ``parser``'s subparsers action (if any) from BOTH ``_actions``
     and whichever argument group it belongs to, returning what
     :func:`_restore_subparsers` needs to put it back in the exact same place.
@@ -244,7 +246,7 @@ def _restore_subparsers(parser: _argparse.ArgumentParser, saved) -> None:
         group._group_actions.insert(group_index, action)
 
 
-def command_name(command) -> str:
+def command_name(command: object) -> str:
     """Re-export of ``duho.args._command_name``, the one canonical
     subcommand-naming rule (a class's OWN ``_parsername_`` if it declares one
     -- checked through the class's own ``__dict__``, never inherited -- else

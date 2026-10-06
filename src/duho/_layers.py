@@ -875,7 +875,7 @@ def _apply_default_layers_one(
     parser._duho_merged_defaults_ = merged  # type: ignore[attr-defined]
 
 
-def value_sources(parsed) -> dict[str, str]:
+def value_sources(parsed: object) -> dict[str, str]:
     """Report the origin layer ("cli", "env", "config", "instance", or
     "default") of each field on a parsed instance produced by
     `duho.parse`/`duho.main`.

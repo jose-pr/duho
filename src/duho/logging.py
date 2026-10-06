@@ -209,10 +209,10 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
 
     def __init__(
         self,
-        fmt="%(asctime)s | %(levelname)8s | %(name)s: %(message)s",
-        datefmt=None,
-        style: _logging._FormatStyle = "%",
-        validate=True,
+        fmt: _ty.Optional[str] = "%(asctime)s | %(levelname)8s | %(name)s: %(message)s",
+        datefmt: _ty.Optional[str] = None,
+        style: _ty.Literal["%", "{", "$"] = "%",
+        validate: bool = True,
         *,
         color: bool = True,
     ) -> None:
@@ -224,7 +224,7 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
         self._duho_color_enabled = color
         super().__init__(fmt, datefmt, style, validate)
 
-    def format(self, record):
+    def format(self, record: _logging.LogRecord) -> str:
         record = _copy.copy(record)
         record.levelname = record.levelname.center(_LEVELSIZE)
         if self._duho_color_enabled:

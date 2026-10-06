@@ -44,6 +44,15 @@ _type = type
 
 _T = _ty.TypeVar("_T")
 
+if not _ty.TYPE_CHECKING:
+    # Stand-ins so `typing.get_type_hints` resolves `_Parser[_Self]` at run
+    # time; a type checker reads the declarations above instead.
+    _Self = _ty.TypeVar("_Self")
+
+    class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
+        """Never instantiated: every real parser is a plain ``ArgumentParser``."""
+
+
 #: Bound to :class:`Args`: lets ``duho.parse``/``duho.parse_globals`` return the
 #: caller's own subclass instead of erasing it to ``Args``/``Any``.
 _A = _ty.TypeVar("_A", bound="Args")

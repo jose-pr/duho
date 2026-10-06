@@ -52,7 +52,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         name: str,
         decl: _introspect.ClsArgDeclaration,
         factory: _ty.Optional[Factory] = None,
-    ):
+    ) -> ArgumentBuilder:
         """Build this field's :class:`ArgumentBuilder` from its declaration.
 
         ``name`` is the field name; ``decl`` is its
@@ -157,7 +157,9 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         )
 
     @classmethod
-    def from_type(cls, factory: _ty.Callable[[str], _T], **kwargs):
+    def from_type(
+        cls, factory: _ty.Callable[[str], _T], **kwargs: object
+    ) -> type[Argument]:
         """Wrap a plain type/text-factory as an :class:`Argument`.
 
         Returns an ``Argument`` subclass whose ``_argbuilder_`` builds via
@@ -572,7 +574,7 @@ class ArgumentBuilder(_argparse.Namespace):
             if v not in self.choices:
                 raise _LayeredChoiceError(self.choices)
 
-    def convert_layered(self, raw, *, source: str):
+    def convert_layered(self, raw: object, *, source: str) -> object:
         """Convert a raw env/config *layer* value to this field's Python value.
 
         The env/config layers feed ``parser.set_defaults`` directly, bypassing
@@ -895,7 +897,9 @@ class ArgumentBuilder(_argparse.Namespace):
 
         return kwargs
 
-    def add_to_parser(self, parser: _argparse.ArgumentParser, *, layered: bool = False):
+    def add_to_parser(
+        self, parser: _argparse.ArgumentParser, *, layered: bool = False
+    ) -> _argparse.Action:
         """Call ``parser.add_argument(*self.flags, ...)`` for this field.
 
         ``layered=True`` when an env/config layer can ALSO supply a value for
@@ -951,7 +955,7 @@ class ArgumentBuilder(_argparse.Namespace):
             action.help = help
         return action
 
-    def _effective_default_(self):
+    def _effective_default_(self) -> object:
         """The value argparse would leave this field at when not supplied.
 
         Reuses ``_kwargs()`` so it agrees exactly with what ``add_to_parser``

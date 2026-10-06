@@ -205,7 +205,11 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
 
 
 def print_completion(
-    cls, shell: str, file=None, *, prog: _ty.Optional[str] = None
+    cls,
+    shell: str,
+    file: _ty.Optional[_ty.TextIO] = None,
+    *,
+    prog: _ty.Optional[str] = None,
 ) -> None:
     """Print a shell completion script for `cls` to `file` (default sys.stdout).
 
@@ -235,7 +239,7 @@ def print_completion(
     _write_machine_text(emitter(parser, prog=prog), file)
 
 
-def print_agent_help(cls, file=None) -> None:
+def print_agent_help(cls, file: _ty.Optional[_ty.TextIO] = None) -> None:
     """Print a detailed, machine-readable (JSON) agent-help document for `cls`.
 
     Standalone counterpart to the ``--help-agents`` flag / the ``AGENT_HELP``

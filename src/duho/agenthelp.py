@@ -49,11 +49,7 @@ from . import _compat as _compat
 from . import _introspect as _introspect
 from . import parsers as _parsers
 
-if _ty.TYPE_CHECKING:
-    # Function-local (not module-top) in the runtime code below, to avoid a
-    # circular import (`args.py` imports THIS module lazily); safe here since
-    # `TYPE_CHECKING` is always False at runtime.
-    from .args import Args as _Args
+from .args import Args as _Args
 
 __all__ = [
     "SCHEMA",

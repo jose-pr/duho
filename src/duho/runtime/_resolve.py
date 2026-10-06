@@ -12,9 +12,7 @@ from ..discovery import (
 from ..args._naming import _command_name as _command_name
 from ..logging import log_exception as _log_exception
 
-if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
-    from ..env import Env as _Env
-
+from ..env import Env as _Env
 
 _LOGGER = _logging.getLogger(__package__)
 

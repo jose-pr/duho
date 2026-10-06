@@ -56,7 +56,9 @@ class Cmd(Args):
     #: ``None`` (default) keeps the subcommand required. Read at parse time.
     _default_subcommand_: _ty.Optional[str] = None
 
-    def __call__(self):  # noqa: D401 - contract stub, overridden by subclasses
+    def __call__(
+        self,
+    ) -> _ty.Any:  # noqa: D401 - contract stub, overridden by subclasses
         """Run the command. Override ``__call__`` in a ``Cmd`` subclass.
 
         The base raises ``NotImplementedError`` naming the concrete class,

@@ -367,7 +367,7 @@ def _order_steps(
             remaining = pending.get(node) or set()
             if not remaining:
                 break
-            node = next(iter(remaining))
+            node = min(remaining, key=rank.__getitem__)
         cycle_names = path[seen_at[node] :] if node in seen_at else [start]
         # Force through the smallest-ranked step that is actually IN the
         # cycle, not `stuck[0]` (the smallest-ranked stuck step overall) --

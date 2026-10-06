@@ -17,7 +17,7 @@ from ._actions import (
     _install_agent_help,
 )
 from ._argument import Argument, ArgumentBuilder, _apply_argument_options
-from ._guards import _warn_misspelled_attrs
+from ._guards import _warn_misspelled_attrs, _warn_unknown_ns_keys
 from ._helptext import _escape_description, _escape_help
 from ._meta import Meta, NOT_DEFINED, NS
 from ._naming import _app_name, _command_name, _resolve_version
@@ -385,6 +385,7 @@ class Args(_argparse.Namespace):
                 if _argparse.SUPPRESS in decl.annotations:
                     continue
                 options: dict = {}
+                ns_keys: "list[str]" = []
                 for opts in decl.annotations:
                     # Only configuration-shaped metadata is consumed: a Mapping
                     # or a namespace-like object (has __dict__, e.g. NS(...)). A
@@ -403,6 +404,8 @@ class Args(_argparse.Namespace):
                         options.setdefault("help", opts.documentation)
                     elif hasattr(opts, "__dict__"):
                         options.update(vars(opts))
+                        if isinstance(opts, _argparse.Namespace):
+                            ns_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
                     # A CUSTOM Argument type wrapped in Arg[...]/NS(...)
                     # (e.g. `Arg[Port, NS(env="PORT")]`) previously routed
@@ -420,6 +423,8 @@ class Args(_argparse.Namespace):
                     built = Argument.from_type(decl.type, **options)._argbuilder_(
                         name, decl
                     )
+                if ns_keys:
+                    _warn_unknown_ns_keys(cls, name, ns_keys, built)
             elif isinstance(decl.type, Argument):
                 built = decl.type._argbuilder_(name, decl)
             else:

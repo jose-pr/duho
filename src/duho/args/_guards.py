@@ -73,3 +73,37 @@ def _warn_misspelled_attrs(cls: type) -> None:
                 attr,
                 close[0],
             )
+
+
+def _claimed_keys(built: object) -> "_ty.Set[str]":
+    """Metadata keys a built argument accepts: every attribute its class declares."""
+    keys: "_ty.Set[str]" = set()
+    for klass in type(built).__mro__:
+        try:
+            keys.update(getattr(klass, "__annotations__", None) or ())
+        except Exception:  # an annotation that cannot be evaluated declares nothing
+            continue
+    return keys
+
+
+def _warn_unknown_ns_keys(
+    cls: type, field: str, keys: "_ty.Iterable[str]", built: object
+) -> None:
+    """Log each ``NS(...)`` key that is neither a ``Meta`` field nor claimed by ``built``."""
+    from ._meta import Meta
+
+    known = set(Meta.__dataclass_fields__)
+    known.add("split")
+    known |= _claimed_keys(built)
+    for key in dict.fromkeys(keys):
+        if key in known:
+            continue
+        close = _difflib.get_close_matches(key, sorted(Meta.__dataclass_fields__), n=1)
+        hint = f"; closest Meta field: {close[0]!r}" if close else ""
+        _LOGGER.warning(
+            "%s.%s: NS(%s=...) is not a Meta field and is ignored%s",
+            cls.__name__,
+            field,
+            key,
+            hint,
+        )

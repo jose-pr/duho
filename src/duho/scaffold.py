@@ -335,6 +335,9 @@ class ScaffoldCmd(_Cli):
                 python=self.python,
                 overwrite=self.force,
             )
+        except ValueError as exc:
+            # An invalid app, libdir or python value is a usage error (exit 2).
+            type(self)._parser_().error(str(exc))
         except FileExistsError as exc:
             # generate_launchers documents this as the refusal-to-overwrite
             # signal; the CLI reports it as a one-line error, not a traceback

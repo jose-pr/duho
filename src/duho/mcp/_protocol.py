@@ -18,19 +18,8 @@ _LOGGER = _logging.getLogger(__package__)
 #: otherwise it answers with the first (newest) entry.
 _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-#: Fallback ``serverInfo.name`` for the ``initialize`` result
-#: (:func:`_server_info`), used only when the served app's own resolution
-#: somehow comes up empty. The NORMAL case reports the app's own identity
-#: instead: ``name`` is the same root tool-name segment
-#: ``describe_tools``/``call_tool`` use, and ``version`` is the app's own
-#: ``_version_`` when it resolves to a string -- so a host can tell one
-#: served APP apart from another, not just one duho release from another.
-#: There is deliberately NO duho-version fallback for ``version``:
-#: reporting duho's own release as the served app's version is actively
-#: misleading (a served app with no ``_version_`` of its own would appear
-#: to carry duho's version), so an app with no
-#: resolvable version reports the empty string instead -- see
-#: :func:`_server_info`.
+#: Fallback ``serverInfo.name`` (:func:`_server_info`) when the served app's own
+#: name comes up empty.
 _SERVER_NAME = "duho.mcp"
 
 
@@ -38,29 +27,17 @@ def _error_response(req_id: object, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
-#: Cap on JSON bracket nesting a single request LINE may contain, checked by
-#: :func:`_line_nesting_exceeds` before the line is ever handed to
-#: `json.loads`. `json`'s C decoder (and `json.dumps` re-encoding a value
-#: parsed that deep) recurses once per nesting level, so an attacker-supplied
-#: line of ``"[" * N + "]" * N`` raises an uncaught `RecursionError` well
-#: below any depth a legitimate MCP request needs -- N in the low thousands
-#: on CPython's default recursion limit, fewer on a build with a smaller
-#: C stack. 64 is far beyond any real tool-call payload's own nesting while
-#: leaving a wide margin under that limit.
+#: Cap on JSON bracket nesting in one request line (:func:`_line_nesting_exceeds`).
+#: `json.loads` recurses per level, so a line of thousands of `[` raises an
+#: uncaught `RecursionError`; 64 is far above any real tool call.
 _MAX_JSON_NESTING = 64
 
 
 def _line_nesting_exceeds(line: str, limit: int) -> bool:
-    """Return whether `line`'s ``{``/``[`` nesting depth, OUTSIDE any JSON
-    string literal, exceeds `limit` -- a cheap, non-recursive scan run
-    BEFORE `json.loads` ever sees the line, so a pathologically deep
-    array/object is rejected before any recursive parsing of it begins
-    (rather than caught only after `json.loads` itself has already
-    recursed to the point of raising `RecursionError`, see `serve`).
+    """Whether `line`'s ``{``/``[`` nesting outside JSON strings exceeds `limit`.
 
-    A close bracket for an opening this scan never saw (an otherwise
-    malformed line) is ignored here -- `json.loads` still rejects the line
-    on its own merits; this scan's only job is bounding nesting DEPTH.
+    A cheap non-recursive scan that runs before `json.loads`. An unmatched
+    close bracket is ignored: `json.loads` rejects that line itself.
     """
     depth = 0
     in_string = False
@@ -89,27 +66,16 @@ def _line_nesting_exceeds(line: str, limit: int) -> bool:
 def _server_info(root_cls: _ty.Union[type, _ServerCore]) -> dict:
     """``serverInfo`` for the ``initialize`` response.
 
-    ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
-    the root tool-name segment (``core.root_parser.prog``, the application's
-    name -- see :func:`duho.args._app_name`). ``version`` is the app's own
-    ``_version_``
-    (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
-    sentinel resolved via ``importlib.metadata``, or a class-level
-    ``__version__`` fallback) when it resolves to a string, else the empty
-    string -- duho's own version is NEVER reported as the served
-    app's version. The MCP ``Implementation`` type requires ``version`` to be
-    a string, so the field is still always present; a served app with no
-    resolvable version of its own simply reports it empty rather than
-    fabricating one (and rather than reporting duho's, which would read as
-    the app's own version).
+    ``name`` is the root tool-name segment (``core.root_parser.prog``).
+    ``version`` is the app's own ``_version_`` when it resolves to a string,
+    else ``""``: the MCP ``Implementation`` type requires a string, and duho's
+    own version must never stand in for the served app's.
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     name = core.root_parser.prog
     version = _resolve_version(core.root_cls)
     return {
-        # `prog` is always a real, non-empty string in every reachable
-        # path here; the `_SERVER_NAME` fallback exists only so this stays
-        # defensively correct rather than reporting an empty name.
+        # `prog` is non-empty in every reachable path; the fallback is defensive.
         "name": name if name else _SERVER_NAME,
         "version": version if isinstance(version, str) else "",
     }
@@ -118,28 +84,14 @@ def _server_info(root_cls: _ty.Union[type, _ServerCore]) -> dict:
 def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
-    ``None`` means "no response" -- either the request was a **notification**
-    (no ``id`` key at all; JSON-RPC forbids replying to one), the
-    ``notifications/initialized`` notification specifically, or a malformed
-    envelope that also happened to carry no ``id``.
+    ``None`` means no response: a notification (no ``id``), a client's reply,
+    or a malformed envelope that carries no ``id``. A batch is fanned out by
+    :func:`serve`, so this sees one request object.
 
-    Handles exactly ONE request object -- a batch (a JSON array of request
-    objects) is recognized and fanned out by :func:`serve` itself, one call
-    to this function per element, before this function ever sees it.
-
-    Every value pulled out of ``request`` is type-checked before use, so a
-    well-formed JSON document that is not a well-formed JSON-RPC REQUEST
-    (a bare scalar, a non-object ``params``, a non-string ``name``, a
-    non-object ``arguments``) gets a proper JSON-RPC error response instead
-    of an uncaught ``AttributeError``/``TypeError`` that would otherwise
-    propagate out of :func:`serve` and end the process
-    : ``-32600`` for a malformed request/params shape, ``-32601`` for
-    an unrecognised method, ``-32602`` for a call naming an unknown tool or
-    supplying invalid arguments (:class:`UnknownToolError`/
-    :class:`InvalidArgumentsError`), ``-32603`` as a last resort for any
-    other exception raised while actually serving ``tools/list``/
-    ``tools/call`` (which must never happen, but must never take the whole
-    server down either if it somehow does).
+    Every value taken from ``request`` is type-checked, so a malformed request
+    gets an error response instead of ending :func:`serve`: ``-32600`` for a
+    bad request shape, ``-32601`` for an unknown method, ``-32602`` for an
+    unknown tool or invalid arguments, ``-32603`` for any other exception.
     """
     if not isinstance(request, dict):
         return _error_response(None, -32600, "invalid request: expected a JSON object")

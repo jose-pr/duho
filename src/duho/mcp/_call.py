@@ -44,39 +44,15 @@ def _matches_schema_type(value: object, expected: object) -> bool:
 
 
 def _validate_arguments(schema: dict, arguments: dict) -> None:
-    """Reject ``arguments`` against ``schema`` before any argv is
-    synthesized or anything is dispatched. Checked, each against every
-    supplied argument (not stopping at the first problem found):
+    """Reject ``arguments`` that violate ``schema``, before any argv is built.
 
-    * an unknown property (the schema always declares
-      ``additionalProperties: false``);
-    * a value whose JSON type does not match its property's declared
-      ``type`` -- e.g. the string ``"false"`` for a boolean field, which
-      is truthy and would silently turn the flag ON;
-    * a MISSING property named in ``schema["required"]`` (JSON ``null`` for
-      a required property counts as missing -- see the module docstring's
-      "null means not supplied" convention);
-    * a value outside its property's ``enum`` (``Literal``/``Enum`` fields);
-    * a numeric value over its property's ``maximum``, or under its
-      ``minimum`` (currently only a counting flag publishes either; see
-      ``_MAX_COUNT_VALUE``, and ``json_schema_for_field``'s ``minimum: 0``);
-    * an array over its property's ``maxItems``, or an object over its
-      ``maxProperties`` (``_MAX_ARRAY_ITEMS``/``_MAX_OBJECT_PROPERTIES`` --
-      published for every ``list``/``set``/``tuple``/``dict`` field and the
-      synthetic ``"--"`` passthrough array, so an oversized LLM-supplied
-      collection is refused here rather than synthesized into argv and
-      dispatched);
-    * a non-string item in an array property whose own ``items`` schema
-      declares ``"type": "string"`` (currently only ``"--"``, since its
-      items are fed straight into argv).
-
-    A value that IS schema-valid but still cannot be safely turned into argv
-    (an unsafe positional, an unsafe option value, a negative count) is a
-    DIFFERENT, later check -- raised directly by :func:`_synthesize_argv`/
-    :func:`_reject_unsafe_positional`/:func:`_emit_option` as this
-    same :class:`InvalidArgumentsError`, since it depends on the built
-    parser tree (subcommand names, aliases), not just the JSON schema this
-    function checks against.
+    Collects every problem: unknown properties, missing required ones (a JSON
+    ``null`` counts as missing), a wrong JSON type (the string ``"false"``
+    for a bool would be truthy and turn the flag ON), values outside ``enum``,
+    ``maximum``/``minimum``, ``maxItems``/``maxProperties`` (so an oversized
+    LLM-supplied collection is refused rather than dispatched) and non-string
+    items in a string-array property. Values that are schema-valid but unsafe
+    as argv are refused later, since that depends on the parser tree.
     """
     properties = schema.get("properties", {})
     required = schema.get("required", ())
@@ -196,12 +172,8 @@ def _systemexit_result(exc: SystemExit, stdout_text: str, stderr_text: str) -> d
 
 @_contextlib.contextmanager
 def _muted_color(parsers: _ty.Iterable[_argparse.ArgumentParser]):
-    """Temporarily force ``parser.color = False`` on every parser in
-    ``parsers`` that has the attribute (argparse's native color, Python
-    3.14+): a usage/error string captured as MCP tool output must be plain
-    text regardless of the server process's own TTY/``FORCE_COLOR`` state
-    , since it is machine-read by the client, not displayed in a
-    terminal. Restored afterwards, on any exit."""
+    """Force ``parser.color = False`` (argparse color, Python 3.14+) while
+    captured output is machine-read, whatever the TTY or ``FORCE_COLOR``."""
     saved = [(p, p.color) for p in parsers if hasattr(p, "color")]
     for p, _old in saved:
         p.color = False
@@ -214,27 +186,13 @@ def _muted_color(parsers: _ty.Iterable[_argparse.ArgumentParser]):
 
 @_contextlib.contextmanager
 def _rebound_stderr_logging(active_stream: object, idle_stream: object):
-    """Temporarily repoint duho's own stderr log handler (see
-    ``duho.logging.init_stderr_logging``) at ``active_stream`` for the
-    duration of one ``call_tool`` dispatch, restoring it to ``idle_stream``
-    on exit.
+    """Point duho's stderr log handler at ``active_stream`` for one dispatch.
 
-    ``init_stderr_logging`` is deliberately idempotent -- a repeat call never
-    adds a second handler -- which means it also never RE-POINTS the one it
-    already installed. The first ever MCP call creates it bound to that
-    call's own captured stderr (correct, since it's built while THAT
-    capture is active); every call after that finds the handler already
-    there and leaves it bound to the FIRST call's now-dead capture object,
-    so a command's own logging output silently vanishes, and so does any
-    server-side error logged BETWEEN calls (nothing ever reads that stream
-    again). Rebinding here -- to this call's capture while it runs, and back
-    to the server's real idle stream (``idle_stream``, the process's actual
-    stderr as it stood before any call ever ran) once it returns -- fixes
-    both. The handler list is read fresh both before AND after ``yield`` so
-    a handler created DURING this very call (the first-ever-call case) is
-    also reset to ``idle_stream`` on exit, not left on ``active_stream``.
-    Only ever touches a handler carrying duho's own tag, never one a host
-    application added itself.
+    ``init_stderr_logging`` never re-points a handler it already installed, so
+    without this a later call would log to the first call's dead capture.
+    Restores ``idle_stream`` on exit. Handlers are listed again after
+    ``yield`` to catch one created during the call; only duho-tagged handlers
+    are touched.
     """
     root_logger = _logging.getLogger()
 
@@ -367,12 +325,9 @@ def call_tool(
 
     chain = node.ancestors + (node,)
     expected_path = tuple(step.own_name for step in chain)
-    # A field name declared at several levels of the chain binds ONLY at the
-    # deepest one (matches the merged schema, `_input_schema_for_node`) -- an
-    # ancestor's own same-named field must never ALSO pick up the value
-    # (security-relevant: a shared JSON `arguments` dict is otherwise a way
-    # for a leaf's own field to flip an unrelated ancestor flag it never
-    # named, e.g. a hidden `--force`).
+    # A field name declared at several levels binds only at the deepest one
+    # (as in `_input_schema_for_node`), so a leaf's value cannot flip an
+    # ancestor's same-named flag such as a hidden `--force`.
     field_owner: dict[str, int] = {}
     for i, step in enumerate(chain):
         for fname in _step_field_names(step):
@@ -441,10 +396,8 @@ def call_tool(
                             err.getvalue().strip(), hidden
                         ) or ("argument error (exit code %r)" % (exc.code,))
                         return _text_result(message, is_error=True)
-                    # Both markers are popped (not merely peeked), mirroring
-                    # `runtime._run_app`'s own contract: framework bookkeeping
-                    # never lingers in `vars(instance)` where a command or a
-                    # module command's own `main` would otherwise see it.
+                    # Popped, as `runtime._run_app` does, so the markers never
+                    # reach a command's `vars(instance)`.
                     actual_path = vars(instance).pop("_duho_mcp_path_", None)
                     dispatched_module_command = vars(instance).pop(
                         "_duho_module_command_", None

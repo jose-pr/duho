@@ -27,37 +27,24 @@ _ISO_FORMAT_NAMES = {
     _datetime.time: "time",
 }
 
-#: The actual lookup used below, built from ``args._ISOFORMAT_FACTORIES``'s
-#: own KEYS rather than a second, independently hand-kept type list --
-#: adding/removing an ISO type there now surfaces here as a loud ``KeyError``
-#: (a missing format name) instead of the MCP schema silently disagreeing
-#: with what the CLI itself accepts.
+#: Lookup built from ``_ISOFORMAT_FACTORIES``'s keys, so a type added or removed
+#: there raises ``KeyError`` here instead of the schema silently disagreeing
+#: with the CLI.
 _ISO_FORMATS = {tp: _ISO_FORMAT_NAMES[tp] for tp in _ISOFORMAT_FACTORIES}
 
 #: Scalar Python type -> JSON Schema ``"type"`` name, shared by the Literal
 #: branch and the final scalar fallback of :func:`_schema_for_type`.
 _JSON_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"}
 
-#: Upper bound published (as JSON Schema ``maximum``) and enforced (see
-#: :func:`_validate_arguments`) for a counting flag (``-v``/``-q`` style,
-#: ``action="count"``) over MCP. An LLM-controlled value has no reason to
-#: exceed this -- the CLI itself only ever accumulates one per typed flag --
-#: and an unbounded one would synthesize (and argparse-parse) millions of
-#: repeated tokens, stalling the single-threaded stdio server for the
-#: duration of one call (a denial of service against every OTHER pending
-#: request).
+#: Upper bound published (JSON Schema ``maximum``) and enforced by
+#: :func:`_validate_arguments` for a counting flag: an unbounded value would
+#: synthesize millions of repeated tokens and stall the single-threaded server.
 _MAX_COUNT_VALUE = 10
 
-#: Upper bound published (as JSON Schema ``maxItems``/``maxProperties``) and
-#: enforced (see :func:`_validate_arguments`) for a ``list``/``set``/``tuple``
-#: field's array schema, a ``dict`` field's object schema, and the synthetic
-#: ``"--"`` passthrough array (see :func:`_input_schema_for_node`). An
-#: LLM-controlled collection has no reason to exceed this -- a bound the
-#: server enforces BEFORE synthesizing argv or dispatching keeps a huge
-#: client-supplied collection from stalling the single-threaded stdio server
-#: (measured: tens of seconds for a six-figure ``dict``/``list`` argument,
-#: whatever the underlying cost -- capping the input size makes the cost
-#: moot regardless of where it lives).
+#: Upper bound published (JSON Schema ``maxItems``/``maxProperties``) and
+#: enforced by :func:`_validate_arguments` for collection fields and the ``"--"``
+#: passthrough array. A huge client-supplied collection would otherwise stall
+#: the single-threaded stdio server.
 _MAX_ARRAY_ITEMS = 1000
 
 _MAX_OBJECT_PROPERTIES = 1000
@@ -69,52 +56,16 @@ _MAX_OBJECT_PROPERTIES = 1000
 
 
 def _schema_for_type(tp: object, enum_by: str = "name") -> dict:
-    """Map one declared annotation to a JSON Schema type fragment (no title/description).
+    """Map one declared annotation to a JSON Schema type fragment.
 
-    Standalone recursive dispatch, mirroring ``duho.args._factory_for``'s own
-    branch order but targeting JSON Schema instead of argparse kwargs:
-
-    * ``Literal[...]`` -> ``enum`` (+ ``type`` when every literal shares one
-      JSON-representable type; a mixed-type literal is ``enum`` alone). Each
-      value is passed through ``duho.agenthelp._jsonable`` first, so a
-      ``Literal`` of ``Enum`` members renders by member NAME (matching every
-      other Enum-shaped schema here) instead of the raw member object
-      (which is not JSON-serialisable at all).
-    * an ``Enum`` subclass -> ``{"type": "string", "enum": [member names]}``
-      (member NAME, not value -- reuses :func:`duho.agenthelp._enum_members`,
-      duho's standing convention; ``enum_by="value"`` lists ``str(member.value)``
-      instead).
-    * ``list[T]`` -> ``array`` with ``items`` = ``T``'s own schema, capped at
-      ``maxItems`` (:data:`_MAX_ARRAY_ITEMS`) -- enforced by
-      :func:`_validate_arguments` before dispatch, so an oversized
-      LLM-supplied collection is refused as a malformed request rather than
-      synthesized into argv.
-    * ``set[T]`` -> ``array`` + ``uniqueItems: true`` + the same ``maxItems``.
-    * ``tuple[T, ...]`` / bare ``tuple`` -> ``array`` (only the variadic
-      homogeneous shape reaches here -- a fixed-length ``tuple[A, B]``
-      annotation already raised at ``cls._getargs_()``-build time, before any
-      of this module's functions run, so it never needs defensive handling
-      here) + the same ``maxItems``.
-    * ``dict[str, V]`` / bare ``dict`` -> ``object`` with
-      ``additionalProperties`` = ``V``'s own schema, capped at
-      ``maxProperties`` (:data:`_MAX_OBJECT_PROPERTIES`), enforced the same way.
-    * ``Optional[T]`` / a ``Union`` -> ``None`` is stripped; a single
-      remaining member recurses into that member's own schema (no ``anyOf``
-      wrapping for the common ``Optional[T]`` case); more than one remaining
-      member -> ``{"anyOf": [...]}``. (Required-ness for ``Optional[T]`` is
-      handled separately, from the *builder*, in
-      :func:`json_schema_for_field` -- this function only ever describes a
-      TYPE shape.)
-    * ``pathlib.Path`` (or any ``PurePath`` subclass) -> ``"string"`` (as it
-      already collapses for argparse).
-    * ``datetime.date``/``datetime``/``time`` -> ``"string"`` + a ``format``
-      hint (not required by the base type table; a low-risk, easy addition
-      since duho already special-cases these three for argparse).
-    * ``str``/``int``/``float``/``bool`` -> ``string``/``integer``/``number``/
-      ``boolean``.
-    * anything else (a custom ``Argument`` type, a plain class with no
-      special handling, ...) -> ``"string"`` -- the documented v1 escape
-      hatch: passed through as text rather than a silently wrong schema.
+    Mirrors ``duho.args._factory_for``'s branch order. ``Literal`` becomes
+    ``enum``, with ``type`` when its values share one JSON type; an ``Enum``
+    lists member names (values with ``enum_by="value"``). ``list``/``set``/
+    ``tuple`` become capped arrays (``set`` adds ``uniqueItems``) and ``dict``
+    a capped object, so an oversized LLM-supplied collection is refused before
+    dispatch. A ``Union`` drops ``None`` and is ``anyOf`` when more than one
+    member remains; paths and anything unrecognised are ``"string"``, dates
+    add a ``format``. Required-ness is decided elsewhere, from the builder.
     """
     origin = _ty.get_origin(tp)
     args = _ty.get_args(tp)
@@ -189,32 +140,12 @@ def _schema_for_type(tp: object, enum_by: str = "name") -> dict:
 def _is_required(builder: _ArgumentBuilder) -> bool:
     """Whether a field must be supplied (no usable default at all).
 
-    Derived from ``builder._kwargs()`` -- the SAME kwargs
-    ``add_to_parser``/``_effective_default_`` use -- rather than
-    ``builder.default``/``builder.required`` alone, so the schema's
-    required-ness never diverges from what argparse actually enforces:
-
-    * an explicit ``NS(required=True)`` always wins, even when the field also
-      carries a default (an unusual but legal combination -- the CLI still
-      demands the flag).
-    * otherwise a field whose ``_kwargs()`` carries a ``"default"`` (e.g. a
-      bare ``flag: bool`` field's implicit ``store_true`` default of
-      ``False``) is not required.
-    * ``nargs`` of ``"?"``/``"*"`` (an optional positional, or a repeatable
-      one) is never required, regardless of how that ``nargs`` was set
-      (derived, or an explicit ``NS(nargs=...)`` override).
-    * ``nargs="+"`` on a POSITIONAL is always required, even when the field
-      also carries a python-level default (e.g. ``NS(nargs="+")`` with
-      ``= []``) -- argparse itself demands at least one token for a ``"+"``
-      positional regardless of any default, so a schema reporting this as
-      optional would let a client omit it and then hit a plain argparse
-      usage error on dispatch.
-    * a positional with none of the above is a mandatory positional.
-    * otherwise, an OPTION's own resolved ``required`` kwarg (argparse's own
-      "no default -> required" rule, already computed by ``_kwargs()``,
-      including the "member of a conflicts= group is never required" and
-      "count/store_const/append_const/store_false get their own resting
-      default" cases).
+    Derived from ``builder._kwargs()``, the kwargs argparse itself is given, so
+    the schema never diverges from what argparse enforces. Order: explicit
+    ``required=True`` wins; a positional ``nargs="+"`` is required even with a
+    default; a ``"default"`` kwarg or ``nargs`` of ``"?"``/``"*"`` is not
+    required; otherwise a positional is required and an option follows its
+    resolved ``required`` kwarg.
     """
     kwargs = builder._kwargs()
     if kwargs.get("required") is True:
@@ -235,14 +166,9 @@ def _description_for(
 ) -> str:
     """The MCP description text for one field.
 
-    An explicit ``NS(help=...)``/``Meta(help=...)`` override wins verbatim
-    (MCP text is never argparse-``%``-expanded, so it needs no escaping), over the
-    field's docstring. Falls back to the field's own raw (UNescaped)
-    docstring -- ``builder.help`` holds the ``%``-escaped copy of the same
-    text when no override was given (escaped for argparse's own
-    ``%``-expansion, irrelevant here). ``help=argparse.SUPPRESS`` hides the
-    field's description entirely, rather than leaking the literal
-    ``"==SUPPRESS=="`` sentinel string.
+    An explicit ``help=`` override wins verbatim (MCP text is not
+    ``%``-expanded, so it is not escaped); otherwise the raw field docstring.
+    ``help=argparse.SUPPRESS`` yields ``""``, never the sentinel string.
     """
     raw_help = builder.help
     if callable(raw_help):
@@ -279,9 +205,7 @@ def json_schema_for_field(
     schema = _schema_for_type(tp, enum_by) if tp is not None else {"type": "string"}
 
     if builder._kwargs().get("action") == "count":
-        # An LLM-controlled count has no reason to exceed this, or to be
-        # negative (the CLI itself only ever accumulates upward); see
-        # `_MAX_COUNT_VALUE` and `_validate_arguments`'s matching enforcement.
+        # Non-negative and capped: see `_MAX_COUNT_VALUE`.
         schema["maximum"] = _MAX_COUNT_VALUE
         schema["minimum"] = 0
 

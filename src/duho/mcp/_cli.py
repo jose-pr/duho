@@ -18,20 +18,11 @@ from ._stdio import _real_stdio_streams, serve
 
 
 def _resolve_app(spec: str) -> type[_Cmd]:
-    """Resolve the ``<app>`` CLI argument (a dotted qualname) to a root ``Cmd``/``Cli`` class.
+    """Resolve ``<app>`` (``module:Class`` or ``module.Class``) to a ``Cmd`` class.
 
-    Uses the stdlib ``pkgutil.resolve_name`` (3.9+): it accepts BOTH the
-    ``module.sub:ClassName`` colon syntax (the same convention this project's
-    own entry-point tests/``discover_entry_points`` use) and the legacy
-    dotted ``module.sub.ClassName`` form (progressively importing shorter
-    prefixes as a module, the remainder as attribute access). This -- not
-    ``discovery.CmdBuilder`` -- resolves the app, because ``CmdBuilder``
-    always yields a ``Command`` (wrapping any module source in a
-    ``ModuleCommand``), never the raw class :func:`describe_tools`/
-    :func:`call_tool` need. Only a class's own STATIC ``_subcommands_`` tree
-    is exposed over MCP in v1 -- ``<app>`` must be a ``Cmd``/``Cli`` subclass;
-    a module command, or a command only reachable via ``duho.app``'s dynamic
-    resolution, is out of scope.
+    ``CmdBuilder`` is not used: it wraps a module source in a ``ModuleCommand``,
+    never the raw class ``describe_tools``/``call_tool`` need. A module command
+    is out of scope; ``TypeError`` unless the result is a ``Cmd`` subclass.
     """
     obj = _pkgutil.resolve_name(spec)
     if not (isinstance(obj, type) and issubclass(obj, _Cmd)):
@@ -58,11 +49,8 @@ class _McpMain(_Cli):
     ("app",)  # type: ignore
 
     def __call__(self) -> int:
-        # Stdio is taken over BEFORE the app is imported: resolution can
-        # write to the original fd 1 directly (a module-level print, a C
-        # extension, a thread started at import), and every such write then
-        # lands on stderr for the rest of the process, never on the protocol
-        # stream.
+        # Taken over before the import: a module-level print or C extension
+        # writes to fd 1, which must land on stderr, never the protocol stream.
         stream_in, stream_out = _real_stdio_streams()
         try:
             root_cls = _resolve_app(self.app)

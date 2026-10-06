@@ -105,7 +105,6 @@ benchmark job (`3.9`/`3.13`/`3.14`):
 [37099521291](https://github.com/jose-pr/duho/actions/runs/37099521291), and
 [37099645764](https://github.com/jose-pr/duho/actions/runs/37099645764). All
 throwaway `ci-*` tags used along the way were deleted after confirming.
-unchanged baseline).
 
 ---
 

@@ -429,11 +429,13 @@ def test_explicit_missing_config_kwarg_still_raises(tmp_path):
         duho.parse(_ConfigFileMayBeMissing, [], config=missing)
 
 
-def test_non_mapping_config_top_level_raises_clear_error(tmp_path):
+def test_non_mapping_config_top_level_is_reported_with_a_clear_error(tmp_path, capsys):
     cfg = tmp_path / "c.json"
     cfg.write_text("[1, 2]")
-    with pytest.raises(ValueError, match="must contain a table/object"):
+    with pytest.raises(SystemExit) as excinfo:
         duho.parse(_ConfigFileMayBeMissing, [], config=cfg)
+    assert excinfo.value.code == 2
+    assert "must contain a table/object" in capsys.readouterr().err
 
 
 def test_config_loader_returning_none_is_treated_as_empty(tmp_path):

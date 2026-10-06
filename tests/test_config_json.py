@@ -46,12 +46,13 @@ def test_json_cli_still_overrides(tmp_path, monkeypatch):
     assert result.port == 1
 
 
-def test_bad_json_error_names_the_file(tmp_path):
+def test_bad_json_error_names_the_file(tmp_path, capsys):
     cfg = tmp_path / "broken.json"
     cfg.write_text("{ not valid json ]")
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         duho.parse(JsonArgs, [], config=cfg)
-    assert "broken.json" in str(excinfo.value)
+    assert excinfo.value.code == 2
+    assert "broken.json" in capsys.readouterr().err
 
 
 # -- subcommand nesting: JSON object under a subcommand name --------------------

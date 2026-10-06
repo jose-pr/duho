@@ -109,7 +109,7 @@ def _load_config(
             except ValueError as exc:  # JSONDecodeError is a ValueError subclass
                 raise ValueError(
                     f"duho: invalid JSON in config file {_os.fspath(p)}: {exc}"
-                ) from exc
+                ) from None
 
     try:
         import tomllib as _toml  # type: ignore[import-not-found]
@@ -125,7 +125,12 @@ def _load_config(
             ) from None
 
     with p.open("rb") as f:
-        return _toml.load(f)
+        try:
+            return _toml.load(f)
+        except _toml.TOMLDecodeError as exc:
+            raise ValueError(
+                f"duho: invalid TOML in config file {_os.fspath(p)}: {exc}"
+            ) from None
 
 
 def _raw_config_values(cls, config_table: dict) -> "dict[str, object]":
@@ -188,6 +193,18 @@ def _resolve_config_dict(
             f"at the top level, got {type(raw).__name__}"
         )
     return raw
+
+
+def _resolve_config_or_error(
+    parser: "_argparse.ArgumentParser", cls, config: "str | _pathlib.Path | None"
+) -> dict:
+    """:func:`_resolve_config_dict`, reporting an unreadable or malformed
+    config through ``parser.error`` like a bad value (usage line, exit 2)."""
+    try:
+        return _resolve_config_dict(cls, config)
+    except ValueError as exc:
+        parser.error(str(exc))
+        raise  # pragma: no cover - parser.error always raises SystemExit
 
 
 class _LayeredDefault:
@@ -403,7 +420,7 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     if config_table is None:
         # Not stashed: a parser built outside main/parse/parse_globals/app
         # resolves the class's own `_config_`, as every entry point does.
-        config_table = _resolve_config_dict(cls, None)
+        config_table = _resolve_config_or_error(parser, cls, None)
     instance_overrides = getattr(parser, "_duho_instance_overrides_", None)
     env = getattr(parser, "_duho_env_", None)
 
@@ -705,7 +722,9 @@ def _apply_layers(
     reachable via `cls._subcommands_` -- does not have to load it twice.
     """
     raw_config = (
-        config if isinstance(config, _ty.Mapping) else _resolve_config_dict(cls, config)
+        config
+        if isinstance(config, _ty.Mapping)
+        else _resolve_config_or_error(parser, cls, config)
     )
     overrides = None
     if instance is not None:

@@ -295,8 +295,9 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
     **Sibling imports.** While importing each file, ``directory`` is
-    temporarily prepended to ``sys.path`` so a bare ``from _helpers import x``
-    resolves -- the documented convention for factoring shared code into a
+    temporarily appended to ``sys.path`` (after the standard library and
+    installed packages, which a same-named command file must not shadow) so a
+    bare ``from _helpers import x`` resolves -- the documented convention for factoring shared code into a
     ``_``-prefixed helper file that command files in the same directory can
     import (the ``_`` prefix means "not a command", not "unimportable"). The
     directory is removed from ``sys.path`` again immediately after, and any
@@ -334,7 +335,7 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
             continue
         stem = path.stem
         before_modules = set(_sys.modules)
-        _sys.path.insert(0, dirstr)
+        _sys.path.append(dirstr)
         module = None
         try:
             module = import_from_path("duho._discovered." + stem, path)
@@ -348,10 +349,11 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
             )
             continue
         finally:
-            try:
-                _sys.path.remove(dirstr)
-            except ValueError:  # pragma: no cover - defensive
-                pass
+            # Drop the appended entry (the last one), not an earlier duplicate.
+            for index in range(len(_sys.path) - 1, -1, -1):
+                if _sys.path[index] == dirstr:
+                    del _sys.path[index]
+                    break
             own_key = module.__name__ if module is not None else None
             for extra in set(_sys.modules) - before_modules:
                 if extra == own_key:

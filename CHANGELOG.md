@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--flag=--` and `-f--` now give the field the value `--` on Python 3.9 to
+  3.12, where it was silently replaced by an empty list (by `const` for a
+  `nargs="?"` option, or dropped from a list field). Newer Pythons already
+  did this.
+- An MCP tool call may pass `"--"` as an option value; it was refused with an
+  invalid-arguments error. Still refused: `--` as a positional value, and for
+  a field that has only a short flag.
+
 ## [0.6.3] - 2026-10-03
 
 ### Fixed

@@ -51,7 +51,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         cls,
         name: str,
         decl: _introspect.ClsArgDeclaration,
-        factory: Factory | None = None,
+        factory: _ty.Optional[Factory] = None,
     ):
         """Build this field's :class:`ArgumentBuilder` from its declaration.
 
@@ -360,41 +360,41 @@ class ArgumentBuilder(_argparse.Namespace):
     name: str
     flags: list[str]
     type: Factory
-    default: None | object | _introspect.NotDefined
+    default: _ty.Optional[_ty.Union[object, _introspect.NotDefined]]
     help: str
-    required: bool | None = None
-    action: str | type[_argparse.Action] | None = None
-    nargs: str | int | None = None
-    choices: _ty.Sequence | None = None
-    metavar: str | None = None
-    const: object | _introspect.NotDefined = NOT_DEFINED
-    version: str | None = None
-    env: str | None = None
+    required: _ty.Optional[bool] = None
+    action: _ty.Optional[_ty.Union[str, type[_argparse.Action]]] = None
+    nargs: _ty.Optional[_ty.Union[str, int]] = None
+    choices: _ty.Optional[_ty.Sequence] = None
+    metavar: _ty.Optional[str] = None
+    const: _ty.Union[object, _introspect.NotDefined] = NOT_DEFINED
+    version: _ty.Optional[str] = None
+    env: _ty.Optional[str] = None
     #: ``NS(conflicts=...)``/``Meta(conflicts=...)``'s mutually-exclusive-group
     #: key; ``None`` for a field in no group. Declared here (rather than read
     #: via ``getattr(..., "conflicts", None)``) so every consumed metadata key
     #: has ONE declaration, matching ``Meta``'s own field list.
-    conflicts: str | None = None
+    conflicts: _ty.Optional[str] = None
     #: Whether THIS member's group must be satisfied (``NS(conflicts_required=True)``);
     #: a group is required if ANY of its members sets this.
     conflicts_required: bool = False
     #: ``NS(group=...)``/``Meta(group=...)``'s titled-argument-group heading;
     #: ``None`` puts the field directly on the parser/container instead.
-    group: str | None = None
+    group: _ty.Optional[str] = None
     #: The raw ``add_argument`` escape hatch (``NS(kwargs={...})``/
     #: ``Meta(kwargs={...})``), applied LAST in :meth:`_kwargs` so it wins over
     #: every field-derived kwarg, including duho's own ``dest``.
-    kwargs: _ty.Mapping[str, object] | None = None
+    kwargs: _ty.Optional[_ty.Mapping[str, object]] = None
     #: For a collection field (``list``/``set``/``tuple``) the target collection
     #: type; ``None`` for a scalar field. Recorded at build time so a layered
     #: (env/config) value converts to the SAME collection a CLI occurrence would
     #: produce (see :meth:`convert_layered`). ``self.type`` is then the *element*
     #: factory, not the collection factory.
-    collection: _type | None = None
+    collection: _ty.Optional[_type] = None
     #: ``duho.Extend()``'s split callable, or ``None``. Consumed by
     #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
     #: the field's own element type; never read afterwards.
-    split: _ty.Callable | None = None
+    split: _ty.Optional[_ty.Callable] = None
     #: True when `nargs` came from the type ladder (a `list`/`set`/`tuple`
     #: field) rather than an explicit `NS(nargs=...)` override. Lets
     #: `_kwargs` downgrade a repeatable OPTION to one value per occurrence

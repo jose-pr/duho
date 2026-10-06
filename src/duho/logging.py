@@ -24,7 +24,7 @@ if _ty.TYPE_CHECKING:
 #: ``_getcolor`` and memoized here. ``False`` means "not yet probed";
 #: once probed, this holds the real module, or ``None`` when colorama is not
 #: installed.
-_color: object | bool | None = False
+_color: _ty.Optional[_ty.Union[object, bool]] = False
 
 
 def _resolve_colorama():
@@ -105,7 +105,7 @@ def _getcolor(color: str):
 
 
 def add_logging_level(
-    name: str, level: int, force: bool = False, color: str | None = None
+    name: str, level: int, force: bool = False, color: _ty.Optional[str] = None
 ) -> None:
     """Register a custom log level.
 
@@ -336,7 +336,7 @@ class _StderrHandler(_logging.StreamHandler):
 
 
 def init_stderr_logging(
-    name: str | None = None, level: int | None = None
+    name: _ty.Optional[str] = None, level: _ty.Optional[int] = None
 ) -> _logging.Logger:
     """Initialize logging to stderr with color support.
 

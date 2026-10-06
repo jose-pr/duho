@@ -95,7 +95,8 @@ def _truthy(raw: str | None) -> bool:
 
 
 def agent_help_requested(
-    env_name: str | None = None, environ: _ty.Mapping[str, str] | None = None
+    env_name: _ty.Optional[str] = None,
+    environ: _ty.Optional[_ty.Mapping[str, str]] = None,
 ) -> bool:
     """True when a trigger env var is set truthy.
 
@@ -657,9 +658,9 @@ def describe_parser(
     parser: _argparse.ArgumentParser,
     *,
     root: bool = False,
-    root_cls: type[_Args] | None = None,
-    name: str | None = None,
-    aliases: _ty.Sequence[str] | None = None,
+    root_cls: _ty.Optional[type[_Args]] = None,
+    name: _ty.Optional[str] = None,
+    aliases: _ty.Optional[_ty.Sequence[str]] = None,
 ) -> dict:
     """Describe one built ``ArgumentParser`` (and its subtree) as plain data.
 
@@ -781,7 +782,7 @@ def _describe_parser(
     return spec
 
 
-def describe(cls: type[_Args], argv: _ty.Sequence[str] | None = None) -> dict:
+def describe(cls: type[_Args], argv: _ty.Optional[_ty.Sequence[str]] = None) -> dict:
     """Build ``cls``'s parser and return its agent-help document (a dict).
 
     Standalone counterpart to the ``--help-agents`` flag / ``AGENT_HELP`` trigger:

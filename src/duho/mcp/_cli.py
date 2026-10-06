@@ -81,7 +81,7 @@ class _McpMain(_Cli):
         return serve(root_cls, stdin=stream_in, stdout=stream_out)
 
 
-def main(argv: _ty.Sequence[str] | None = None) -> int:
+def main(argv: _ty.Optional[_ty.Sequence[str]] = None) -> int:
     """``python -m duho.mcp <app>`` entry point: resolve ``<app>`` and run :func:`serve`.
 
     A duho CLI like any other: ``-h``/``--help`` and ``--version`` print to

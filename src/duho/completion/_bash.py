@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse as _argparse
 import hashlib as _hashlib
+import typing as _ty
 
 from ._quoting import _bash_wordlist, _bashq, _validate_prog
 from ._spec import (
@@ -35,7 +36,7 @@ def _bash_func_name(root_prog: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def bash(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
+def bash(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str:
     """Emit a self-contained bash completion script for `parser`.
 
     Descends the command line only on a word that is BOTH a real subcommand

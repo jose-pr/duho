@@ -62,8 +62,10 @@ class CmdBuilder:
 
     def __init__(
         self,
-        qualname: str | _PythonName,
-        source: _Path | str | _os.PathLike | _ModuleType | Command | None = None,
+        qualname: _ty.Union[str, _PythonName],
+        source: _ty.Optional[
+            _ty.Union[_Path, str, _os.PathLike, _ModuleType, Command]
+        ] = None,
     ) -> None:
         self.qualname = str(qualname)
 

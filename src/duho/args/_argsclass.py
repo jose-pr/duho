@@ -442,8 +442,8 @@ class Args(_argparse.Namespace):
     @classmethod
     def _parser_(
         cls,
-        subparser: _argparse._SubParsersAction | None = None,
-        name: str | None = None,  # type: ignore
+        subparser: _ty.Optional[_argparse._SubParsersAction] = None,
+        name: _ty.Optional[str] = None,  # type: ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = (),
         _inherited_formatter_class_=None,
         _inherited_agent_root_cls_=None,
@@ -694,9 +694,9 @@ class Args(_argparse.Namespace):
         cls,
         parser: _argparse.ArgumentParser,
         is_subcommand: bool = False,
-        parent_dests: _ty.FrozenSet[str] | None = None,
+        parent_dests: _ty.Optional[_ty.FrozenSet[str]] = None,
         explicit_prog: bool = False,
-        agent_root_cls: type | None = None,
+        agent_root_cls: _ty.Optional[type] = None,
         external_config: bool = False,
     ):
         """Populate an already-created ``parser`` with this class's own fields.

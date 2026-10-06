@@ -256,7 +256,7 @@ def _pick_live_classdef(
     return candidates[-1]
 
 
-def getclsdef(cls: type) -> _ast.ClassDef | None:
+def getclsdef(cls: type) -> _ty.Optional[_ast.ClassDef]:
     """Locate the ClassDef AST node for cls. Never raises."""
     try:
         module = _sys.modules.get(getattr(cls, "__module__", None))

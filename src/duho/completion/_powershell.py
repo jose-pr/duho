@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse as _argparse
+import typing as _ty
 
 from ._quoting import _psq, _validate_prog
 from ._spec import _all_specs, _cmd_key, _flag_names, _value_flag_names, _walk
@@ -10,7 +11,7 @@ from ._spec import _all_specs, _cmd_key, _flag_names, _value_flag_names, _walk
 # --------------------------------------------------------------------------
 
 
-def powershell(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
+def powershell(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str:
     """Emit a PowerShell completion script for `parser`.
 
     Registers a ``Register-ArgumentCompleter -Native`` script block that

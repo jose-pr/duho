@@ -258,7 +258,7 @@ def _description_for(
 
 
 def json_schema_for_field(
-    decl: _introspect.ClsArgDeclaration | None, builder: _ArgumentBuilder
+    decl: _ty.Optional[_introspect.ClsArgDeclaration], builder: _ArgumentBuilder
 ) -> tuple[dict, bool]:
     """Build ``(json_schema, required)`` for one field from its declaration + builder.
 

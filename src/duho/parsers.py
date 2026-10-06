@@ -39,7 +39,7 @@ def pop_action(parser: _argparse.ArgumentParser, name: str) -> _argparse.Action:
 def insert_action(
     parser: _argparse.ArgumentParser,
     action: _argparse.Action,
-    index: int | None = None,
+    index: _ty.Optional[int] = None,
 ) -> None:
     """Insert an action into a parser (optionally at a given index).
 
@@ -188,7 +188,7 @@ def enable_subparser_check(action: _argparse._SubParsersAction) -> None:
 
 def find_subparsers(
     parser: _argparse.ArgumentParser,
-) -> _argparse._SubParsersAction | None:
+) -> _ty.Optional[_argparse._SubParsersAction]:
     """``parser``'s subparsers action, if it has one.
 
     The one lookup every parser-tree walker needs (a parser can carry at most
@@ -262,7 +262,7 @@ def command_name(command) -> str:
 
 
 def unique_subcommands(
-    parser: _argparse.ArgumentParser, seen: set | None = None
+    parser: _argparse.ArgumentParser, seen: _ty.Optional[set] = None
 ) -> _ty.Iterator[tuple]:
     """Yield ``(canonical_name, aliases, subparser)`` once per DISTINCT
     subcommand of ``parser``.
@@ -333,7 +333,7 @@ def _is_terminal_action(action: _argparse.Action) -> bool:
 
 def prerun_parse(
     parser: _argparse.ArgumentParser,
-    argv: _ty.Sequence[str] | None = None,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     quiet: bool = False,
 ) -> _argparse.Namespace:

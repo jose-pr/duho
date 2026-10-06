@@ -223,7 +223,7 @@ def _helper_options(kw: dict[str, object]) -> dict[str, object]:
 
 
 def Extend(
-    split: str | _ty.Callable[[str], _ty.Iterable], **kwargs: object
+    split: _ty.Union[str, _ty.Callable[[str], _ty.Iterable]], **kwargs: object
 ) -> _argparse.Namespace:
     """Create a collection argument whose text is split on ``split`` first.
 

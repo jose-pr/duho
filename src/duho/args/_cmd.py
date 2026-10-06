@@ -331,8 +331,8 @@ def command(
     args_cls: type[Args],
     func: _ty.Callable[[_ty.Any], object],
     *,
-    name: str | None = None,
-    module: str | None = None,
+    name: _ty.Optional[str] = None,
+    module: _ty.Optional[str] = None,
 ) -> type[Cmd]:
     """Build a ``Cmd`` subclass from a data ``Args`` class and a callable.
 

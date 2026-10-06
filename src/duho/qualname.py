@@ -52,12 +52,12 @@ class QualName:
         return [part for part in _parts if part]
 
     @classmethod
-    def qualjoin(cls, *parts: str | _ty.Iterable[str] | QualName) -> QualName:
+    def qualjoin(cls, *parts: _ty.Union[str, _ty.Iterable[str], QualName]) -> QualName:
         """Join ``parts`` (strings, iterables of strings, or other qualnames)."""
         return cls._qualjoin(cls._qualparts(*parts))
 
     @classmethod
-    def qualsplit(cls, name: str | QualName) -> _ty.Sequence[str]:
+    def qualsplit(cls, name: _ty.Union[str, QualName]) -> _ty.Sequence[str]:
         """Split ``name`` into its parts (a qualname's ``.parts`` if it has one)."""
         if hasattr(name, "parts"):
             return _ty.cast(QualName, name).parts
@@ -103,9 +103,9 @@ class QualName:
     def camelcase(
         self,
         start: int = 0,
-        end: int | None = None,
+        end: _ty.Optional[int] = None,
         *,
-        separators: str | _ty.Sequence[str] | None = None,
+        separators: _ty.Optional[_ty.Union[str, _ty.Sequence[str]]] = None,
     ) -> str:
         """``CamelCase`` over ``parts[start:end]``, then re-split on ``separators``.
 
@@ -123,7 +123,7 @@ class QualName:
         )
         return _text.camelcase(camelcased, separators=separators)
 
-    def as_path(self, root: str | _P = "/") -> _P:
+    def as_path(self, root: _ty.Union[str, _P] = "/") -> _P:
         """This qualname's parts joined onto ``root`` (a :class:`~pathlib.PurePath`)."""
         if not hasattr(root, "joinpath"):
             root = _ty.cast(_P, _pathlib.PurePosixPath(root))
@@ -157,7 +157,7 @@ class PythonName(DotQualNamed):
     """A dotted name whose parts are Python-safe (via :func:`duho.text.pysafe`)."""
 
     @classmethod
-    def new(cls, *parts: str | QualName, sanitize: bool = True) -> PythonName:
+    def new(cls, *parts: _ty.Union[str, QualName], sanitize: bool = True) -> PythonName:
         """Build a new instance by joining ``parts``.
 
         Each dotted part is coerced through :func:`duho.text.pysafe` unless

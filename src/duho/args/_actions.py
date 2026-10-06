@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse as _argparse
 import sys as _sys
+import typing as _ty
 
 from .. import _compat as _compat
 
@@ -203,7 +204,9 @@ def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
             )
 
 
-def print_completion(cls, shell: str, file=None, *, prog: str | None = None) -> None:
+def print_completion(
+    cls, shell: str, file=None, *, prog: _ty.Optional[str] = None
+) -> None:
     """Print a shell completion script for `cls` to `file` (default sys.stdout).
 
     ``shell`` is one of ``"bash"``, ``"zsh"``, ``"fish"``, or ``"powershell"``

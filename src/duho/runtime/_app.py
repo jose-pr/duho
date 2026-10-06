@@ -144,21 +144,21 @@ def _default_run(
 
 
 def app(
-    root: type | None = None,
+    root: _ty.Optional[type] = None,
     *,
-    commands: _ty.Sequence[_Command] | None = None,
+    commands: _ty.Optional[_ty.Sequence[_Command]] = None,
     source: _ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None] = None,
-    entry_points: str | None = None,
-    argv: _ty.Sequence[str] | None = None,
-    name: str | None = None,
-    description: str | None = None,
-    env: _Env | None = None,
-    config: str | _Path | None = None,
+    entry_points: _ty.Optional[str] = None,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
+    name: _ty.Optional[str] = None,
+    description: _ty.Optional[str] = None,
+    env: _ty.Optional[_Env] = None,
+    config: _ty.Optional[_ty.Union[str, _Path]] = None,
     setup_logging: bool = True,
-    dispatch: _ty.Callable[[_Command, object], int] | None = None,
-    mcp: bool | None = None,
-    mcp_command: str | bool | None = None,
-    utf8_stdio: bool | None = None,
+    dispatch: _ty.Optional[_ty.Callable[[_Command, object], int]] = None,
+    mcp: _ty.Optional[bool] = None,
+    mcp_command: _ty.Optional[_ty.Union[str, bool]] = None,
+    utf8_stdio: _ty.Optional[bool] = None,
     on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
     adapter: _ty.Optional[
         _ty.Callable[

@@ -203,7 +203,9 @@ def pysafe(text: str, separator: str = ".") -> str:
     return separator.join(_pysafe_fixup(part) for part in text.split(separator))
 
 
-def camelcase(text: str, separators: _ty.Sequence[str] | str | None = None) -> str:
+def camelcase(
+    text: str, separators: _ty.Optional[_ty.Union[_ty.Sequence[str], str]] = None
+) -> str:
     """Join ``text`` into ``CamelCase``, splitting on ``separators``.
 
     ``separators`` defaults to ``(".", "_", "-")``; a single string is treated
@@ -238,7 +240,7 @@ def unicode_range(start: str, end: str, step: int = 1) -> _ty.Iterator[str]:
 
 
 def range(
-    start: str, end: str, step: int = 1, format: str | None = None
+    start: str, end: str, step: int = 1, format: _ty.Optional[str] = None
 ) -> _ty.Iterator[str]:
     """Yield formatted range members between ``start`` and ``end`` inclusive.
 

@@ -262,8 +262,8 @@ class ModuleCommand:
         self,
         module: object,
         *,
-        name: str | None = None,
-        entrypoint: _ty.Callable[..., object] | None = None,
+        name: _ty.Optional[str] = None,
+        entrypoint: _ty.Optional[_ty.Callable[..., object]] = None,
     ) -> None:
         self.module = module
         self._parsername_ = name or _resolved_module_name(module)
@@ -343,7 +343,7 @@ class ModuleCommand:
             return logger
         return _HOOK_LOGGER
 
-    def main(self, args: object | None = None) -> object:
+    def main(self, args: _ty.Optional[object] = None) -> object:
         """Run the command by invoking the wrapped module's entrypoint.
 
         Called with the parsed args instance during dispatch. Kept
@@ -354,7 +354,7 @@ class ModuleCommand:
             return self._entrypoint()
         return self._entrypoint(args)
 
-    def __call__(self, args: object | None = None) -> object:
+    def __call__(self, args: _ty.Optional[object] = None) -> object:
         """A ``ModuleCommand`` is directly callable; delegates to :meth:`main`."""
         return self.main(args)
 

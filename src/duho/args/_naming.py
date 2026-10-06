@@ -43,7 +43,7 @@ def _top_level_dist_name(cls) -> str:
 #: `importlib.metadata` filesystem scan buys nothing. Caches a `None` (not
 #: found) result too, so a class using AUTO in a dev checkout is not
 #: re-scanned on every build either.
-_AUTO_VERSION_CACHE: dict[str, str | None] = {}
+_AUTO_VERSION_CACHE: dict[str, _ty.Optional[str]] = {}
 
 
 def _resolve_auto_version(dist: str) -> str | None:

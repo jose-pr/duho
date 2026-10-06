@@ -197,11 +197,11 @@ def _class_config_location(
 
 def main(
     cls: type[Args],
-    argv: _ty.Sequence[str] | None = None,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     setup_logging: bool = True,
-    config: str | _pathlib.Path | None = None,
-    utf8_stdio: bool | None = None,
+    config: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None,
+    utf8_stdio: _ty.Optional[bool] = None,
 ) -> _ty.Any:
     """Build a parser for cls, parse argv, and dispatch the selected Cmd.
 
@@ -346,11 +346,11 @@ def main(
 
 
 def parse(
-    spec: type[_A] | _A,
-    argv: _ty.Sequence[str] | None = None,
+    spec: _ty.Union[type[_A], _A],
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     parser_kwargs: _ty.Optional[_ty.Mapping[str, object]] = None,
-    config: str | _pathlib.Path | None = None,
+    config: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None,
 ) -> _A:
     """Build a parser from `spec` and parse `argv` into a new instance.
 
@@ -393,9 +393,9 @@ def parse(
 
 def parse_globals(
     cls: type[_A],
-    argv: _ty.Sequence[str] | None = None,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
-    config: str | _pathlib.Path | None = None,
+    config: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None,
     **parser_kwargs: object,
 ) -> _A:
     """Parse ONLY a root command's global args, ignoring/relaxing subcommands.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse as _argparse
 import hashlib as _hashlib
+import typing as _ty
 
 from ._quoting import _fish_word, _fsq, _validate_prog
 from ._spec import (
@@ -103,7 +104,7 @@ def _fish_condition(spec: CompletionSpec, path_func: str) -> str:
     return f"test ({path_func}) = {_fsq(_cmd_key(spec))}"
 
 
-def fish(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
+def fish(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str:
     """Emit a fish completion script (`complete -c <prog> ...` lines) for `parser`.
 
     Each rule is gated by `_fish_condition`, which resolves the exact

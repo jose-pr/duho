@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse as _argparse
 import dataclasses as _dc
 import pathlib as _pathlib
+import typing as _ty
 
 from .. import parsers as _parsers
 
@@ -13,7 +14,7 @@ class CompletionOption:
 
     flags: tuple[str, ...]
     takes_value: bool
-    choices: tuple[str, ...] | None = None
+    choices: _ty.Optional[tuple[str, ...]] = None
     is_path: bool = False
 
 
@@ -22,7 +23,7 @@ class CompletionPositional:
     """One positional argument."""
 
     name: str
-    choices: tuple[str, ...] | None = None
+    choices: _ty.Optional[tuple[str, ...]] = None
     is_path: bool = False
     #: Hidden via ``help=argparse.SUPPRESS``: still occupies its ordinal slot
     #: (every emitter counts positions sequentially to know which one is
@@ -178,7 +179,9 @@ def _walk(
     return spec
 
 
-def spec(parser: _argparse.ArgumentParser, prog: str | None = None) -> CompletionSpec:
+def spec(
+    parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None
+) -> CompletionSpec:
     """Build the shell-agnostic :class:`CompletionSpec` tree for ``parser``.
 
     Public wrapper around the internal parser-tree walk: the

@@ -296,7 +296,7 @@ class Env(_abc.MutableMapping):
         ty: _ty.Callable[[str], _T] = str,
         *,
         strict: _bool = True,
-        on_reject: _ty.Callable[[str, str], None] | None = None,
+        on_reject: _ty.Optional[_ty.Callable[[str, str], None]] = None,
     ) -> _List[_T]:
         """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
 

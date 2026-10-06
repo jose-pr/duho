@@ -194,7 +194,7 @@ def _handlers_for(logger: _logging.Logger) -> list[_logging.Handler]:
 
 @_contextlib.contextmanager
 def target_logging(
-    logger: _logging.Logger | None = None,
+    logger: _ty.Optional[_logging.Logger] = None,
 ) -> _ty.Iterator[TargetPrefixFilter]:
     """Install a :class:`TargetPrefixFilter` on ``logger``'s handlers, then remove it.
 
@@ -295,9 +295,9 @@ def run_targets(
     func: _ty.Callable[[object], object],
     targets: _ty.Iterable[object],
     *,
-    max_workers: int | None = None,
+    max_workers: _ty.Optional[int] = None,
     aggregate: _ty.Callable[[_ty.Sequence[int]], int] = _worst,
-    logger: _logging.Logger | None = None,
+    logger: _ty.Optional[_logging.Logger] = None,
     label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
     """Run ``func(target)`` for each target concurrently; return an aggregate code.
@@ -387,9 +387,9 @@ def fan_out_command(
     targets: _ty.Iterable[object],
     *,
     context: object = None,
-    max_workers: int | None = None,
+    max_workers: _ty.Optional[int] = None,
     aggregate: _ty.Callable[[_ty.Sequence[int]], int] = _worst,
-    logger: _logging.Logger | None = None,
+    logger: _ty.Optional[_logging.Logger] = None,
     label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
     """Fan a single duho ``command`` out over targets, one parsed instance each.

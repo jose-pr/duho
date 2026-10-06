@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse as _argparse
 import hashlib as _hashlib
+import typing as _ty
 
 from ._quoting import _sq, _validate_prog, _zsh_word
 from ._spec import CompletionOption, CompletionPositional, _all_specs, _func_name, _walk
@@ -105,7 +106,7 @@ def _zsh_funcid(func: str, path: tuple[str, ...]) -> str:
     return f"_{func}__{suffix}"
 
 
-def zsh(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
+def zsh(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str:
     """Emit a `#compdef`-style zsh completion script for `parser`.
 
     Standard zsh subcommand dispatch: one function per (sub)command node. A

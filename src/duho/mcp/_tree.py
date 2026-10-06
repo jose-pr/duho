@@ -111,6 +111,20 @@ def _hidden_choice_names(parser: "_argparse.ArgumentParser") -> "frozenset":
     )
 
 
+def _own_mcp_value(cls: type, root_cls: "_ty.Optional[type]") -> bool:
+    """``cls``'s ``_mcp_`` for the per-command exclusion test, inherited
+    like any attribute except that a value it only gets from the served
+    root class (or a base of it) is ignored: there ``_mcp_`` means "no
+    environment trigger", not "hide the commands that share the root's
+    fields"."""
+    for klass in cls.__mro__:
+        if root_cls is not None and issubclass(root_cls, klass):
+            continue
+        if "_mcp_" in vars(klass):
+            return bool(vars(klass)["_mcp_"])
+    return True
+
+
 def _walk_tree(
     root_parser: "_argparse.ArgumentParser",
     root_cls: "_ty.Optional[type]",
@@ -159,7 +173,7 @@ def _walk_tree(
         own_mcp_disabled = False
         if not is_root:
             if cls is not None:
-                own_mcp_disabled = not getattr(cls, "_mcp_", True)
+                own_mcp_disabled = not _own_mcp_value(cls, root_cls)
             elif module_command is not None:
                 own_mcp_disabled = not getattr(module_command, "_mcp_", True)
         excluded = parent_excluded or own_mcp_disabled

@@ -413,4 +413,5 @@ def finish_parse(namespace: "_argparse.Namespace") -> "Args":
         if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
     ]:
         del ns[sidecar]
+    ns.pop("_duho_command_", None)
     return cls(**ns)

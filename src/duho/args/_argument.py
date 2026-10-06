@@ -890,6 +890,8 @@ class ArgumentBuilder(_argparse.Namespace):
         kwargs = self._kwargs()
         if "default" in kwargs:
             return kwargs["default"]
-        if kwargs.get("required") is False:
+        if kwargs.get("required") is False or (
+            self.is_positional and kwargs.get("nargs") == "?"
+        ):
             return None
         return NOT_DEFINED

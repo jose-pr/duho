@@ -332,6 +332,8 @@ class Args(_argparse.Namespace):
         # `vars(self)` only sees THIS instance's own attributes, so the gap
         # still gets filled with `_effective_default_()`'s fresh copy.
         super().__init__(**kwargs)
+        if "_passthrough_" not in vars(self):
+            self._passthrough_ = []
         seeded: "dict[str, object]" = {}
         for builder in type(self)._getargs_():
             name = builder.name
@@ -789,6 +791,7 @@ class Args(_argparse.Namespace):
                 if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
             ]:
                 del parsed.__dict__[_sidecar]
+            parsed.__dict__.pop("_duho_command_", None)
             instance = _cls(**parsed.__dict__)
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []

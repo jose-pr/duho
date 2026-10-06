@@ -61,6 +61,12 @@ def serve_running_app(transport: str = "stdio") -> int:
     return serve(core)
 
 
+def _reject_constant(name: str) -> "_ty.NoReturn":
+    """``json.loads`` hook: ``NaN``/``Infinity`` are not JSON, so a line
+    carrying one is a parse error rather than a value echoed back unparsable."""
+    raise ValueError("%s is not valid JSON" % (name,))
+
+
 def _write_message(stream: object, message: "dict | list") -> None:
     import json
 
@@ -83,7 +89,7 @@ def _write_message(stream: object, message: "dict | list") -> None:
     # failure here falls back to a minimal, always-serializable error
     # response instead of the original message.
     try:
-        text = json.dumps(message, ensure_ascii=True)
+        text = json.dumps(message, ensure_ascii=True, allow_nan=False)
     except Exception:
         text = json.dumps(
             _error_response(
@@ -235,7 +241,7 @@ def serve(
             )
             continue
         try:
-            request = json.loads(line)
+            request = json.loads(line, parse_constant=_reject_constant)
         except (ValueError, RecursionError):
             # `ValueError` is `json.loads`'s own documented failure
             # (`JSONDecodeError` is a `ValueError` subclass); `RecursionError`

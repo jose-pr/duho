@@ -142,9 +142,29 @@ def _handle_request(root_cls: "type[_Cmd]", request: object) -> "dict | None":
     if not isinstance(request, dict):
         return _error_response(None, -32600, "invalid request: expected a JSON object")
 
+    if "method" not in request and ("result" in request or "error" in request):
+        return None  # a client's reply to a request, never a request itself
+
     method = request.get("method")
     has_id = "id" in request
     req_id = request.get("id")
+
+    # JSON-RPC 2.0: "jsonrpc" is exactly "2.0" and an id is a string or a
+    # number; MCP additionally forbids a null request id.
+    if request.get("jsonrpc") != "2.0" or (
+        has_id
+        and (isinstance(req_id, bool) or not isinstance(req_id, (str, int, float)))
+    ):
+        return (
+            _error_response(
+                req_id if isinstance(req_id, (str, int)) else None,
+                -32600,
+                "invalid request: 'jsonrpc' must be \"2.0\" and 'id' a string "
+                "or a number",
+            )
+            if has_id
+            else None
+        )
 
     if not isinstance(method, str):
         return (

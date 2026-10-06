@@ -26,7 +26,9 @@ _LOGGER = _logging.getLogger(__package__)
 
 _SCHEMA_TYPE_CHECKS = {
     "string": lambda v: isinstance(v, str),
-    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    # A number with a zero fractional part is an integer (JSON Schema).
+    "integer": lambda v: (isinstance(v, int) and not isinstance(v, bool))
+    or (isinstance(v, float) and v.is_integer()),
     "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
     "boolean": lambda v: isinstance(v, bool),
     "array": lambda v: isinstance(v, (list, tuple)),
@@ -349,6 +351,17 @@ def call_tool(
 
     schema = _input_schema_for_node(node)
     _validate_arguments(schema, arguments)
+    # An integral float passed validation for an integer field; argv needs
+    # the integer's own spelling ("5", not "5.0").
+    integer_fields = {
+        key
+        for key, prop in schema["properties"].items()
+        if prop.get("type") == "integer"
+    }
+    arguments = {
+        key: int(value) if key in integer_fields and isinstance(value, float) else value
+        for key, value in arguments.items()
+    }
 
     chain = node.ancestors + (node,)
     expected_path = tuple(step.own_name for step in chain)

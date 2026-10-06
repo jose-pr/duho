@@ -9,7 +9,8 @@ Generated from docstrings, organized by area:
   `parse_globals`, `main`, `finish_parse`, `command`, `value_sources`,
   `print_agent_help`, `print_completion`).
 - **[Runtime](runtime.md)** — `duho.app`, the multi-command app runner
-  (discovery, config/env thread-down, and dispatch), and `run_command`.
+  (discovery, config/env thread-down, and dispatch), `run_command`, and
+  `utf8_stdio`.
 - **[Discovery](discovery.md)** — `discover_commands`, `discover_entry_points`
   (installed-distribution plugins), `CmdBuilder`, `ModuleCommand`, and the
   `register_command_provider` extension seam.

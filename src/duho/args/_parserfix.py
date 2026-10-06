@@ -412,3 +412,76 @@ def _argv_before_subcommand(
             continue
         i += 1
     return argv
+
+
+def _insert_default_subcommand(
+    parser: "_argparse.ArgumentParser", argv: "list[str]", default: str
+) -> "list[str]":
+    """Insert ``default`` before the first token that is not one of ``parser``'s own options.
+
+    The scan skips this parser's registered options and their values. Returns
+    ``argv`` unchanged when the first remaining token already names one of the
+    parser's subcommands, when no such token exists, or when any token before it
+    cannot be classified with certainty (an unregistered option, a ``--``, an
+    option taking a variable number of values, or a missing value).
+    """
+    names = {
+        name
+        for action in parser._actions  # type: ignore[attr-defined]
+        if isinstance(action, _argparse._SubParsersAction)  # type: ignore[attr-defined]
+        for name in action.choices
+    }
+    if not names:
+        return argv
+    known = parser._option_string_actions  # type: ignore[attr-defined]
+    allow_abbrev = getattr(parser, "allow_abbrev", True)
+    negative_number_matcher = getattr(parser, "_negative_number_matcher", None)
+    has_negative_number_optionals = bool(
+        getattr(parser, "_has_negative_number_optionals", [])
+    )
+    i = 0
+    n = len(argv)
+    while i < n:
+        token = argv[i]
+        if token == "--":
+            return argv
+        if len(token) < 2 or token[0] != "-":
+            break
+        if (
+            negative_number_matcher
+            and negative_number_matcher.match(token)
+            and not has_negative_number_optionals
+        ):
+            break
+        key, eq, _ = token.partition("=")
+        action = known.get(key)
+        attached = bool(eq)
+        if action is None and key.startswith("--") and allow_abbrev:
+            matches = {
+                id(a): a
+                for opt, a in known.items()
+                if opt.startswith("--") and opt.startswith(key)
+            }
+            if len(matches) == 1:
+                (action,) = matches.values()
+        if action is None and len(token) > 2 and token[1] != "-" and not eq:
+            cluster = _short_cluster(known, token)
+            if cluster is None:
+                return argv
+            action, attached = cluster
+        if action is None:
+            return argv
+        if action.nargs == 0:
+            i += 1
+        elif action.nargs is None:
+            if attached:
+                i += 1
+            elif i + 1 >= n:
+                return argv
+            else:
+                i += 2
+        else:
+            return argv
+    if i >= n or argv[i] in names:
+        return argv
+    return argv[:i] + [default] + argv[i:]

@@ -23,6 +23,7 @@ from ._meta import Meta, NOT_DEFINED, NS
 from ._naming import _app_name, _command_name, _resolve_version
 from ._parserfix import (
     _has_variadic_positional,
+    _insert_default_subcommand,
     _keep_attached_double_dash,
     _reorder_argv_for_variadic_positional,
     _suppress_inherited_defaults,
@@ -585,6 +586,15 @@ class Args(_argparse.Namespace):
                 # An inherited list may name a class being built right now (a
                 # subcommand that subclasses its own root); leave that one out.
                 subcommands = [s for s in subcommands or () if id(s) not in _build_ids]
+            if (
+                not subcommands
+                and not _skip_subcommands_
+                and vars(cls).get("_default_subcommand_") is not None
+            ):
+                raise ValueError(
+                    f"{cls.__name__}._default_subcommand_ = "
+                    f"{cls._default_subcommand_!r} but the class has no subcommands"
+                )
             if subcommands and not _skip_subcommands_:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
                 # A kebab-cased class-derived name can collide with
@@ -624,6 +634,16 @@ class Args(_argparse.Namespace):
                 # required: _duho_command_"); `instance.command` stays gone
                 # regardless (a documented [minor] break).
                 subparsers.metavar = "{" + ",".join(sibling_names) + "}"
+                default_subcommand = getattr(cls, "_default_subcommand_", None)
+                if (
+                    default_subcommand is not None
+                    and default_subcommand not in seen_names
+                ):
+                    raise ValueError(
+                        f"{cls.__name__}._default_subcommand_ = "
+                        f"{default_subcommand!r} is not one of its subcommands "
+                        f"({', '.join(seen_names)})"
+                    )
                 # Dests this (root) class declares itself: an option given BEFORE the
                 # subcommand parses into these on the root namespace. A child that
                 # inherits the same field (via MRO) re-declares it with its own
@@ -726,6 +746,12 @@ class Args(_argparse.Namespace):
                     passthrough = argv[idx + 1 :]
                     argv = argv[:idx]
                 args = argv
+
+            default_subcommand = getattr(cls, "_default_subcommand_", None)
+            if default_subcommand and args is not None:
+                args = _insert_default_subcommand(
+                    parser, list(args), default_subcommand
+                )
 
             # A flag placed BETWEEN two positional groups (one of them
             # variable-arity) breaks under argparse's own greedy

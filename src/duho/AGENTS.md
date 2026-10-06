@@ -122,7 +122,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 
 | Attribute | Type | Default | Applies to | Effect |
 | --- | --- | --- | --- | --- |
-| `_version_` | `str \| duho.AUTO \| None` | `None` | root | adds `--version`; `AUTO` reads installed package metadata |
+| `_version_` | `str \| duho.AUTO \| None` | `None` | root | adds `--version`; `AUTO` reads installed package metadata; with `_version_` unset, a class-level `__version__` string is used instead |
 | `_distribution_` | `str \| None` | `None` | root | distribution name for `AUTO` when it differs from the import package |
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |

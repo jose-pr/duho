@@ -285,7 +285,7 @@ required — the user must supply exactly one of its options:
 ```
 
 ```bash
-python app.py            # error: one of --push, --pull is required
+python app.py            # error: one of the arguments --push --pull is required
 python app.py --push     # ok
 ```
 
@@ -442,6 +442,10 @@ action already exists, e.g. from a parent parser):
 class MyApp(Args):
     _version_ = "1.2.3"
 ```
+
+With no `_version_`, a class-level `__version__` string is used the same way
+(`class MyApp(Cmd): __version__ = "1.2.3"` also gets `--version`). `_version_`
+wins when both are set, and a `__version__` that is not a string is ignored.
 
 **Autodetected version**: set `_version_ = duho.AUTO` to resolve the version
 from installed package metadata via `importlib.metadata.version(...)` instead
@@ -929,7 +933,7 @@ from duho import Cli, LoggingArgs
 class MyApp(LoggingArgs, Cli):     # data mixin first, root base last
     """My multi-command app."""
     _version_ = "1.2.3"            # adds --version
-    _completion_ = True            # adds --print-completion {bash,zsh,fish}
+    _completion_ = True            # adds --print-completion {bash,zsh,fish,powershell}
     _config_ = "myapp.toml"        # layered config-file defaults
 ```
 
@@ -1457,7 +1461,10 @@ lifecycle hooks read off `args._logger_`. A `*args` hook is treated as
 
 Every subcommand parser is built with **parent-arg inheritance** — the root
 command's global options (verbosity, etc.) appear on each subcommand automatically
-via argparse `parents=`, so `myapp -v deploy` and `myapp deploy -v` both work.
+via argparse `parents=`. For a command reached through `commands=`/`source=`/`entry_points=`,
+`myapp -v deploy` and `myapp deploy -v` both work; a root's own static
+`_subcommands_` tree accepts a global only before the subcommand name
+(`myapp -v deploy`).
 A global given on both sides of the subcommand name does not merge: the later
 one wins. For a counting option that means `myapp -v deploy -v` is verbosity 1,
 not 2; write `-vv` on one side to count both.
@@ -1731,7 +1738,7 @@ app(Dotagents)                     # the root's `_parsername_`, else its package
 
 `serverInfo.version` reports the served app's own `_version_` when it resolves to a
 string (a literal, `duho.AUTO`, or a class-level `__version__` fallback — see
-"`--version`" above); otherwise it reports the empty string. duho's own version is
+"Version flag" above); otherwise it reports the empty string. duho's own version is
 never reported as the served app's.
 
 ### Excluding a command from the tool surface
@@ -1775,16 +1782,21 @@ excluded regardless of this attribute.
 
 ## Examples
 
-Two self-contained example CLIs under [`examples/`](https://github.com/jose-pr/duho/tree/main/examples) each build a small
-umbrella app with an `install` subcommand, ported from real-world scripts to show
-duho's full surface (they stub the actual filesystem work — the point is the CLI):
+[`examples/`](https://github.com/jose-pr/duho/tree/main/examples) holds five runnable apps. Two are
+self-contained CLIs that each build a small umbrella app with an `install`
+subcommand, ported from real-world scripts to show duho's full surface (they stub
+the actual filesystem work — the point is the CLI); the other three show
+`duho.app(source=...)` discovery (`discovery_app.py`), RunPath step directories
+(`runpath_app.py`) and the MCP tool surface (`mcp_app.py`):
 
 - [`examples/dotagents.py`](https://github.com/jose-pr/duho/blob/main/examples/dotagents.py) — an agent-config installer
   (`LoggingArgs`, `_subcommands_`, `--dest`/`--dry-run`/`--with-examples`):
 
   ```python
-  class Install(LoggingArgs):
+  class Install(LoggingArgs, Cmd):
       """Copy the agent-config payload into the destination directory."""
+
+      _parsername_ = "install"
 
       dest: Path = Path.home() / ".agents"
       dry_run: bool = False

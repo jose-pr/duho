@@ -246,6 +246,10 @@ class App(Args):
     _version_ = "1.2.3"
 ```
 
+With no `_version_`, a class-level `__version__` string is used the same way.
+`_version_` wins when both are set, and a `__version__` that is not a string is
+ignored.
+
 To read the version from installed package metadata instead of hardcoding it, use
 the `duho.AUTO` sentinel:
 

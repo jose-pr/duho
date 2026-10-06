@@ -263,13 +263,29 @@ def calibration_metric() -> dict:
     return sample(_calibration_workload, BUILD_INNER)
 
 
+def first_build_metrics() -> "dict":
+    """The gated FIRST-BUILD metric: a parser build with every duho cache dropped.
+
+    This is the cost a one-shot CLI process pays -- introspection and the type
+    ladder both run -- which no warm metric enters. ``first_build.complex`` is
+    gated with the warm group (same in-process runner calibration).
+    """
+
+    def first_build():
+        drop_caches(ComplexArgs)
+        duho.parser(ComplexArgs)
+
+    return {"first_build.complex": sample(first_build, COLD_INNER)}
+
+
 def warm_metrics() -> "dict":
-    """The gated, in-process WARM metrics (caches already populated).
+    """The gated, in-process metrics: WARM ones (caches already populated) and
+    ``first_build.complex`` (caches dropped before each build).
 
     These are the numbers ``check_baseline.py`` regression-gates: they are
-    deterministic (no subprocess, no import-cache effects) and reflect the
-    steady-state cost of building and parsing a parser whose declarations are
-    cached.
+    deterministic (no subprocess, no import-cache effects). The warm ones
+    reflect the steady-state cost of building and parsing a parser whose
+    declarations are cached.
     """
     simple = duho.parser(SimpleArgs)
     complex_ = duho.parser(ComplexArgs)
@@ -329,6 +345,7 @@ def warm_metrics() -> "dict":
             lambda c=cls: duho.parser(c), BUILD_INNER
         )
 
+    metrics.update(first_build_metrics())
     return metrics
 
 

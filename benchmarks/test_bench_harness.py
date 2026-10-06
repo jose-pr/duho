@@ -279,14 +279,14 @@ def test_baseline_only_covers_ci_matrix_versions():
     assert set(data) <= {"3.9", "3.13", "3.14"}
 
 
-def test_baseline_has_no_stale_e2e_delta():
-    """The committed e2e_delta values pre-date the e2e-measurement fix (they were
-    measured via the no-op `-c` path) and would read as a false regression
-    against the now-correct, file-based measurement -- dropped until
-    regenerated from an actual CI run."""
+def test_baseline_may_carry_e2e_delta():
+    """`e2e_delta` (import + first build + parse from a real file, in a fresh
+    process) is a gated startup key like `import_duho_delta`; the committed
+    baseline is free to hold it."""
     data = json.loads((_HERE / "baseline.json").read_text())
     for entry in data.values():
-        assert "e2e_delta" not in entry.get("startup", {})
+        startup = entry.get("startup", {})
+        assert set(startup) <= {"import_duho_delta", "e2e_delta"}
 
 
 # ---------------------------------------------------------------------------
@@ -461,5 +461,92 @@ def test_check_baseline_warm_and_startup_calibrate_independently(tmp_path, monke
         "measure",
         lambda n: _fake_measure(33.13, 11.06),  # 11.06/12.71 ~= 0.87x
     )
+
+    assert check_baseline.main([]) == 0
+
+
+# ---------------------------------------------------------------------------
+# The first parser build (every cache dropped) is a gated metric
+# ---------------------------------------------------------------------------
+
+
+def test_first_build_metric_enters_introspection_each_sample(monkeypatch):
+    """A warm `build.*` metric never reaches `_introspect`; the first-build
+    metric must, once per sample, or it only repeats the warm number."""
+    calls = []
+    original = _introspect.getclsdef
+
+    def spy(cls):
+        calls.append(cls)
+        return original(cls)
+
+    monkeypatch.setattr(_introspect, "getclsdef", spy)
+    monkeypatch.setattr(_bench, "sample", lambda fn, inner, **kw: (fn(), fn(), {})[2])
+    metrics = _bench.first_build_metrics()
+
+    assert set(metrics) == {"first_build.complex"}
+    assert calls.count(_bench.ComplexArgs) == 2
+
+
+def test_warm_metrics_include_the_first_build_metric(monkeypatch):
+    monkeypatch.setattr(_bench, "sample", lambda fn, inner, **kw: {"median_ms": 1.0})
+    assert "first_build.complex" in _bench.warm_metrics()
+
+
+def test_check_baseline_flags_a_first_build_regression(tmp_path, monkeypatch):
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {
+            "calibration_ms": 1.0,
+            "calibration_subprocess_ms": 5.0,
+            "warm": {"first_build.complex": 2.0},
+            "startup": {"import_duho_delta": 10.0},
+        },
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+    monkeypatch.setattr(
+        check_baseline._bench, "calibration_metric", lambda: {"median_ms": 1.0}
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {"first_build.complex": {"median_ms": 6.0}},
+    )
+    monkeypatch.setattr(
+        check_baseline.bench_startup, "measure", lambda n: _fake_measure(10.0, 5.0)
+    )
+
+    assert check_baseline.main([]) == 1
+
+
+def test_check_baseline_does_not_fail_on_a_measured_key_the_baseline_lacks(
+    tmp_path, monkeypatch
+):
+    """The baseline gains a new key only when it is regenerated; until then a
+    metric measured but absent from it is reported nowhere and fails nothing."""
+    baseline_path = _write_fake_baseline(
+        tmp_path,
+        {
+            "calibration_ms": 1.0,
+            "calibration_subprocess_ms": 5.0,
+            "warm": {"build.simple": 1.0},
+            "startup": {"import_duho_delta": 10.0},
+        },
+    )
+    monkeypatch.setattr(check_baseline, "BASELINE", baseline_path)
+    monkeypatch.setattr(
+        check_baseline._bench, "calibration_metric", lambda: {"median_ms": 1.0}
+    )
+    monkeypatch.setattr(
+        check_baseline._bench,
+        "warm_metrics",
+        lambda: {
+            "build.simple": {"median_ms": 1.0},
+            "first_build.complex": {"median_ms": 500.0},
+        },
+    )
+    measured = _fake_measure(10.0, 5.0)
+    measured["deltas"]["e2e_delta"] = 900.0
+    monkeypatch.setattr(check_baseline.bench_startup, "measure", lambda n: measured)
 
     assert check_baseline.main([]) == 0

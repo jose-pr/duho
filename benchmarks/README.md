@@ -9,8 +9,10 @@ with `PYTHONPATH=src` (or an editable install).
 
 - `run.py` -- the main structured runner. In-process **warm** metrics (parser
   build + parse, tree scaling, the field-type matrix) sampled min/median/max
-  over repeated calls. `--cold` also runs the **cold** (per-invocation, caches
-  dropped) set, reported for insight but not gated.
+  over repeated calls, plus `first_build.complex` (a parser build with every
+  cache dropped, the cost a one-shot CLI pays) -- gated with the warm group.
+  `--cold` also runs the **cold** (per-invocation, caches dropped) set,
+  reported for insight but not gated.
   ```
   python benchmarks/run.py
   python benchmarks/run.py --cold
@@ -169,11 +171,10 @@ comparing runs produced the same way -- ideally the CI benchmark job's own
 runner, for exactly the Python versions in its matrix
 (`.github/workflows/test.yml`'s `benchmark` job).
 
-`baseline.json` carries CI-matrix `3.9`/`3.13`/`3.14` entries (none with an
-`e2e_delta`: it was measured before `bench_startup.py`'s `e2e_delta` was
-fixed to run from a real `.py` file rather than `python -c`, so the old
-number under-measures the AST/getsource path the metric now actually
-exercises, and would read as a false regression). `calibration_ms` and
+`baseline.json` carries CI-matrix `3.9`/`3.13`/`3.14` entries. The gate
+compares only the keys an entry holds, so a metric the harness measures
+(`e2e_delta`, `first_build.complex`) is gated from the run that regenerates the
+baseline, and fails nothing before it. `calibration_ms` and
 `calibration_subprocess_ms` (see "Calibration" above) came from that same CI
 run's artifacts and its Regression gate step log, respectively -- measuring
 both references on the SAME run the rest of the baseline comes from is what

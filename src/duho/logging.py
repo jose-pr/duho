@@ -121,9 +121,10 @@ def add_logging_level(
     name: a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
     silently replace ``logging.log``/``Logger.exception``. A repeat call for
     a name duho already installed itself (tracked in
-    :data:`_installed_level_names`) is a harmless no-op either way; a name
-    that collides with something duho did NOT install -- an unrelated stdlib
-    constant like ``logging.BASIC_FORMAT``, not just a level/method name --
+    :data:`_installed_level_names`) at the same number is a harmless no-op
+    either way, but at a different number it raises (renumber with
+    ``force=True``); a name that collides with something duho did NOT install --
+    an unrelated stdlib constant like ``logging.BASIC_FORMAT``, not just a level/method name --
     raises instead of silently no-oping, the same guard the lower-cased
     check below already gave method names.
     """
@@ -131,7 +132,13 @@ def add_logging_level(
     lname = name.lower()
     if not force:
         if name in _installed_level_names:
-            return
+            if getattr(_logging, name, level) == level:
+                return
+            raise ValueError(
+                f"add_logging_level: {name!r} is already registered at level "
+                f"{getattr(_logging, name)}, not {level}; pass force=True to "
+                "renumber it deliberately"
+            )
         if hasattr(_logging, name):
             raise ValueError(
                 f"add_logging_level: {name!r} already exists as a logging "

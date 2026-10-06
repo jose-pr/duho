@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import heapq as _heapq
 import logging as _logging
 import typing as _ty
@@ -19,8 +21,8 @@ _LOGGER = _logging.getLogger(__package__)
 
 
 def _iter_step_files(
-    directory: "_Path",
-) -> "_ty.Iterator[_ty.Tuple[int, str, _Path, _Opts]]":
+    directory: _Path,
+) -> _ty.Iterator[_ty.Tuple[int, str, _Path, _Opts]]:
     """Yield ``(NN, name, path, opts)`` for each step file in ``directory``.
 
     Filename modifiers (``!``/``:key`` -- see :func:`_parse_file_modifiers`)
@@ -37,7 +39,7 @@ def _iter_step_files(
     imported-and-fail on Windows while POSIX silently ignored it -- the same
     directory behaved differently by OS.
     """
-    found: "list[_ty.Tuple[int, str, _Path, _Opts]]" = []
+    found: list[_ty.Tuple[int, str, _Path, _Opts]] = []
     for path in directory.iterdir():
         if not path.is_file() or path.suffix != ".py":
             continue
@@ -53,7 +55,7 @@ def _iter_step_files(
     return iter(found)
 
 
-def is_runpath_dir(path: "_Path") -> bool:
+def is_runpath_dir(path: _Path) -> bool:
     """True if ``path`` is a RunPath directory.
 
     A RunPath directory is a directory that (a) contains at least one
@@ -73,10 +75,10 @@ def is_runpath_dir(path: "_Path") -> bool:
 def _normalize_step_names(
     value: object,
     step_name: str,
-    path: "_Path",
+    path: _Path,
     field: str,
-    logger: "_logging.Logger",
-) -> "list[str]":
+    logger: _logging.Logger,
+) -> list[str]:
     """Normalize a step's ``REQUIRED``/``BEFORE``/``AFTER`` to ``list[str]``.
 
     A bare string (``REQUIRED = "provision"``) is an easy slip: iterated
@@ -104,9 +106,9 @@ def _resolve_priority(
     module: object,
     nn: int,
     name: str,
-    path: "_Path",
+    path: _Path,
     strict: bool,
-    logger: "_logging.Logger",
+    logger: _logging.Logger,
 ) -> int:
     """Resolve a step's ordering ``PRIORITY``, defaulting to its ``NN`` prefix.
 
@@ -133,11 +135,11 @@ def _resolve_priority(
 
 
 def _load_steps(
-    directory: "_Path",
+    directory: _Path,
     qualname: str,
-    selection: "_Selection",
-    logger: "_logging.Logger" = _LOGGER,
-) -> "_ty.Tuple[list[_Step], list[str], set[str]]":
+    selection: _Selection,
+    logger: _logging.Logger = _LOGGER,
+) -> _ty.Tuple[list[_Step], list[str], set[str]]:
     """Resolve, filter, import and order one RunPath directory's steps.
 
     Returns ``(ordered_enabled_steps, present_names, broken_names)``:
@@ -173,9 +175,9 @@ def _load_steps(
     errors (``SyntaxError``, ``NameError``, ...) always surface -- they are
     bugs, not environment.
     """
-    present_names: "list[str]" = []
-    seen: "dict[str, _ty.Tuple[_Path, bool]]" = {}
-    to_import: "list[_ty.Tuple[int, str, _Path, _Opts]]" = []
+    present_names: list[str] = []
+    seen: dict[str, _ty.Tuple[_Path, bool]] = {}
+    to_import: list[_ty.Tuple[int, str, _Path, _Opts]] = []
     for nn, name, path, opts in _iter_step_files(directory):
         enabled_here = selection.decide(name, opts.enabled)
         prior = seen.get(name)
@@ -206,8 +208,8 @@ def _load_steps(
         if enabled_here:
             to_import.append((nn, name, path, opts))
 
-    steps: "list[_Step]" = []
-    broken_names: "set[str]" = set()
+    steps: list[_Step] = []
+    broken_names: set[str] = set()
     for nn, name, path, opts in to_import:
         try:
             module = _discovery.import_from_path(
@@ -259,10 +261,10 @@ def _load_steps(
 
 
 def _order_steps(
-    steps: "_ty.Sequence[_Step]",
+    steps: _ty.Sequence[_Step],
     strict: bool = False,
-    logger: "_logging.Logger" = _LOGGER,
-) -> "list[_Step]":
+    logger: _logging.Logger = _LOGGER,
+) -> list[_Step]:
     """Order steps via Kahn's algorithm over a merged REQUIRED/BEFORE/AFTER graph.
 
     Ties (no remaining predecessor) break by the step's RANK in the
@@ -311,7 +313,7 @@ def _order_steps(
     by_name = {s.name: s for s in ordered}
     rank = {s.name: i for i, s in enumerate(ordered)}
 
-    pending: "dict[str, set[str]]" = {}
+    pending: dict[str, set[str]] = {}
     for s in ordered:
         deps = set(s.required) | set(s.after)
         pending[s.name] = {d for d in deps if d in by_name and d != s.name}
@@ -320,17 +322,17 @@ def _order_steps(
             if target in by_name and target != s.name:
                 pending[target].add(s.name)
 
-    successors: "dict[str, set[str]]" = {name: set() for name in by_name}
+    successors: dict[str, set[str]] = {name: set() for name in by_name}
     for name, deps in pending.items():
         for dep in deps:
             successors[dep].add(name)
 
     heap = [rank[name] for name, deps in pending.items() if not deps]
     _heapq.heapify(heap)
-    emitted: "list[_Step]" = []
-    done: "set[str]" = set()
+    emitted: list[_Step] = []
+    done: set[str] = set()
 
-    def _emit(step: "_Step") -> None:
+    def _emit(step: _Step) -> None:
         emitted.append(step)
         done.add(step.name)
         for succ in successors.get(step.name, ()):
@@ -358,8 +360,8 @@ def _order_steps(
         # eventually revisit a node (everything here is still pending), and
         # the loop from that revisit is the real cycle.
         start = stuck[0].name
-        path: "list[str]" = []
-        seen_at: "dict[str, int]" = {}
+        path: list[str] = []
+        seen_at: dict[str, int] = {}
         node = start
         while node not in seen_at:
             seen_at[node] = len(path)

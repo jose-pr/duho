@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import fnmatch as _fnmatch
 import logging as _logging
 import typing as _ty
@@ -34,7 +36,7 @@ class _Selection:
 
     def __init__(
         self,
-        patterns: "_ty.Sequence[_ty.Tuple[str, _Opts]]",
+        patterns: _ty.Sequence[_ty.Tuple[str, _Opts]],
         strict: bool,
         strict_explicit: bool = False,
     ) -> None:
@@ -43,7 +45,7 @@ class _Selection:
         self.strict_explicit = strict_explicit
 
     @classmethod
-    def parse(cls, opts: "_ty.Sequence[str]") -> "_Selection":
+    def parse(cls, opts: _ty.Sequence[str]) -> _Selection:
         """Parse ``--rcopts`` comma-entries into a :class:`_Selection`.
 
         Each entry is ``[!]pattern`` optionally followed by ``:``/``;``-separated
@@ -63,7 +65,7 @@ class _Selection:
         ``.strip()``-ed, so a spaced-out entry like ``build : !strict``
         still matches ``build``, not ``"build "``.
         """
-        patterns: "list[_ty.Tuple[str, _Opts]]" = []
+        patterns: list[_ty.Tuple[str, _Opts]] = []
         strict = False
         strict_explicit = False
         for raw in opts:
@@ -138,9 +140,9 @@ class _Selection:
                 result = bool(opts.enabled)
         return result
 
-    def unmatched_patterns(self, names: "_ty.Sequence[str]") -> "list[str]":
+    def unmatched_patterns(self, names: _ty.Sequence[str]) -> list[str]:
         """Return the patterns that matched none of ``names`` (for warnings)."""
-        unmatched: "list[str]" = []
+        unmatched: list[str] = []
         for pattern, _opts in self.patterns:
             if not any(_fnmatch.fnmatchcase(name, pattern) for name in names):
                 unmatched.append(pattern)
@@ -148,9 +150,9 @@ class _Selection:
 
 
 def _validate_selection(
-    selection: "_Selection",
-    present_names: "_ty.Sequence[str]",
-    logger: "_logging.Logger",
+    selection: _Selection,
+    present_names: _ty.Sequence[str],
+    logger: _logging.Logger,
 ) -> None:
     """Warn (or, under strict, raise) on an ``--rcopts`` pattern matching nothing."""
     unmatched = selection.unmatched_patterns(present_names)
@@ -164,11 +166,11 @@ def _validate_selection(
 
 
 def _validate_required(
-    steps: "_ty.Sequence[_Step]",
-    present_names: "_ty.Sequence[str]",
-    enabled_names: "_ty.AbstractSet[str]",
-    selection: "_Selection",
-    logger: "_logging.Logger",
+    steps: _ty.Sequence[_Step],
+    present_names: _ty.Sequence[str],
+    enabled_names: _ty.AbstractSet[str],
+    selection: _Selection,
+    logger: _logging.Logger,
 ) -> None:
     """Warn (or, under strict, raise) on a ``REQUIRED`` naming a missing/disabled step.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect as _inspect
 import sys as _sys
 import typing as _ty
@@ -16,8 +18,8 @@ _KEEP = _Keep()
 
 
 def _adapt_step(
-    entrypoint: "_ty.Callable[..., object]",
-) -> "_ty.Callable[..., object]":
+    entrypoint: _ty.Callable[..., object],
+) -> _ty.Callable[..., object]:
     """Apply the app's ``step_adapter`` to ``entrypoint``, if one is set.
 
     Kept deliberately dumb: no caching (an adapter is cheap and a step runs
@@ -35,7 +37,7 @@ def _adapt_step(
     return adapter(entrypoint) or entrypoint
 
 
-def _is_bare_passthrough(params: "_ty.Sequence[_inspect.Parameter]") -> bool:
+def _is_bare_passthrough(params: _ty.Sequence[_inspect.Parameter]) -> bool:
     """True if ``params`` is exactly a var-positional/var-keyword pass-through.
 
     i.e. the signature carries NO named parameter of its own -- ``(*args)``,
@@ -56,7 +58,7 @@ def _is_bare_passthrough(params: "_ty.Sequence[_inspect.Parameter]") -> bool:
     }
 
 
-def _step_wants_ctx(entrypoint: "_ty.Callable[..., object]") -> bool:
+def _step_wants_ctx(entrypoint: _ty.Callable[..., object]) -> bool:
     """True if a step's entrypoint accepts a 2nd positional ``ctx`` argument.
 
     Inspects ``entrypoint`` itself first, with ``follow_wrapped=False``:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
@@ -31,9 +33,9 @@ class _Lifecycle:
 
     def __init__(
         self,
-        init: "_ty.Optional[_ty.Callable[..., object]]",
-        success: "_ty.Optional[_ty.Callable[..., object]]",
-        finally_: "_ty.Optional[_ty.Callable[..., object]]",
+        init: _ty.Optional[_ty.Callable[..., object]],
+        success: _ty.Optional[_ty.Callable[..., object]],
+        finally_: _ty.Optional[_ty.Callable[..., object]],
     ) -> None:
         self.init = init
         self.success = success
@@ -41,10 +43,10 @@ class _Lifecycle:
 
 
 def _load_lifecycle(
-    directory: "_Path",
+    directory: _Path,
     qualname: str,
-    logger: "_logging.Logger" = _LOGGER,
-) -> "_ty.Optional[_Lifecycle]":
+    logger: _logging.Logger = _LOGGER,
+) -> _ty.Optional[_Lifecycle]:
     """Load ``__main__.py`` from ``directory``, if present; else ``None``.
 
     ``None`` means "no lifecycle" -- callers must treat this as byte-identical

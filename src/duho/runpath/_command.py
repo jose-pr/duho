@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
@@ -43,13 +45,13 @@ class RunPathCmd(_Cmd):
 
     #: The RunPath directory whose ``NN-name.py`` files are the steps. Set by the
     #: provider-built subclass; ``None`` on the base (which is not runnable).
-    _runpath_dir_: "_ty.Optional[_Path]" = None
+    _runpath_dir_: _ty.Optional[_Path] = None
 
-    rcopts: "_Arg[_ty.List[str], _Extend(',')]"
+    rcopts: _Arg[_ty.List[str], _Extend(",")]
     "Step selection, comma-separated fnmatch patterns; `!` disables, `strict` errors on miss (e.g. `!*,build`)."
     ("-O", "--rcopts")  # type: ignore
 
-    def _runpath_logger_(self) -> "_logging.Logger":
+    def _runpath_logger_(self) -> _logging.Logger:
         """Resolve the run logger: the instance's ``_logger_`` if it has one.
 
         A ``RunPathCmd`` combined with ``LoggingArgs`` (the usual app shape)
@@ -102,8 +104,8 @@ class RunPathCmd(_Cmd):
                 _log_exception(logger, "__main__.py init() failed: %s", exc)
                 raise
 
-        failed_names: "set[str]" = set(broken_names)
-        codes: "list[int]" = [0]
+        failed_names: set[str] = set(broken_names)
+        codes: list[int] = [0]
         try:
             for step in steps:
                 # A step whose own REQUIRED dependency actually ran (or

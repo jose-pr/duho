@@ -247,6 +247,8 @@ PEP-604 ``|`` operator (``typing.Union``/``Optional`` instead), so the module an
 any ``RunPathCmd`` parser build cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import fnmatch as _fnmatch
 import heapq as _heapq
 import inspect as _inspect
@@ -312,7 +314,7 @@ __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
 #: the behavior every RunPath app had before this existed. Configurable via
 #: :func:`register`'s ``step_adapter=`` -- set once per process/app, like
 #: :data:`_BASE`, since every RunPath command in one app shares it.
-_ADAPTER: "_ty.Optional[_ty.Callable[..., object]]" = None
+_ADAPTER: _ty.Optional[_ty.Callable[..., object]] = None
 
 
 # --------------------------------------------------------------------------
@@ -334,7 +336,7 @@ _ADAPTER: "_ty.Optional[_ty.Callable[..., object]]" = None
 #: shared root class (its own ``LoggingArgs`` subclass, or something else
 #: entirely) gets that inherited too -- set once per process/app, not
 #: per-directory (every RunPath command in one app shares one base).
-_BASE: "type" = _presets.LoggingArgs
+_BASE: type = _presets.LoggingArgs
 
 #: Attrs that only make sense on an app ROOT (``Cli``'s own sandwich-named
 #: config attrs), masked back to a neutral default on every built RunPathCmd
@@ -343,7 +345,7 @@ _BASE: "type" = _presets.LoggingArgs
 #: turning ``myapp rc`` into "pick a nested subcommand" or adding an
 #: unintended ``--version`` flag. ``base`` is meant to share a root's
 #: METHODS, never its app-level identity.
-_MASKED_ROOT_ATTRS: "_ty.Dict[str, object]" = {
+_MASKED_ROOT_ATTRS: _ty.Dict[str, object] = {
     "_subcommands_": None,
     "_version_": None,
     "_completion_": False,
@@ -352,7 +354,7 @@ _MASKED_ROOT_ATTRS: "_ty.Dict[str, object]" = {
 }
 
 
-def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
+def _build_runpath_command(path: _Path, qualname: str) -> type[RunPathCmd]:
     """Provider builder: make a per-directory :class:`RunPathCmd` subclass.
 
     Binds the resolved directory and a subcommand name (the directory's basename,
@@ -373,7 +375,7 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
     """
     directory = _Path(path)
     name = directory.name.replace("_", "-")
-    namespace: "dict[str, object]" = {
+    namespace: dict[str, object] = {
         "_runpath_dir_": directory,
         "_parsername_": name,
         "__doc__": "Run the %s step directory." % name,
@@ -392,12 +394,12 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
 
 #: Records the exact (predicate, builder) pair this module registered, so
 #: :func:`unregister` removes *ours* specifically (not merely the newest provider).
-_REGISTERED: "_ty.Optional[_ty.Tuple[_ty.Callable, _ty.Callable]]" = None
+_REGISTERED: _ty.Optional[_ty.Tuple[_ty.Callable, _ty.Callable]] = None
 
 
 def register(
-    base: "_ty.Optional[type]" = None,
-    step_adapter: "_ty.Any" = _KEEP,
+    base: _ty.Optional[type] = None,
+    step_adapter: _ty.Any = _KEEP,
 ) -> None:
     """Register the RunPath command provider (idempotent).
 

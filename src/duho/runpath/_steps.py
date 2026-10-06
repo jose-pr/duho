@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect as _inspect
 import logging as _logging
 import re as _re
@@ -11,7 +13,7 @@ _STRICT_TOKEN = "strict"
 def _strict_or_warn(
     message: str,
     strict: bool,
-    logger: "_logging.Logger",
+    logger: _logging.Logger,
     warn_suffix: str = "",
 ) -> None:
     """Raise ``ValueError(message)`` if ``strict``, else log it as a warning.
@@ -89,11 +91,11 @@ class _Step:
         self,
         name: str,
         priority: int,
-        required: "_ty.Sequence[str]",
-        entrypoint: "_ty.Callable[..., object]",
-        before: "_ty.Sequence[str]" = (),
-        after: "_ty.Sequence[str]" = (),
-        opts: "_ty.Optional[_Opts]" = None,
+        required: _ty.Sequence[str],
+        entrypoint: _ty.Callable[..., object],
+        before: _ty.Sequence[str] = (),
+        after: _ty.Sequence[str] = (),
+        opts: _ty.Optional[_Opts] = None,
     ) -> None:
         self.name = name
         self.priority = priority
@@ -128,7 +130,7 @@ class _Step:
 _TOKEN_SEPARATORS = ":;"
 
 
-def _split_tokens(text: str) -> "_ty.List[str]":
+def _split_tokens(text: str) -> _ty.List[str]:
     """Split ``text`` on each ``:``/``;`` character (see :data:`_TOKEN_SEPARATORS`).
 
     A doubled separator (``"a::b"``) yields an empty-string token between
@@ -170,16 +172,16 @@ class _Opts:
 
     def __init__(
         self,
-        strict: "_ty.Optional[bool]" = None,
-        enabled: "_ty.Optional[bool]" = None,
-        extra: "_ty.Optional[_ty.Dict[str, _ty.Union[bool, str]]]" = None,
+        strict: _ty.Optional[bool] = None,
+        enabled: _ty.Optional[bool] = None,
+        extra: _ty.Optional[_ty.Dict[str, _ty.Union[bool, str]]] = None,
     ) -> None:
         self.strict = strict
         self.enabled = enabled
         self.extra = dict(extra or {})
 
     @classmethod
-    def parse(cls, tokens: "_ty.Sequence[str]") -> "_Opts":
+    def parse(cls, tokens: _ty.Sequence[str]) -> _Opts:
         """Parse token strings (``key``/``!key``/``key=value``) into an :class:`_Opts`.
 
         ``strict``/``enabled`` stay ``None`` unless the matching token is
@@ -187,9 +189,9 @@ class _Opts:
         filename folds ``strict=None`` to ``True``; a ``--rcopts`` pattern
         keeps it ``None`` to mean "no override").
         """
-        strict: "_ty.Optional[bool]" = None
-        enabled: "_ty.Optional[bool]" = None
-        extra: "dict[str, _ty.Union[bool, str]]" = {}
+        strict: _ty.Optional[bool] = None
+        enabled: _ty.Optional[bool] = None
+        extra: dict[str, _ty.Union[bool, str]] = {}
         for raw in tokens:
             token = raw.strip()
             if not token:
@@ -216,7 +218,7 @@ class _Opts:
         return cls(strict=strict, enabled=enabled, extra=extra)
 
 
-def _parse_file_modifiers(stem: str) -> "_ty.Tuple[str, _Opts]":
+def _parse_file_modifiers(stem: str) -> _ty.Tuple[str, _Opts]:
     """Strip filename modifiers from ``stem``; return ``(clean_stem, _Opts)``.
 
     Must run BEFORE :func:`_parse_step_filename`'s ``NN-name`` split, so
@@ -248,7 +250,7 @@ def _parse_file_modifiers(stem: str) -> "_ty.Tuple[str, _Opts]":
     return name, _Opts(strict=strict, enabled=enabled, extra=opts.extra)
 
 
-def _parse_step_filename(stem: str) -> "_ty.Optional[_ty.Tuple[int, str]]":
+def _parse_step_filename(stem: str) -> _ty.Optional[_ty.Tuple[int, str]]:
     """Parse a ``NN-name`` file stem into ``(NN, name)``, or None if not a step.
 
     A step file is ``<digits>-<name>.py``. The leading run of digits is the

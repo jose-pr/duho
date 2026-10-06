@@ -35,13 +35,13 @@ duho has no required runtime dependencies. Each extra adds one optional integrat
 
 | Extra | Install | Adds |
 | --- | --- | --- |
-| `colorama` | `pip install duho[colorama]` | Named log colors (`color="red"`) and ANSI rendering on a legacy Windows console; log color itself needs no extra |
-| `config` | `pip install duho[config]` | `tomli`, to read TOML config files on Python 3.9 and 3.10 (3.11+ has `tomllib`); JSON config needs nothing |
+| `colorama` | `pip install duho[colorama]` | `colorama>=0.4.6,<0.5`: named log colors (`color="red"`) and ANSI rendering on a legacy Windows console; log color itself needs no extra |
+| `config` | `pip install duho[config]` | `tomli>=2.0,<3` on Python below 3.11, to read TOML config files on 3.9 and 3.10 (3.11+ has `tomllib`); JSON config needs nothing |
 
 ### Optional Dependencies
 
-Colored logging works out of the box (gated on a TTY / `NO_COLOR` / `FORCE_COLOR`,
-raw ANSI codes, no dependency required). `colorama` is only needed to resolve a
+Colored logging works out of the box (gated on a TTY / `NO_COLOR` / `FORCE_COLOR` /
+`TERM=dumb`, raw ANSI codes, no dependency required). `colorama` is only needed to resolve a
 *named* color (e.g. `color="red"` on `duho.add_logging_level`) and to patch a
 legacy Windows console so it renders ANSI codes instead of showing them literally:
 
@@ -53,6 +53,7 @@ pip install duho[colorama]
 
 <!-- runnable: commands -->
 ```python
+import duho
 from duho import Args
 
 class MyApp(Args):
@@ -63,8 +64,7 @@ class MyApp(Args):
     "How many times to greet"
 
 if __name__ == "__main__":
-    parser = MyApp._parser_()
-    args = parser.parse_args()
+    args = duho.parse(MyApp)
     for _ in range(args.count):
         print(f"Hello, {args.name}!")
 ```
@@ -214,7 +214,7 @@ modules are imported by name. The full reference is on the
 
 | Module | Purpose |
 | --- | --- |
-| `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`NS`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `value_sources`, `utf8_stdio`, `AUTO` |
+| `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`NS`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `subcommand`, `value_sources`, `parse_bool`, `utf8_stdio`, `AUTO` |
 | `duho.discovery` | `discover_commands`, `discover_entry_points`, `CmdBuilder`, `ModuleCommand`, `register_command_provider` |
 | `duho.env` | `Env`, the prefixed, typed environment accessor |
 | `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
@@ -226,6 +226,7 @@ modules are imported by name. The full reference is on the
 | `duho.qualname` | Dotted-name algebra for command qualified names |
 | `duho.parsers` | Subparser helpers (`pop_action`, `find_subparsers`, `command_name`, ...) |
 | `duho.fanout` | Opt-in: run one command against many targets and roll up the exit codes |
+| `duho.testing` | Opt-in: `invoke`, run a command line in-process and get its status and output |
 | `duho.runpath` | Opt-in: ordered `NN-name.py` step directories as one command |
 | `duho.scaffold` | Opt-in: generate run-from-checkout launchers |
 | `duho.mcp` | Opt-in: expose a CLI as MCP tools |
@@ -298,7 +299,7 @@ class Copy(Args):
 | --- | --- |
 | `str`, `int`, `float`, `bool` | Direct conversion; `bool` gets `store_true` or `--flag`/`--no-flag` (see above) |
 | `typing.Literal["a", "b"]` | `choices=("a", "b")`; mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips |
-| `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`) |
+| `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`). `Meta(enum_by="value")` matches the members' value text instead |
 | `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — via `action="extend", nargs=None`. As a POSITIONAL: variadic (`nargs="*"`, space-separated: `a b c`). Bare `list` elements are `str`; default is `[]` when no explicit default is given. Pass an explicit `NS(nargs="*")` to opt an OPTION back into space-separated multi-value |
 | `set` / `set[T]` | Same option-vs-positional split as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
 | `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same option-vs-positional split as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
@@ -379,7 +380,7 @@ typo as a phantom positional value.
 Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `NS(...)`
 (an `argparse.Namespace`) is the untyped form; `duho.Meta` is the typed,
 typo-safe form — a dataclass whose unknown keyword is a `TypeError`
-(`NS(hlep=...)` would silently vanish) raised as soon as the annotation is
+(`NS(hlep=...)` is ignored, with a logged warning) raised as soon as the annotation is
 evaluated: at class-definition time on Python 3.9-3.13 with eager
 annotations, or at first parser build on 3.14+ (PEP 649), under string
 annotations, or with `from __future__ import annotations`:
@@ -394,12 +395,51 @@ class App(Args):
 
 `Meta` accepts every field `NS` does EXCEPT `dest` (`help`, `env`, `conflicts`,
 `conflicts_required`, `group`, `action`, `nargs`, `const`, `default`, `choices`,
-`metavar`, `required`, `type`, `version`, `flags`, `kwargs`) and only merges the
-fields you set. A field's `dest` is always its declared name — there is no
+`metavar`, `required`, `type`, `version`, `flags`, `kwargs`, `enum_by`,
+`literal_value`) and only merges the fields you set. A field's `dest` is always its declared name — there is no
 `dest=` override on `Meta`, so `Meta(dest=...)` is a `TypeError` at
 class-definition time instead of `NS(dest=...)`'s silently-ignored value.
 `NS` keeps working forever. Any metadata object exposing a str
 `.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
+
+**Misdeclaration warnings.** Two mistakes that would otherwise do nothing are logged
+once as a WARNING on the `duho.args` logger when the parser is built; neither is an
+error. An `NS(...)` key that is not a `Meta` field is ignored with
+`App.port: NS(hlep=...) is not a Meta field and is ignored; closest Meta field:
+'help'`; `dest` is such a key, since a field's `dest` is always its own name. And a
+sandwich attribute on a command class that duho does not read but whose spelling is
+a near-miss of one it does (`_verison_` for `_version_`) logs `App declares
+'_verison_', which duho does not read; did you mean '_version_'?`. An attribute of
+your own that only extends a known name (`_config_dir_`) is not reported.
+
+**A converter's own message.** With `NS(type=parse_port)` (or `Meta(type=...)`), a
+`ValueError`/`TypeError` your converter raises with a non-empty message becomes the
+usage error: `app: error: argument --port: port must be 1..65535`. A builtin,
+duho's own factories, an empty message and `argparse.ArgumentTypeError` keep
+argparse's text, and a bad env or config value never echoes the value or the
+message. This covers an explicit `type=`, not an annotation such as `port: SomeClass`.
+
+**Matching an Enum by value.** `Meta(enum_by="value")` matches the text against
+`str(member.value)` on the command line, in env and in config, and `--help`, error
+text and completion list the values; the parsed field is still the member. It
+applies to `Enum`, `Optional[Enum]` and collection elements, not to a `Literal` of
+members. Members whose value text collides raise `ValueError` at build time.
+
+```python
+class Mode(enum.Enum):
+    FAST = "f"
+    SLOW = "s"
+
+class App(duho.Cmd):
+    mode: Arg[Mode, Meta(enum_by="value")] = Mode.FAST   # --mode {f,s}
+```
+
+**An option value that looks like `--`.** `Meta(literal_value=True)` on an option
+that takes exactly one value makes the token after the flag always its value, so
+`--k --` gives `k == "--"` and `--k -x -- tail` gives `k == "-x"` with `tail` still
+the passthrough. A flag, a variable-arity option or a positional with it raises
+`ValueError` at build time. Not joined: an abbreviated long flag (`--ka` for
+`--k...`) and a short flag inside a cluster (`-vk -x`).
 
 #### Mutually exclusive options
 
@@ -478,7 +518,7 @@ unchanged unless you ask):
 | Formatter | Effect |
 | --- | --- |
 | `duho.DefaultsFormatter` | Appends `(default: X)` to each option's help — but skips the noise of `None`/`""`/`False` defaults (unlike argparse's own `ArgumentDefaultsHelpFormatter`) |
-| `duho.ColorHelpFormatter` | ANSI-colors section headings and option flags, **gated** on a TTY (honors `NO_COLOR`; `FORCE_COLOR` forces it on). When color is off the output is byte-identical to the default, so piping stays clean |
+| `duho.ColorHelpFormatter` | ANSI-colors section headings and option flags, **gated** on a TTY (honors `NO_COLOR` and `TERM=dumb`; `FORCE_COLOR` forces it on). When color is off the output is byte-identical to the default, so piping stays clean |
 | `duho.ColorDefaultsFormatter` | Both composed |
 
 ```python
@@ -728,7 +768,11 @@ assert base.dry_run is False             # base is untouched
 
 Precedence: **CLI args > instance field values > class defaults**. This also
 means a required field with no class default becomes effectively optional
-for that call if the instance already supplies a value.
+for that call if the instance already supplies a value. A field counts as set when
+it was passed to the constructor or changed since, whether by assignment or by
+mutating its value in place (`base.tags.append("x")`). A directly built instance
+carries every field that has a default; a field with no default stays unset on it
+until you assign one.
 
 #### Parsing only the globals (config before commands)
 
@@ -748,14 +792,18 @@ assert globals_only.config == "prod.toml"   # resolved without validating "deplo
 A missing subcommand does not error, and an unknown trailing token (a not-yet-
 loaded subcommand name and its args) does not crash the parse — it is simply
 ignored in this pass. `parse_globals` returns the parsed root instance (globals
-only); it is the public form of the prepass `duho.app` runs internally. Pass any
+only); it is the public form of the prepass `duho.app` runs internally. On a root's
+static `_subcommands_` tree only options written before the subcommand name count as
+globals: an option after the name (even one spelled like a prefix of a root option)
+belongs to the subcommand. Pass any
 `cls._parser_` keyword through it (e.g. `add_help=False`). If you also want the
 leftover argv, call `parser.parse_known_args` directly instead.
 
 #### Configuration layers
 
-Beyond instance overrides, `duho.parse`/`duho.main` support two more default
-layers: per-field environment variables and a TOML config file. Combined
+Beyond instance overrides, two more default layers apply at every entry point
+(`duho.parse`, `duho.main`, `duho.parse_globals`, `duho.app` and a parser from
+`duho.parser(cls)`): per-field environment variables and a config file. Combined
 precedence ladder, highest wins:
 
 ```
@@ -805,6 +853,11 @@ duho[config]`) — duho stays zero-runtime-dependency by default, so this
 extra is only needed if you actually use `_config_`/`config=` on an older
 interpreter.
 
+**A malformed config file** (invalid JSON or TOML, a TOML file with no TOML reader
+installed, or a file whose top level is not a table/object) is a usage error naming
+the file, exit status 2, under `main`, `parse` and `app` alike; `--help` and
+`--version` still work.
+
 **JSON config**: a config path ending in `.json` is parsed as JSON (stdlib, no
 extra dependency), producing the same nested-dict shape as TOML — top-level keys
 map to the root, a nested object named for a subcommand maps to that subcommand:
@@ -827,9 +880,34 @@ class Deploy(duho.Cli):
     _config_loader_ = staticmethod(lambda path: yaml.safe_load(path.read_text()) or {})
 ```
 
+An exception your loader raises propagates to the caller unchanged, so the
+application reports it its own way; a loader that returns something that is not a
+mapping is a usage error naming the file.
+
+**Choosing the config file at run time.** Beyond `_config_` and `config=`, the root
+can name where the path comes from: `_config_env_ = "MYAPP_CONFIG"` reads it from
+that environment variable, and `_config_field_ = "config"` reads it from the field of
+that name when the user gave it on the command line or through the field's own env
+var. Highest first: an explicit `config=` argument, the `_config_field_` field, the
+`_config_env_` variable, then `_config_`. A path chosen by the field or the variable
+must exist (a missing file raises `FileNotFoundError`), unlike a `_config_` that does
+not exist yet. A `_config_field_` naming no declared field is a `ValueError` naming
+the class. Neither is applied to a tree served over MCP.
+
+```python
+class Tool(duho.Cmd):
+    _config_env_ = "MYAPP_CONFIG"
+    _config_field_ = "config"
+
+    config: Optional[str] = None
+    "Config file (else $MYAPP_CONFIG)"
+```
+
 **Env/config value conversion.** Layered values are converted to match what CLI
 parsing of the same field yields. A `bool` field reads `1/true/yes/on/y/t` as
-`True` and `0/false/no/off/n/f`/empty as `False` (an unknown string is an error).
+`True` and `0/false/no/off/n/f`/empty as `False` (an unknown string is an error);
+`duho.parse_bool(text)` applies the same rule to any string, and `duho.text.BOOL_TRUE` and
+`BOOL_FALSE` are the token tables.
 A **collection** field (`list`/`set`/`tuple`) treats an env var or a TOML
 *string* as a **single element** (`FILES=a.txt` → `["a.txt"]`, matching one CLI
 occurrence), while a TOML **array** converts element-wise. Non-string TOML scalars
@@ -887,6 +965,13 @@ opposite directions and can be combined (e.g. `-vv -q` nets one step more verbos
 than the default); each end of the scale (`CRITICAL`/`TRACE`) clamps rather than
 wrapping or erroring.
 
+`-v`/`-q` step through the registered levels from `_base_loglevel_` on the
+`LoggingArgs` root (default `logging.INFO`): a level number or the name of a
+registered level, anything else a `ValueError` at dispatch. With
+`_base_loglevel_ = logging.WARNING`, `-v` gives `INFO` and `-vv` gives `DEBUG`. A plain
+`Cmd` leaf under that root uses the root's value; a command that overrides
+`_verbose_loglevel_` still wins.
+
 #### Shell completion
 
 Generate a self-contained bash/zsh/fish/PowerShell completion script from your
@@ -930,6 +1015,12 @@ duho.print_completion(MyApp, "bash", file=sys.stdout, prog="myapp")
 binds to; by default it is the application's name, so the script is the same
 whether it is generated from the app itself or from a separate build script.
 Pass `prog=` when the command users type differs from that name.
+
+A third way is a subcommand: `_completion_command_ = True` on a `Cli` root
+registers `completion` (a string names it instead), which takes the shell as its one
+argument and prints that shell's script to stdout (`myapp completion fish`). It
+needs another subcommand and a free name (else `ValueError`), is never an MCP tool,
+and works under both `duho.main` and `duho.app`; `--print-completion` is unchanged.
 
 Both paths walk the built parser tree, including nested `_subcommands_`:
 `Literal`/`Enum` fields offer their choices as completion candidates, and
@@ -997,7 +1088,10 @@ when the value actually came from an env var or a config file, a value-free
 provenance note in its place: `"default_source": "env DEPLOY_TOKEN"` in the
 JSON document, `(from env DEPLOY_TOKEN)` appended to the option's help in
 human `--help`. This covers a module command's own env/config-bound fields
-too, not just declarative ones.
+too, not just declarative ones. A default is published (agent help,
+MCP tool list) only for fields declared with duho; an option a module command's
+`register` hook adds to the parser directly carries none, so a value such a hook reads
+from the environment is never exposed.
 
 #### Manual subparsers
 
@@ -1154,9 +1248,29 @@ Each `@MyApp.subcommand` appends the class to `MyApp`'s **own** subcommand list
 (materialized copy-on-write, so two `Cli` subclasses never cross-contaminate and a
 parent's list is never mutated by a subclass). It composes with a
 statically-declared `_subcommands_` (union + dedup — a child listed both ways
-appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form. Once the
+appears once). `MyApp._register_subcmd_(Deploy)` is the non-decorator form, and
+`@duho.subcommand(parent)` is the decorator for any `Cmd` group, not only a `Cli`
+(`@duho.subcommand(Tools)` on `class Build(duho.Cmd)`). Once the
 command files are imported, `duho.main(MyApp)` sees the full tree (use `duho.app` if
 you also want discovery/config/env — see [main vs app](https://github.com/jose-pr/duho/#run-your-app)).
+
+#### A default subcommand: `_default_subcommand_`
+
+A group can name the subcommand to use when the user leaves it out. With
+`_default_subcommand_ = "resolve"`, `tool -v bob` runs `tool -v resolve bob`: duho
+skips the group's own options (and one value for an option that takes one) and, if
+the first other token is not a subcommand name or alias, inserts the default name
+before it. The subcommand stays required when there is no such token, and when a
+`--`, an unregistered option, a variable-arity option or a missing value comes first,
+so `tool --unknown bob` is still an error. An unknown name, or the attribute on a
+class with no subcommands, raises `ValueError` naming the class when the parser is
+built. It works on a nested group too.
+
+```python
+class Tool(duho.Cli):
+    _default_subcommand_ = "resolve"
+    _subcommands_ = [Resolve, Fetch]
+```
 
 #### App-wide config & env with `duho.app`
 
@@ -1235,6 +1349,20 @@ list(duho.expand("x[1-2]y[1-2]"))   # multiple ranges -> cartesian product
 # ['x1y1', 'x2y1', 'x1y2', 'x2y2']
 ```
 
+A `:spec` suffix inside the brackets is a `str.format` spec applied to each member,
+which is how to pad:
+
+<!-- runnable -->
+```python
+import duho
+
+list(duho.expand("host[1-3:02d]"))
+# ['host01', 'host02', 'host03']
+```
+
+A spec containing braces, or one a member rejects (`rack[A-C:02d]`), raises
+`ValueError`.
+
 Companion helpers `duho.pysafe` (coerce text to a Python-safe dotted identifier),
 `duho.snakecase`/`duho.camelcase`/`duho.kebabcase` (case conversion — `kebabcase`
 is acronym-aware and is the rule behind a class-derived command name and a
@@ -1303,6 +1431,47 @@ dependency → `ImportError`) or isn't actually a command (`NotImplementedError`
 logged with a warning and skipped, so one broken command never takes down the rest.
 A genuine bug in a command file (e.g. a `SyntaxError`) is *not* swallowed — it
 surfaces so you can fix it.
+
+**Several sources, your own error policy.** `source=` (and `discover_commands`)
+takes a list or tuple: each source is discovered on its own, a command of the same
+name in a later source replaces the earlier, and the result is sorted by name.
+`on_error(source, exc)` replaces the rule above: it is called for any exception
+(`SystemExit` too) raised importing one file (`source` is its `Path`), importing a
+package module (the dotted name), or building a command; returning skips it,
+raising aborts. `duho.app` hands the same `on_error` to discovery and also calls it,
+with `(command, exc)`, when building one command's parser or running its `register`
+hook fails; that command is dropped. `providers=True` also offers the source
+directory and each of its child directories (not starting `_` or `.`) to the
+registered command providers, off by default.
+
+```python
+raise SystemExit(duho.app(CLI, source=[BASE, SITE],
+                          on_error=lambda source, exc: log.warning("skipped %s", source)))
+```
+
+**Module-command entrypoints.** `ModuleCommand.entrypoint` is the resolved
+callable. `duho.app(adapter=...)` (and `duho.run_command(adapter=...)`) calls
+`adapter(entrypoint)` and runs what it returns, with the parsed instance, in place of
+the entrypoint, so an app can accept entrypoint signatures of its own; a falsy
+return keeps the entrypoint, and it is never applied to `init`/`success`/`finally_`
+or to a class command. Combining `adapter=` with `dispatch=` raises `ValueError`;
+a custom `dispatch` passes `adapter` to `run_command` itself.
+`duho.runtime.accepts_positional(func, count)` reports whether `func` takes at least
+`count` positional parameters, for adapting by arity.
+
+**What gets scanned.** A bare string source that names a directory without
+`__init__.py` is scanned like a path, as loose files that may import each other. The
+directory is appended to `sys.path` only during the scan, so a command file named
+like an installed module does not shadow it for its siblings (the installed module
+wins). A launcher script that lives in the scanned directory is not registered as a
+command, and a file with an upper-case `.PY` suffix is ignored. A module whose `main`
+is a decorator-wrapped function defined elsewhere is not a command; discovery logs a
+warning on `duho.discovery` naming it, and listing the name in the module's
+`__all__` accepts it.
+
+**No commands.** When nothing resolves (no `commands=`, `source=`, `entry_points=`,
+`CMDS_PATH` or root `_subcommands_`), `duho.app` runs the root if it is a `Cmd`, and
+otherwise exits 2 with a "no commands are available" message.
 
 #### Plugins via entry points
 
@@ -1640,13 +1809,21 @@ lifecycle hooks read off `args._logger_`. A `*args` hook is treated as
 3-arg-capable; anything whose signature can't be introspected falls back to the
 2-arg call.
 
+The `args` a `register` hook receives is the root instance parsed with its
+required options treated as optional (a missing one is unset or its default), or the
+root's defaults instance when a global fails to convert; the real parse still
+enforces the required options.
+
 Every subcommand parser is built with **parent-arg inheritance** — the root
 command's global options (verbosity, etc.) appear on each subcommand automatically
 via argparse `parents=`. For a command reached through `commands=`/`source=`/`entry_points=`,
 `myapp -v deploy` and `myapp deploy -v` both work; a root's own static
 `_subcommands_` tree accepts a global only before the subcommand name
 (`myapp -v deploy`).
-A global given on both sides of the subcommand name does not merge: the later
+A required root option on a static tree takes its value before the subcommand
+name: after the name the root still reports it missing, and a value given before the
+name satisfies a subcommand that inherits the option. A global given on both sides of
+the subcommand name does not merge: the later
 one wins. For a counting option that means `myapp -v deploy -v` is verbosity 1,
 not 2; write `-vv` on one side to count both.
 
@@ -1680,6 +1857,11 @@ accept a value starting with `-`. So a value that genuinely needs to start
 with `-` (the POSIX `rm -- -oddfile.txt` idiom) cannot be given after a `--`
 to a duho command; it is captured into `_passthrough_` instead, read or not.
 
+A command that has no use for a tail can refuse one: `_allow_passthrough_ = False`
+makes a non-empty tail after `--` a usage error naming the command (exit 2), while no
+tail, or a bare `--`, still parses. It is read from the command the parse selects, so
+a subcommand sets its own.
+
 ### Target fan-out (`duho.fanout`, opt-in)
 
 duho dispatches **one** command per run by design. When you need to run that one
@@ -1687,7 +1869,7 @@ command against a list of targets (hosts, environments, datasets) and roll their
 exit codes into one, `import duho.fanout` — an opt-in, stdlib-only helper (core
 never imports it, and it stays off the top-level `duho.*` surface).
 
-`run_targets(func, targets, *, max_workers=None, aggregate=<worst-by-magnitude>, logger=None)` runs `func(target)`
+`run_targets(func, targets, *, max_workers=None, aggregate=<worst-by-magnitude>, logger=None, label=None)` runs `func(target)`
 for each target concurrently on a thread pool and returns an aggregated exit code
 (`None` → `0`, an int as-is, an unhandled exception → logged and treated as `1` so
 one failing target never aborts the rest; codes reduced to the worst by magnitude —
@@ -1695,6 +1877,9 @@ one failing target never aborts the rest; codes reduced to the worst by magnitud
 signal) is not hidden by a succeeding target as `max` would hide it). Log lines a target emits while it runs are tagged with a `[<target>]`
 prefix so interleaved concurrent output stays attributable; the prefixing filter is
 installed on your existing stderr handler for the duration and removed afterwards.
+`label=` is a callable giving the prefix text for a target in place of `str(target)`
+(`label=lambda host: host.name`); `func` still receives the target itself, and a
+`label` that raises fails only that target (code 1).
 
 <!-- runnable -->
 ```python
@@ -1858,12 +2043,19 @@ a runnable app plus a note on wiring it into an MCP client.
 
 #### Serving a full `duho.app()` tree
 
-`describe_tools`/`call_tool`/`serve` also accept a `duho.app()`-built tree — class
-AND module commands, from discovered files, `CMDS_PATH`, entry points, or an
-explicit `commands=` list — not just a class's static `_subcommands_`. A module
-command with its own declared `Args` (or none at all) is listed **and callable**,
-exactly like a class command, through the same one dispatch path and the same
-security checks.
+A `duho.app()`-built tree — class AND module commands, from discovered files,
+`CMDS_PATH`, entry points, or an explicit `commands=` list — is served too, not just a
+class's static `_subcommands_`. That happens through the launch variable or the
+`_mcp_command_` subcommand below, which hand the server the tree `app()` built; the
+server core they pass is internal and is not something to construct yourself (pass
+`describe_tools`/`call_tool`/`serve` a `Cmd`/`Cli` class). A module command with its
+own declared `Args` (or none at all) is listed **and callable**, exactly like a class
+command, through the same one dispatch path and the same security checks.
+
+A module command whose `register` hook adds its own subparsers is listed as one tool
+and can be called: choose the subparser through a property named after the subparsers'
+`dest`. The hand-made subparsers are not tools of their own, and their own options are
+not served.
 
 #### Launching a server from the CLI itself
 
@@ -1884,7 +2076,9 @@ else, the process exits `2` naming the unsupported transport. The variable is
 always removed from `os.environ` the moment it's seen — present or not — so a
 served command's own child processes never inherit it. This is **on by default**;
 disable it with a root class attribute `_mcp_ = False` (on a `Cli`) or
-`app(..., mcp=False)`.
+`app(..., mcp=False)`. The variable takes over stdio before the app is built, so anything printed while
+commands are discovered or registered (module imports, `register` hooks) goes to
+stderr, not the protocol stream.
 
 Prefer a real subcommand instead of an env var? `duho.mcp.McpCmd` is a ready `Cmd`
 (`--transport {stdio}`) that serves the CLI it was dispatched from — register it
@@ -1905,7 +2099,9 @@ $ myapp mcp
 no such kwarg — it always reads `_mcp_command_` directly). Either entry point
 requires the app to already have at least one OTHER subcommand, and a chosen name
 that collides with an existing command/alias is a build-time error — both checked
-before anything is registered, never silently swallowed.
+before anything is registered, never silently swallowed. With the subcommand the app is already
+built when the server starts, so output printed during that build reaches stdout ahead
+of the first reply.
 
 #### Naming and identity
 
@@ -1962,6 +2158,34 @@ def main(args=None):
 meaning (the launch-trigger opt-out above) — it is never treated as this
 per-command exclusion, and `duho.mcp.McpCmd`'s own registered subcommand is always
 excluded regardless of this attribute.
+
+### Testing a command line (`duho.testing`, opt-in)
+
+`duho.testing.invoke(root, argv=(), *, env=None, stdin=None, **app_kwargs)` runs a
+command line in-process and returns `Result(status, stdout, stderr)`. With no
+`app_kwargs` it is `duho.main(root, argv)`; with any (`source=`, `name=`, ...) it is
+`duho.app(root, argv=argv, **app_kwargs)`. `SystemExit` becomes `status` (`None` is
+0; text passed to it goes to `stderr` and the status is 1), a returned `None` is 0,
+`env` is applied to `os.environ` for the call and restored, `stdin` is the text the
+command reads, and any other exception propagates.
+
+<!-- runnable -->
+```python
+import duho
+from duho.testing import invoke
+
+class Greet(duho.Cmd):
+    name: str = "world"
+    "Who to greet"
+
+    def __call__(self):
+        print(f"hello {self.name}")
+        return 3
+
+result = invoke(Greet, ["--name", "x"])
+assert (result.status, result.stdout) == (3, "hello x\n")
+assert invoke(Greet, ["--nope"]).status == 2
+```
 
 ### Examples
 

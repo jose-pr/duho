@@ -129,6 +129,13 @@ def test_module_command_with_declared_args_is_callable_over_mcp(tmp_path):
     assert "hello DUHO" in result["content"][0]["text"]
 
 
+def test_module_command_option_accepts_double_dash_value(tmp_path):
+    core = _build(tmp_path)
+    result = call_tool(core, "root.greet", {"name": "--"})
+    assert result.get("isError") is not True
+    assert "hello --" in result["content"][0]["text"]
+
+
 def test_module_command_without_fields_is_callable_over_mcp(tmp_path):
     core = _build(tmp_path)
     result = call_tool(core, "root.ping", {})

@@ -95,10 +95,11 @@ the tool's description text (no ``oneOf``/``not`` JSON Schema encoding yet); a
 field that defaults to ``True`` and declares only short flags (no long flag)
 cannot be turned back to ``False`` over MCP (there is no ``--no-<x>`` form to
 emit) and raises rather than silently doing the wrong thing; a value equal to
-the literal string ``"--"`` given AS a declared field's value is refused
-(argparse's own ``--`` end-of-options marker, and duho's own
-``_passthrough_`` split, make it unsafe to smuggle through a normal field --
-use the dedicated ``"--"`` array property instead, see :func:`_input_schema_for_node`);
+the literal string ``"--"`` is refused as a positional value and for a field
+with only a short flag (argparse's own ``--`` end-of-options marker, and duho's
+own ``_passthrough_`` split, make it unsafe there -- use the dedicated ``"--"``
+array property instead, see :func:`_input_schema_for_node`); it is accepted as
+a long-flag option value;
 streaming/long-running commands are out of scope -- this is strictly one
 request -> one result.
 
@@ -1205,27 +1206,26 @@ def _reject_unsafe_positional(
         )
 
 
-def _reject_unsafe_value(token: str, flag: str) -> None:
-    """Refuse a value equal to the literal string ``"--"``: some argparse
-    versions strip a bare ``--`` from an attached ``--flag=--`` value. Same
-    request-level classification as :func:`_reject_unsafe_positional` (see
-    its docstring) -- raises :class:`InvalidArgumentsError`, not a bare
-    ``ValueError``."""
-    if token == "--":
-        raise InvalidArgumentsError(
-            "value '--' cannot be passed to %s (argparse may strip a bare "
-            "'--' from an attached option value)" % (flag,)
-        )
-
-
-def _emit_option(argv: "list[str]", flag: str, is_long: bool, token: str) -> None:
+def _emit_option(
+    argv: "list[str]",
+    flag: str,
+    is_long: bool,
+    token: str,
+    parser: "_argparse.ArgumentParser",
+) -> None:
     """Append one option occurrence for ``token``: a long flag is
     always attached with ``=`` so argparse never reinterprets the value; a
     short-flag-only field refuses a value that looks like another option
     (there is no safe attached form for a short flag) -- also an
     :class:`InvalidArgumentsError`, the same request-level classification as
-    :func:`_reject_unsafe_positional`."""
-    _reject_unsafe_value(token, flag)
+    :func:`_reject_unsafe_positional`. The literal value ``"--"`` is attached
+    like any other, but only when ``parser`` keeps it (every parser duho
+    builds does); an unpatched parser could silently drop it, so it is refused."""
+    if token == "--" and not getattr(parser, "_duho_keeps_double_dash_", False):
+        raise InvalidArgumentsError(
+            "value '--' cannot be passed to %s: its parser was not built by "
+            "duho and may drop an attached '--' value" % (flag,)
+        )
     if is_long:
         argv.append("%s=%s" % (flag, token))
         return
@@ -1447,7 +1447,7 @@ def _synthesize_argv(
                     _reject_unsafe_positional(token, parser, forbidden=forbidden)
                     argv.append(token)
                 else:
-                    _emit_option(argv, flag, is_long, token)
+                    _emit_option(argv, flag, is_long, token, parser)
             continue
 
         if builder.collection in (list, set, tuple):
@@ -1459,7 +1459,7 @@ def _synthesize_argv(
                     _reject_unsafe_positional(token, parser, forbidden=forbidden)
                     argv.append(token)
                 else:
-                    _emit_option(argv, flag, is_long, token)
+                    _emit_option(argv, flag, is_long, token, parser)
             continue
 
         token = str(value)
@@ -1467,7 +1467,7 @@ def _synthesize_argv(
             _reject_unsafe_positional(token, parser, forbidden=forbidden)
             argv.append(token)
         else:
-            _emit_option(argv, flag, is_long, token)
+            _emit_option(argv, flag, is_long, token, parser)
     return argv
 
 
@@ -1528,7 +1528,7 @@ def _synthesize_argv_from_actions(
                     _reject_unsafe_positional(token, parser, forbidden=forbidden)
                     argv.append(token)
                 else:
-                    _emit_option(argv, flag, is_long, token)
+                    _emit_option(argv, flag, is_long, token, parser)
             continue
 
         token = str(value)
@@ -1536,7 +1536,7 @@ def _synthesize_argv_from_actions(
             _reject_unsafe_positional(token, parser, forbidden=forbidden)
             argv.append(token)
         else:
-            _emit_option(argv, flag, is_long, token)
+            _emit_option(argv, flag, is_long, token, parser)
     return argv
 
 
@@ -1618,7 +1618,7 @@ def _validate_arguments(schema: "dict", arguments: "dict") -> None:
     A value that IS schema-valid but still cannot be safely turned into argv
     (an unsafe positional, an unsafe option value, a negative count) is a
     DIFFERENT, later check -- raised directly by :func:`_synthesize_argv`/
-    :func:`_reject_unsafe_positional`/:func:`_reject_unsafe_value` as this
+    :func:`_reject_unsafe_positional`/:func:`_emit_option` as this
     same :class:`InvalidArgumentsError`, since it depends on the built
     parser tree (subcommand names, aliases), not just the JSON schema this
     function checks against.
@@ -1798,7 +1798,7 @@ def call_tool(
     cannot be safely encoded at all -- an unsafe positional, an unsafe
     option value, or a negative counting-flag value (see
     :func:`_synthesize_argv`/:func:`_reject_unsafe_positional`/
-    :func:`_reject_unsafe_value`). All of these are request-level problems,
+    :func:`_emit_option`). All of these are request-level problems,
     mapped by :func:`serve` to a JSON-RPC error response rather than a tool
     result.
 

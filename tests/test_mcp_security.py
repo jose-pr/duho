@@ -11,6 +11,7 @@ Fixtures at module level: AST-based flags/docstring introspection needs a
 real source file (same convention as every other ``test_mcp_*.py``).
 """
 
+import argparse
 import io
 import json
 import os
@@ -21,8 +22,10 @@ import typing as ty
 import pytest
 
 from duho import Arg, Cli, Cmd, LoggingArgs, NS
+from duho.args import _keep_attached_double_dash
 from duho.mcp import (
     InvalidArgumentsError,
+    _emit_option,
     _tree_for,
     call_tool,
     describe_tools,
@@ -110,9 +113,65 @@ def test_option_value_starting_with_dash_is_not_reparsed_as_a_flag():
     assert payload["title"] == "-x"
 
 
-def test_option_value_equal_to_double_dash_is_refused():
+def test_option_value_equal_to_double_dash_is_passed_through():
+    result = call_tool(InjectRoot, "inject-root.note", {"text": "a", "title": "--"})
+    assert result.get("isError") is not True
+    assert json.loads(result["content"][0]["text"])["title"] == "--"
+
+
+class Tagged(Cmd):
+    """Collect tags."""
+
+    tags: "ty.List[str]" = []
+    "Tags"
+    ("--tags",)
+
+    def __call__(self):
+        return {"tags": self.tags}
+
+
+class ShortValue(Cmd):
+    """A value option with only a short flag."""
+
+    word: str = "none"
+    "Word"
+    ("-w",)
+
+    def __call__(self):
+        return {"word": self.word}
+
+
+class DashRoot(Cli):
+    """Root."""
+
+    _subcommands_ = [Tagged, ShortValue]
+
+
+def test_list_option_item_equal_to_double_dash_is_passed_through():
+    result = call_tool(DashRoot, "dash-root.tagged", {"tags": ["--", "y"]})
+    assert result.get("isError") is not True
+    assert json.loads(result["content"][0]["text"]) == {"tags": ["--", "y"]}
+
+
+def test_short_only_option_value_equal_to_double_dash_is_refused():
     with pytest.raises(InvalidArgumentsError):
-        call_tool(InjectRoot, "inject-root.note", {"text": "a", "title": "--"})
+        call_tool(DashRoot, "dash-root.short-value", {"word": "--"})
+
+
+def test_positional_item_equal_to_double_dash_is_still_refused():
+    with pytest.raises(InvalidArgumentsError):
+        call_tool(InjectRoot, "inject-root.rm", {"files": ["a", "--"]})
+
+
+def test_emit_option_refuses_double_dash_for_an_unpatched_parser():
+    plain = argparse.ArgumentParser()
+    with pytest.raises(InvalidArgumentsError):
+        _emit_option([], "--k", True, "--", plain)
+    patched = argparse.ArgumentParser()
+    _keep_attached_double_dash(patched)
+    argv = []
+    _emit_option(argv, "--k", True, "--", patched)
+    assert argv == ["--k=--"]
 
 
 def test_dict_field_key_and_value_survive_verbatim():

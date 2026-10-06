@@ -41,6 +41,17 @@ pytest --cov=src/duho tests/
 Missing the `config`/`colorama` extras produces clean, reasoned skips (not
 failures) for the tests that need them.
 
+CI also fails a pull request on two checks that `pytest` does not run:
+
+```bash
+python -m black --check src tests examples benchmarks
+
+pip install -e ".[dev,docs,colorama,config]"   # the `docs` extra holds mkdocs
+mkdocs build --strict
+```
+
+`python -m black src tests examples benchmarks` applies the formatting.
+
 ## Running Benchmarks
 
 The `benchmarks/` directory (excluded from the sdist; stdlib + duho only, no
@@ -62,9 +73,10 @@ python benchmarks/compare_cache.py
 python benchmarks/bench_discovery.py
 ```
 
-Every script supports `--save`/`--json` and writes the same JSON envelope
-shape into `benchmarks/results/<name>.json`, which is tracked and committed —
-that is what makes a before/after comparison recoverable later.
+`run.py`, `bench_startup.py` and `bench_discovery.py` take `--save` (write
+`benchmarks/results/<name>.json`) and `--json PATH`; both write the same JSON
+envelope. Saved results are not committed: `benchmarks/baseline.json` is the
+only benchmark record in the repository.
 
 ### Benchmark regression gate
 
@@ -99,7 +111,8 @@ regression first.
 
 ## Code Style
 
-- Follow PEP 8
+- Format with `black` (`python -m black src tests examples benchmarks`); the
+  target version is Python 3.9
 - Use type hints
 - Keep functions focused and well-named
 
@@ -125,6 +138,24 @@ Examples:
 3. Run `pytest` to ensure all tests pass
 4. Commit with a clear message (see guidelines above)
 5. Push to your fork and open a pull request
+
+## Releasing
+
+A release is a version tag; the maintainers cut it. A change that is meant to
+ship needs:
+
+1. the version bumped in both places it is written, `version` in
+   `pyproject.toml` and `__version__` in `src/duho/__init__.py`
+   (`tests/test_version_sync.py` fails when they differ);
+2. a `CHANGELOG.md` entry, terse and user-facing, moved from `[Unreleased]` to
+   the new version's heading;
+3. a `RELEASENOTES.md` section with the narrative and the validation evidence.
+
+Pushing a `v*` tag runs the Release workflow: the whole `test.yml` matrix
+(including the benchmark gate and the strict docs build), a build of the sdist
+and wheel, an install check of the built wheel on the floor and the latest
+Python, a GitHub Release whose body is that version's `CHANGELOG.md` section,
+and the PyPI upload.
 
 ## Reporting Issues
 

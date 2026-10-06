@@ -556,11 +556,11 @@ class Args(_argparse.Namespace):
             # user field could plausibly declare -- so a root field literally
             # named `command` (or a nested `_subcommands_` tree reusing the
             # same dest) is never silently clobbered by subcommand selection.
-            subcommands = (
-                vars(cls).get("_subcommands_")
-                if subparser is not None
-                else getattr(cls, "_subcommands_", None)
-            )
+            subcommands = getattr(cls, "_subcommands_", None)
+            if subparser is not None and "_subcommands_" not in vars(cls):
+                # An inherited list may name a class being built right now (a
+                # subcommand that subclasses its own root); leave that one out.
+                subcommands = [s for s in subcommands or () if id(s) not in _build_ids]
             if subcommands:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
                 # A kebab-cased class-derived name can collide with

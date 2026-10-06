@@ -202,6 +202,38 @@ def _normalise_flags(name: str, flags: object, default_flag: str) -> "tuple[str,
     return _expand_flag_shorthand(name, flags, default_flag)
 
 
+def _is_user_converter(func: object) -> bool:
+    """Whether ``func`` is a callable the user wrote, not a builtin or duho's own."""
+    if not callable(func):
+        return False
+    module = getattr(func, "__module__", None) or ""
+    return module != "builtins" and module.split(".")[0] != "duho"
+
+
+def _keep_message(func: "_ty.Callable[[str], _ty.Any]"):
+    """Wrap ``func`` so a ValueError/TypeError carrying text reaches the user.
+
+    argparse replaces such an error with a generic ``invalid NAME value``;
+    re-raising it as ``ArgumentTypeError`` makes it print the message instead.
+    """
+
+    def convert(text):
+        try:
+            return func(text)
+        except (ValueError, TypeError) as exc:
+            if str(exc):
+                raise _argparse.ArgumentTypeError(str(exc)) from exc
+            raise
+
+    for attr in ("__name__", "__qualname__", "__module__", "__doc__"):
+        try:
+            setattr(convert, attr, getattr(func, attr))
+        except AttributeError:
+            pass
+    convert.__wrapped__ = func  # type: ignore[attr-defined]
+    return convert
+
+
 def _apply_argument_options(builder: "ArgumentBuilder", options: dict) -> None:
     """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built
     ``ArgumentBuilder``.
@@ -218,6 +250,8 @@ def _apply_argument_options(builder: "ArgumentBuilder", options: dict) -> None:
     """
     for k, v in options.items():
         setattr(builder, k, v)
+    if "type" in options:
+        builder._user_type_ = _is_user_converter(options["type"])
     if "flags" in options:
         builder.flags = _normalise_flags(
             builder.name, options["flags"], _default_long_flag(builder.name)
@@ -343,6 +377,10 @@ class ArgumentBuilder(_argparse.Namespace):
     #: without also clobbering a deliberate opt-back into space-separated
     #: multi-value.
     _implicit_nargs_: bool = False
+    #: True when `type` came from a user's ``NS(type=...)``/``Meta(type=...)``
+    #: and is neither a builtin type nor one of duho's own factories; the
+    #: command-line conversion then keeps that callable's own error message.
+    _user_type_: bool = False
 
     @property
     def is_positional(self) -> bool:
@@ -696,7 +734,7 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs.pop("choices", None)
 
         if action not in _TYPE_INCOMPATIBLE_ACTIONS:
-            kwargs["type"] = self.type
+            kwargs["type"] = _keep_message(self.type) if self._user_type_ else self.type
         else:
             kwargs.pop("type", None)
 

@@ -472,11 +472,10 @@ def _stash_default_provenance(parser, cls=None) -> None:
     :func:`describe_parser`'s builder-less fallback.
 
     ``DefaultsFormatter._get_help_string`` receives only ``action``, so
-    ``_AgentHelpAction`` calls this before rendering human help, and ``--help``
-    never shows a live env/config value. ``cls`` defaults to
-    ``parser._duho_cls_``; ``duho.runtime`` passes it for a module command's bare
-    subparser, which must not get ``_duho_cls_`` (``duho.mcp`` reads it). A
-    no-op without a ``cls`` or when the parser was never layered.
+    ``_AgentHelpAction`` calls this before rendering human help. ``cls``
+    defaults to ``parser._duho_cls_``; ``duho.runtime`` passes it for a module
+    command's bare subparser, which must not get ``_duho_cls_`` (``duho.mcp``
+    reads it). A no-op without a ``cls`` or when the parser was never layered.
     """
     cls = cls if cls is not None else getattr(parser, "_duho_cls_", None)
     if cls is None:

@@ -21,11 +21,9 @@ UNION_ORIGINS: tuple = (
     *([_types.UnionType] if hasattr(_types, "UnionType") else []),
 )
 
-#: The dispatching app's MCP-serving context, set by ``args.main`` and
-#: ``runtime.app`` around dispatch so ``duho.mcp`` and the completion
-#: subcommand read the same built tree. Opaque tuple: ``("class", cls)`` or
-#: ``("app", parser, root_cls, dispatch)``; None when nothing is dispatching.
-#: This module imports nothing internal, so writers and reader avoid a cycle.
+#: The dispatching app's MCP context, set by ``args.main``/``runtime.app`` so
+#: ``duho.mcp`` and completion read the same built tree: ``("class", cls)``,
+#: ``("app", parser, root_cls, dispatch)`` or None. A leaf module, so no cycle.
 _MCP_CONTEXT: _contextvars.ContextVar = _contextvars.ContextVar(
     "duho_mcp_context", default=None
 )

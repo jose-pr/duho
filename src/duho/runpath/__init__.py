@@ -242,9 +242,8 @@ Three independent cases, each with its own default:
   the above -- every step depends on the ``ctx`` it produces, so there is no
   meaningful partial/resilient init.
 
-All union annotations are quoted, and declared class-attr annotations avoid the
-PEP-604 ``|`` operator (``typing.Union``/``Optional`` instead), so the module and
-any ``RunPathCmd`` parser build cleanly on Python 3.9.
+Declared class-attribute annotations use ``typing.Union``/``Optional``, not the
+PEP-604 ``|`` operator, so a ``RunPathCmd`` parser builds on Python 3.9.
 """
 
 from __future__ import annotations
@@ -329,9 +328,9 @@ _ADAPTER: _ty.Optional[_ty.Callable[..., object]] = None
 #: copies a root's data fields onto ANY subcommand's parsed namespace, but
 #: that is namespace-copying, not class inheritance -- a method exists only
 #: if the built class itself derives from it. Defaulting to ``LoggingArgs``
-#: matches this module's own long-documented "the usual app shape" (see
+#: matches this module's "the usual app shape" (see
 #: ``_runpath_logger_``): with no configuration at all, ``-v``/``_logger_``/
-#: ``_set_loglevels_`` now work out of the box for every RunPath command.
+#: ``_set_loglevels_`` work out of the box for every RunPath command.
 #: Configurable via :func:`register`'s ``base=`` so an app using a DIFFERENT
 #: shared root class (its own ``LoggingArgs`` subclass, or something else
 #: entirely) gets that inherited too -- set once per process/app, not

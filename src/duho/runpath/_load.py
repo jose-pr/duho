@@ -35,9 +35,8 @@ def _iter_step_files(
     Matches the ``.py`` suffix with a case-SENSITIVE comparison via
     ``Path.suffix`` rather than ``Path.glob("*.py")``: on Windows, ``glob``
     matches ``10-a.PY`` too (the filesystem is case-insensitive), but Python's
-    own import machinery refuses that spelling, so the file used to be
-    imported-and-fail on Windows while POSIX silently ignored it -- the same
-    directory behaved differently by OS.
+    own import machinery refuses that spelling, so the file would be
+    imported-and-fail on Windows while POSIX silently ignored it.
     """
     found: list[_ty.Tuple[int, str, _Path, _Opts]] = []
     for path in directory.iterdir():
@@ -112,11 +111,9 @@ def _resolve_priority(
 ) -> int:
     """Resolve a step's ordering ``PRIORITY``, defaulting to its ``NN`` prefix.
 
-    A non-numeric ``PRIORITY`` used to raise a bare, unattributed
-    ``ValueError`` straight out of ``int()`` that aborted the run even in
-    resilient mode; this names the step and file, and follows the
-    normal strict-vs-resilient policy (falling back to the filename prefix
-    when resilient).
+    A non-numeric ``PRIORITY`` is reported naming the step and file, and
+    follows the normal strict-vs-resilient policy (falling back to the
+    filename prefix when resilient).
     """
     priority = getattr(module, "PRIORITY", None)
     if priority is None:
@@ -269,15 +266,15 @@ def _order_steps(
 
     Ties (no remaining predecessor) break by the step's RANK in the
     ``(priority, name)``-sorted base order, popped from a min-heap -- this is
-    what makes the sort STABLE: the old implementation did whole
-    "passes" over the remaining steps, which let a step reordered by one
-    dependency jump ahead of every unrelated LATER step in the same pass
-    instead of only past its own dependency. With the heap, only steps that
+    what makes the sort STABLE: whole "passes" over the remaining steps
+    would let a step reordered by one dependency jump ahead of every
+    unrelated LATER step in the same pass instead of only past its own
+    dependency. With the heap, only steps that
     are actually ready compete, always picking the lowest-ranked one among
     them, so an unrelated later step never overtakes a step whose dependency
     just became satisfied.
 
-    Edge relations, merged into one predecessor graph exactly as before:
+    Edge relations, merged into one predecessor graph:
 
     * ``REQUIRED`` (hard dependency) and ``AFTER`` (soft ordering, same
       direction) both contribute directly as predecessors of the declaring
@@ -287,11 +284,10 @@ def _order_steps(
 
     A merged-graph name that matches no step in ``steps`` is silently dropped
     -- ordering never fails on a missing/disabled name; the run-time selection
-    layer raises the missing/disabled ``REQUIRED`` warning/error (unchanged).
-    Since :func:`_load_steps` now only ever passes ENABLED steps here, a
-    disabled step is simply absent from this graph, so its edges can never
-    reorder an enabled step -- this function no longer needs to know
-    about "present but disabled" at all.
+    layer raises the missing/disabled ``REQUIRED`` warning/error.
+    Since :func:`_load_steps` passes only ENABLED steps here, a
+    disabled step is absent from this graph, so its edges can never
+    reorder an enabled step.
 
     A genuine cycle (spanning any mix of the three relations) is broken
     deterministically: when no ready step remains, the chain of unresolved

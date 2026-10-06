@@ -18,12 +18,6 @@ _LIFECYCLE_FILENAME = "__main__.py"
 class _Lifecycle:
     """The optional ``__main__.py`` lifecycle hooks for one RunPath directory.
 
-    Named ``_Lifecycle``/``_load_lifecycle`` (an earlier design used an
-    ``_init.py`` file, renamed to ``__main__.py`` during execution, but the
-    code kept saying ``_Init``/``_load_init``/a ``"._init"`` module key -- a
-    traceback from this file used to show module ``..._init``, a file that
-    does not exist).
-
     Each of ``init``/``success``/``finally_`` is an optional callable read off
     the ``__main__.py`` module (``getattr(module, name, None)``); a missing hook
     no-ops (mirrors ``ModuleCommand``'s existing default-hook precedent).

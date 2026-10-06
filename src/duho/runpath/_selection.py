@@ -21,15 +21,14 @@ class _Selection:
     ``Optional[bool]`` -- ``None`` unless that entry carried its own explicit
     ``strict``/``!strict`` token, in which case it overrides the matching
     step's own effective strict setting, scoped to just that pattern's
-    matches, NOT run-wide (this used to be guessed from whether the entry had
-    ANY tokens at all, which made ``pattern:enable`` -- an entry with no
-    strict token whatsoever -- silently force every matching step strict).
+    matches, NOT run-wide (an entry such as ``pattern:enable``, with no
+    strict token, does not force every matching step strict).
 
     ``strict``/``strict_explicit`` are the separate RUN-WIDE flag, set only by
     a BARE standalone ``strict``/``!strict`` entry (no attached pattern). It
     governs run-wide fatality (an unmatched ``--rcopts`` pattern, a missing
     ``REQUIRED`` dep) and, when explicit, overrides every step's own filename/
-    per-pattern strict setting (the outermost layer of the confirmed
+    per-pattern strict setting (the outermost layer of the
     precedence: hardcoded base -> filename -> per-pattern ``--rcopts`` token ->
     the bare run-wide ``--rcopts strict`` token, which wins last of all).
     """

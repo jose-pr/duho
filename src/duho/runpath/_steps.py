@@ -152,9 +152,7 @@ class _Opts:
 
     Shared by both :meth:`_Selection.parse` (a ``--rcopts`` comma-entry) and
     :func:`_parse_file_modifiers` (a step's own filename) -- ONE token grammar
-    AND one carrier class, not three (this used to be ``_Opts`` ->
-    ``_FileOpts`` -> ``_Step.file_*``, a rename at each hop that hid they were
-    the same record, and directly caused a forced-strict bug below).
+    AND one carrier class.
 
     Each token after the matcher is ``key`` (``True``), ``!key`` (``False``),
     or ``key=value`` (a string value). Two token KEYS are recognized
@@ -258,7 +256,7 @@ def _parse_step_filename(stem: str) -> _ty.Optional[_ty.Tuple[int, str]]:
     with no numeric prefix, or no ``-``, is not a step file (helpers, ``__main__``,
     etc. are skipped). Uses ``str.isdecimal()``, not ``.isdigit()``: a Unicode
     "digit" like a superscript ``'²'`` passes ``.isdigit()`` but makes
-    ``int()`` raise, which used to crash :func:`is_runpath_dir` on an
+    ``int()`` raise, which would crash :func:`is_runpath_dir` on an
     unrelated stray file; every ``isdecimal()`` string converts cleanly.
     """
     if "-" not in stem:

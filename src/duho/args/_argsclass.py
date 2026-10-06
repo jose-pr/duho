@@ -203,7 +203,7 @@ def _add_fields(
                 if arg.name in parent_dests:
                     # A genuine `parents=[...]` merge: the CALLER deliberately
                     # shares this global option with the parent (e.g. a
-                    # subcommand inheriting `-v`/`-q`) -- reuse it silently,
+                    # subcommand inheriting `-v`/`-q`) -- reuse it silently.
                     continue
                 # Anything else sharing this dest was added by duho ITSELF,
                 # moments ago, for this same class (`-h`/`--help`,

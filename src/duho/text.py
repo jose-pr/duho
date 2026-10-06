@@ -88,11 +88,9 @@ def snakecase(name: str) -> str:
     return _re.sub(r"[A-Z]", _lower, std)
 
 
-#: Boundary positions :func:`kebabcase` splits on: a lower/digit char
-#: immediately followed by an upper char (``fooBar``/``ipv4Tool``), an upper
-#: char immediately followed by an upper+lower pair -- the LAST letter of an
-#: acronym run, so ``HTTPStatus`` splits as ``HTTP`` | ``Status`` rather than
-#: letter-by-letter -- and one or more ``_`` (consumed, not just a boundary).
+#: Boundaries :func:`kebabcase` splits on: lower/digit before upper
+#: (``fooBar``), the last letter of an acronym run (``HTTPStatus`` ->
+#: ``HTTP`` | ``Status``), and ``_`` runs (consumed).
 _KEBAB_BOUNDARY = _re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|_+")
 
 
@@ -125,11 +123,9 @@ def kebabcase(name: str) -> str:
 #: Symbol -> word replacements applied by :func:`pysafe`.
 PYREPLACE = {"+": "plus", "!": "not", "*": "all"}
 
-#: Any character remaining after :func:`pysafe`'s substitutions that is still
-#: not valid in a Python identifier. Deliberately narrower than "not
-#: ``str.isidentifier``" -- it is only ever applied by :func:`_pysafe_fixup`
-#: to a part that already failed that check, so a valid non-ASCII identifier
-#: (PEP 3131 permits Unicode letters) is never reached, let alone mangled.
+#: Characters still invalid in an identifier after :func:`pysafe`'s substitutions.
+#: Narrower than "not ``str.isidentifier``": it only applies to a part that
+#: already failed that check, so a valid Unicode identifier is never mangled.
 _NON_IDENTIFIER = _re.compile(r"[^0-9A-Za-z_]")
 
 
@@ -183,10 +179,8 @@ def pysafe(text: str, separator: str = ".") -> str:
     )
     for symbol, replacement in PYREPLACE.items():
         if text == symbol:
-            # A bare match becomes the replacement word outright -- but a
-            # substitution that happens to produce a keyword itself
-            # (PYREPLACE["!"] == "not") must still be suffixed, so this
-            # cannot just return early the way duho 0.5.x did.
+            # A bare match becomes the replacement word, but one that is itself
+            # a keyword (PYREPLACE["!"] == "not") must still be suffixed.
             text = replacement + ("_" if _keyword.iskeyword(replacement) else "")
             break
         if text.startswith(symbol):

@@ -35,64 +35,36 @@ from ._parserfix import (
 
 from ._meta import _Parser, _Self
 
-#: {id(instance): frozenset(explicitly-passed field names)} for every `Args`
-#: instance built via `__init__`. `Args.__init__` seeds a class-body
-#: default for every declared field the caller did NOT pass (so a directly
-#: built instance has the same attribute surface as a parsed one, e.g. a bare
-#: `bool` field materializes to `False`) -- those seeded placeholders must
-#: never be mistaken for a value the caller actually supplied when
-#: `duho.parse(instance)` decides what outranks env/config.
-#:
-#: Keyed by `id()`, not the instance itself: `argparse.Namespace` defines
-#: `__eq__` (value equality over `vars()`) without a matching `__hash__`, so
-#: Python makes every `Namespace`/`Args` instance UNHASHABLE by default --
-#: a plain `WeakKeyDictionary` (which hashes its keys) cannot hold one.
-#: `id()` is always hashable; `weakref.finalize` below drops the entry once
-#: the instance is actually collected, so this never outlives it. Storing the
-#: set here (rather than as a real attribute) also keeps it OUT of
-#: `vars(instance)`, which would otherwise leak into the documented
-#: `type(self)(**self._get_kwargs())` clone pattern and instance equality/repr.
+#: {id(instance): frozenset(field names passed)} for every `Args` built via
+#: `__init__`. Seeded defaults must not count as caller-supplied when
+#: `duho.parse(instance)` decides what outranks env/config. Keyed by `id()`
+#: because `Namespace` defines `__eq__` without `__hash__`; `weakref.finalize`
+#: drops the entry. Kept out of `vars(instance)`, which would leak into the
+#: clone pattern, equality and repr.
 _duho_explicit_instance_fields: dict[int, frozenset] = {}
 
-#: {id(instance): {field: value}} -- what `Args.__init__` seeded for each field
-#: the caller did not pass. `duho.parse(instance)` counts a seeded field as set
-#: once its current value differs from this record. Kept out of `vars(instance)`
-#: and cleaned up like `_duho_explicit_instance_fields`.
+#: {id(instance): {field: value}} that `Args.__init__` seeded for fields the
+#: caller did not pass; `duho.parse(instance)` counts a field as set once its
+#: value differs. Kept and cleaned up like the dict above.
 _duho_seeded_instance_values: dict[int, dict[str, object]] = {}
 
-#: {id(instance): parser} recording which parser produced THIS specific
-#: instance, for `duho.value_sources`. Kept OUT of `vars(instance)` for the
-#: same reason as `_duho_explicit_instance_fields` above (id()-keyed,
-#: `weakref.finalize`-cleaned -- see that constant's docstring). This is the
-#: per-INSTANCE complement to `Args._duho_last_parser_` (set alongside it,
-#: below): the class-level attribute alone means parsing the SAME class
-#: twice (two different config files, say) makes the OLDER instance's
-#: `value_sources()` silently report the NEWER parse's provenance once the
-#: class attribute is overwritten. `value_sources` prefers this dict and
-#: only falls back to the class attribute for an instance that predates this
-#: fix, or one whose class isn't weak-referenceable.
+#: {id(instance): parser} for `duho.value_sources`. Per instance because the
+#: class-level `_duho_last_parser_` is overwritten by the next parse of the
+#: same class; `value_sources` falls back to it only for an untracked instance.
 _duho_instance_last_parser_: dict[int, object] = {}
 
 
-#: Thread-local guard against a class appearing in its own (possibly
-#: inherited) ``_subcommands_`` tree -- directly, or via a subcommand that
-#: subclasses its own root. Keyed by `id(cls)` so it works for any
-#: class regardless of hashability; cleared as each class finishes building
-#: (`finally`), so it only ever reflects classes CURRENTLY being built in
-#: this thread's current `_parser_()` call tree, never a class built by an
-#: earlier, already-finished call.
+#: Ids of the classes currently being built in this thread's `_parser_()` call
+#: tree; each build removes its own id when it finishes.
 _building_stack = _threading.local()
 
 
 def _guard_recursive_build(cls):
-    """Raise a clear ``TypeError`` if `cls` is already being built higher up
-    in the current `_parser_()` call, else record it and return the
-    set to remove it from when this build finishes.
+    """Raise ``TypeError`` if `cls` is already being built higher up in this
+    `_parser_()` call, else record it and return the set to remove it from.
 
-    Without this, a subcommand that subclasses its own root (directly, or by
-    inheriting a shared `_subcommands_` list that was never meant to include
-    it) recurses into building itself as its own child forever, failing with
-    a bare, unhelpful ``RecursionError``.
+    A subcommand that subclasses its own root would otherwise recurse until a
+    bare ``RecursionError``.
     """
     ids = getattr(_building_stack, "ids", None)
     if ids is None:
@@ -119,41 +91,23 @@ def _add_fields(
     strict: bool = True,
     config_hint: bool = False,
 ) -> dict:
-    """Add ``cls``'s own declared fields to ``parser`` (titled/mutually-
-    exclusive groups included).
+    """Add ``cls``'s declared fields to ``parser``, titled and exclusive groups included.
 
-    The one field/group wiring routine shared by :meth:`Args._initparser_`
-    (class commands) and ``duho.runtime._add_module_declared_fields`` (module
-    commands), so both support ``NS(conflicts=...)``/``NS(group=...)``.
-    Iterates ``cls._getargs_()``,
-    resolves each field's titled group (``NS(group=...)``) and
-    mutually-exclusive group (``NS(conflicts=...)``, precomputing group
-    requiredness first so argparse -- which fixes ``required`` at
-    group-creation time -- sees the right value on the first member), then
-    calls the field's own ``ArgumentBuilder.add_to_parser``.
-
-    ``strict=True`` (the ``_initparser_`` case) raises on an unexpected dest
-    collision unless it is an explicit ``parents=[...]`` share (``arg.name in
-    parent_dests``). ``strict=False`` (the module-command case) silently
-    skips any colliding dest instead, matching a module command's existing
-    "never re-adds/conflicts with an inherited global" contract.
-
-    Returns the ``exclusive_groups`` dict (created fresh when not given),
-    already merged onto ``parser.exclusive_groups``; ``parser``'s titled-group
-    state (``_duho_titled_groups_``) is updated in place too.
+    Shared by :meth:`Args._initparser_` and
+    ``duho.runtime._add_module_declared_fields``. Group requiredness is computed
+    first because argparse fixes ``required`` at group creation. ``strict=True``
+    raises on a dest collision unless it is a ``parents=`` share (``arg.name in
+    parent_dests``); ``strict=False`` skips a colliding dest silently. Returns
+    ``exclusive_groups``, merged onto ``parser.exclusive_groups``.
     """
     parent_dests = parent_dests if parent_dests is not None else frozenset()
     exclusive_groups = exclusive_groups or {}
 
-    # A mutually-exclusive group is *required* when ANY of its members
-    # declares NS(conflicts_required=True). Groups are created lazily on the
-    # first member, so pre-compute requiredness across all members here and
-    # pass it at creation.
+    # A mutex group is required when ANY member sets NS(conflicts_required=True);
+    # groups are created on their first member, so compute it up front.
     required_by_conflicts: dict[str, bool] = {}
-    # A `conflicts=` key must use the SAME `group=` title (or no title)
-    # everywhere it appears -- otherwise members that share a conflicts=
-    # string land in TWO separate mutex groups (one per title) and are no
-    # longer mutually exclusive at all, silently.
+    # A `conflicts=` key must use the same `group=` title everywhere, or its
+    # members land in two mutex groups and silently stop excluding each other.
     conflicts_titles: dict[str, object] = {}
     for arg in cls._getargs_():
         conflicts = arg.conflicts
@@ -174,18 +128,10 @@ def _add_fields(
             else:
                 conflicts_titles[conflicts] = group_title
 
-    # A bool field that can receive True from a layer OTHER than the
-    # CLI needs a way to turn it back off from the command line (see
-    # `ArgumentBuilder._kwargs`'s `layered` parameter). `env=` is a
-    # per-field signal; a config source is a per-CLASS one -- either `cls`'s
-    # own declared `_config_`, or `config_hint` (threaded down from
-    # `_parser_`/`_initparser_`): a class built as part of a `_subcommands_`
-    # tree whose ROOT has `_config_` (its own table cascades to every
-    # subcommand's slice, see `_stash_layer_state`), or one `duho.main`/
-    # `duho.parse`/`duho.parse_globals` is about to call with an explicit
-    # `config=` kwarg -- something no class attribute alone could reveal,
-    # since that kwarg is only known at the CALL site, after the parser is
-    # already built.
+    # A bool that a layer other than the CLI can set True needs a way back off on
+    # the command line (`ArgumentBuilder._kwargs`'s `layered`). `env=` is per
+    # field; a config source is per class: `cls._config_`, or `config_hint` (a
+    # root's `_config_`, or a `config=` kwarg known only at the call site).
     _has_config_source = getattr(cls, "_config_", None) is not None or config_hint
 
     # Titled argument groups (NS(group="...")), created lazily per title.
@@ -205,11 +151,9 @@ def _add_fields(
                     # shares this global option with the parent (e.g. a
                     # subcommand inheriting `-v`/`-q`) -- reuse it silently.
                     continue
-                # Anything else sharing this dest was added by duho ITSELF,
-                # moments ago, for this same class (`-h`/`--help`,
-                # `--version`, `--print-completion`) -- silently dropping the
-                # user's field would lose both its value and its declared
-                # flags, so fail loud at build time.
+                # Anything else sharing this dest was added by duho for this
+                # class (`-h`, `--version`, `--print-completion`); dropping the
+                # user's field would lose its value and flags, so fail loud.
                 raise ValueError(
                     f"field {arg.name!r} on {cls.__name__} collides with a "
                     f"dest that {cls.__name__}'s own parser already uses "
@@ -237,11 +181,9 @@ def _add_fields(
             container = parser
 
         if conflicts:
-            # A conflicts= member lives in a mutually-exclusive group. When it
-            # ALSO declares group=, nest the exclusive group inside the titled
-            # group (argparse supports it), keyed by (group, conflicts);
-            # otherwise it's a top-level group keyed by conflicts (so
-            # `parser.exclusive_groups["type"]` keeps working).
+            # A conflicts= member goes in a mutually-exclusive group, nested in
+            # its titled group when group= is also set (key `(group, conflicts)`),
+            # else top-level keyed by `conflicts` (`parser.exclusive_groups["type"]`).
             key = (group_title, conflicts) if group_title is not None else conflicts
             if key not in exclusive_groups:
                 exclusive_groups[key] = container.add_mutually_exclusive_group(
@@ -254,11 +196,8 @@ def _add_fields(
         layered = _has_config_source or bool(getattr(arg, "env", None))
         arg.add_to_parser(group, layered=layered)
 
-    # Expose the built mutually-exclusive groups on the parser so a subclass
-    # `_parser_` override can add extra options into a `conflicts=`-built
-    # group (e.g. a short-flag alias that must stay mutually exclusive with a
-    # declared field). Merge rather than overwrite so a parents=[...] parser
-    # that already carries groups keeps them.
+    # Expose the groups so a `_parser_` override can add options to a
+    # `conflicts=` group; merge so a `parents=` parser keeps its own.
     existing = getattr(parser, "exclusive_groups", None)
     if existing:
         existing.update(exclusive_groups)
@@ -288,53 +227,21 @@ class Args(_argparse.Namespace):
     only a real run surfaces it, as an ``AttributeError``.
     """
 
-    #: Annotation-only: declares the shape (a class command's subcommand name)
-    #: WITHOUT creating a runtime class/instance attribute -- ``_parsername_``
-    #: is set per-subclass, dynamically (``duho.command(...)``'s generated
-    #: class body, or a user's own ``_parsername_ = "..."``), never here. A
-    #: ``ClassVar`` annotation with no assigned value never appears in
-    #: ``vars(cls)``, so it changes no reader; it exists purely so a type
-    #: checker considers ANY ``Cmd`` subclass a structural match for
-    #: ``duho.discovery.Command`` (whose ``Protocol`` requires this member) --
-    #: without it, the documented ``app(commands=[SomeCmd])``/
-    #: ``run_command(SomeCmd, ...)`` would fail type-checking. Already
-    #: excluded from CLI-field discovery like every
-    #: other leading-underscore name, ``ClassVar`` or not.
+    #: Annotation-only: lets a type checker see any `Cmd` subclass as a
+    #: `duho.discovery.Command` (whose Protocol needs this member). A `ClassVar`
+    #: with no value never reaches `vars(cls)`.
     _parsername_: _ty.ClassVar[str]
 
-    #: Pre-seeded empty class-body-constants cache. ``_class_constants``
-    #: (``_introspect``) short-circuits on ``"_duho_constants_" in vars(cls)``,
-    #: so seeding it here means building ANY user parser never AST-parses
-    #: duho's own source to scan these framework base classes for
-    #: class-body flag/env/docstring metadata -- they declare none. This is
-    #: safe ONLY because ``Args``/``Cmd``/``Cli`` carry no real CLI-field
-    #: declarations in their bodies. A subclass that DOES declare fields gets
-    #: its OWN ``vars(cls)`` entry populated by the normal scan (the seed is
-    #: per-class in ``vars``, never inherited into the MRO walk), and
-    #: ``presets.LoggingArgs`` deliberately is NOT seeded because its class body
-    #: declares real fields whose flags-tuples must still be scanned.
+    #: Pre-seeded empty cache, so building a user parser never AST-parses duho's
+    #: own field-less base classes. A subclass gets its own entry from the normal
+    #: scan; `presets.LoggingArgs` declares fields and is deliberately not seeded.
     _duho_constants_: dict = {}
 
     def __init__(self, /, **kwargs: object) -> None:
-        # Namespace.__init__ only setattrs what's passed, so a directly-built
-        # instance (or the self-cloning `type(self)(**self._get_kwargs())`
-        # pattern) would be missing any declared field not supplied -- notably
-        # `store_true` bools, whose default only materializes via argparse.
-        # Seed each declared field to its effective default when absent, so a
-        # direct instance has the same attribute surface as a parsed one. Only
-        # GAPS are filled: passed kwargs (incl. parsed values) always win, and a
-        # required field with no default (NOT_DEFINED) is left unset.
-        #
-        # `name not in vars(self)` (rather than `hasattr`) is deliberate: a
-        # field with an explicit CLASS-level default (`files: list = []`) is
-        # already `hasattr`-true via inheritance, so `hasattr` would skip
-        # seeding and the instance would share the CLASS ATTRIBUTE, and
-        # mutating a mutable one (`instance.files.append(...)`) would leak
-        # into every other instance and later parse default.
-        # `vars(self)` only sees THIS instance's own attributes, so the gap
-        # still gets filled with `_effective_default_()`'s fresh copy.
-        # Not `super().__init__(**kwargs)`: Namespace's receiver is not
-        # positional-only, so a field named `self` would collide with it.
+        # Seed each declared field's effective default when absent, so a direct
+        # instance has the attribute surface of a parsed one (e.g. a `store_true`
+        # bool). Passed kwargs win; a required field (NOT_DEFINED) stays unset.
+        # Not `super().__init__(**kwargs)`: a field named `self` would collide.
         super().__init__()
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -343,17 +250,18 @@ class Args(_argparse.Namespace):
         seeded: dict[str, object] = {}
         for builder in type(self)._getargs_():
             name = builder.name
+            # `vars(self)`, not `hasattr`: a class-level default is `hasattr`-true
+            # by inheritance, so the instance would share, and mutations would
+            # leak through, the class attribute.
             if name in kwargs or name in vars(self):
                 continue
             default = builder._effective_default_()
             if default is not NOT_DEFINED:
                 setattr(self, name, default)
                 seeded[name] = _copy.copy(default)
-        # Remember exactly which fields THIS CALL passed, outside
-        # vars(self) -- see `_duho_explicit_instance_fields`. A subclass that
-        # isn't weak-referenceable (e.g. declares `__slots__` without
-        # `__weakref__`) simply isn't tracked; `duho.parse(instance)` then
-        # falls back to treating every attribute as explicit.
+        # Record which fields THIS CALL passed, outside vars(self). A class that
+        # is not weak-referenceable is untracked, and `duho.parse(instance)`
+        # then treats every attribute as explicit.
         try:
             _key = id(self)
             _duho_explicit_instance_fields[_key] = frozenset(kwargs)
@@ -387,12 +295,9 @@ class Args(_argparse.Namespace):
                 options: dict = {}
                 ns_keys: list[str] = []
                 for opts in decl.annotations:
-                    # Only configuration-shaped metadata is consumed: a Mapping
-                    # or a namespace-like object (has __dict__, e.g. NS(...)). A
-                    # PEP-727-style object with a str `.documentation` contributes
-                    # help text. Any other metadata (a bare `Annotated[int, "doc"]`
-                    # string, an int, ...) is ignored silently, as Annotated's
-                    # own semantics require.
+                    # Consumed: a Mapping, a namespace-like object (has __dict__,
+                    # e.g. NS(...)), or a PEP 727 `.documentation` str as help.
+                    # Anything else (a bare `Annotated[int, "doc"]` string) is ignored.
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
                         # an unset (sentinel) field never overrides a type-derived
@@ -407,14 +312,9 @@ class Args(_argparse.Namespace):
                         if isinstance(opts, _argparse.Namespace):
                             ns_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
-                    # A CUSTOM Argument type wrapped in Arg[...]/NS(...)
-                    # (e.g. `Arg[Port, NS(env="PORT")]`) must not go through
-                    # `Argument.from_type(decl.type, **options)`: its
-                    # `super()._argbuilder_` is the PLAIN protocol default, so
-                    # `decl.type`'s own `_argbuilder_` override would never run.
-                    # Build via the type's own override, then apply the same
-                    # NS(...)/Meta(...) post-processing `from_type` gives a
-                    # plain type (help=/env=/Extend()/... all still work).
+                    # A custom Argument type in Arg[...]/NS(...) must be built by
+                    # its own `_argbuilder_` (`from_type` would use the plain
+                    # protocol default), then get the same options applied.
                     built = decl.type._argbuilder_(name, decl)
                     _apply_argument_options(built, options)
                 else:
@@ -446,16 +346,12 @@ class Args(_argparse.Namespace):
     ) -> _Parser[_Self]:
         """Build (or attach) this class's ``argparse.ArgumentParser``.
 
-        ``subparser`` given -- a ``_SubParsersAction`` -- attaches a new
-        sub-parser via ``subparser.add_parser(name or _command_name(cls),
-        parents=parents, **kwargs)``; omitted, builds a fresh top-level
-        ``ArgumentParser`` the same way. Registers every declared field
-        (:meth:`_getargs_`) plus ``-h``/``--version``/``--print-completion``
-        and, if any, the ``_subcommands_`` tree, then calls
-        :meth:`_initparser_` to add them. Override to customize parser
-        construction itself (e.g. a shared ``formatter_class``); override
-        :meth:`_initparser_` instead to add parser-level configuration that
-        doesn't change how the parser object is created.
+        With ``subparser`` (a ``_SubParsersAction``) it attaches a sub-parser via
+        ``subparser.add_parser(name or _command_name(cls), parents=parents,
+        **kwargs)``; omitted, it builds a top-level ``ArgumentParser``. Then
+        :meth:`_initparser_` adds the fields and the ``_subcommands_`` tree.
+        Override to customize parser construction (e.g. ``formatter_class``);
+        override :meth:`_initparser_` for parser-level configuration.
         """
         _warn_misspelled_attrs(cls)
         if subparser:
@@ -463,71 +359,43 @@ class Args(_argparse.Namespace):
         else:
             method = _argparse.ArgumentParser
 
-        # Resolve the name WITHOUT writing it back onto the class: `getattr`
-        # follows the MRO, so a persisted derived name would leak to every
-        # SUBCLASS (siblings would collapse onto one name, and 3.11+ raises
-        # "conflicting subparser"). `_command_name` reads only a
-        # `_parsername_` declared ON `cls` ITSELF (`vars(cls)`); a subclass
-        # that wants its base's name must declare it, else it gets its own
-        # class name.
+        # Do not write the name back onto the class: `getattr` follows the MRO,
+        # so subclasses would inherit it (siblings collapse; 3.11+ raises
+        # "conflicting subparser"). `_command_name` reads only a `_parsername_`
+        # in `vars(cls)`.
         name_given = name is not None
         name: str = name or (_command_name(cls) if subparser else _app_name(cls))
         # Passed on to `_initparser_`, which accepts it for compatibility with
         # subclasses that override it; nothing here depends on its value.
         explicit_prog = name_given or bool(vars(cls).get("_parsername_"))
         if not subparser and "prog" in kwargs:
-            # `ArgumentParser(name, parents=..., **kwargs)` fills the
-            # positional `prog` with `name`, so a caller-supplied `prog=`
-            # kwarg (`duho.parser(cls, prog=...)`, `duho.parse(cls, argv,
-            # parser_kwargs={"prog": ...})`) collided with it outright
-            # (`TypeError: got multiple values for argument 'prog'`). An
-            # explicit `prog=` names the actual program the user wants and
-            # wins outright (a subparser's own `add_parser(name, ...)` has no
-            # such collision -- `name` there is the subcommand's registration
-            # key, a different argparse parameter from `prog`).
+            # `ArgumentParser(name, ...)` would fill `prog` positionally and
+            # collide with a caller's `prog=`, which names the real program and
+            # wins. (A subparser's `name` is a different parameter.)
             name = kwargs.pop("prog")
             explicit_prog = True
-        # Escape a literal `%` in docstring-derived text for
-        # argparse's `%`-expansion. `help=` (this class's own one-line
-        # subcommand summary) is ALWAYS expanded by argparse and must always
-        # be escaped; `description=` is only formatted when it contains a
-        # real `%(prog)` placeholder, so escaping it unconditionally (an
-        # earlier fix did) showed a literal `%` DOUBLED in `--help`.
+        # `help=` is always %-expanded, so `%` must be escaped; `description=`
+        # only with a real `%(prog)` placeholder, so it is escaped selectively.
         _doc = cls.__doc__ or ""
         kwargs.setdefault("description", _escape_description(_doc))
-        # Opt-in help formatter (``_help_formatter_`` class attr, e.g.
-        # ``duho.DefaultsFormatter``/``duho.ColorHelpFormatter``) plumbed into
-        # argparse's ``formatter_class``. ``setdefault`` so a caller-supplied
-        # ``formatter_class=`` still wins; unset means argparse's plain default.
-        # A class that declares none of its own inherits the nearest
-        # ANCESTOR's effective formatter (`_inherited_formatter_class_`,
-        # threaded down from the parent's own build below) so the whole
-        # subcommand tree is styled consistently, not just direct children.
+        # Opt-in `_help_formatter_`; a caller's `formatter_class=` wins. A class
+        # with none inherits the nearest ancestor's, so the tree is styled alike.
         own_formatter = getattr(cls, "_help_formatter_", None)
         effective_formatter = (
             own_formatter if own_formatter is not None else _inherited_formatter_class_
         )
         if effective_formatter is not None:
             kwargs.setdefault("formatter_class", effective_formatter)
-        # The APP's true root class, threaded down through the whole
-        # `_subcommands_` tree the same way `_inherited_formatter_class_` is
-        # (see the recursive `sub._parser_(...)` call below) -- `None` here
-        # means THIS call is the actual top level, so `cls` itself is the
-        # root; a deeper node always keeps propagating the same value it
-        # received, never resetting to its own `cls`. Consumed by
-        # `_install_agent_help` (via `_initparser_`) so a subcommand-scoped
-        # agent-help document still reports the app's own version/exit codes.
+        # The app's root class, threaded down the `_subcommands_` tree; `None`
+        # means this call is the top, so `cls` is the root. Used by
+        # `_install_agent_help`.
         agent_root_cls = (
             _inherited_agent_root_cls_
             if _inherited_agent_root_cls_ is not None
             else cls
         )
-        # Threaded down through the whole `_subcommands_` tree the same way
-        # `agent_root_cls` is (see the recursive `sub._parser_(...)` call
-        # below): a caller that already knows it will pass `config=` to
-        # `duho.main`/`duho.parse`/`duho.parse_globals` records that here so
-        # every node -- root and every nested subcommand -- can react to it
-        # (see `_initparser_`'s `external_config`), not just the root.
+        # Threaded down like `agent_root_cls`: a caller that will pass `config=`
+        # records it so every node can react (`_initparser_`'s `external_config`).
         external_config = bool(_inherited_config_hint_)
         if subparser:
             kwargs.setdefault(
@@ -542,17 +410,11 @@ class Args(_argparse.Namespace):
                     "aliases", [a for a in dict.fromkeys(aliases) if a != name]
                 )
 
-        # Guard against `cls` already being built higher up in this same
-        # call tree (a subcommand that subclasses its own root, directly or
-        # via a shared/inherited `_subcommands_` list) -- otherwise building
-        # it as its own child recurses without end.
+        # Guard against `cls` already being built higher up in this call tree.
         _build_ids = _guard_recursive_build(cls)
         try:
-            # Dests the framework will add to THIS parser (below,
-            # and via `_subcommands_`) so a same-named user field collides
-            # loudly instead of vanishing silently -- except a dest that came
-            # from a `parents=` parser, which is a deliberate, silent reuse
-            # (a subcommand inheriting a shared global option).
+            # Dests the framework adds to this parser, so a same-named user
+            # field collides loudly; dests from `parents=` are deliberate reuse.
             parent_dests = frozenset(
                 a.dest for p in parents for a in getattr(p, "_actions", ())
             )
@@ -570,10 +432,8 @@ class Args(_argparse.Namespace):
                 external_config=external_config,
             )
 
-            # A private, sandwich-named dest -- never a name a
-            # user field could plausibly declare -- so a root field literally
-            # named `command` (or a nested `_subcommands_` tree reusing the
-            # same dest) is never silently clobbered by subcommand selection.
+            # The subcommand dest is private, so a root field named `command`
+            # is never clobbered.
             subcommands = getattr(cls, "_subcommands_", None)
             if subparser is not None and "_subcommands_" not in vars(cls):
                 # An inherited list may name a class being built right now (a
@@ -590,17 +450,10 @@ class Args(_argparse.Namespace):
                 )
             if subcommands and not _skip_subcommands_:
                 subparsers = parser.add_subparsers(dest="_duho_command_", required=True)
-                # A kebab-cased class-derived name can collide with
-                # a SIBLING's -- `FooBar` and `Foo_Bar` both resolve to
-                # `foo-bar` -- exactly the same way two siblings sharing an
-                # explicit `_parsername_` already could. Either shape is
-                # caught here, once, before it reaches argparse: a silent
-                # `add_parser` name clash would otherwise either misroute
-                # dispatch (3.9/3.10) or raise argparse's own unrelated
-                # "conflicting subparser" error (3.11+) -- neither names the
-                # two duho classes actually responsible.
-                # A class listed twice is registered once; an alias is checked
-                # against every sibling's name and aliases the same way.
+                # Kebab-cased names (`FooBar`, `Foo_Bar` -> `foo-bar`) and
+                # aliases can collide with a sibling's. Catch it here: argparse
+                # would misroute (3.9/3.10) or raise an error naming no duho
+                # class (3.11+). A class listed twice registers once.
                 subcommands = list(dict.fromkeys(subcommands))
                 sibling_names = [_command_name(sub) for sub in subcommands]
                 seen_names: dict[str, object] = {}
@@ -618,13 +471,9 @@ class Args(_argparse.Namespace):
                                 "to disambiguate"
                             )
                         seen_names[own_name] = sibling
-                # argparse falls back to the ACTION'S DEST (never `choices`)
-                # for its "required" / "invalid choice" ERROR text when no
-                # `metavar` is set -- only the usage SYNOPSIS defaults to a
-                # `{...}` built from `choices`. Set it explicitly so the
-                # private `_duho_command_` dest never leaks into either
-                # message ("the following arguments are required:
-                # _duho_command_"); `instance.command` does not exist.
+                # argparse's required/invalid-choice errors fall back to the
+                # action's dest when `metavar` is unset; set it so the private
+                # `_duho_command_` dest never shows.
                 subparsers.metavar = "{" + ",".join(sibling_names) + "}"
                 default_subcommand = getattr(cls, "_default_subcommand_", None)
                 if (
@@ -636,25 +485,17 @@ class Args(_argparse.Namespace):
                         f"{default_subcommand!r} is not one of its subcommands "
                         f"({', '.join(seen_names)})"
                     )
-                # Dests this (root) class declares itself: an option given BEFORE the
-                # subcommand parses into these on the root namespace. A child that
-                # inherits the same field (via MRO) re-declares it with its own
-                # default and would clobber that value back when the flag is absent
-                # from the child's argv. Suppress the child's default for those
-                # shared, optional dests so the parent's parsed value survives; the
-                # child still accepts the flag AFTER the subcommand (overwrites) and
-                # its own unique args are untouched.
+                # Dests this root declares: an option given BEFORE the subcommand
+                # parses into them, and a child re-declaring the field would
+                # clobber that with its default. Suppress the child's default
+                # for those shared optional dests.
                 root_builders = {b.name: b for b in cls._getargs_()}
                 root_dests = set(root_builders)
                 root_defaults = {
                     n: b._effective_default_() for n, b in root_builders.items()
                 }
-                # A config table reaches every subcommand's own slice
-                # (`_stash_layer_state` recurses the same table down the
-                # tree), so propagate "a config could apply here" too --
-                # either inherited from a caller's own `config=` hint, or
-                # because THIS class (root, or an intermediate node in a
-                # multi-level tree) declares `_config_` itself.
+                # A config table reaches every subcommand's slice, so propagate
+                # the hint: from `config=`, or this class's own `_config_`.
                 propagated_config_hint = external_config or (
                     getattr(cls, "_config_", None) is not None
                 )
@@ -665,11 +506,8 @@ class Args(_argparse.Namespace):
                         _inherited_agent_root_cls_=agent_root_cls,
                         _inherited_config_hint_=propagated_config_hint,
                     )
-                    # Link child -> parent so `_merge_layers_upward`
-                    # (run from the child's own `_initparser_`-patched
-                    # `parse_known_args`, only when it actually executes) folds
-                    # this child's provenance into the parent's, one level at a
-                    # time, only for the parser chain actually selected.
+                    # Link child -> parent so `_merge_layers_upward` folds
+                    # provenance up the selected chain only.
                     child._duho_parent_parser_ = parser  # type: ignore[attr-defined]
                     _suppress_inherited_defaults(child, root_dests, root_defaults)
         finally:
@@ -689,25 +527,14 @@ class Args(_argparse.Namespace):
     ) -> _argparse.ArgumentParser:
         """Populate an already-created ``parser`` with this class's own fields.
 
-        Called by :meth:`_parser_` right after creating/attaching the parser:
-        adds each declared field's argument (respecting
-        ``NS(group=...)``/``NS(conflicts=...)``
-        titled/mutually-exclusive groups), patches ``parse_known_args`` to
-        build the final ``Args``/``Cmd`` instance from the raw ``Namespace``,
-        and -- for a non-subcommand root -- injects ``--print-completion``
-        when ``_completion_`` is set. Override to add parser-level
-        configuration ``_parser_`` doesn't itself expose (call
-        ``super()._initparser_(parser, ...)`` first to keep this behavior).
-
-        An override must accept ``**kwargs`` and forward them to ``super()``:
-        ``_parser_`` passes build context by keyword and may pass more than
-        the signature below lists. ``explicit_prog`` is accepted and unused.
-
-        ``external_config`` -- threaded down from :meth:`_parser_` -- tells
-        :func:`_add_fields` that a config table WILL reach this class even
-        though `cls` itself declares no `_config_` (an explicit `config=`
-        kwarg to `duho.main`/`duho.parse`/`duho.parse_globals`, or a root
-        ancestor's own `_config_` cascading down the `_subcommands_` tree).
+        Called by :meth:`_parser_`: adds each field (with its groups), patches
+        ``parse_known_args`` to build the final ``Args``/``Cmd`` instance, and on
+        a root with ``_completion_`` injects ``--print-completion``. Override
+        for parser-level configuration (call ``super()._initparser_`` first,
+        accept ``**kwargs`` and forward them: ``_parser_`` may pass more than
+        the signature lists). ``explicit_prog`` is accepted and unused.
+        ``external_config`` says a config table will reach this class although
+        it declares no ``_config_`` (see :func:`_add_fields`).
         """
         parent_dests = parent_dests if parent_dests is not None else frozenset()
 
@@ -719,14 +546,9 @@ class Args(_argparse.Namespace):
 
             setattr(namespace, "#cls", cls)
 
-            # `_passthrough_`: capture argv after the FIRST literal `--`
-            # separator. Only the
-            # top-level parse owns the split -- a subparser is invoked by
-            # argparse._SubParsersAction with an already-sliced arg list and
-            # namespace=None, so splitting there would double-consume. The
-            # left side is parsed normally; the right side is stashed on the
-            # constructed instance as `_passthrough_` (empty list when absent
-            # or when multiple `--` appear, only the first splits).
+            # `_passthrough_`: argv after the FIRST `--`. Only the top-level
+            # parse splits: a subparser gets an already-sliced list and
+            # namespace=None.
             passthrough: list[str] | None = None
             if not is_subcommand:
                 if args is None:
@@ -748,41 +570,27 @@ class Args(_argparse.Namespace):
                     parser, list(args), default_subcommand
                 )
 
-            # A flag placed BETWEEN two positional groups (one of them
-            # variable-arity) breaks under argparse's own greedy
-            # positional-run matching (bpo-15112) -- reorder recognized
-            # flags to the front of the slice THIS parser will actually see
-            # so the positional run stays contiguous. Scoped to parsers with
-            # the risky shape only (cheap check, no cost/behavior change
-            # otherwise); never touches anything after the `--` split above
-            # (that's `passthrough`, already carved out); bails unreordered
-            # on anything it isn't certain about, so a genuine typo still
-            # surfaces argparse's own honest error through the real,
-            # UNMODIFIED parse below.
+            # A flag between two positional groups, one variable-arity, breaks
+            # argparse's greedy positional matching (bpo-15112): move recognized
+            # flags to the front. Bails unreordered when unsure, so a typo still
+            # gets argparse's own error.
             if args is not None and _has_variadic_positional(parser):
                 args = _reorder_argv_for_variadic_positional(parser, list(args))
 
-            # Install this class's own env/config/instance placeholders as
-            # not-yet-converted defaults (Design Q2/Q4) -- lazily, right here,
-            # so a value belonging to a subcommand this invocation never
-            # reaches is never even resolved.
+            # Install env/config/instance placeholders as unconverted defaults,
+            # lazily, so a subcommand this run never reaches is never resolved.
             _stage_layers(parser, cls)
 
             parsed, unk = _argparse.ArgumentParser.parse_known_args(
                 parser, args, namespace
             )
 
-            # Convert whichever placeholders the CLI left untouched, report a
-            # bad one through `parser.error`, and merge this parser's
-            # own provenance up into its parent's -- see
-            # `_finalize_layers`/`_merge_layers_upward`.
+            # Convert untouched placeholders, report a bad one through
+            # `parser.error`, and merge provenance up into the parent's.
             _finalize_layers(parser, cls, parsed)
             _merge_layers_upward(parser)
 
-            # Per-PARSE mutable-default copy, scoped to THIS parser's
-            # own actions (a subcommand's redeclared fields are a different
-            # action set, handled the same way when ITS OWN wrapped
-            # parse_known_args runs).
+            # Per-parse copy of mutable defaults, for THIS parser's actions only.
             for _pa in parser._actions:
                 _dest = _pa.dest
                 if _dest is None or _dest is _argparse.SUPPRESS:
@@ -791,32 +599,21 @@ class Args(_argparse.Namespace):
                 if isinstance(_default, (list, set, dict)) and (
                     getattr(parsed, _dest, None) is _default
                 ):
-                    # `_kwargs` already gives each parser BUILD its own
-                    # copy of a mutable default, but argparse puts that SAME
-                    # object onto every namespace a REUSED parser produces
-                    # when the field is never touched by this parse -- so two
-                    # `parse_args()` calls on one cached parser would share
-                    # (and, on mutation, leak into each other's) that list/
-                    # set/dict. Break the aliasing once more, per parse.
+                    # argparse puts the SAME default object on every namespace a
+                    # reused parser produces; copy it per parse so parses never
+                    # share a list/set/dict.
                     setattr(parsed, _dest, _copy.copy(_default))
 
             if is_subcommand:
-                # Invoked via argparse._SubParsersAction.__call__, which
-                # calls us with namespace=None and then copies vars(result)
-                # back onto the *parent* namespace. Keep "#cls" in the
-                # returned dict (rather than popping/constructing here) so
-                # it propagates upward and overwrites the parent's own
-                # "#cls" -- subparsers are parsed after the parent's own
-                # actions, so the deepest selection always lands last and
-                # wins. Only the true top-level call (is_subcommand=False)
-                # pops "#cls" and constructs the final instance.
+                # argparse's _SubParsersAction copies vars(result) onto the
+                # parent namespace, so keep "#cls" in the dict: the deepest
+                # selection is parsed last and wins. Only the top-level call pops
+                # it and builds the instance.
                 return parsed, unk
 
             _cls: type[_Self] = parsed.__dict__.pop("#cls")
-            # Drop the `_CollectionAction`/`UpdateAction` sidecars
-            # (`_duho_items_<dest>` / `_duho_dict_seen_<dest>`) before
-            # constructing the instance so this internal bookkeeping never leaks
-            # into vars(instance) or the documented clone pattern.
+            # Drop the collection-action sidecars so they never reach
+            # vars(instance) or the clone pattern.
             for _sidecar in [
                 k
                 for k in parsed.__dict__
@@ -831,17 +628,10 @@ class Args(_argparse.Namespace):
             instance = _cls(**parsed.__dict__)
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []
-            # Debug-aid linkage for duho.value_sources(): remember the parser
-            # (which carries _duho_value_sources_/_duho_merged_defaults_,
-            # merged up the selected chain by `_merge_layers_upward` as each
-            # level's own `parse_known_args` finished) that produced instances
-            # of this class. `parser` here is THIS closure's own variable --
-            # for a nested selection `_cls` has already been rebound to the
-            # DEEPEST selected class by the `pop("#cls")` above, while
-            # `parser` is still the ROOT's, which by now holds the merged
-            # chain. Per-class, not per-instance -- keeps Args
-            # instances themselves free of framework bookkeeping in
-            # vars()/__dict__.
+            # For duho.value_sources(): `parser` is still the ROOT's and holds
+            # the chain merged by `_merge_layers_upward`, though `_cls` is now
+            # the deepest selection. Per class, so Args instances stay free of
+            # bookkeeping in vars().
             _cls._duho_last_parser_ = parser  # type: ignore[attr-defined]
             # Also record it per-INSTANCE (see `_duho_instance_last_parser_`)
             # so parsing this same class again later doesn't retroactively
@@ -860,18 +650,9 @@ class Args(_argparse.Namespace):
         _keep_attached_double_dash(parser)
 
         def _unsupported_intermixed_args(*_a, **_kw):
-            # argparse's own `parse_intermixed_args` (both the public
-            # method and `parse_known_intermixed_args` it calls) route
-            # differently across versions -- 3.9 calls back into
-            # `self.parse_known_args` (our patch above) and then crashes
-            # trying to `delattr` positional dests off the constructed `Args`
-            # instance it gets back instead of a plain `Namespace`; 3.14 calls
-            # a private `_parse_known_args2` directly, bypassing the patch
-            # entirely and returning a bare `Namespace` with no `"#cls"`
-            # selection, no constructed instance, and no `_passthrough_`.
-            # Neither is a supported duho path; fail loud with a pointer to
-            # the real one instead of a version-dependent crash or a
-            # half-built result.
+            # 3.9 re-enters our patched `parse_known_args` and crashes on the
+            # built instance; 3.14 calls `_parse_known_args2` and returns a bare
+            # Namespace. Neither is supported: fail loud instead.
             raise NotImplementedError(
                 "duho parsers do not support parse_intermixed_args()/"
                 "parse_known_intermixed_args() (argparse bypasses duho's own "
@@ -887,29 +668,20 @@ class Args(_argparse.Namespace):
         if version and "version" not in actions_by_dest_pre:
             parser.add_argument(
                 "--version",
-                # Escape a literal `%` in the resolved version string --
-                # argparse `%`-formats `version=` the same as any other help
-                # text, so `_version_ = "2.0 (100% rewrite)"` crashed
-                # `--version` with a bare `TypeError`.
-                # `_Utf8SafeVersionAction`, not the stock `action="version"`
-                # (`argparse._VersionAction`): same text/exit code, but
-                # crash-proof on a non-UTF-8 stdout -- see its docstring.
+                # `%` must be escaped: argparse %-formats `version=`.
+                # `_Utf8SafeVersionAction` survives a non-UTF-8 stdout.
                 action=_Utf8SafeVersionAction,
                 version="%(prog)s " + version.replace("%", "%%"),
             )
 
-        # --print-completion: opt-in via _completion_ = True, only injected
-        # on the top-level parser (a subcommand's own parser only sees its
-        # own subtree, not the whole app) -- skipped if a "print_completion"
-        # dest already exists (e.g. from a parents=[...] parser).
+        # Opt-in via `_completion_`; top-level only, since a subcommand's parser
+        # sees only its own subtree. Skipped if the dest exists (`parents=`).
         if not is_subcommand and getattr(cls, "_completion_", False):
             actions_by_dest_pre2 = {action.dest: action for action in parser._actions}
             if "print_completion" not in actions_by_dest_pre2:
                 parser.add_argument(
                     "--print-completion",
-                    # One shared tuple, also used by the standalone
-                    # `print_completion()` function's own validation, instead
-                    # of a second hardcoded copy that could silently drift.
+                    # Shared with `print_completion()`'s validation.
                     choices=_COMPLETION_SHELLS,
                     action=_PrintCompletionAction,
                     root_parser=parser,
@@ -917,11 +689,8 @@ class Args(_argparse.Namespace):
                     help="Print a shell completion script for the given shell and exit.",
                 )
 
-        # Wire this class's own declared fields (and their titled/mutually-
-        # exclusive groups) onto the parser -- shared with
-        # `runtime._add_module_declared_fields` so a module command
-        # gets the exact same `NS(group=...)`/`NS(conflicts=...)` support a
-        # class command does.
+        # Shared with `runtime._add_module_declared_fields`, so a module command
+        # gets the same group support.
         _add_fields(
             parser,
             cls,

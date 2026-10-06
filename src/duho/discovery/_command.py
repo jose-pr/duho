@@ -319,6 +319,11 @@ class ModuleCommand:
         self.finally_ = _own_callable(module, "finally_") or _noop
 
     @property
+    def entrypoint(self) -> "_ty.Callable[..., object]":
+        """The resolved callable (``main``/``run``/``call`` or the one passed in)."""
+        return self._entrypoint
+
+    @property
     def description(self) -> str:
         """Full command help -- the wrapped module's docstring, stripped."""
         return (getattr(self.module, "__doc__", None) or "").strip()

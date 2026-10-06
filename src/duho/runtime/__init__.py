@@ -83,6 +83,7 @@ if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only
 
 _LOGGER = _logging.getLogger(__package__)
 
+from ._arity import accepts_positional
 from ._run import (
     _reject_coroutine,
     run_command,
@@ -124,4 +125,4 @@ from ._app import (
     _build_app_core,
 )
 
-__all__ = ["run_command", "app"]
+__all__ = ["run_command", "app", "accepts_positional"]

@@ -49,6 +49,7 @@ def run_command(
     instance: object,
     *,
     context: object = None,
+    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
 ) -> int:
     """Dispatch one already-resolved command against a parsed ``instance``.
 
@@ -68,6 +69,11 @@ def run_command(
       the ``init`` result (the driver builds the context once and threads it in).
       ``main``'s return value (or ``None`` -> ``0``) is the exit code; an
       exception from ``main`` propagates after ``finally_`` runs.
+
+    ``adapter(entrypoint)``, when given, is called with a module command's
+    entrypoint (:attr:`ModuleCommand.entrypoint`) and returns the callable to
+    call with ``instance`` in its place; a falsy return keeps the entrypoint.
+    It never applies to the lifecycle hooks, nor to a class command.
 
     No separate ``logger`` argument is threaded: hooks read ``instance._logger_``.
     For a module command, THIS driver ensures it is present before any hook
@@ -96,7 +102,8 @@ def run_command(
         ctx = context if context is not None else module_command.init(instance)
         _reject_coroutine(ctx, "%s init()" % _command_name(command))
         try:
-            result = module_command.main(instance)
+            adapted = adapter(module_command.entrypoint) if adapter else None
+            result = adapted(instance) if adapted else module_command.main(instance)
             _reject_coroutine(result, "%s main()" % _command_name(command))
             # `success` is the SUCCESS hook: run it only when main reported
             # success (None or exit code 0), not for a non-zero exit code.

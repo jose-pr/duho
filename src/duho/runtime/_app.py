@@ -122,6 +122,23 @@ def _run_app(
     return run(_ty.cast(_Command, type(instance)), instance)
 
 
+def _default_run(
+    dispatch: "_ty.Optional[_ty.Callable[[_Command, object], int]]",
+    adapter: "_ty.Optional[_ty.Callable[..., object]]",
+) -> "_ty.Callable[[_Command, object], int]":
+    """The final run step: ``dispatch``, else :func:`run_command` bound to ``adapter``."""
+    if dispatch is not None:
+        if adapter is not None:
+            raise ValueError(
+                "app(): adapter= applies to the default run step; with dispatch= "
+                "pass adapter to run_command() from the dispatch callable"
+            )
+        return dispatch
+    if adapter is None:
+        return run_command
+    return lambda command, instance: run_command(command, instance, adapter=adapter)
+
+
 def app(
     root: "type | None" = None,
     *,
@@ -139,6 +156,7 @@ def app(
     mcp_command: "str | bool | None" = None,
     utf8_stdio: "bool | None" = None,
     on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
 ) -> "_ty.Any":
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
@@ -230,6 +248,11 @@ def app(
     only ``ImportError``/``NotImplementedError`` with a warning and registration
     errors propagate.
 
+    ``adapter(entrypoint)`` is applied to a module command's entrypoint by the
+    default run step (see :func:`run_command`). It cannot be combined with
+    ``dispatch``, which replaces that step: a custom dispatch passes ``adapter``
+    to :func:`run_command` itself (``ValueError`` otherwise).
+
     **MCP launch trigger.** Checked FIRST, before ``argv``
     is parsed or anything else here runs: a ``<PREFIX>MCP``/``<NAME>_MCP``
     environment variable (name derived from ``env``'s prefix, else from
@@ -290,6 +313,7 @@ def app(
                 config=config,
                 dispatch=dispatch,
                 on_error=on_error,
+                adapter=adapter,
             )
 
         served = _maybe_serve_mcp_trigger(
@@ -298,7 +322,7 @@ def app(
         if served is not None:
             return served
 
-    run = dispatch if dispatch is not None else run_command
+    run = _default_run(dispatch, adapter)
     # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
     # Collected rather than logged immediately: at this point in `app()` no
     # logging handler has been installed yet, so an immediate `_LOGGER.info`
@@ -431,6 +455,7 @@ def _build_app_core(
     config: "str | _Path | None" = None,
     dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
     on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
+    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
 ) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
     """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
     dispatching -- the building block :mod:`duho.mcp` needs to serve an
@@ -490,7 +515,7 @@ def _build_app_core(
 
     _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)
 
-    run = dispatch if dispatch is not None else run_command
+    run = _default_run(dispatch, adapter)
     post_parse = _make_post_parse_dispatch(
         env, root_cls, notices, cmds_path_overridden, run
     )

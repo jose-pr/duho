@@ -305,8 +305,8 @@ just its annotation.
   encoding" above.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
-  dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None, on_error=None)
-  -> Any`** —
+  dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None, on_error=None,
+  adapter=None) -> Any`** —
   multi-command runner (return type is `Any`, not `int`,
   for the same reason as `main`: a command's non-`None`, non-`int` return value
   passes straight through). Base command-set precedence:
@@ -334,7 +334,8 @@ just its annotation.
   resolved `Env` as `_env_`. A module command's own declared `Args` fields support
   `NS(conflicts=...)`/`NS(group=...)` the same as a class command's. `dispatch(command,
   instance) -> int` replaces only the final run step.
-- **`run_command(command, instance, *, context=None) -> int`** — dispatch one resolved
+- **`run_command(command, instance, *, context=None, adapter=None) -> int`** —
+  dispatch one resolved
   command. Class command → `instance()` (awaited via `asyncio.run` if it returns a
   coroutine). Module command → `init → main → success` (only on a `None`/`0` result) `→
   finally_` lifecycle — `finally_` always runs, and if it raises, that exception is

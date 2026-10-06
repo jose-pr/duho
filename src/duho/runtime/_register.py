@@ -13,6 +13,7 @@ from ..args._parserfix import (
 )
 from ..discovery import ModuleCommand as _ModuleCommand
 from ..discovery._command import _noop as _discovery_noop
+from ._arity import accepts_positional as _accepts_positional
 
 
 def _register_class_command(
@@ -84,16 +85,7 @@ def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
         and logger_param.kind is _inspect.Parameter.KEYWORD_ONLY
     ):
         return True
-    positional = 0
-    for param in params.values():
-        if param.kind is _inspect.Parameter.VAR_POSITIONAL:
-            return True  # *args absorbs the extra logger positional
-        if param.kind in (
-            _inspect.Parameter.POSITIONAL_ONLY,
-            _inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        ):
-            positional += 1
-    return positional >= 3
+    return _accepts_positional(register, 3)
 
 
 def _wants_logger_by_keyword(register: "_ty.Callable[..., object]") -> bool:

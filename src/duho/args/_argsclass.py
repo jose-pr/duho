@@ -17,6 +17,7 @@ from ._actions import (
     _install_agent_help,
 )
 from ._argument import Argument, ArgumentBuilder, _apply_argument_options
+from ._guards import _warn_misspelled_attrs
 from ._helptext import _escape_description, _escape_help
 from ._meta import Meta, NOT_DEFINED, NS
 from ._naming import _app_name, _command_name, _resolve_version
@@ -453,6 +454,7 @@ class Args(_argparse.Namespace):
         :meth:`_initparser_` instead to add parser-level configuration that
         doesn't change how the parser object is created.
         """
+        _warn_misspelled_attrs(cls)
         if subparser:
             method = subparser.add_parser
         else:

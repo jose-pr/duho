@@ -50,6 +50,12 @@ if _ty.TYPE_CHECKING:
 #: `type(self)(**self._get_kwargs())` clone pattern and instance equality/repr.
 _duho_explicit_instance_fields: "dict[int, frozenset]" = {}
 
+#: {id(instance): {field: value}} -- what `Args.__init__` seeded for each field
+#: the caller did not pass. `duho.parse(instance)` counts a seeded field as set
+#: once its current value differs from this record. Kept out of `vars(instance)`
+#: and cleaned up like `_duho_explicit_instance_fields`.
+_duho_seeded_instance_values: "dict[int, dict[str, object]]" = {}
+
 #: {id(instance): parser} recording which parser produced THIS specific
 #: instance, for `duho.value_sources`. Kept OUT of `vars(instance)` for the
 #: same reason as `_duho_explicit_instance_fields` above (id()-keyed,
@@ -326,6 +332,7 @@ class Args(_argparse.Namespace):
         # `vars(self)` only sees THIS instance's own attributes, so the gap
         # still gets filled with `_effective_default_()`'s fresh copy.
         super().__init__(**kwargs)
+        seeded: "dict[str, object]" = {}
         for builder in type(self)._getargs_():
             name = builder.name
             if name in kwargs or name in vars(self):
@@ -333,6 +340,7 @@ class Args(_argparse.Namespace):
             default = builder._effective_default_()
             if default is not NOT_DEFINED:
                 setattr(self, name, default)
+                seeded[name] = _copy.copy(default)
         # Remember exactly which fields THIS CALL passed, outside
         # vars(self) -- see `_duho_explicit_instance_fields`. A subclass that
         # isn't weak-referenceable (e.g. declares `__slots__` without
@@ -342,7 +350,9 @@ class Args(_argparse.Namespace):
         try:
             _key = id(self)
             _duho_explicit_instance_fields[_key] = frozenset(kwargs)
+            _duho_seeded_instance_values[_key] = seeded
             _weakref.finalize(self, _duho_explicit_instance_fields.pop, _key, None)
+            _weakref.finalize(self, _duho_seeded_instance_values.pop, _key, None)
         except TypeError:
             pass
 

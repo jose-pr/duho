@@ -32,6 +32,7 @@ import pathlib as _pathlib
 import typing as _ty
 
 from . import parsers as _parsers
+from ._introspect import NOT_DEFINED
 from ._fieldspec import _AppendAction as _AppendAction
 from ._fieldspec import _CollectionAction as _CollectionAction
 from ._fieldspec import _LayeredChoiceError as _LayeredChoiceError
@@ -695,6 +696,47 @@ def _stash_layer_state(
         _stash_layer_state(sub_parser, sub, sub_table)
 
 
+def _values_differ(a: object, b: object) -> bool:
+    try:
+        return bool(a != b)
+    except Exception:
+        return True
+
+
+def _instance_overrides(instance: object) -> "dict[str, object]":
+    """The field values of `instance` that count as set by its caller.
+
+    A field counts when it was passed to the constructor or when its value
+    differs from what the constructor seeded. An instance with no record (a
+    copy, or a class that cannot be weak-referenced) counts a field when its
+    value differs from the field's effective default.
+    """
+    from .args._argsclass import (  # lazy: avoids a circular import
+        _duho_explicit_instance_fields,
+        _duho_seeded_instance_values,
+    )
+
+    explicit = _duho_explicit_instance_fields.get(id(instance))
+    seeded = _duho_seeded_instance_values.get(id(instance))
+    overrides: "dict[str, object]" = {}
+    values = vars(instance)
+    for builder in type(instance)._getargs_():
+        name = builder.name
+        if name not in values:
+            continue
+        value = values[name]
+        if explicit is not None and name in explicit:
+            overrides[name] = value
+            continue
+        if seeded is not None:
+            baseline = seeded.get(name, NOT_DEFINED)
+        else:
+            baseline = builder._effective_default_()
+        if baseline is NOT_DEFINED or _values_differ(value, baseline):
+            overrides[name] = value
+    return overrides
+
+
 def _apply_layers(
     parser: "_argparse.ArgumentParser",
     cls,
@@ -709,9 +751,8 @@ def _apply_layers(
 
     Resolves `config` once (a path/None via `_resolve_config_dict`, or an
     already-loaded dict, as `duho.app` passes having loaded it itself),
-    computes `instance`'s EXPLICITLY-passed field overrides (a
-    placeholder `Args.__init__` seeded for a field the caller never actually
-    set is not an override), and stashes both (plus `env`, an optional
+    computes `instance`'s field overrides (see `_instance_overrides`: a value
+    `Args.__init__` seeded and nobody changed is not an override), and stashes both (plus `env`, an optional
     Mapping override for where `NS(env=...)` vars are read from) across
     `cls`'s static `_subcommands_` tree via `_stash_layer_state`. Actual
     conversion is deferred -- see `_stage_layers`/`_finalize_layers` for why
@@ -728,18 +769,7 @@ def _apply_layers(
     )
     overrides = None
     if instance is not None:
-        from .args._argsclass import (  # lazy: avoids a circular import (args.py
-            _duho_explicit_instance_fields,
-        )
-
-        # re-exports this module's own public names)
-        field_names = {b.name for b in type(instance)._getargs_()}
-        touched = _duho_explicit_instance_fields.get(id(instance))
-        overrides = {
-            name: value
-            for name, value in vars(instance).items()
-            if name in field_names and (touched is None or name in touched)
-        }
+        overrides = _instance_overrides(instance)
     _stash_layer_state(parser, cls, raw_config, overrides, env)
     return raw_config
 

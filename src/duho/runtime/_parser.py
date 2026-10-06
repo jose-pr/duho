@@ -8,7 +8,7 @@ from .. import logging as _duho_logging
 from ..args import Args as _Args
 from .._layers import (
     _apply_default_layers_one as _apply_default_layers_one,
-    _resolve_config_dict as _resolve_config_dict,
+    _resolve_config_or_error as _resolve_config_or_error,
     _stash_layer_state as _stash_layer_state,
 )
 from ..discovery import (
@@ -268,7 +268,7 @@ def _prepare_app_parser(
     # hard-exit with a usage error. `_apply_app_config_layers` (called
     # after registration) re-stashes it (idempotent) alongside each command's
     # own table.
-    raw_config: dict = _resolve_config_dict(root_cls, config)
+    raw_config: dict = _resolve_config_or_error(parser, root_cls, config)
     _stash_layer_state(parser, root_cls, raw_config)
 
     # A prepass parsed root instance is offered to module ``register`` hooks so a

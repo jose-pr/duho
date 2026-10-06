@@ -65,3 +65,32 @@ def test_class_config_malformed_is_reported_through_a_bare_parser(tmp_path, caps
         Cfg._parser_().parse_args([])
     assert info.value.code == 2
     assert str(path) in capsys.readouterr().err
+
+
+class _Run(duho.Cmd):
+    """Run."""
+
+    _parsername_ = "run"
+
+    def __call__(self):
+        return 0
+
+
+@pytest.mark.parametrize("name,text", [("bad.toml", "port = 1 2\n"), ("bad.json", "{")])
+def test_app_reports_a_malformed_config_through_the_parser(
+    tmp_path, capsys, name, text
+):
+    path = tmp_path / name
+    path.write_text(text)
+    with pytest.raises(SystemExit) as info:
+        duho.app(
+            duho.LoggingArgs,
+            commands=[_Run],
+            argv=["run"],
+            config=path,
+            setup_logging=False,
+        )
+    assert info.value.code == 2
+    err = capsys.readouterr().err
+    assert str(path) in err
+    assert "Traceback" not in err

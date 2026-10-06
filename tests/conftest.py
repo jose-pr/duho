@@ -21,8 +21,7 @@ from pathlib import Path
 import pytest
 
 from duho import discovery as _discovery
-from duho.runpath import _adapter as _runpath_adapter
-from duho.runpath import _provider as _runpath_provider
+from duho import runpath as _runpath
 from duho.logging import DefaultFormatter as _DefaultFormatter
 from duho import logging as _duho_logging
 
@@ -91,16 +90,16 @@ def _isolate_command_providers():
     or an earlier test) survives into the next one.
     """
     saved_providers = list(_discovery._PROVIDERS)
-    saved_registered = _runpath_provider._REGISTERED
-    saved_base = _runpath_provider._BASE
-    saved_adapter = _runpath_adapter._ADAPTER
+    saved_registered = _runpath._REGISTERED
+    saved_base = _runpath._BASE
+    saved_adapter = _runpath._ADAPTER
     try:
         yield
     finally:
         _discovery._PROVIDERS[:] = saved_providers
-        _runpath_provider._REGISTERED = saved_registered
-        _runpath_provider._BASE = saved_base
-        _runpath_adapter._ADAPTER = saved_adapter
+        _runpath._REGISTERED = saved_registered
+        _runpath._BASE = saved_base
+        _runpath._ADAPTER = saved_adapter
 
 
 # --------------------------------------------------------------------------

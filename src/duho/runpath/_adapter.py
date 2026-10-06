@@ -1,4 +1,5 @@
 import inspect as _inspect
+import sys as _sys
 import typing as _ty
 
 
@@ -12,13 +13,6 @@ class _Keep:
 
 
 _KEEP = _Keep()
-
-#: An app-supplied hook that rewrites a step's entrypoint before it is called.
-#: ``None`` (the default) means "call the step exactly as written", which is
-#: the behavior every RunPath app had before this existed. Configurable via
-#: :func:`register`'s ``step_adapter=`` -- set once per process/app, like
-#: :data:`_BASE`, since every RunPath command in one app shares it.
-_ADAPTER: "_ty.Optional[_ty.Callable[..., object]]" = None
 
 
 def _adapt_step(
@@ -34,9 +28,11 @@ def _adapt_step(
     that changes the signature -- wrapping a ``(client, args, logger)`` body in
     a ``(cmd, ctx)`` shim, say -- is honored rather than second-guessed.
     """
-    if _ADAPTER is None:
+    # The adapter is state on the package, where register() and callers set it.
+    adapter = _sys.modules[__package__]._ADAPTER
+    if adapter is None:
         return entrypoint
-    return _ADAPTER(entrypoint) or entrypoint
+    return adapter(entrypoint) or entrypoint
 
 
 def _is_bare_passthrough(params: "_ty.Sequence[_inspect.Parameter]") -> bool:

@@ -20,6 +20,9 @@ files on Python 3.9 and 3.10 (3.11+ has `tomllib`; JSON config files need nothin
 
 `duho.__version__` is the package's own version as a string.
 
+The package is typed (it ships `py.typed`), and every annotation on a public callable
+resolves with `typing.get_type_hints` on every supported Python, 3.9 included.
+
 `import duho` never eagerly imports `json`, `importlib.metadata`, `duho.completion`,
 `shlex`, `duho.agenthelp`, `importlib.util`, or `pkgutil` (a tested contract) — each
 loads lazily on first actual use. Keep any addition here that would break that lazy.
@@ -340,7 +343,9 @@ just its annotation.
 - **`parser(cls, *args, **kwargs) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
   a type checker, `duho.parser(MyApp)`/`duho.parse(MyApp)`/`duho.parse_globals(MyApp)`/
   `Cli.subcommand`/`command()`'s decorated class all keep the caller's own class/type
-  rather than widening to a base type (no runtime behavior change).
+  rather than widening to a base type (no runtime behavior change). With subcommands,
+  the instance `parse_args`/`parse` returns is the SELECTED LEAF command's: it is typed
+  as `cls`, but the chosen subcommand's class need not derive from it.
 - **`parse(spec, argv=None, *, parser_kwargs=None, config=None)`** — build+parse in one call. `spec` a
   type → new instance; `spec` an instance → its explicitly-set field values become
   defaults (CLI wins), returns a new `type(spec)` instance, `spec` itself is untouched.
@@ -414,7 +419,8 @@ just its annotation.
   default** (no "instance" layer here — that only exists for `parse()`). Attaches the
   resolved `Env` as `_env_`. A module command's own declared `Args` fields support
   `NS(conflicts=...)`/`NS(group=...)` the same as a class command's. `dispatch(command,
-  instance) -> int` replaces only the final run step.
+  instance)` replaces only the final run step; what it returns is what `app` returns
+  (typed `Any`, like a command's own return value).
   `source` may be one source or a list/tuple of them (see `discover_commands`).
   `on_error(source, exc)` is passed to discovery (`source=`, `CMDS_PATH`) and is also
   called, with `(command, exc)`, when building one command's parser or running its
@@ -433,7 +439,7 @@ just its annotation.
   `args` is `None` only if the root cannot be built without arguments. The real parse
   still enforces the required options. A malformed or unreadable built-in config file is a
   usage error here as under `main` (see "Env / config").
-- **`run_command(command, instance, *, context=None, adapter=None) -> int`** —
+- **`run_command(command, instance, *, context=None, adapter=None) -> Any`** —
   dispatch one resolved
   command. `adapter(entrypoint)` is the same hook as `app`'s: it applies to a module
   command's entrypoint only. Class command → `instance()` (awaited via `asyncio.run` if it returns a

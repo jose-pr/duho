@@ -87,6 +87,33 @@ def test_every_exported_name_is_mentioned_in_header(module_name):
     ), f"{module_name}.__all__ names missing from {_HEADER_PATH.name}: {missing}"
 
 
+# --- shape ------------------------------------------------------------------
+
+
+def test_header_closes_with_the_standard_tail_sections_in_order():
+    text = _HEADER_PATH.read_text(encoding="utf-8")
+    headings = re.findall(r"^## (.+)$", text, re.MULTILINE)
+    assert headings[-4:] == [
+        "Exceptions",
+        "Command line",
+        "Environment variables",
+        "Gotchas",
+    ]
+
+
+def test_header_tells_no_history_and_has_no_repo_relative_links():
+    text = _HEADER_PATH.read_text(encoding="utf-8")
+    history = re.findall(
+        r"\b(used to|no longer|unchanged from before|now parses|previously|formerly)\b",
+        text,
+    )
+    # "previously-installed" names a handler already present at run time.
+    history = [h for h in history if h != "previously"]
+    assert not history, f"history in the header: {history}"
+    relative = re.findall(r"\]\((?!https?://|#)[^)]*\)", text)
+    assert not relative, f"repo-relative links in the header: {relative}"
+
+
 # --- bold signature entries ------------------------------------------------
 
 #: A bold entry such as ``**`parse(spec, argv=None) -> T`**``; the parameter

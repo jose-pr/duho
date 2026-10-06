@@ -1,9 +1,24 @@
 # `duho` — public API header
 
-Header-file-style reference for the `duho` package: every `__all__` export (top-level
-and per-submodule) with its signature, arguments, contract, and gotchas, so this
-package can be consumed without reading its source. For the framework overview and the
-class-declaration form, see <https://github.com/jose-pr/duho>.
+Header-file-style reference for the `duho` package: every public export with
+its signature, arguments, contract and gotchas, so the package can be used
+without reading its source. It ships inside the package and is
+self-contained. Development documentation lives with the source at
+<https://github.com/jose-pr/duho>.
+
+Public names are the `__all__` exports of `duho` and of its public modules, each named
+in a section heading below; import them from there (`from duho import Cmd, main`,
+`from duho.fanout import run_targets`). A module or file whose name starts with `_`, and
+the private `_*.py` submodules inside the `args`, `completion`, `discovery`, `mcp`,
+`runpath` and `runtime` packages, are not API.
+
+Install with `pip install duho`; it has no required dependencies. Two extras add optional
+integrations: `pip install duho[colorama]` resolves named log colors and patches a legacy
+Windows console for ANSI output (log color itself needs no extra), and
+`pip install duho[config]` adds `tomli`, which reads TOML config files on Python 3.9 and
+3.10 (3.11+ has `tomllib`; JSON config files need nothing).
+
+`duho.__version__` is the package's own version as a string.
 
 `import duho` never eagerly imports `json`, `importlib.metadata`, `duho.completion`,
 `shlex`, `duho.agenthelp`, `importlib.util`, or `pkgutil` (a tested contract) — each
@@ -54,10 +69,10 @@ regardless of which internal module implements it:
   (space-separated: `prog a b`); used as an OPTION it defaults to `nargs=None` — ONE
   value per flag occurrence, repeat the flag for more (`-f a -f b`), not
   space-separated in one occurrence (`-f a b`) — pass an explicit `NS(nargs="*")` to
-  restore space-separated collection on a specific OPTION field. This also works around
-  a real argparse papercut: an option placed BETWEEN two positionals (one variable-arity)
-  now parses correctly instead of tripping argparse's own greedy positional-run matching;
-  a genuinely unrecognized flag still raises argparse's own honest error.
+  restore space-separated collection on a specific OPTION field. An option placed BETWEEN
+  two positionals (one variable-arity) parses correctly, where argparse's own greedy
+  positional-run matching would trip on it; a genuinely unrecognized flag still raises
+  argparse's own error.
 - **`Cmd(Args)`** — executable `Args`. Override **`__call__(self) -> int | None`** (the
   entrypoint; `None` → exit 0; `__call__` may be `async def`, driven to completion with
   `asyncio.run` at the dispatch site). Base `__call__` raises `NotImplementedError`
@@ -234,7 +249,7 @@ just its annotation.
   not touch stdio at all; the app may call `utf8_stdio()` itself or do
   nothing. This targets Windows specifically: piped/redirected stdio there
   defaults to the console's ANSI code page (`cp1252`) with strict errors, so
-  a non-ASCII character used to raise `UnicodeEncodeError` (empty output,
+  a non-ASCII character raises `UnicodeEncodeError` (empty output,
   exit 1) from `print()` or `--version`. UTF-8 is the one encoding that
   can't raise, so the default removes that failure mode entirely.
 - **Crash-proofing when NOT UTF-8** (opted out, or a duho parser used outside
@@ -287,7 +302,7 @@ just its annotation.
   does, before the MCP launch trigger and before `argv` is parsed, is call
   `duho.utf8_stdio()` unless opted out — `utf8_stdio=False` here, or `cls`'s
   own `_utf8_stdio_ = False` when this kwarg is left `None`. See "Output
-  encoding" below.
+  encoding" above.
 - **`app(root=None, *, commands=None, source=None, entry_points=None, argv=None,
   name=None, description=None, env=None, config=None, setup_logging=True,
   dispatch=None, mcp=None, mcp_command=None, utf8_stdio=None) -> Any`** —
@@ -415,6 +430,23 @@ empty when absent).
   set matches the layered env/config bool converter; the difference is strictness —
   `.bool` returns `False` for an unrecognized value, the layered converter raises.
   Mapping-like (`__iter__`/`__len__`/`**env`).
+- **Field env binding** — `NS(env="VAR")` (or `Meta(env=...)`) on a field makes the
+  environment variable `VAR` supply its default; the text is converted with the field's
+  own type. Layering, highest first: **CLI > instance (`parse` only) > env > config >
+  class default**; a value from any layer also un-requires a field with no class default.
+- **Config files** — `_config_` on a class (a path; `~` is expanded) or `config=` on
+  `parse`/`parse_globals`/`main`/`app` (wins over the attribute) names a file whose values
+  become defaults. A path ending `.json` is read as JSON; any other path is read as TOML
+  (stdlib `tomllib` on Python 3.11+; on 3.9/3.10 it needs `pip install duho[config]`,
+  i.e. `tomli`). Top-level keys map to the root command's fields, and a table (TOML) or
+  object (JSON) named after a subcommand's `_parsername_` maps to that subcommand's
+  fields (`verbose = true` plus `[install]` with `target = "prod"`). Unknown keys are
+  ignored. The top level must be a table/object (`ValueError` otherwise). A `_config_`
+  path that does not exist yet is skipped; an explicit `config=` path that is missing
+  raises. `_config_loader_` (`Callable[[Path], dict]`) replaces the built-in reader, for
+  any other format; it is not called for a skipped file. A collection field treats an
+  env or TOML *string* as one element and a TOML array element-wise; non-string TOML
+  scalars are coerced to the field type.
 - **`value_sources(parsed) -> dict[str, str]`** — introspect where each field's value
   came from: `"cli"`, `"env"`, `"config"`, `"instance"` (a field that came from an
   instance passed to `duho.parse`), or `"default"`.
@@ -471,7 +503,7 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   `duho.formatters`) — colored output in raw ANSI codes, no dependency needed (the optional
   `colorama` only resolves a named color for `add_logging_level` and patches a legacy
   Windows console), gated by `NO_COLOR`/`FORCE_COLOR`/TTY detection (see "Environment
-  variables" above);
+  variables" below);
   `ColorHelpFormatter` is a no-op on Python 3.14+, which has its own native argparse
   color support.
 
@@ -598,7 +630,7 @@ manipulating a parser tree directly:
 - **`add_help_argument(parser)`** — add a standard `-h`/`--help` action
   (`default=argparse.SUPPRESS`).
 - **`disable_subparser_check(action)`** / **`enable_subparser_check(action)`** — pair
-  used to temporarily relax a subparsers action's own value validation; safely
+  that temporarily relaxes a subparsers action's own value validation; safely
   reentrant via a depth counter, so a nested `disable`/`enable` pair only the OUTERMOST
   pair actually saves/restores the original state.
 - **`prerun_parse(parser, argv=None, *, quiet=False)`** — an advisory pre-parse of root-level
@@ -687,8 +719,7 @@ manipulating a parser tree directly:
   identity, not a fixed placeholder: `name` is the application's name, the same root
   tool-name segment every tool name uses, and `version` is the app's own `_version_` when it resolves to a
   string, else the empty string -- duho's own version is NEVER reported as the served
-  app's (a served app with no resolvable `_version_` used to report duho's own
-  release number as if it were the app's). `initialize` negotiates
+  app's. `initialize` negotiates
   `protocolVersion` against a small supported set (falling back to the newest
   supported version) rather than echoing the client's request unconditionally.
   `json`/`importlib.metadata` stay function-local.
@@ -724,13 +755,56 @@ manipulating a parser tree directly:
     (or subclasses) `McpCmd` is never itself listed as (or callable as) an
     MCP tool.
 
+## Exceptions
+
+- **`duho.mcp.UnknownToolError`** — `ValueError` subclass; the tool name does not resolve
+  (a namespace node that is never listed raises it too). JSON-RPC code `-32602` through
+  `serve`.
+- **`duho.mcp.InvalidArgumentsError`** — `ValueError` subclass; the tool arguments are not
+  a JSON object or fail the tool's schema. JSON-RPC code `-32602`.
+- **`NotImplementedError`** — dispatching an `Args` that is not a `Cmd`, or a `Cmd` that
+  never overrode `__call__`, names the class. A module with no entrypoint raises it too,
+  which discovery treats as "not a command" and skips.
+- **`ValueError`** — a build-time error naming the cause: a reserved field name, a flag
+  tuple with `"--"` more than once, `Append` on a `set`/`tuple` field, an unknown shell for
+  `print_completion`, a `finish_parse` namespace with no duho subparser, an invalid
+  `_mcp_command_` name or collision, an unsupported MCP transport, a config file whose top
+  level is not a table, and a `generate_launchers` argument with unsafe characters.
+- **`RuntimeError`** — `duho.mcp.serve_running_app` called outside a `main`/`app` dispatch.
+- **`argparse.ArgumentTypeError`** — `parse_loglevels` on a bad token (reported as a usage
+  error).
+- **Exit status `2`** (raised as `SystemExit`) — a bad CLI, env or config value, and an unsupported
+  `<NAME>_MCP` transport. Other exit codes are the command's own return value.
+
+## Command line
+
+- **`python -m duho.mcp <app>`** — serve a duho CLI as MCP tools over stdio (JSON-RPC 2.0,
+  newline-delimited). `<app>` is `module:ClassName` or dotted `module.ClassName`, naming a
+  root `Cmd`/`Cli`.
+- **`python -m duho.scaffold <app> [--root DIR] [--libdir lib] [--python PY] [--force]`** —
+  write the `bin/<app>` and `bin/<app>.cmd` launcher pair under `--root` (default: the
+  current directory) and print each path written; `--force` overwrites existing launchers.
+  `--version` is also accepted.
+- **Flags duho adds to an app** — `--version` (when `_version_` or a class `__version__`
+  resolves), `--print-completion {bash,zsh,fish,powershell}` (`_completion_ = True`),
+  `--help-agents` (`_agent_help_ = True`), `-v/--verbose`, `-q/--quiet` and `--loglevel`
+  (`LoggingArgs`), `--rcopts/-O` (`duho.runpath.RunPathCmd`) and `--transport {stdio}`
+  (`duho.mcp.McpCmd`).
+
 ## Environment variables
 
 - **`AGENT_HELP`** / **`AGENTS_HELP`** — either truthy switches `--help`/agent-help
-  output into machine-readable JSON (see "Agent help" below). Falsy tokens: `""`, `0`,
+  output into machine-readable JSON (see "Agent help" above). Falsy tokens: `""`, `0`,
   `false`, `no`, `off`, `n`, `f` (case-insensitive); anything else counts as on. An
   explicit `_agent_help_env_` on the CLI root replaces both defaults with exactly one
   variable name (no aliasing).
+- **`<PREFIX>MCP`** (an `Env(prefix)` app's own prefix) / **`<NAME>_MCP`** (derived from
+  the application's name, upper-cased, non-`[A-Z0-9]` characters replaced by `_`) — read
+  by every `duho.main`/`duho.app` call before `argv` is parsed. `stdio` serves the app's
+  tools over stdio instead of running a command; any other value exits `2` naming the
+  unsupported transport. The variable is removed from `os.environ` as soon as it is
+  seen, so a served command's child processes never inherit it. A root `_mcp_ = False`
+  or `app(..., mcp=False)` disables the check and leaves the variable alone.
 - **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
   duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
   command source, a non-strict RunPath step failure, `app`'s advisory `register`
@@ -755,3 +829,32 @@ manipulating a parser tree directly:
   `false`, `no`, `off`, `n`, `f`, `""` — matched case-insensitively after stripping
   whitespace. `Env.bool`, the layered env/config bool converter, and the strict CLI
   bool-field text factory all match against this same table.
+
+## Gotchas
+
+- **`Args` is data, not a command.** `main`/`app`/`run_command` raise `NotImplementedError`
+  for an `Args` that is not a `Cmd`; a subcommand tree must be `Cmd` subclasses.
+- **Reserved and replaced names.** A field named `help`, `version` (with a `--version`
+  flag) or `print_completion` (with `_completion_`) raises `ValueError`. A field named
+  `subcommand` on a `Cli` subclass silently replaces the `@Root.subcommand` decorator.
+- **A field with no flag tuple is a required `--name` option**, never a positional; a
+  positional needs a dash-less entry such as `("src",)`.
+- **Global options and subcommands.** Under a root's static `_subcommands_` tree a global
+  option must come before the subcommand name. A command reached through
+  `commands=`/`source=`/`entry_points=` accepts it on either side, but a value given on
+  both sides does not merge: the later one wins, so `-v sub -v` is verbosity 1.
+- **`--` always starts the passthrough capture** (`_passthrough_`); a value that must start
+  with `-` cannot be given after it.
+- **Collection options take one value per flag occurrence**, and the first occurrence
+  replaces any class, env, config or instance default.
+- **Module-command env/config values convert eagerly**, so one bad value exits `2` for
+  `--help` and for every sibling command too.
+- **`--help-agents` needs `_agent_help_ = True`**; the `AGENT_HELP` variable does not.
+- **A discovered class command carries `_parsername_` only when it declares one**; read a
+  resolved command's name with `duho.parsers.command_name`.
+- **A RunPath step is strict by default**: a failing step stops the run unless it is marked
+  `!strict`. Unmatched `--rcopts` patterns and missing `REQUIRED` names are warnings
+  unless a bare `strict` is passed.
+- **`ColorHelpFormatter` does nothing on Python 3.14+**, which colors argparse help itself.
+- **Opt-in modules** (`duho.fanout`, `duho.runpath`, `duho.scaffold`, `duho.mcp`) are not
+  imported by `import duho` and are not on the top-level namespace.

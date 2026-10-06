@@ -94,3 +94,47 @@ def test_app_reports_a_malformed_config_through_the_parser(
     err = capsys.readouterr().err
     assert str(path) in err
     assert "Traceback" not in err
+
+
+def _refusing_loader(path):
+    raise ValueError(f"{path.name}: not a format this application reads")
+
+
+class _OwnLoader(Args):
+    port: int = 1
+    _config_loader_ = staticmethod(_refusing_loader)
+
+
+class _OwnLoaderRoot(duho.LoggingArgs):
+    _config_loader_ = staticmethod(_refusing_loader)
+
+
+def test_a_value_error_from_the_applications_own_loader_propagates(tmp_path, capsys):
+    path = tmp_path / "settings.conf"
+    path.write_text("anything")
+    with pytest.raises(ValueError, match="not a format this application reads"):
+        duho.parse(_OwnLoader, [], config=path)
+    with pytest.raises(ValueError, match="not a format this application reads"):
+        duho.app(
+            _OwnLoaderRoot,
+            commands=[_Run],
+            argv=["run"],
+            config=path,
+            setup_logging=False,
+        )
+    assert capsys.readouterr().err == ""
+
+
+def test_a_loader_that_returns_no_table_is_reported_through_the_parser(
+    tmp_path, capsys
+):
+    class Listy(Args):
+        port: int = 1
+        _config_loader_ = staticmethod(lambda path: [1, 2])
+
+    path = tmp_path / "settings.conf"
+    path.write_text("anything")
+    with pytest.raises(SystemExit) as info:
+        duho.parse(Listy, [], config=path)
+    assert info.value.code == 2
+    assert str(path) in capsys.readouterr().err

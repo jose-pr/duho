@@ -103,7 +103,16 @@ def _load_config(
     p = _pathlib.Path(path).expanduser()
 
     if loader is not None:
-        return loader(p)
+        try:
+            return loader(p)
+        except ValueError as exc:
+            # The application's own loader, the application's own error: marked
+            # so `_resolve_config_or_error` lets it through unchanged.
+            try:
+                exc._duho_from_loader_ = True  # type: ignore[attr-defined]
+            except AttributeError:
+                pass
+            raise
 
     if p.suffix.lower() == ".json":
         import json as _json  # lazy: only a JSON config pays json's import cost
@@ -206,6 +215,10 @@ def _resolve_config_or_error(
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
     config through ``parser.error`` like a bad value (usage line, exit 2).
 
+    That covers the built-in JSON and TOML readers and the top-level shape
+    check. A ``ValueError`` raised by the class's own ``_config_loader_``
+    propagates unchanged, for the application to report.
+
     A missing TOML backend is held on the parser and reported once parsing
     finishes (:func:`_finalize_layers`), so ``--help`` and ``--version`` still
     work; the config layer is then empty.
@@ -217,6 +230,8 @@ def _resolve_config_or_error(
         parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
         return {}
     except ValueError as exc:
+        if getattr(exc, "_duho_from_loader_", False):
+            raise
         parser.error(str(exc))
         raise  # pragma: no cover - parser.error always raises SystemExit
 

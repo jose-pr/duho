@@ -330,8 +330,11 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
     resolved_dir = directory.resolve()
     commands: "list[Command]" = []
     dirstr = _os.fspath(directory)
+    running = _running_script()
     for path in sorted(directory.glob("*.py")):
         if path.name.startswith("_"):
+            continue
+        if running is not None and path.resolve() == running:
             continue
         stem = path.stem
         before_modules = set(_sys.modules)
@@ -362,6 +365,20 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
                     _sys.modules.pop(extra, None)
         commands.extend(_commands_in_module(module, stem=stem))
     return commands
+
+
+def _running_script() -> "_Path | None":
+    """Resolved path of the script being run (``__main__``), or ``None``.
+
+    A launcher that scans its own directory must not import itself as a command.
+    """
+    main_file = getattr(_sys.modules.get("__main__"), "__file__", None)
+    if not main_file:
+        return None
+    try:
+        return _Path(main_file).resolve()
+    except OSError:  # pragma: no cover - a vanished/unreadable path
+        return None
 
 
 def _module_inside(module: object, directory: "_Path") -> bool:

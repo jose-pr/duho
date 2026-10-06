@@ -364,6 +364,38 @@ def _layered_error_detail(builder, exc: Exception) -> str:
     return f"expected {_field_type_desc(builder)}"
 
 
+def _layered_failure_message(builder, exc: Exception, kind: str, cls) -> str:
+    """The one message for a layered (env/config) value that failed to convert.
+
+    Neither the raw value nor a generic conversion exception's own text is
+    echoed -- either can carry a secret (see :func:`_layered_error_detail`).
+    """
+    what = (
+        f"environment variable {builder.env!r} for field {builder.name!r}"
+        if kind == "env"
+        else f"config value for field {builder.name!r} on {cls.__name__}"
+    )
+    return f"{what}: {_layered_error_detail(builder, exc)}"
+
+
+def _convert_layered_or_error(parser, builder, raw, kind: str, cls):
+    """Convert one layered value, reporting any failure through
+    ``parser.error``.
+
+    Catches ``Exception``: a field's own ``type=`` factory is caller code and
+    can raise anything (``argparse.ArgumentTypeError`` is not a
+    ``ValueError``; a mapping lookup raises ``KeyError``). The error is raised
+    outside the ``except`` block so the failing exception, which can carry the
+    raw value, is never chained onto it.
+    """
+    try:
+        return builder.convert_layered(raw, source=kind)
+    except Exception as exc:
+        message = _layered_failure_message(builder, exc, kind, cls)
+    parser.error(message)
+    raise AssertionError("parser.error returned")  # pragma: no cover
+
+
 def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
     """Undo whatever the PREVIOUS `_stage_layers` call on this same (reused)
     parser changed to its actions'/groups' ``default``/``required``, before
@@ -474,17 +506,9 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
         if kind == "instance":
             eager[name] = raw
             continue
-        builder = builders_by_name.get(name)
-        try:
-            eager[name] = builder.convert_layered(raw, source=kind)
-        except (TypeError, ValueError) as exc:
-            what = (
-                f"environment variable {builder.env!r} for field {name!r}"
-                if kind == "env"
-                else f"config value for field {name!r} on {cls.__name__}"
-            )
-            parser.error(f"{what}: {_layered_error_detail(builder, exc)}")
-            return  # pragma: no cover - parser.error always raises SystemExit
+        eager[name] = _convert_layered_or_error(
+            parser, builders_by_name[name], raw, kind, cls
+        )
 
     touched = {**placeholders, **eager}
     prior_actions: "dict[str, tuple[object, object]]" = {}
@@ -586,35 +610,9 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
         if placeholder.kind == "instance":
             value = placeholder.raw
         else:
-            try:
-                value = builder.convert_layered(
-                    placeholder.raw, source=placeholder.kind
-                )
-            except Exception as exc:
-                # Neither the raw value nor a generic conversion exception's
-                # own text is echoed back: either can itself carry whatever
-                # secret the env var or config value held (e.g. a leaked
-                # token), and this message reaches CLI stderr / an MCP
-                # ``isError`` result -- name the field/variable and the
-                # expected shape only. A choices violation is the one
-                # exception: its message never carries the value either
-                # (see `_layered_error_detail`), so it is shown as-is.
-                #
-                # Deliberately `Exception`, not just `(TypeError, ValueError)`:
-                # a field's own `type=` factory is arbitrary caller code and
-                # can raise ANYTHING -- `argparse.ArgumentTypeError` (argparse's
-                # own documented idiom for a `type=` callable) is not a
-                # `ValueError` subclass, and a mapping-lookup factory
-                # (`TABLE.__getitem__`) raises `KeyError`; either one used to
-                # propagate this raw exception (and the secret value inside
-                # its message) straight to CLI stderr or an MCP result.
-                what = (
-                    f"environment variable {builder.env!r} for field {name!r}"
-                    if placeholder.kind == "env"
-                    else f"config value for field {name!r} on {cls.__name__}"
-                )
-                parser.error(f"{what}: {_layered_error_detail(builder, exc)}")
-                return  # pragma: no cover - parser.error always raises SystemExit
+            value = _convert_layered_or_error(
+                parser, builder, placeholder.raw, placeholder.kind, cls
+            )
         setattr(parsed, name, value)
         merged[name] = value
 
@@ -810,45 +808,28 @@ def _apply_default_layers_one(
     merged: "dict[str, object]" = {}
 
     for name, raw in _raw_config_values(cls, config_table).items():
+        builder = builders_by_name[name]
+        failure = None
         try:
-            merged[name] = builders_by_name[name].convert_layered(raw, source="config")
+            merged[name] = builder.convert_layered(raw, source="config")
         except Exception as exc:
-            # Neither the raw value nor a generic conversion exception's own
-            # text is echoed: either can carry whatever secret the config
-            # value held. A choices violation is the one exception (see
-            # `_layered_error_detail`). `from None`, not `from exc` --
-            # `exc` itself (its own message AND its own traceback frames)
-            # can carry the raw value (e.g. `int()`'s own error text);
-            # chaining it keeps that reachable via `__cause__` for whatever
-            # prints this exception uncaught -- caught here (`app()`'s
-            # module commands have no deferred seam to raise through, see
-            # `_apply_default_layers_one`'s own docstring) but not by every
-            # caller (`duho.parse`/`duho.main`'s deferred path never lets
-            # this reach an uncaught exception at all).
-            #
-            # Deliberately `Exception`, not just `(TypeError, ValueError)`:
-            # see the matching comment in `_finalize_layers` above -- a
-            # field's own `type=` factory can raise anything, and an
-            # uncaught one here was an uncaught traceback (the raw value
-            # included) straight to CLI stderr.
-            raise ValueError(
-                f"config value for field {name!r} on {cls.__name__}: "
-                f"{_layered_error_detail(builders_by_name[name], exc)}"
-            ) from None
+            failure = _layered_failure_message(builder, exc, "config", cls)
+        if failure is not None:
+            # Raised outside the `except`, so the failing exception (which can
+            # carry the raw value) is never chained; `app()`'s module commands
+            # have no deferred seam to report through.
+            raise ValueError(failure) from None
         sources[name] = "config"
 
     for name, raw in _raw_env_values(cls).items():
         builder = builders_by_name[name]
+        failure = None
         try:
             merged[name] = builder.convert_layered(raw, source="env")
         except Exception as exc:
-            # Same redaction (and the same reason for `Exception`) as above
-            # -- the env var itself could be secret -- and the same
-            # `from None` reason.
-            raise ValueError(
-                f"environment variable {builder.env!r} for field {name!r}: "
-                f"{_layered_error_detail(builder, exc)}"
-            ) from None
+            failure = _layered_failure_message(builder, exc, "env", cls)
+        if failure is not None:
+            raise ValueError(failure) from None
         sources[name] = "env"
 
     if merged:

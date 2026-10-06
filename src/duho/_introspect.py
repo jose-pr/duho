@@ -2,7 +2,9 @@ import ast as _ast
 import functools as _functools
 import inspect as _inspect
 import io as _io
+import linecache as _linecache
 import logging as _logging
+import os as _os
 import re as _re
 import sys as _sys
 import textwrap as _textwrap
@@ -99,6 +101,69 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
     return index
 
 
+@_functools.lru_cache(maxsize=None)
+def _classdef_from_block(
+    filename: str, firstlineno: int, name: str, nested: bool, stamp: "tuple" = ()
+) -> "_ast.ClassDef | None":
+    """The ClassDef whose statement starts at line ``firstlineno`` of
+    ``filename``, parsed from that block alone; ``None`` on any doubt.
+
+    The block keeps its own indentation (parsed under ``if 1:``, never
+    dedented, so string literals are untouched) and the node's line numbers are
+    shifted back to the file's. ``stamp`` is the file's mtime and size, so an
+    edited file is read again.
+    """
+    try:
+        _linecache.checkcache(filename)
+        lines = _linecache.getlines(filename)
+        if not 0 < firstlineno <= len(lines):
+            return None
+        block = _inspect.getblock(lines[firstlineno - 1 :])
+        if not block:
+            return None
+        first = block[0]
+        indented = first[:1] in (" ", "\t")
+        if nested and not indented:
+            return None
+        source = "".join(block)
+        if indented:
+            source = "if 1:\n" + source
+        body = _ast.parse(source).body
+        if indented:
+            if len(body) != 1 or not isinstance(body[0], _ast.If):
+                return None
+            body = body[0].body
+        if len(body) != 1 or not isinstance(body[0], _ast.ClassDef):
+            return None
+        node = body[0]
+        if node.name != name:
+            return None
+        _ast.increment_lineno(node, firstlineno - (2 if indented else 1))
+        return node
+    except (OSError, SyntaxError, ValueError, TypeError):
+        return None
+
+
+def _classdef_by_firstlineno(
+    cls: type, file: str, qualname: str
+) -> "_ast.ClassDef | None":
+    """Read only ``cls``'s own statement when the interpreter recorded where
+    it starts (``__firstlineno__``, 3.13+); ``None`` sends the caller to the
+    whole-file index.
+    """
+    firstlineno = vars(cls).get("__firstlineno__")
+    if not isinstance(firstlineno, int):
+        return None
+    try:
+        stat = _os.stat(file)
+    except OSError:
+        return None
+    name = qualname.rpartition(".")[2]
+    return _classdef_from_block(
+        file, firstlineno, name, "." in qualname, (stat.st_mtime_ns, stat.st_size)
+    )
+
+
 def _own_annotations(cls: type) -> "dict[str, object]":
     """``cls``'s own (never inherited) annotations, without raising on one that
     cannot be evaluated: on 3.14 (lazy annotations) such a value comes back as
@@ -184,6 +249,9 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
             # (which reads through `tokenize`/`linecache` and handles a BOM
             # or PEP 263 cookie correctly) instead of propagating to the
             # outer `except`, which would return None before ever trying it.
+            node = _classdef_by_firstlineno(cls, file, qualname)
+            if node is not None:
+                return node
             try:
                 index = _module_index(file)
             except (OSError, SyntaxError, ValueError):

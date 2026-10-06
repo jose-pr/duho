@@ -77,7 +77,7 @@ not resolve (or names a namespace node -- see above), and
 the tool's own ``inputSchema`` (an unknown property, a missing required one,
 a value whose JSON type/``enum`` does not match, a numeric value outside its
 ``minimum``/``maximum``, or a collection over its ``maxItems``/
-``maxProperties``), or -- discovered while synthesizing argv, since it
+``maxProperties``), or -- detected while synthesizing argv, since it
 depends on the built parser tree rather than the schema alone -- supplies a
 value that cannot be safely encoded at all (an unsafe positional, an unsafe
 option value, or a negative counting-flag value; see :func:`call_tool`'s own
@@ -107,10 +107,7 @@ own ``_passthrough_`` split, make it unsafe there -- use the dedicated ``"--"``
 array property instead, see :func:`_input_schema_for_node`); it is accepted as
 a long-flag option value;
 streaming/long-running commands are out of scope -- this is strictly one
-request -> one result.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9.
-"""
+request -> one result."""
 
 from __future__ import annotations
 

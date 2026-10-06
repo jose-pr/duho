@@ -42,7 +42,7 @@ _JSON_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"
 #: :func:`_validate_arguments`) for a counting flag (``-v``/``-q`` style,
 #: ``action="count"``) over MCP. An LLM-controlled value has no reason to
 #: exceed this -- the CLI itself only ever accumulates one per typed flag --
-#: and an unbounded one used to synthesize (and argparse-parse) millions of
+#: and an unbounded one would synthesize (and argparse-parse) millions of
 #: repeated tokens, stalling the single-threaded stdio server for the
 #: duration of one call (a denial of service against every OTHER pending
 #: request).
@@ -236,9 +236,8 @@ def _description_for(
     """The MCP description text for one field.
 
     An explicit ``NS(help=...)``/``Meta(help=...)`` override wins verbatim
-    (MCP text is never argparse-``%``-expanded, so it needs no escaping); the
-    OLD code always preferred the field's docstring, which silently ignored
-    an explicit override. Falls back to the field's own raw (UNescaped)
+    (MCP text is never argparse-``%``-expanded, so it needs no escaping), over the
+    field's docstring. Falls back to the field's own raw (UNescaped)
     docstring -- ``builder.help`` holds the ``%``-escaped copy of the same
     text when no override was given (escaped for argparse's own
     ``%``-expansion, irrelevant here). ``help=argparse.SUPPRESS`` hides the

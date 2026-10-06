@@ -52,7 +52,7 @@ def _validate_arguments(schema: dict, arguments: dict) -> None:
       ``additionalProperties: false``);
     * a value whose JSON type does not match its property's declared
       ``type`` -- e.g. the string ``"false"`` for a boolean field, which
-      used to be truthy and silently turn the flag ON;
+      is truthy and would silently turn the flag ON;
     * a MISSING property named in ``schema["required"]`` (JSON ``null`` for
       a required property counts as missing -- see the module docstring's
       "null means not supplied" convention);
@@ -271,7 +271,7 @@ def call_tool(
     disclosed to a caller probing for it. Raises :class:`InvalidArgumentsError` when
     ``arguments`` is not a JSON object (``None`` is treated as ``{}``), fails
     the tool's own merged ``inputSchema`` (:func:`_validate_arguments`), or
-    (discovered while synthesizing argv, since it depends on the built
+    (detected while synthesizing argv, since it depends on the built
     parser tree rather than the JSON schema alone) supplies a value that
     cannot be safely encoded at all -- an unsafe positional, an unsafe
     option value, or a negative counting-flag value (see

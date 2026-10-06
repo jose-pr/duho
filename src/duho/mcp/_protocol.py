@@ -27,8 +27,8 @@ _SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 #: served APP apart from another, not just one duho release from another.
 #: There is deliberately NO duho-version fallback for ``version``:
 #: reporting duho's own release as the served app's version is actively
-#: misleading (e.g. a served app with no ``_version_`` of its own used to
-#: report duho's version as if it were its own), so an app with no
+#: misleading (a served app with no ``_version_`` of its own would appear
+#: to carry duho's version), so an app with no
 #: resolvable version reports the empty string instead -- see
 #: :func:`_server_info`.
 _SERVER_NAME = "duho.mcp"
@@ -100,8 +100,8 @@ def _server_info(root_cls: _ty.Union[type, _ServerCore]) -> dict:
     app's version. The MCP ``Implementation`` type requires ``version`` to be
     a string, so the field is still always present; a served app with no
     resolvable version of its own simply reports it empty rather than
-    fabricating one (and rather than silently reporting duho's, which used to
-    read as "this app's version is 0.6.2" for an app that never said so).
+    fabricating one (and rather than reporting duho's, which would read as
+    the app's own version).
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     name = core.root_parser.prog

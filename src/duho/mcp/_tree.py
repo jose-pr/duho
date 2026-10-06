@@ -277,10 +277,8 @@ class _ServerCore:
 
 def _core_for_class(root_cls: type[_Cmd]) -> _ServerCore:
     """Build a :class:`_ServerCore` for a class's static ``_subcommands_``
-    tree -- the ``serve(root_cls)``/``python -m duho.mcp <app>`` path,
-    unchanged from before this module grew ``app()`` support. ``dispatch``
-    replicates exactly what :func:`call_tool` used to do inline: set up
-    instance logging (always, matching the previous unconditional call), then
+    tree -- the ``serve(root_cls)``/``python -m duho.mcp <app>`` path.
+    ``dispatch`` sets up instance logging (always), then calls
     :func:`duho.runtime.run_command`.
     """
     root_parser, nodes = _tree_for(root_cls)

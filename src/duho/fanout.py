@@ -224,24 +224,14 @@ def _run_one(
     logger: _logging.Logger,
     label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
-    """Run ``func(target)`` in a target-tagged context and normalise to an exit code.
+    """Run ``func(target)`` in a target-tagged context; return an exit code.
 
-    Sets :data:`current_target` for the duration of the call (so records emitted
-    by ``func`` -- or anything it calls -- are prefixed by an installed
-    :class:`TargetPrefixFilter`), drives an ``async def`` result to completion
-    (the same coroutine-driving helper :func:`duho.run_command` uses), and
-    normalises the outcome: ``None`` -> ``0``,
-    an ``int`` as-is (including negative -- see the module docstring's
-    "Exit-code aggregation"), a :class:`SystemExit` -> its ``.code`` normalised
-    the same way (``None`` -> ``0``, an ``int`` as-is, anything else -> logged and
-    ``1``), and an unhandled ``Exception`` -> logged (honoring ``DUHO_TRACEBACK``
-    via :func:`duho.logging.log_exception`) and treated as ``1``. A target
-    raising or exiting never aborts the whole fan-out -- only that target's code
-    is affected. ``KeyboardInterrupt`` (and any other non-``SystemExit``
-    ``BaseException``) is deliberately let through uncaught.
-
-    Runs in the worker thread, so the context var it sets is isolated to that
-    thread.
+    Sets :data:`current_target` for the call, drives an ``async def`` result to
+    completion, and normalises: ``None`` -> ``0``, an ``int`` as-is (negatives
+    too), a :class:`SystemExit` to its ``.code`` the same way (anything else is
+    logged and ``1``), an ``Exception`` logged (``DUHO_TRACEBACK`` honoured) as
+    ``1``. A failing target never aborts the fan-out; ``KeyboardInterrupt`` and
+    other ``BaseException`` propagate. Runs in the worker thread.
     """
     token = current_target.set(target)
     label_token = _current_label.set(None)
@@ -368,10 +358,9 @@ def run_targets(
                 ]
                 codes = [future.result() for future in futures]
             except BaseException:
-                # Ctrl-C / an escaping SystemExit: drop every queued target, but
-                # let one already running finish (wait=True) while the prefix
-                # filter is still installed. The second shutdown() from
-                # __exit__ afterwards is a no-op.
+                # Ctrl-C / an escaping SystemExit: drop queued targets, let a running
+                # one finish while the prefix filter is installed; the later
+                # __exit__ shutdown() is a no-op.
                 pool.shutdown(wait=True, cancel_futures=True)
                 raise
 

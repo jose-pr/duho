@@ -165,7 +165,8 @@ with no `commands=`/`source=`/`entry_points=` given), a root/global option must
 be given *before* the subcommand name — `myapp -v serve` works, `myapp serve -v`
 does not. `duho.app` resolving its commands through `commands=`/`source=`/
 `entry_points=` is more permissive: a root option (required or not) is accepted
-either before or after the subcommand — see
+either before or after the subcommand (given on both sides, the later one wins,
+so a counting option such as `-v` does not add up: `-v serve -v` is 1, `-vv` is 2) — see
 [Discovering commands from files](#discovering-commands-from-files) below and
 [Customizing a subcommand parser](https://github.com/jose-pr/duho/#customizing-a-subcommand-parser)
 in the README.

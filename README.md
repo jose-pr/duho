@@ -1458,6 +1458,9 @@ lifecycle hooks read off `args._logger_`. A `*args` hook is treated as
 Every subcommand parser is built with **parent-arg inheritance** — the root
 command's global options (verbosity, etc.) appear on each subcommand automatically
 via argparse `parents=`, so `myapp -v deploy` and `myapp deploy -v` both work.
+A global given on both sides of the subcommand name does not merge: the later
+one wins. For a counting option that means `myapp -v deploy -v` is verbosity 1,
+not 2; write `-vv` on one side to count both.
 
 > **Avoid the root's reserved flags in `register`.** Because the subparser already
 > carries every root/global option, a `register` hook that adds one of them

@@ -297,6 +297,8 @@ class _A012Deploy(Cmd):
 class _A012App(LoggingArgs, Cli):
     """Root carries LoggingArgs; the dispatched leaf (_A012Deploy) does not."""
 
+    _parsername_ = "a012-app"
+
     _subcommands_ = [_A012Deploy]
 
     def __call__(self):
@@ -336,15 +338,16 @@ def test_app_sets_up_logging_for_a_plain_cmd_leaf_under_a_loggingargs_root(
     )
 
 
-def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
-    """The existing (already-working) shape is unaffected: a leaf that IS
-    itself a LoggingArgs still gets its OWN logger name, not the root's."""
+def test_a_loggingargs_leaf_raises_the_application_logger():
+    """A leaf that IS itself a LoggingArgs applies -vv to the application's
+    logger (the root's name), exactly like a plain leaf does."""
 
     class _A012LoggingLeaf(LoggingArgs, Cmd):
         def __call__(self):
             return 0
 
     class _A012Root(Cli):
+        _parsername_ = "a012-root"
         _subcommands_ = [_A012LoggingLeaf]
 
         def __call__(self):
@@ -355,12 +358,41 @@ def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
     root.handlers[:] = []
     try:
         # -v/-q are declared on the LEAF here (it IS the LoggingArgs), not
-        # the root, so they must follow the subcommand name.
+        # the root.
         duho.main(_A012Root, ["a012-logging-leaf", "-vv"])
         assert logging.getLogger(
-            "a012-logging-leaf"
+            "a012-root"
         ).getEffectiveLevel() == _expected_verbose_level(verbose=2)
     finally:
+        logging.getLogger("a012-root").setLevel(logging.NOTSET)
+        root.handlers[:] = saved
+        root.setLevel(saved_level)
+
+
+def test_a_leaf_declaring_its_own_logger_name_keeps_it():
+    class _A012NamedLeaf(LoggingArgs, Cmd):
+        _logger_name_ = "a012-named-leaf"
+
+        def __call__(self):
+            return 0
+
+    class _A012NamedRoot(Cli):
+        _parsername_ = "a012-named-root"
+        _subcommands_ = [_A012NamedLeaf]
+
+        def __call__(self):
+            return 0
+
+    root = logging.getLogger()
+    saved, saved_level = list(root.handlers), root.level
+    root.handlers[:] = []
+    try:
+        duho.main(_A012NamedRoot, ["a012-named-leaf", "-vv"])
+        assert logging.getLogger(
+            "a012-named-leaf"
+        ).getEffectiveLevel() == _expected_verbose_level(verbose=2)
+    finally:
+        logging.getLogger("a012-named-leaf").setLevel(logging.NOTSET)
         root.handlers[:] = saved
         root.setLevel(saved_level)
 
@@ -373,6 +405,8 @@ def test_main_still_uses_the_leafs_own_logger_when_the_leaf_is_loggingargs():
 
 
 class _C006App(LoggingArgs, Cmd):
+    _parsername_ = "c006-app"
+
     def __call__(self):
         return 0
 
@@ -578,6 +612,8 @@ def test_init_stderr_logging_is_idempotent_across_direct_calls(_clean_root_logge
 
 
 class _C040App(LoggingArgs, Cmd):
+    _parsername_ = "c040-app"
+
     def __call__(self):
         return 0
 

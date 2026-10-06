@@ -33,6 +33,8 @@ class Ping(Cmd):
 class Server(Cli):
     """A tiny app for server tests."""
 
+    _parsername_ = "server"
+
     _version_ = "0.0.1"
     _subcommands_ = [Ping]
 
@@ -235,6 +237,7 @@ def test_python_dash_m_end_to_end(tmp_path):
         "\n"
         "class App(Cli):\n"
         '    """E2E app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Ping]\n"
     )
     request = (

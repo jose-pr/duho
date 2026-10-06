@@ -17,15 +17,15 @@ hood, minus the JSON-RPC framing)::
     from mcp_app import FileInstall
 
     tools = describe_tools(FileInstall)
-    # -> [{"name": "file-install.install", ...}]  (the "file-install" root
-    #    itself -- the kebab-case of the `FileInstall` class name, since it
+    # -> [{"name": "fileinstall.install", ...}]  (the "fileinstall" root
+    #    itself -- named after the module defining `FileInstall`, since it
     #    declares no own `_parsername_` -- is a namespace: it always requires
     #    a subcommand, so it is not listed as a callable tool; its own fields
-    #    still merge into "file-install.install"'s schema)
+    #    still merge into "fileinstall.install"'s schema)
 
     result = call_tool(
         FileInstall,
-        "file-install.install",
+        "fileinstall.install",
         {"source": "a.txt", "destination": "b.txt"},
     )
     # -> {"content": [{"type": "text", "text": ""}]}  (Install reports via its
@@ -46,7 +46,7 @@ subprocess. A typical client config entry looks like::
     }
 
 The client then handles the ``initialize`` handshake, calls ``tools/list`` to
-discover ``file-install``/``file-install.install`` (with real JSON-Schema
+discover ``fileinstall.install`` (with real JSON-Schema
 ``inputSchema``s built straight from ``Install``'s own field declarations), and
 issues ``tools/call`` requests -- no separate MCP-facing code to write or keep in
 sync with the CLI.

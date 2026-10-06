@@ -85,6 +85,8 @@ class LabelSet(Cmd):
 class InjectRoot(Cli):
     """Root."""
 
+    _parsername_ = "inject-root"
+
     _subcommands_ = [Rm, Note, LabelSet]
 
 
@@ -143,6 +145,8 @@ class ShortValue(Cmd):
 
 class DashRoot(Cli):
     """Root."""
+
+    _parsername_ = "dash-root"
 
     _subcommands_ = [Tagged, ShortValue]
 
@@ -237,6 +241,8 @@ class HijackDanger(Cmd):
 class HijackOptRoot(Cli):
     """Root with an OPTIONAL positional ahead of its subcommands."""
 
+    _parsername_ = "hijack-opt-root"
+
     path: str = "."
     "an optional positional"
     ("path",)
@@ -246,6 +252,8 @@ class HijackOptRoot(Cli):
 
 class HijackTagsRoot(Cli):
     """Root with a VARIADIC positional ahead of its subcommands."""
+
+    _parsername_ = "hijack-tags-root"
 
     tags: "list" = []
     "a variadic positional"
@@ -275,6 +283,8 @@ class HijackMid(Cli):
 class HijackCollisionRoot(Cli):
     """Root with an optional positional, one sibling of which ALSO has a
     nested subcommand sharing that same sibling's name."""
+
+    _parsername_ = "hijack-collision-root"
 
     path: str = "."
     "an optional positional"
@@ -366,6 +376,8 @@ class SharedClassRoot(Cli):
     """Root with an optional positional ahead of subcommands, one of which
     nests the SAME leaf class the root ALSO exposes directly."""
 
+    _parsername_ = "shared-class-root"
+
     path: str = "."
     "an optional positional"
     ("path",)
@@ -421,6 +433,8 @@ class ShadowChild(Cmd):
 class ShadowRoot(Cli):
     """Root whose 'force' is a bool, shadowed by the child's own field."""
 
+    _parsername_ = "shadow-root"
+
     force: bool = False
     "root's own force (bool)"
     ("--force",)
@@ -467,6 +481,8 @@ class Loud(LoggingArgs, Cmd):
 
 class LoudRoot(Cli):
     """Root."""
+
+    _parsername_ = "loud-root"
 
     _subcommands_ = [Loud]
 
@@ -518,6 +534,8 @@ class ShortOnly(Cmd):
 class BoolRoot(Cli):
     """Root."""
 
+    _parsername_ = "bool-root"
+
     _subcommands_ = [LongFirst, ShortOnly]
 
 
@@ -558,6 +576,8 @@ class LitBool(Cmd):
 
 class ActionRoot(Cli):
     """Root."""
+
+    _parsername_ = "action-root"
 
     _subcommands_ = [Verbosity, LitBool]
 
@@ -606,6 +626,8 @@ def test_null_argument_means_field_omitted_not_the_string_none():
     class Owner(Cmd):
         """Has an owner field."""
 
+        _parsername_ = "owner"
+
         owner: str = "root"
         "Owner"
         ("--owner",)
@@ -625,6 +647,8 @@ def test_null_argument_means_field_omitted_not_the_string_none():
 
 class ProfileRoot(Cli):
     """Root with a global field."""
+
+    _parsername_ = "profile-root"
 
     profile: str = "default"
     "Active profile"
@@ -657,6 +681,8 @@ class ReadsRootProfile(Cmd):
 class ProfileReaderRoot(Cli):
     """Root with a global field a leaf reads back."""
 
+    _parsername_ = "profile-reader-root"
+
     profile: str = "default"
     "Active profile"
     ("--profile",)
@@ -679,6 +705,8 @@ def test_leaf_command_can_read_a_root_field_without_raising():
 
 class EnvTool(Cmd):
     """A field satisfiable from the process environment."""
+
+    _parsername_ = "env-tool"
 
     token: "Arg[str, NS(env='DUHO_MCP_TEST_TOKEN')]"
     "Secret token"
@@ -705,6 +733,8 @@ def test_env_bound_field_is_dropped_from_required_when_env_is_set(monkeypatch):
 
 class ConfigTool(Cmd):
     """A field satisfiable from the class's _config_ file."""
+
+    _parsername_ = "config-tool"
 
     _config_ = None
 
@@ -745,6 +775,8 @@ _LEAK_REGIONS = {"us": "us-east-1"}
 class KeyErrorFactoryTool(Cmd):
     """A field whose ``type=`` is a mapping lookup -- raises ``KeyError``."""
 
+    _parsername_ = "key-error-factory-tool"
+
     region: "Arg[str, NS(env='DUHO_MCP_TEST_KEYERROR_REGION', type=_LEAK_REGIONS.__getitem__)]" = ("us")
     "Region"
     ("--region",)
@@ -764,6 +796,8 @@ def _leak_parse_token(value: str) -> str:
 class ArgumentTypeErrorFactoryTool(Cmd):
     """A ``type=`` factory raising ``argparse.ArgumentTypeError`` -- NOT a
     ``ValueError`` subclass."""
+
+    _parsername_ = "argument-type-error-factory-tool"
 
     token: (
         "Arg[str, NS(env='DUHO_MCP_TEST_ARGTYPEERROR_TOKEN', type=_leak_parse_token)]"
@@ -837,6 +871,8 @@ class ExitsMessage(Cmd):
 class ExitRoot(Cli):
     """Root."""
 
+    _parsername_ = "exit-root"
+
     _subcommands_ = [ExitsInt, ExitsZero, ExitsMessage]
 
 
@@ -899,6 +935,8 @@ class Echo(Cmd):
 
 class EchoRoot(Cli):
     """Root."""
+
+    _parsername_ = "echo-root"
 
     _subcommands_ = [Echo]
 
@@ -1085,6 +1123,8 @@ def test_tree_is_cached_across_repeated_describe_tools_calls():
     class CacheRoot(Cli):
         """Root."""
 
+        _parsername_ = "cache-root"
+
         _subcommands_ = [Echo]
 
     root_parser_1, nodes_1 = _tree_for(CacheRoot)
@@ -1143,6 +1183,7 @@ def test_subprocess_child_output_does_not_corrupt_the_protocol_stream(tmp_path):
         "\n"
         "class App(Cli):\n"
         '    """Noisy app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Noisy]\n",
         encoding="utf-8",
     )
@@ -1183,6 +1224,7 @@ def test_subprocess_command_reading_stdin_gets_eof_not_the_next_request(tmp_path
         "\n"
         "class App(Cli):\n"
         '    """Reader app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [ReadsStdin]\n",
         encoding="utf-8",
     )
@@ -1227,6 +1269,7 @@ def test_subprocess_non_ascii_argument_round_trips_as_utf8(tmp_path):
         "\n"
         "class App(Cli):\n"
         '    """UTF-8 app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Show]\n",
         encoding="utf-8",
     )
@@ -1272,6 +1315,7 @@ def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_
         "\n"
         "class App(Cli):\n"
         '    """Noisy-at-import app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Hi]\n",
         encoding="utf-8",
     )
@@ -1339,6 +1383,7 @@ def test_subprocess_thread_still_running_after_import_does_not_corrupt_the_proto
         "\n"
         "class App(Cli):\n"
         '    """Racy-at-import app."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Hi]\n",
         encoding="utf-8",
     )
@@ -1377,6 +1422,7 @@ def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
         "\n"
         "class App(Cli):\n"
         '    """App."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Ping]\n",
         encoding="utf-8",
     )
@@ -1423,6 +1469,7 @@ def test_subprocess_deeply_nested_json_line_never_kills_the_server(tmp_path):
         "\n"
         "class App(Cli):\n"
         '    """App."""\n'
+        '    _parsername_ = "app"\n'
         "    _subcommands_ = [Ping]\n",
         encoding="utf-8",
     )
@@ -1456,6 +1503,8 @@ def test_argument_error_text_has_no_ansi_escapes_under_force_color(monkeypatch):
 
     class ConflictingFlags(Cmd):
         """Two flags that cannot both be set."""
+
+        _parsername_ = "conflicting-flags"
 
         gzip: "Arg[bool, NS(conflicts='compression')]" = False
         "one compression choice"

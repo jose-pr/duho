@@ -33,11 +33,15 @@ class Deploy(Args):
 class App(Args):
     """Example app with a subcommand tree."""
 
+    _parsername_ = "app"
+
     _subcommands_ = [Deploy]
 
 
 class CompletionApp(Args):
     """Same tree, opted into --print-completion."""
+
+    _parsername_ = "completion-app"
 
     _completion_ = True
     _subcommands_ = [Deploy]

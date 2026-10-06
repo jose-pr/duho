@@ -1504,6 +1504,10 @@ def _build_runpath_command(path: "_Path", qualname: str) -> "type[RunPathCmd]":
         "__call__": RunPathCmd.__call__,
     }
     namespace.update(_MASKED_ROOT_ATTRS)
+    if getattr(_BASE, "_logger_name_", None) is None:
+        # Each step directory logs under its own name unless the base class
+        # declares one.
+        namespace["_logger_name_"] = name
     return _ty.cast(
         "type[RunPathCmd]",
         type("RunPathCmd_" + name.replace("-", "_"), (_BASE, RunPathCmd), namespace),

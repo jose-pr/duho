@@ -190,9 +190,10 @@ def test_union_enum_resolves_by_name():
 
 
 def test_parser_name():
-    """Test that parser inherits class name."""
+    """An undeclared root is named after its top-level package (here the test
+    module), not its class."""
     parser = SimpleArgs._parser_()
-    assert parser.prog == "simple-args"
+    assert parser.prog == "test_args"
 
 
 class _StickyName(Args):

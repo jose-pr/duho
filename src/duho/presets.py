@@ -5,6 +5,7 @@ import typing as _ty
 
 from . import logging as _duho_logging
 from .args import Args, NS, UpdateAction, _command_name as _command_name
+from .args import _logger_name_for
 from .logging import parse_loglevels
 
 
@@ -21,8 +22,8 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     through -- previously that made verbosity flags a silent no-op on such a
     leaf. ``default_logger`` names the logger that receives the -v/-q-derived
     (or a bare ``--loglevel LEVEL``) level: ``LoggingArgs._set_loglevels_``
-    passes its own ``_logger_.name``; ``duho.main``/``duho.app`` fall back to
-    the ROOT class's own command name when dispatching a leaf that has no
+    passes its own ``_logger_.name``; ``duho.main``/``duho.app`` pass the
+    application's logger name when dispatching a leaf that has no
     ``_logger_`` of its own.
 
     Prefers ``ns._verbose_loglevel_()`` -- a bound method, so a subclass
@@ -198,27 +199,14 @@ class LoggingArgs(Args):
 
     @property
     def _logger_(self) -> "_logging.Logger":
-        """Get logger scoped to this parser's name.
+        """The logger this command's verbosity flags apply to.
 
-        Resolved lazily and defensively, rather than
-        ``getattr(self, "_logger_name_", self._parsername_)``: that default
-        argument is evaluated EAGERLY (before the ``getattr`` lookup even
-        runs), so it always read ``self._parsername_`` -- raising
-        ``AttributeError`` for a directly-constructed command whose class
-        parser was never built (a supported pattern), even when
-        ``_logger_name_`` WAS declared and would have made the
-        ``_parsername_`` read unnecessary. It also depended on `_parsername_`
-        being PERSISTED onto the class by parser construction, which duho no
-        longer does. Falls back to ``_command_name(type(self))`` -- the same
-        own-class-dict rule every other subcommand-name reader uses --
-        so a directly-built or freshly-declared command always has a working
-        logger, parsed or not, and a subclass that never declared its own
-        ``_parsername_`` is never misnamed after a sibling's/base's build.
+        A ``_logger_name_`` declared on this class or on the root that
+        dispatched it, else the application's name (see
+        ``duho.args._logger_name_for``). Works for a directly constructed
+        command whose parser was never built.
         """
-        name = getattr(self, "_logger_name_", None)
-        if name is None:
-            name = _command_name(type(self))
-        return _logging.getLogger(name)
+        return _logging.getLogger(_logger_name_for(self))
 
 
 __all__ = ["LoggingArgs"]

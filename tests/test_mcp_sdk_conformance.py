@@ -95,7 +95,7 @@ def test_duho_mcp_server_satisfies_the_official_sdk_client(tmp_path):
     runner = _write(tmp_path, "runner.py", _RUNNER)
 
     env = subprocess_env()
-    env["RUNNER_MCP"] = "stdio"
+    env["ROOT_MCP"] = "stdio"
 
     async def drive():
         params = StdioServerParameters(

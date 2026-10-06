@@ -21,12 +21,13 @@ import json
 import os
 import subprocess
 import sys
+import types
 
 import pytest
 
 from conftest import subprocess_env
 from duho import Cli, Cmd, LoggingArgs
-from duho.args import _default_mcp_app_name, _mcp_env_var_name
+from duho.args import _mcp_env_var_name
 from duho.env import Env
 from duho.runtime import _resolve_mcp_command_name, app
 
@@ -65,31 +66,42 @@ def test_env_var_name_from_name_kwarg():
 
 def test_env_var_name_from_class_name_fallback(monkeypatch):
     class SomeApp(Cli):
-        """No _parsername_, no name kwarg, and no usable argv[0]."""
+        """No _parsername_, no name kwarg, defined in a script run directly."""
 
-    # An empty/absent argv[0] (never usable as a program name) falls all the
-    # way through to the class name -- kebab-cased, so a multi-word
-    # class name gets a real separator in the env var too.
-    monkeypatch.setattr(sys, "argv", [""])
+    # A class defined in a script run directly lives in `__main__`, which
+    # names no package, so the kebab-case class name is the application name.
+    monkeypatch.setattr(SomeApp, "__module__", "__main__")
+    monkeypatch.setattr(
+        sys, "modules", {**sys.modules, "__main__": types.ModuleType("__main__")}
+    )
     assert _mcp_env_var_name(SomeApp) == "SOME_APP_MCP"
-    monkeypatch.setattr(sys, "argv", [])
-    assert _default_mcp_app_name(SomeApp) == "some-app"
+
+
+def test_env_var_name_from_package_name():
+    class SomeApp(Cli):
+        """Defined in this test module, whose top-level name is the package."""
+
+    assert _mcp_env_var_name(SomeApp) == "TEST_MCP_LAUNCH_MCP"
 
 
 def test_env_var_name_normalizes_hyphen_to_underscore():
     assert _mcp_env_var_name(None, name="my-app") == "MY_APP_MCP"
 
 
-def test_env_var_name_from_argv0_stem(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/myapp.py"])
-    assert _mcp_env_var_name(None) == "MYAPP_MCP"
+@pytest.mark.parametrize(
+    "argv",
+    [["/usr/local/bin/myapp.py"], ["/somewhere/mypkg/__main__.py"], [""], []],
+)
+def test_env_var_name_ignores_argv0(monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", argv)
+    assert _mcp_env_var_name(None) == "APP_MCP"
 
+    class Named(Cli):
+        """Named by its own declaration, never by the script."""
 
-def test_env_var_name_from_argv0_under_python_dash_m(monkeypatch, tmp_path):
-    pkg_dir = tmp_path / "mypkg"
-    pkg_dir.mkdir()
-    monkeypatch.setattr(sys, "argv", [str(pkg_dir / "__main__.py")])
-    assert _mcp_env_var_name(None) == "MYPKG_MCP"
+        _parsername_ = "forge"
+
+    assert _mcp_env_var_name(Named) == "FORGE_MCP"
 
 
 # --------------------------------------------------------------------------
@@ -261,6 +273,8 @@ def test_serverinfo_version_is_empty_when_app_declares_none():
 
     class Plain(Cli):
         """A root with no _version_ of its own."""
+
+        _parsername_ = "plain"
 
         _subcommands_ = [Env]
 
@@ -441,6 +455,7 @@ def test_root_mcp_false_does_not_disable_the_mcp_command_subcommand():
     class Root(Cli):
         """Env trigger disabled; the mcp subcommand is a separate opt-in."""
 
+        _parsername_ = "root"
         _mcp_ = False
         _subcommands_ = [Show]
         _mcp_command_ = True
@@ -556,6 +571,8 @@ def test_mcp_command_not_listed_as_a_tool():
     class Root(LoggingArgs, Cmd):
         """Root for the not-listed-as-a-tool test."""
 
+        _parsername_ = "root"
+
         def __call__(self):  # pragma: no cover
             return 0
 
@@ -660,7 +677,7 @@ class Ping(Cmd):
     """Reply pong."""
 
     def __call__(self):
-        present = "ENV_TRIGGER_CLASS_MCP" in os.environ
+        present = "APP_MCP" in os.environ
         print("pong", "present" if present else "absent")
         return 0
 
@@ -679,7 +696,7 @@ if __name__ == "__main__":
 def test_env_trigger_serves_a_class_tree(tmp_path):
     app_file = _write(tmp_path, "env_trigger_class.py", _ENV_TRIGGER_CLASS_APP)
     env = subprocess_env()
-    env["ENV_TRIGGER_CLASS_MCP"] = "stdio"
+    env["APP_MCP"] = "stdio"
     requests = "\n".join(
         [
             json.dumps(
@@ -763,7 +780,7 @@ def test_env_trigger_serves_an_app_tree_with_module_commands(tmp_path):
     _write(cmds_dir, "greet.py", _APP_TREE_GREET_MODULE)
     runner = _write(tmp_path, "runner.py", _ENV_TRIGGER_APP_RUNNER)
     env = subprocess_env()
-    env["RUNNER_MCP"] = "stdio"
+    env["ROOT_MCP"] = "stdio"
     requests = "\n".join(
         [
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),

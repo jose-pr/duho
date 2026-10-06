@@ -27,6 +27,19 @@ def _subcommand_choices(parser):
     return set()
 
 
+def _registered_name(command):
+    """The name `command` is registered under as a subcommand of a root."""
+
+    class Holder(Cli):
+        _subcommands_ = [command]
+
+        def __call__(self):
+            return 0
+
+    (name,) = _subcommand_choices(Holder._parser_())
+    return name
+
+
 class _Base(Cmd):
     """Shared base with a global option."""
 
@@ -56,13 +69,11 @@ def test_building_base_first_does_not_rename_subclasses():
     """Building `_Base`'s own parser must not leak its name onto `_Push`/`_Pull`."""
     duho.parser(_Base)  # builds _Base's own parser first, as a sibling would
 
-    push_parser = duho.parser(_Push)
-    pull_parser = duho.parser(_Pull)
     # Class-derived names are kebab-case; a leading `_` (used here
     # only to avoid colliding with a real top-level test name) is a split
     # point too and disappears, same as `_Private` -> `private`.
-    assert push_parser.prog == "push"
-    assert pull_parser.prog == "pull"
+    assert _registered_name(_Push) == "push"
+    assert _registered_name(_Pull) == "pull"
 
 
 def test_siblings_in_static_subcommands_tree_keep_their_own_names():
@@ -126,7 +137,7 @@ def test_undeclared_subclass_gets_its_own_name_not_the_bases():
         pass
 
     assert duho.parser(WithName).prog == "shared-name"
-    assert duho.parser(UndeclaredSubclass).prog == "undeclared-subclass"
+    assert _registered_name(UndeclaredSubclass) == "undeclared-subclass"
 
 
 def test_subclass_declaring_its_own_parsername_wins():
@@ -174,7 +185,7 @@ def test_explicit_parsername_on_a_base_is_not_inherited_by_a_plain_subclass():
     exactly like any other subclass (see the sibling test above).
     """
     assert duho.parser(_NamedBase).prog == "base-cmd"
-    assert duho.parser(_UndeclaredChild).prog == "undeclared-child"
+    assert _registered_name(_UndeclaredChild) == "undeclared-child"
 
 
 class _LoggedBase(LoggingArgs, Cmd):
@@ -187,16 +198,20 @@ class _LoggedChild(_LoggedBase):
         return 0
 
 
-def test_child_logger_name_is_its_own_not_the_built_parents(caplog):
-    """LoggingArgs._logger_ must reflect the class ACTUALLY selected, not a
-    name inherited from the base's own (no-longer-persisted) build."""
+def test_logger_name_is_the_application_name_not_the_built_parents(caplog):
+    """LoggingArgs._logger_ follows the application the command was parsed
+    under, and a `_logger_name_` declared on the class actually selected
+    wins; nothing is inherited from a base's own earlier build."""
     duho.parser(_LoggedBase)  # build the base first
 
     child = duho.parse(_LoggedChild, [])
-    assert child._logger_.name == "logged-child"
-
     base = duho.parse(_LoggedBase, [])
-    assert base._logger_.name == "logged-base"
+    assert child._logger_.name == base._logger_.name == "test_command_name_persistence"
+
+    class Declared(_LoggedBase):
+        _logger_name_ = "declared"
+
+    assert duho.parse(Declared, [])._logger_.name == "declared"
 
 
 def test_directly_constructed_logging_args_command_has_a_working_logger():
@@ -214,9 +229,9 @@ def test_directly_constructed_logging_args_command_has_a_working_logger():
     assert instance._logger_.name == "myapp"
 
 
-def test_directly_constructed_command_without_logger_name_falls_back_to_class_name():
+def test_directly_constructed_command_without_logger_name_falls_back_to_the_app_name():
     instance = _LoggedChild()
-    assert instance._logger_.name == "logged-child"
+    assert instance._logger_.name == "test_command_name_persistence"
 
 
 def test_kebab_collision_between_siblings_raises_a_clear_build_time_error():

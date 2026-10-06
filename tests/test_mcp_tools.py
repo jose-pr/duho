@@ -35,12 +35,16 @@ class Rollback(Cmd):
 class App(LoggingArgs, Cli):
     """My multi-command app."""
 
+    _parsername_ = "app"
+
     _version_ = "1.2.3"
     _subcommands_ = [Deploy, Rollback]
 
 
 class Flat(Cmd):
     """A single command with no subcommands."""
+
+    _parsername_ = "flat"
 
     name: str = "world"
     "Who to greet"
@@ -149,6 +153,8 @@ def test_conflict_groups_noted_in_description():
     class Root(Cli):
         """Root."""
 
+        _parsername_ = "root"
+
         _subcommands_ = [Compressed]
 
     tools = _by_name(describe_tools(Root))
@@ -178,6 +184,8 @@ def test_excluded_leaf_is_not_listed():
 
     class Root(Cli):
         """Root."""
+
+        _parsername_ = "root"
 
         _subcommands_ = [Secret, Visible]
 
@@ -210,6 +218,8 @@ def test_excluded_namespace_hides_its_whole_subtree():
     class Root(Cli):
         """Root."""
 
+        _parsername_ = "root"
+
         _subcommands_ = [SecretNS, Visible]
 
     names = {t["name"] for t in describe_tools(Root)}
@@ -234,6 +244,8 @@ def test_excluded_command_inherited_by_subclass():
     class Root(Cli):
         """Root."""
 
+        _parsername_ = "root"
+
         _subcommands_ = [SecretSubclass]
 
         def __call__(self):  # pragma: no cover
@@ -255,6 +267,8 @@ def test_root_own_mcp_false_does_not_exclude_its_own_tree():
 
     class Root(Cli):
         """A root that disables the env-var trigger, not its own tree."""
+
+        _parsername_ = "root"
 
         _mcp_ = False
         _subcommands_ = [Visible]

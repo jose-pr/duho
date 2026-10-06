@@ -16,6 +16,8 @@ from duho.mcp import _core_for_app, call_tool, describe_tools
 class Root(duho.LoggingArgs, duho.Cmd):
     """Root supplying global options for the app-tree MCP tests."""
 
+    _parsername_ = "root"
+
     def __call__(self):  # pragma: no cover - root is a namespace, never dispatched
         return 0
 

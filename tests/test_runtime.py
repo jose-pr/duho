@@ -514,8 +514,8 @@ def test_register_hook_3arg_gets_logger_and_adds_flag(tmp_path):
     # The hook got a real logging.Logger as its third positional...
     assert discovered.SEEN["logger_is_logger"] is True
     # ...and (Root is LoggingArgs-based) it is the args instance's own _logger_,
-    # whose name is the root parser's name ("Root"), not the fallback "duho".
-    assert discovered.SEEN["logger_name"] == "root"
+    # whose name is the application's name (this test module), not "duho".
+    assert discovered.SEEN["logger_name"] == "test_runtime"
     # ...and the flag it added parsed into the instance.
     assert discovered.SEEN["flag"] == "three"
 

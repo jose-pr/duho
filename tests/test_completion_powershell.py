@@ -30,11 +30,15 @@ class Deploy(Args):
 class PShellApp(Args):
     """Example app with a subcommand tree."""
 
+    _parsername_ = "p-shell-app"
+
     _subcommands_ = [Deploy]
 
 
 class PShellCompletionApp(Args):
     """Same tree, opted into --print-completion."""
+
+    _parsername_ = "p-shell-completion-app"
 
     _completion_ = True
     _subcommands_ = [Deploy]

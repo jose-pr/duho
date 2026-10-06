@@ -492,6 +492,29 @@ def _command_name(command) -> str:
     return _kebabcase(class_name) if class_name else ""
 
 
+def _app_name(cls: "type | None", name: "str | None" = None) -> str:
+    """The one name an application goes by on every surface: the usage
+    line, the completion script, the ``<NAME>_MCP`` variable, MCP tool names
+    and the default logger. Independent of how the program was launched.
+
+    Precedence: ``name`` (``app(name=...)``), then ``cls``'s OWN
+    ``_parsername_``, then its top-level import package (unless that is
+    ``__main__`` or ``duho`` itself), then its kebab-case class name.
+    ``"app"`` when there is no ``cls``.
+    """
+    if name:
+        return name
+    if cls is None:
+        return "app"
+    own = vars(cls).get("_parsername_")
+    if own:
+        return own
+    package = _top_level_dist_name(cls)
+    if package and package not in ("__main__", "duho"):
+        return package
+    return _command_name(cls)
+
+
 #: Thread-local guard against a class appearing in its own (possibly
 #: inherited) ``_subcommands_`` tree -- directly, or via a subcommand that
 #: subclasses its own root. Keyed by `id(cls)` so it works for any
@@ -526,34 +549,6 @@ def _guard_recursive_build(cls):
         )
     ids.add(id(cls))
     return ids
-
-
-def _completion_default_prog(root_parser, explicit_prog: bool) -> str:
-    """Resolve the ``prog`` a completion script should bind to.
-
-    Shared by :class:`_PrintCompletionAction` (the auto-injected
-    ``--print-completion`` flag) and :func:`print_completion` (the standalone
-    function) so both apply the EXACT same rule: an explicitly declared name
-    (``_parsername_``/``duho.app(name=...)``, ``explicit_prog=True``) always
-    wins; otherwise default to the stem of ``sys.argv[0]`` -- the command
-    actually invoked -- instead of ``root_parser.prog`` falling back to the
-    CLASS NAME, which almost never matches (``MyApp`` vs. ``myapp``).
-    """
-    prog = root_parser.prog
-    if not explicit_prog:
-        argv0_stem = _pathlib.Path(_sys.argv[0]).stem
-        if argv0_stem.endswith("-script"):
-            argv0_stem = argv0_stem[: -len("-script")]
-        if argv0_stem and argv0_stem != "__main__":
-            from . import completion as _completion
-
-            try:
-                _completion._validate_prog(argv0_stem)
-            except ValueError:
-                pass
-            else:
-                prog = argv0_stem
-    return prog
 
 
 class _Utf8SafeVersionAction(_argparse._VersionAction):
@@ -600,32 +595,22 @@ class _PrintCompletionAction(_argparse.Action):
     from ``parser`` at call time, since a subcommand's own parser only
     sees its own subtree, not the whole app.
 
-    ``prog`` names the command the emitted script actually binds
-    to. Completion scripts key on the root parser's ``prog`` (``_parsername_``
-    or, failing that, the CLASS NAME), which almost never matches the
-    installed command someone types (``MyApp`` vs. ``myapp``). When the root
-    name is only that class-name fallback (``explicit_prog`` is ``False``),
-    default ``prog`` to the stem of ``sys.argv[0]`` -- the command actually
-    invoked -- instead of the misleading class name; an explicitly declared
-    ``_parsername_``/``duho.app(name=...)`` always wins.
+    The emitted script binds the root parser's ``prog`` -- the application's
+    name (see :func:`_app_name`), however the program was launched.
     """
 
-    def __init__(
-        self, option_strings, dest, root_parser=None, explicit_prog=True, **kwargs
-    ):
+    def __init__(self, option_strings, dest, root_parser=None, **kwargs):
         kwargs.setdefault("nargs", None)
         kwargs.setdefault("default", _argparse.SUPPRESS)
         super().__init__(option_strings, dest, **kwargs)
         self.root_parser = root_parser
-        self.explicit_prog = explicit_prog
 
     def __call__(self, parser, namespace, values, option_string=None):
         from . import completion as _completion
 
         emitter = getattr(_completion, values)
         root = self.root_parser if self.root_parser is not None else parser
-        prog = _completion_default_prog(root, self.explicit_prog)
-        _write_machine_text(emitter(root, prog=prog), _sys.stdout)
+        _write_machine_text(emitter(root, prog=root.prog), _sys.stdout)
         parser.exit()
 
 
@@ -2300,13 +2285,9 @@ class Args(_argparse.Namespace):
         # base's declared name has to say so itself; a bare subclass always
         # gets its own class name, never one inherited from a base's build.
         name_given = name is not None
-        name: str = name or _command_name(cls)
-        # Whether `name` reflects something the user actually
-        # declared (an explicit `name=` here, or `cls`'s own `_parsername_`)
-        # rather than the bare class-name fallback -- read by
-        # `_PrintCompletionAction`/`print_completion` to decide whether the
-        # emitted completion script should default to the invoked command
-        # (`sys.argv[0]`'s stem) instead of a class name nobody types.
+        name: str = name or (_command_name(cls) if subparser else _app_name(cls))
+        # Passed on to `_initparser_`, which accepts it for compatibility with
+        # subclasses that override it; nothing here depends on its value.
         explicit_prog = name_given or bool(vars(cls).get("_parsername_"))
         if not subparser and "prog" in kwargs:
             # `ArgumentParser(name, parents=..., **kwargs)` fills the
@@ -2701,10 +2682,6 @@ class Args(_argparse.Namespace):
                     choices=_COMPLETION_SHELLS,
                     action=_PrintCompletionAction,
                     root_parser=parser,
-                    # Default the emitted script's command name to
-                    # the invoked `sys.argv[0]` stem when the root's own name
-                    # is only the class-name fallback (nobody types `MyApp`).
-                    explicit_prog=explicit_prog,
                     dest="print_completion",
                     help="Print a shell completion script for the given shell and exit.",
                 )
@@ -3155,15 +3132,9 @@ def print_completion(cls, shell: str, file=None, *, prog: "str | None" = None) -
     cls's parser tree fresh (independent of whether `_completion_` is set)
     and delegates to `duho.completion.<shell>`.
 
-    ``prog`` overrides the command name the emitted script binds to. When
-    ``cls`` declares its own ``_parsername_``/``duho.app(name=...)``, that
-    name always wins. Otherwise it defaults to the stem of THIS CALL's own
-    ``sys.argv[0]`` -- which is only correct when you call
-    ``duho.print_completion`` from the app's own entry point (e.g. behind
-    ``--print-completion``); calling it from a separate build/doc-generation
-    script picks up THAT script's own name instead. Pass ``prog="myapp"``
-    explicitly whenever you generate a completion script from anywhere other
-    than the target app's own invocation.
+    ``prog`` overrides the command name the emitted script binds to; by
+    default it is the root parser's ``prog``, the application's name (see
+    :func:`_app_name`), however the program was launched.
     """
     from . import completion as _completion
 
@@ -3174,11 +3145,7 @@ def print_completion(cls, shell: str, file=None, *, prog: "str | None" = None) -
     parser = cls._parser_()
     emitter = getattr(_completion, shell)
     if prog is None:
-        # Same rule the injected --print-completion flag applies (see
-        # `_completion_default_prog`): default to the invoked command's
-        # argv[0] stem instead of registering the bare class name, unless
-        # the class declared a real name of its own.
-        prog = _completion_default_prog(parser, bool(vars(cls).get("_parsername_")))
+        prog = parser.prog
     _write_machine_text(emitter(parser, prog=prog), file)
 
 
@@ -3196,6 +3163,28 @@ def print_agent_help(cls, file=None) -> None:
     _agenthelp.print_agent_help(cls, file=file)
 
 
+def _logger_name_for(instance, root_cls: "type | None" = None) -> str:
+    """The logger a parsed command's ``-v``/``-q`` verbosity applies to.
+
+    In order: a ``_logger_name_`` on the instance's own class (declared or
+    inherited), then one on the root class that dispatched it, then that root
+    parser's ``prog`` (the application's name, see :func:`_app_name`). An
+    instance no parser produced falls back to the application name of
+    ``root_cls``, else of its own class.
+    """
+    own = getattr(type(instance), "_logger_name_", None)
+    if own:
+        return own
+    parser = _duho_instance_last_parser_.get(id(instance))
+    root = getattr(parser, "_duho_cls_", None) or root_cls
+    declared = getattr(root, "_logger_name_", None) if root is not None else None
+    if declared:
+        return declared
+    if parser is not None:
+        return parser.prog
+    return _app_name(root_cls or type(instance))
+
+
 def _setup_instance_logging(
     instance, setup_logging: bool, root_cls: "type | None" = None
 ) -> None:
@@ -3210,7 +3199,7 @@ def _setup_instance_logging(
     -- IS a ``LoggingArgs``, the verbosity fields are still on `instance`
     (argparse copies the parent parser's parsed values onto the shared
     instance regardless of which class gets constructed); apply them under
-    the root's own command name via the module-level
+    the application's logger (see :func:`_logger_name_for`) via the module-level
     :func:`duho.presets._apply_loglevels` instead of the missing bound method.
     This is the documented ``class MyApp(LoggingArgs, Cli)`` +
     plain ``Cmd`` leaves shape from the README, which previously left
@@ -3234,7 +3223,7 @@ def _setup_instance_logging(
         from . import presets as _presets
 
         if issubclass(root_cls, _presets.LoggingArgs):
-            logger_name = _command_name(root_cls)
+            logger_name = _logger_name_for(instance, root_cls)
             setter = lambda: _presets._apply_loglevels(instance, logger_name)
     if setter is None:
         return
@@ -3316,38 +3305,6 @@ def _maybe_await(result):
 _MCP_NAME_ALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 
-def _default_mcp_app_name(
-    cls: "_ty.Optional[type]", name: "_ty.Optional[str]" = None
-) -> str:
-    """The app name :func:`_mcp_env_var_name` derives ``<NAME>_MCP`` from,
-    when no ``Env`` is in play (see that function). Precedence: a declared
-    root ``_parsername_``, else the caller-supplied ``name`` (``duho.app``'s
-    own ``name=`` kwarg), else the program name from ``sys.argv[0]`` (its
-    stem, so a ``.py``/``.exe`` suffix never leaks in; under ``python -m
-    pkg`` ``argv[0]``'s stem is the unhelpful ``"__main__"``, so the
-    PACKAGE name -- its parent directory's name -- is used instead), else the
-    KEBAB-CASE (:func:`duho.text.kebabcase`) of ``cls``'s own class name,
-    else the literal ``"APP"`` (no ``cls`` and no usable ``argv[0]`` at all --
-    practically unreachable, but a name is still needed).
-    """
-    parsername = getattr(cls, "_parsername_", None) if cls is not None else None
-    if parsername:
-        return str(parsername)
-    if name:
-        return str(name)
-    argv0 = _sys.argv[0] if _sys.argv else ""
-    if argv0:
-        path = _pathlib.Path(argv0)
-        stem = path.stem
-        if stem and stem != "__main__":
-            return stem
-        if stem == "__main__" and path.parent.name:
-            return path.parent.name
-    if cls is not None:
-        return _kebabcase(cls.__name__)
-    return "APP"
-
-
 def _mcp_env_var_name(
     cls: "_ty.Optional[type]",
     *,
@@ -3357,7 +3314,7 @@ def _mcp_env_var_name(
     """The environment variable name the MCP launch trigger reads/consumes:
     ``<PREFIX>MCP`` -- the same key
     ``env.get("MCP")`` would read -- when ``env`` (a :class:`duho.Env`) is
-    given; otherwise ``<NAME>_MCP`` derived from :func:`_default_mcp_app_name`,
+    given; otherwise ``<NAME>_MCP`` derived from :func:`_app_name`,
     upper-cased with every character outside ``[A-Z0-9]`` replaced by ``_``
     (``my-app`` -> ``MY_APP_MCP``). Only the REAL process environment is ever
     consulted for the resulting key (an ``Env`` companion-module default for
@@ -3366,7 +3323,7 @@ def _mcp_env_var_name(
     """
     if env is not None:
         return env.prefix + "MCP"
-    base = _default_mcp_app_name(cls, name)
+    base = _app_name(cls, name)
     normalized = "".join(ch if ch in _MCP_NAME_ALLOWED else "_" for ch in base.upper())
     return normalized + "_MCP"
 
@@ -3523,6 +3480,8 @@ def main(
             # tree, which never included this injected subcommand to begin
             # with (no separate exclusion logic needed).
             extra_attrs: "dict[str, object]" = {
+                "__module__": cls.__module__,
+                "__qualname__": cls.__qualname__,
                 "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
                 + [mcp_cls],
                 "_duho_constants_": {},

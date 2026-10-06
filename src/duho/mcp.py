@@ -703,8 +703,7 @@ def _tree_for(root_cls: "type[_Cmd]") -> "tuple":
     root_parser = root_cls._parser_()
     _apply_layers(root_parser, root_cls, config=None)
 
-    root_name = _command_name(root_cls)
-    nodes = _walk_tree(root_parser, root_cls, root_name)
+    nodes = _walk_tree(root_parser, root_cls, root_parser.prog)
 
     result = (root_parser, nodes)
     _TREE_CACHE[root_cls] = result
@@ -770,17 +769,8 @@ def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerC
     dispatches once per MCP tool call rather than once per process.
     """
     parser, root_cls, dispatch = _build_app_core(root, **app_kwargs)
-    # `parser.prog` -- not `_command_name(root_cls)` -- is the root tool-name
-    # segment: `_build_parser`/`_prepare_app_parser` already gave
-    # this exact parser object `prog = app_kwargs["name"]` when `name=` was
-    # passed to `app()`, falling back to `_command_name(root_cls)` itself
-    # only when it wasn't (`Args._parser_`'s own `name = name or
-    # _command_name(cls)`) -- so reading it back here, instead of
-    # re-deriving the class-only fallback and ignoring `name=` entirely,
-    # is what makes `app(Dotagents, name="dotagents")`'s tools come out
-    # `dotagents.*` rather than `Dotagents.*`.
-    root_name = parser.prog
-    nodes = _walk_tree(parser, root_cls, root_name)
+    # The root tool-name segment is the application's name, `parser.prog`.
+    nodes = _walk_tree(parser, root_cls, parser.prog)
     return _ServerCore(parser, nodes, dispatch, root_cls)
 
 
@@ -873,10 +863,7 @@ def serve_running_app(transport: str = "stdio") -> int:
         core = _core_for_class(ctx[1])
     else:
         _, parser, root_cls, dispatch = ctx
-        # `parser.prog`, not `_command_name(root_cls)` -- see the identical
-        # fix (and its rationale) in `_core_for_app`.
-        root_name = parser.prog
-        nodes = _walk_tree(parser, root_cls, root_name)
+        nodes = _walk_tree(parser, root_cls, parser.prog)
         core = _ServerCore(parser, nodes, dispatch, root_cls)
     return serve(core)
 
@@ -1111,8 +1098,9 @@ def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     Each command reached by walking the built parser tree -- the root itself
     (when it can itself be dispatched), and every subcommand, recursively --
     becomes one tool ``{name, description, inputSchema}``: a leaf/root tool is
-    named after its own ``_parsername_``/class name, a nested one
-    ``parent.child``. A NAMESPACE node (one whose own subcommand is mandatory
+    named after the application (its root parser's ``prog``, see
+    :func:`duho.args._app_name`), a nested one ``parent.child``. A NAMESPACE
+    node (one whose own subcommand is mandatory
     -- see :func:`_is_namespace_node`) is skipped: it can never itself
     dispatch successfully, so listing it would only ever waste a client's
     turn on a guaranteed usage error; its own fields are still reachable,
@@ -2119,10 +2107,9 @@ def _server_info(root_cls: "_ty.Union[type, _ServerCore]") -> "dict":
     """``serverInfo`` for the ``initialize`` response.
 
     ``name`` is the same resolution ``describe_tools``/``call_tool`` use for
-    the root tool-name segment (``core.root_parser.prog`` -- see
-    :func:`_core_for_app`'s own comment for why this, not
-    ``_command_name(root_cls)``, is the right value for an ``app(name=...)``
-    tree too). ``version`` is the app's own ``_version_``
+    the root tool-name segment (``core.root_parser.prog``, the application's
+    name -- see :func:`duho.args._app_name`). ``version`` is the app's own
+    ``_version_``
     (:func:`duho.args._resolve_version` -- a plain ``str``, the ``AUTO``
     sentinel resolved via ``importlib.metadata``, or a class-level
     ``__version__`` fallback) when it resolves to a string, else the empty

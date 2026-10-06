@@ -112,6 +112,8 @@ class BadArgs(Cmd):
 class Toolbox(Cli):
     """Root."""
 
+    _parsername_ = "toolbox"
+
     _subcommands_ = [
         Greet,
         Fail,
@@ -261,6 +263,8 @@ def test_calling_an_excluded_command_raises_unknown_tool_error():
     class Root(Cli):
         """Root."""
 
+        _parsername_ = "root"
+
         _subcommands_ = [Secret]
 
     with pytest.raises(UnknownToolError, match="unknown tool"):
@@ -331,6 +335,8 @@ class BoolShapes(Cmd):
 class BoolRoot(Cli):
     """Root."""
 
+    _parsername_ = "bool-root"
+
     _subcommands_ = [BoolShapes]
 
 
@@ -385,6 +391,8 @@ def test_loglevels_dict_field_uses_its_own_name_colon_level_grammar():
     class LogToolbox(Cli):
         """Root."""
 
+        _parsername_ = "log-toolbox"
+
         _subcommands_ = [Works]
 
     result = call_tool(
@@ -420,6 +428,8 @@ def test_logging_handler_is_rebound_to_each_calls_own_capture():
 
     class LoudToolbox(Cli):
         """Root."""
+
+        _parsername_ = "loud-toolbox"
 
         _subcommands_ = [Loud]
 
@@ -471,6 +481,8 @@ def test_negative_count_raises_invalid_arguments_error():
     class LoudToolbox(Cli):
         """Root."""
 
+        _parsername_ = "loud-toolbox"
+
         _subcommands_ = [Loud]
 
     with pytest.raises(InvalidArgumentsError, match="verbose"):
@@ -494,6 +506,8 @@ class Passer(Cmd):
 
 class PasserToolbox(Cli):
     """Root."""
+
+    _parsername_ = "passer-toolbox"
 
     _subcommands_ = [Passer]
 

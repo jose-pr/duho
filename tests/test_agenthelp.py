@@ -97,6 +97,8 @@ class Deploy(Cmd):
 class App(LoggingArgs, Cli):
     """My multi-command app."""
 
+    _parsername_ = "app"
+
     _version_ = "9.9.9"
     _agent_help_ = True
     _subcommands_ = [Deploy]
@@ -106,6 +108,8 @@ class App(LoggingArgs, Cli):
 
 class PlainApp(Cli):
     """An app that did NOT opt into --help-agents."""
+
+    _parsername_ = "plain-app"
 
     _subcommands_ = [Deploy]
 
@@ -141,6 +145,8 @@ class SecretDeploy(Cmd):
 class SecretApp(Cli):
     """App with an env-bound secret field of its own, plus a subcommand with
     an env- and config-bound secret of ITS own."""
+
+    _parsername_ = "secret-app"
 
     _version_ = "1.0.0"
     _agent_help_ = True
@@ -239,6 +245,8 @@ class PlaceholderDeploy(Cmd):
 
 class PlaceholderApp(Cli):
     """App whose subcommand spells `%(default)s` directly in help text."""
+
+    _parsername_ = "placeholder-app"
 
     _agent_help_ = True
     _subcommands_ = [PlaceholderDeploy]
@@ -496,6 +504,8 @@ def test_custom_env_var_agents_help_alias_does_not_trigger(monkeypatch, capsys):
     class CustomAliasApp(Cli):
         """Custom env app, alias check."""
 
+        _parsername_ = "custom-alias-app"
+
         _agent_help_env_ = "MY_AGENT_HELP"
         _subcommands_ = [Deploy]
 
@@ -515,6 +525,8 @@ def test_custom_env_var_agents_help_alias_does_not_trigger(monkeypatch, capsys):
 def test_custom_env_var_name(monkeypatch, capsys):
     class CustomApp(Cli):
         """Custom env app."""
+
+        _parsername_ = "custom-app"
 
         _agent_help_env_ = "MY_AGENT_HELP"
         _subcommands_ = [Deploy]
@@ -652,6 +664,8 @@ class ReqRootSub(Cmd):
 
 class ReqRootApp(Cli):
     """Root requiring a global option, plus a subcommand."""
+
+    _parsername_ = "req-root-app"
 
     _subcommands_ = [ReqRootSub]
 

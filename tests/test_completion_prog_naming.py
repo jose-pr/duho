@@ -49,15 +49,15 @@ def _registered_prog(bash_script: str) -> str:
     return line.rsplit(" ", 1)[-1]
 
 
-def test_print_completion_defaults_to_argv0_when_name_is_unset(monkeypatch):
-    """The standalone function applies the EXACT same rule the injected
-    `--print-completion` flag does (see the `_action_defaults_prog_to_argv0`
-    test below): default to the invoked command's argv[0] stem, not the bare
-    class name nobody types, when no `_parsername_` was declared."""
+def test_print_completion_binds_the_application_name_not_argv0(monkeypatch):
+    """The standalone function binds the same name the injected
+    `--print-completion` flag does (see the `_action_ignores_argv0` test
+    below): the application's name -- here its top-level package -- whatever
+    `sys.argv[0]` is."""
     monkeypatch.setattr(sys, "argv", ["/usr/local/bin/app"])
     buf = io.StringIO()
     duho.print_completion(_App, "bash", file=buf)
-    assert _registered_prog(buf.getvalue()) == "app"
+    assert _registered_prog(buf.getvalue()) == "test_completion_prog_naming"
 
 
 def test_print_completion_prog_override_wins():
@@ -85,12 +85,9 @@ def test_print_completion_shell_choices_match_the_cli_flag():
     assert set(action.choices) == {"bash", "zsh", "fish", "powershell"}
 
 
-def test_print_completion_action_defaults_prog_to_argv0_when_name_is_unset(
-    monkeypatch,
-):
-    """The CLI flag (unlike the standalone function) should bind
-    to the command someone actually typed when the root's own name is only
-    the class-name fallback nobody types."""
+def test_print_completion_action_ignores_argv0(monkeypatch):
+    """The CLI flag binds the application's name, not the script it was
+    launched through."""
     monkeypatch.setattr(
         sys, "argv", ["/usr/local/bin/app", "--print-completion", "bash"]
     )
@@ -103,11 +100,11 @@ def test_print_completion_action_defaults_prog_to_argv0_when_name_is_unset(
     finally:
         sys.stdout = real_stdout
     assert exc.value.code == 0
-    assert _registered_prog(buf.getvalue()) == "app"
+    assert _registered_prog(buf.getvalue()) == "test_completion_prog_naming"
 
 
 def test_print_completion_action_keeps_explicit_parsername(monkeypatch):
-    """An explicitly declared `_parsername_` always wins over sys.argv[0]."""
+    """An explicitly declared `_parsername_` is the bound name."""
     monkeypatch.setattr(
         sys,
         "argv",

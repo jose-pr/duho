@@ -48,36 +48,19 @@ def _apply_loglevels(
 ) -> "dict[str, int]":
     """Apply parsed ``loglevels``/``verbose``/``quiet`` fields to loggers.
 
-    Module-level so it works on ANY object carrying
-    ``LoggingArgs``'s data fields, not just a ``LoggingArgs`` instance --
-    notably a plain ``Cmd`` leaf dispatched under a ``class MyApp(LoggingArgs,
-    Cli)`` root (the README's recommended app shape). argparse copies the
-    root's parsed ``-v``/``-q``/``--loglevel`` values onto the shared instance
-    regardless of which class ends up constructed, but only a ``LoggingArgs``
-    subclass has the ``_set_loglevels_``/``_logger_`` MEMBERS to apply them
-    through; without it, verbosity flags would be a silent no-op on such a
-    leaf. ``default_logger`` names the logger that receives the -v/-q-derived
-    (or a bare ``--loglevel LEVEL``) level: ``LoggingArgs._set_loglevels_``
-    passes its own ``_logger_.name``; ``duho.main``/``duho.app`` pass the
-    application's logger name when dispatching a leaf that has no
-    ``_logger_`` of its own.
-
-    Prefers ``ns._verbose_loglevel_()`` -- a bound method, so a subclass
-    override is honored -- over the base implementation, which is used
-    only when ``ns``'s own class doesn't define one at all (again, the plain
-    ``Cmd`` leaf case), stepping from ``root_cls``'s ``_base_loglevel_``.
+    Module-level so it works on any object carrying ``LoggingArgs``'s data
+    fields, such as a plain ``Cmd`` leaf under a ``LoggingArgs`` root, which
+    lacks ``_set_loglevels_``/``_logger_``. ``default_logger`` receives the
+    -v/-q level (or a bare ``--loglevel LEVEL``). Prefers
+    ``ns._verbose_loglevel_()``, so a subclass override is honored, over a step
+    from ``root_cls``'s ``_base_loglevel_``.
     """
     loglevels = ns.loglevels.copy()
-    # Names the user EXPLICITLY passed via `--loglevel name:LEVEL` -- captured
-    # before `default_logger` is defaulted in below. Only these get the
-    # descendant-subtree walk; the -v/-q-derived (or bare `--loglevel LEVEL`)
-    # entry for `default_logger` must not force levels onto a library's own
-    # child loggers on every ordinary dispatch (see the walk below).
+    # Names passed explicitly via `--loglevel name:LEVEL`, captured before
+    # `default_logger` is added: only these get the descendant walk below.
     explicit_names = set(loglevels)
-    # A bare `--loglevel LEVEL` (parsed as {"": LEVEL}) should raise the
-    # app's OWN logger, not just root -- but only when nothing more specific
-    # (-v/-q, or an explicit `name:LEVEL` entry for this logger) already
-    # claims the default. An explicit `-v`/`-q` still wins over a bare level.
+    # A bare `--loglevel LEVEL` ({"": LEVEL}) raises the app's own logger too,
+    # unless -v/-q (which win) or an explicit entry already claims the default.
     default = loglevels.get("") if not (ns.verbose or ns.quiet) else None
     if default is None:
         verbose_loglevel = getattr(ns, "_verbose_loglevel_", None)
@@ -86,11 +69,9 @@ def _apply_loglevels(
         else:
             base = getattr(root_cls, "_base_loglevel_", LoggingArgs._base_loglevel_)
             default = _stepped_level(base, ns.verbose, ns.quiet)
-    # An explicit `--loglevel app:LEVEL` covers the whole `app.*` subtree, so
-    # it must also reach the dispatched command's own logger when that logger
-    # sits inside it (`app.scan`). Injecting the -v/-q default for that logger
-    # here would give it its OWN level, applied after (and overriding) the
-    # ancestor the user actually named.
+    # An explicit `--loglevel app:LEVEL` covers `app.*`, so skip the -v/-q default
+    # for a dispatched logger inside it (`app.scan`): its own level would override
+    # the ancestor the user named.
     covered = any(
         default_logger == name or default_logger.startswith(name + ".")
         for name in explicit_names
@@ -101,41 +82,21 @@ def _apply_loglevels(
     for name, level in loglevels.items():
         _logging.getLogger(name).setLevel(level)
         if name and name in explicit_names:
-            # Python's logging hierarchy only derives an unset child's
-            # EFFECTIVE level from its parent -- a child that already has its
-            # OWN explicit level (set by an earlier import, a library, or a
-            # previous `--loglevel`) keeps it regardless of what happens to
-            # `name` afterwards. `--loglevel app:LEVEL` is documented as
-            # applying to the app.* SUBTREE, so also force the level onto
-            # every ALREADY-EXISTING descendant logger -- but only for a name
-            # the user EXPLICITLY named here (`name in explicit_names`), never
-            # for the `default_logger` entry `setdefault` just injected from
-            # -v/-q or a bare `--loglevel LEVEL`: that entry runs on every
-            # ordinary dispatch, and forcing it onto every already-existing
-            # `app.*` child would pin a library's own hierarchical logging
-            # control (`logging.getLogger("app.child").setLevel(...)`) after
-            # a single in-process dispatch. (No-op for the bare `""`
-            # root-logger key -- every logger already descends from actual
-            # root, and `""` is never in `explicit_names` as a subtree name.)
+            # `--loglevel app:LEVEL` applies to the `app.*` subtree, so also set
+            # existing descendants that have their own level. Only for explicit
+            # names: the injected -v/-q default would pin a library's own levels.
             prefix = name + "."
             logger_dict = _logging.Logger.manager.loggerDict
             for existing_name in list(logger_dict):
                 if not existing_name.startswith(prefix):
                     continue
-                # Look up the raw registry entry -- do NOT call
-                # `logging.getLogger(existing_name)` here, which would
-                # PROMOTE a `PlaceHolder` (an as-yet-undeclared ancestor
-                # segment) into a real `Logger` as a side effect of this
-                # walk. Skip anything that isn't already a real `Logger`.
+                # Read the raw registry entry: `getLogger` would promote a
+                # `PlaceHolder` to a real Logger. Skip anything that is not one.
                 existing = logger_dict.get(existing_name)
                 if not isinstance(existing, _logging.Logger):
                     continue
-                # A child still at NOTSET already inherits its effective
-                # level from its parent for free -- pinning it here is
-                # exactly what breaks that hierarchical control the next
-                # time the library itself calls `.setLevel(...)` on an
-                # ancestor. Only touch a child that already has its OWN
-                # explicit level (matching the comment above).
+                # A NOTSET child already inherits from its parent; pinning it would
+                # break the library's own later `.setLevel` on an ancestor.
                 if existing.level == _logging.NOTSET:
                     continue
                 existing.setLevel(level)
@@ -169,10 +130,9 @@ class LoggingArgs(Args):
     action already exists (e.g. supplied by a parent parser).
     """
 
-    # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. Every field carries
-    # its flags/help in its own `NS(...)`, so no class-body AST scan is
-    # needed, and `-v`/`-q`/`--loglevel` keep their shape under a
-    # PyInstaller/.pyc-only/Nuitka build that ships no .py source to scan.
+    # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli`: every field carries its
+    # flags in `NS(...)`, so no source scan is needed (and none is possible
+    # in a build that ships no .py source).
     _duho_constants_: dict = {}
 
     loglevels: _ty.Annotated[
@@ -189,11 +149,7 @@ class LoggingArgs(Args):
         ),
     ] = {}
 
-    # The shipped header and this class's own docstring have long promised
-    # `--verbose`/`--quiet` alongside `-v`/`-q`; only the short forms were
-    # ever actually declared. Adding the long spellings (rather than
-    # correcting the docs to match the shorter reality) is additive and a
-    # PATCH pre-1.0.
+    # Both the short and long spellings, as the shipped header documents.
     verbose: _ty.Annotated[
         int,
         NS(

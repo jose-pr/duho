@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import shlex as _shlex
 
 
@@ -6,7 +8,7 @@ def _bashq(value: object) -> str:
     return _shlex.quote(str(value))
 
 
-def _bash_wordlist(values: "list") -> str:
+def _bash_wordlist(values: list) -> str:
     """Build a safe ``compgen -W`` word-list argument from ``values``.
 
     ``compgen -W`` gives its word-list argument a SECOND evaluation at
@@ -26,7 +28,7 @@ def _bash_wordlist(values: "list") -> str:
     safe for the second pass, single-quote the whole list (embedded single
     quotes as ``'\\''``) to survive the first.
     """
-    escaped: "list[str]" = []
+    escaped: list[str] = []
     for value in values:
         escaped.append(
             "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
@@ -123,7 +125,7 @@ def _psq(value: object) -> str:
     text = str(value)
     if text.isascii():
         return "'" + text.replace("'", "''") + "'"
-    parts: "list[str]" = []
+    parts: list[str] = []
     run = ""
     for ch in text:
         if ch.isascii():
@@ -141,7 +143,7 @@ def _psq(value: object) -> str:
     return "(" + " + ".join(parts) + ")"
 
 
-def _utf16_units(ch: str) -> "list[int]":
+def _utf16_units(ch: str) -> list[int]:
     """The UTF-16 code unit(s) for a single ``str`` character (surrogate pair
     for an astral character, one unit otherwise)."""
     encoded = ch.encode("utf-16-le")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import hashlib as _hashlib
 
@@ -9,7 +11,7 @@ from ._spec import CompletionOption, CompletionPositional, _all_specs, _func_nam
 # --------------------------------------------------------------------------
 
 
-def _zsh_value_part(opt: "CompletionOption") -> str:
+def _zsh_value_part(opt: CompletionOption) -> str:
     """The ``:message:action`` tail of a zsh optspec for a value-taking option."""
     if opt.choices:
         values = " ".join(_zsh_word(c) for c in opt.choices)
@@ -26,7 +28,7 @@ def _zsh_optname(flag: str) -> str:
     return "".join("\\" + c if c in "\\:[] \t" else c for c in flag)
 
 
-def _zsh_optspec(opt: "CompletionOption") -> str:
+def _zsh_optspec(opt: CompletionOption) -> str:
     """Build one zsh ``_arguments`` optspec for ``opt``.
 
     A single-flag option is ``<flag>'[desc]...'``; a multi-flag option uses the
@@ -48,7 +50,7 @@ def _zsh_optspec(opt: "CompletionOption") -> str:
     return exclusion + brace + tail
 
 
-def _zsh_pos_spec(n: int, pos: "CompletionPositional") -> str:
+def _zsh_pos_spec(n: int, pos: CompletionPositional) -> str:
     """Build one zsh positional spec: ``N:message:action`` (1-based position)
     -- NOT the ``name:name:action`` form the old emitter used, which
     `_arguments` rejects outright on every Tab."""
@@ -94,7 +96,7 @@ def _zsh_root_func_name(root_prog: str) -> str:
     return f"{safe}_{digest}"
 
 
-def _zsh_funcid(func: str, path: "tuple[str, ...]") -> str:
+def _zsh_funcid(func: str, path: tuple[str, ...]) -> str:
     """The zsh function name for the node at ``path``: ``_<func>`` for the
     root, ``_<func>__<seg1>__<seg2>...`` for a nested node."""
     if not path:
@@ -103,7 +105,7 @@ def _zsh_funcid(func: str, path: "tuple[str, ...]") -> str:
     return f"_{func}__{suffix}"
 
 
-def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
+def zsh(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
     """Emit a `#compdef`-style zsh completion script for `parser`.
 
     Standard zsh subcommand dispatch: one function per (sub)command node. A
@@ -140,7 +142,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     root_prog = _validate_prog(root.prog)
     func = _zsh_root_func_name(root_prog)
 
-    lines: "list[str]" = []
+    lines: list[str] = []
     lines.append(f"#compdef {root_prog}")
     lines.append("")
 
@@ -148,7 +150,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
         funcid = _zsh_funcid(func, cspec.path)
         lines.append(f"{funcid} () {{")
 
-        args_items: "list[str]" = [_zsh_optspec(opt) for opt in cspec.options]
+        args_items: list[str] = [_zsh_optspec(opt) for opt in cspec.options]
         n_pos = len(cspec.positionals)
 
         if cspec.subcommands:

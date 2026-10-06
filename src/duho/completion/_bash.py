@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import hashlib as _hashlib
 
@@ -33,7 +35,7 @@ def _bash_func_name(root_prog: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
+def bash(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
     """Emit a self-contained bash completion script for `parser`.
 
     Descends the command line only on a word that is BOTH a real subcommand
@@ -66,7 +68,7 @@ def bash(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     func = _bash_func_name(root_prog)
     specs = _all_specs(root)
 
-    lines: "list[str]" = []
+    lines: list[str] = []
     lines.append(f"# bash completion for {root_prog}")
     lines.append(f"{func}() {{")
     lines.append("    local cur prev")

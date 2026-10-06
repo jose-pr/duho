@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as _ty
 
 from .. import _compat
@@ -17,7 +19,7 @@ class CompletionCmd(_Cmd):
     #: The class whose parser tree the script describes, set by ``duho.main``
     #: when it registers this command; ``None`` under ``duho.app``, which
     #: reads the parser it already built.
-    _completion_tree_: "_ty.Optional[type]" = None
+    _completion_tree_: _ty.Optional[type] = None
 
     def __call__(self) -> int:
         from . import bash, fish, powershell, zsh

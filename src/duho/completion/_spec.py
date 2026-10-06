@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import dataclasses as _dc
 import pathlib as _pathlib
@@ -9,9 +11,9 @@ from .. import parsers as _parsers
 class CompletionOption:
     """One optional argument (e.g. ``--name``/``-n``)."""
 
-    flags: "tuple[str, ...]"
+    flags: tuple[str, ...]
     takes_value: bool
-    choices: "tuple[str, ...] | None" = None
+    choices: tuple[str, ...] | None = None
     is_path: bool = False
 
 
@@ -20,7 +22,7 @@ class CompletionPositional:
     """One positional argument."""
 
     name: str
-    choices: "tuple[str, ...] | None" = None
+    choices: tuple[str, ...] | None = None
     is_path: bool = False
     #: Hidden via ``help=argparse.SUPPRESS``: still occupies its ordinal slot
     #: (every emitter counts positions sequentially to know which one is
@@ -38,15 +40,15 @@ class CompletionSpec:
     # pre-existing order exactly; `path` (added later) goes LAST instead of
     # in 2nd position, so it no longer shifts every field after it.
     prog: str
-    options: "list[CompletionOption]" = _dc.field(default_factory=list)
-    positionals: "list[CompletionPositional]" = _dc.field(default_factory=list)
-    subcommands: "dict[str, CompletionSpec]" = _dc.field(default_factory=dict)
+    options: list[CompletionOption] = _dc.field(default_factory=list)
+    positionals: list[CompletionPositional] = _dc.field(default_factory=list)
+    subcommands: dict[str, CompletionSpec] = _dc.field(default_factory=dict)
     #: One-line help for THIS (sub)command, used as the fish ``-d`` description.
     help: str = ""
     #: The subcommand names from the root down to THIS spec, e.g. ``("Db",
     #: "Migrate")``; ``()`` for the root. Used by every emitter as the join
     #: key for "which node am I completing" lookups.
-    path: "tuple[str, ...]" = ()
+    path: tuple[str, ...] = ()
 
 
 def _is_path_type(action: _argparse.Action) -> bool:
@@ -54,7 +56,7 @@ def _is_path_type(action: _argparse.Action) -> bool:
     return isinstance(ty, type) and issubclass(ty, _pathlib.Path)
 
 
-def _enum_choices(type_factory: object) -> "tuple[str, ...] | None":
+def _enum_choices(type_factory: object) -> tuple[str, ...] | None:
     """Recover ``enum.Enum`` member names from a duho Enum-field factory.
 
     duho's Enum branch leaves ``action.choices`` unset and gives the field a
@@ -70,7 +72,7 @@ def _enum_choices(type_factory: object) -> "tuple[str, ...] | None":
     return names
 
 
-def _drop_nul_choices(choices: "tuple[str, ...] | None") -> "tuple[str, ...] | None":
+def _drop_nul_choices(choices: tuple[str, ...] | None) -> tuple[str, ...] | None:
     """Drop any candidate containing a NUL byte.
 
     A NUL can't be represented in any of the four shells' word lists (bash
@@ -86,7 +88,7 @@ def _drop_nul_choices(choices: "tuple[str, ...] | None") -> "tuple[str, ...] | N
     return filtered or None
 
 
-def _choices_tuple(action: _argparse.Action) -> "tuple[str, ...] | None":
+def _choices_tuple(action: _argparse.Action) -> tuple[str, ...] | None:
     choices = getattr(action, "choices", None)
     if choices:
         return _drop_nul_choices(tuple(str(c) for c in choices))
@@ -101,8 +103,8 @@ def _takes_value(action: _argparse.Action) -> bool:
 
 def _walk(
     parser: _argparse.ArgumentParser,
-    prog: "str | None" = None,
-    path: "tuple[str, ...]" = (),
+    prog: str | None = None,
+    path: tuple[str, ...] = (),
 ) -> CompletionSpec:
     """Recursively turn a built ArgumentParser into a CompletionSpec.
 
@@ -153,8 +155,8 @@ def _walk(
         # leaves an alias of a hidden subcommand completable; key suppression
         # off the underlying parser object instead, since every alias of the
         # same subcommand maps to the same parser.
-        help_by_name: "dict[object, str]" = {}
-        suppressed_dests: "set[object]" = set()
+        help_by_name: dict[object, str] = {}
+        suppressed_dests: set[object] = set()
         choices = subparsers_action.choices or {}
         for a in getattr(subparsers_action, "_choices_actions", []):
             dest = getattr(a, "dest", None)
@@ -176,7 +178,7 @@ def _walk(
     return spec
 
 
-def spec(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> CompletionSpec:
+def spec(parser: _argparse.ArgumentParser, prog: str | None = None) -> CompletionSpec:
     """Build the shell-agnostic :class:`CompletionSpec` tree for ``parser``.
 
     Public wrapper around the internal parser-tree walk: the
@@ -188,7 +190,7 @@ def spec(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> Complet
     return _walk(parser, prog=prog)
 
 
-def _all_specs(root: CompletionSpec) -> "list[CompletionSpec]":
+def _all_specs(root: CompletionSpec) -> list[CompletionSpec]:
     """Flatten a spec tree into a list (root first, depth-first)."""
     result = [root]
     for sub in root.subcommands.values():
@@ -203,7 +205,7 @@ def _cmd_key(spec: CompletionSpec) -> str:
     return " ".join(spec.path)
 
 
-def _value_flag_names(spec: CompletionSpec) -> "list[str]":
+def _value_flag_names(spec: CompletionSpec) -> list[str]:
     """This spec's OWN value-taking option flags, sorted: used
     per-command-path, never merged across levels, so a flag that is a
     boolean at one level and value-taking at another is resolved correctly
@@ -211,7 +213,7 @@ def _value_flag_names(spec: CompletionSpec) -> "list[str]":
     return sorted({f for opt in spec.options for f in opt.flags if opt.takes_value})
 
 
-def _flag_names(spec: CompletionSpec) -> "list[str]":
+def _flag_names(spec: CompletionSpec) -> list[str]:
     """This spec's own flags (any arity), sorted."""
     return sorted({f for opt in spec.options for f in opt.flags})
 

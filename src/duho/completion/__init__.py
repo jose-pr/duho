@@ -25,6 +25,8 @@ that evaluation FIRST (`_zsh_word` / the fish-word escaper below), then wraps
 the result for the static parse (`_sq` / `_fsq`).
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import dataclasses as _dc
 import hashlib as _hashlib

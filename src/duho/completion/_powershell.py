@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 
 from ._quoting import _psq, _validate_prog
@@ -8,7 +10,7 @@ from ._spec import _all_specs, _cmd_key, _flag_names, _value_flag_names, _walk
 # --------------------------------------------------------------------------
 
 
-def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
+def powershell(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
     """Emit a PowerShell completion script for `parser`.
 
     Registers a ``Register-ArgumentCompleter -Native`` script block that
@@ -47,7 +49,7 @@ def powershell(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> s
     root_prog = _validate_prog(root.prog)
     specs = _all_specs(root)
 
-    lines: "list[str]" = []
+    lines: list[str] = []
     lines.append(f"# PowerShell completion for {root_prog}")
     lines.append(
         f"Register-ArgumentCompleter -Native -CommandName {_psq(root_prog)} "

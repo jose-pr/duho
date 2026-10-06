@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import hashlib as _hashlib
 
@@ -26,7 +28,7 @@ def _fish_func_name(root_prog: str) -> str:
     return f"__duho_complete_{safe}_{digest}_path"
 
 
-def _fish_path_resolver(path_func: str, specs: "list[CompletionSpec]") -> "list[str]":
+def _fish_path_resolver(path_func: str, specs: list[CompletionSpec]) -> list[str]:
     """Emit a fish function that resolves the (sub)command path typed so far.
 
     `__fish_seen_subcommand_from <name>` only asks "does this word appear
@@ -40,7 +42,7 @@ def _fish_path_resolver(path_func: str, specs: "list[CompletionSpec]") -> "list[
     to the cursor, so (unlike bash/PowerShell) no extra quote-stripping is
     needed to recognise a subcommand name the user had to quote.
     """
-    lines: "list[str]" = []
+    lines: list[str] = []
     lines.append(f"function {path_func}")
     lines.append("    set -l tokens (commandline -opc)")
     lines.append("    set -l cmd_path ''")
@@ -101,7 +103,7 @@ def _fish_condition(spec: CompletionSpec, path_func: str) -> str:
     return f"test ({path_func}) = {_fsq(_cmd_key(spec))}"
 
 
-def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
+def fish(parser: _argparse.ArgumentParser, prog: str | None = None) -> str:
     """Emit a fish completion script (`complete -c <prog> ...` lines) for `parser`.
 
     Each rule is gated by `_fish_condition`, which resolves the exact
@@ -124,7 +126,7 @@ def fish(parser: _argparse.ArgumentParser, prog: "str | None" = None) -> str:
     specs = _all_specs(root)
     path_func = _fish_func_name(root_prog)
 
-    lines: "list[str]" = []
+    lines: list[str] = []
     lines.append(f"# fish completion for {root_prog}")
     lines.append(f"complete -c {prog_q} -f")
     lines.append("")

@@ -106,15 +106,17 @@ def _color_enabled(stream=None) -> bool:
     (``_compat.BOOL_TRUE`` -- "1", "true", "yes", "on", "y", "t",
     case-insensitive) -- the convention the test-suite relies on. An
     unrecognized value (``FORCE_COLOR=0``/``false``/``no``, or plain
-    garbage) is treated as UNSET, never as an explicit "off": otherwise
-    color follows ``stream.isatty()`` (default ``sys.stdout``). Mirrors the
-    discipline duho's logging color machinery uses.
+    garbage) is treated as UNSET, never as an explicit "off". Otherwise
+    ``TERM=dumb`` means OFF, and color follows ``stream.isatty()`` (default
+    ``sys.stdout``). Mirrors the discipline duho's logging color machinery uses.
     """
     if _os.environ.get("NO_COLOR") is not None:
         return False
     force = _os.environ.get("FORCE_COLOR")
     if force is not None and force.strip().lower() in _BOOL_TRUE:
         return True
+    if _os.environ.get("TERM") == "dumb":
+        return False
     stream = stream if stream is not None else _sys.stdout
     try:
         return bool(stream.isatty())

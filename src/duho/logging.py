@@ -16,14 +16,9 @@ if _ty.TYPE_CHECKING:
 
     TRACE: int
 
-#: Cached colorama module (or ``None`` when unavailable / not yet resolved).
-#: ``import colorama`` costs ~3-5 ms and is only ever needed to translate a
-#: NAMED color spec ("red", "red+white") into an ANSI sequence -- the built-in
-#: level colors are hard-coded ANSI (see ``DefaultFormatter.COLORS``), so a
-#: plain ``import duho`` must not pay it. Resolved lazily on first use in
-#: ``_getcolor`` and memoized here. ``False`` means "not yet probed";
-#: once probed, this holds the real module, or ``None`` when colorama is not
-#: installed.
+#: Cached colorama: ``False`` until probed, then the module or ``None`` if not
+#: installed. Lazy (``_getcolor``), since ``import colorama`` costs ~3-5 ms and
+#: only a named color spec needs it.
 _color: _ty.Optional[_ty.Union[object, bool]] = False
 
 
@@ -46,14 +41,9 @@ def _resolve_colorama():
 
 
 def __getattr__(name: str):
-    # Only forward PUBLIC stdlib names: duho.logging is documented as
-    # "wraps stdlib logging", not as a transparent re-export of it. Forwarding
-    # dunders too made `duho.logging.__path__` resolve to STDLIB logging's own
-    # package path, so the import system treated `duho.logging` as a package
-    # and `import duho.logging.handlers` silently loaded a second copy of
-    # stdlib `logging/handlers.py` under a new name (distinct classes,
-    # separate module-level state) instead of raising the AttributeError a
-    # module with no `handlers` submodule should give.
+    # Forward only public stdlib names: forwarding dunders made ``__path__``
+    # resolve to stdlib logging's, so ``import duho.logging.handlers`` silently
+    # loaded a second copy of ``logging/handlers.py`` instead of raising.
     if name.startswith("_"):
         raise AttributeError(name)
     return getattr(_logging, name)
@@ -65,14 +55,9 @@ def _asicode(*codes):
 
 _COLOR_NAME_RE = _re.compile(r"^[A-Za-z_]+(\+[A-Za-z_]+)?$")
 
-#: Upper-cased names :func:`add_logging_level` has itself installed on
-#: ``logging`` -- a repeat call for one of these is a harmless idempotent
-#: no-op (unless ``force=True``), while a name colliding with something
-#: ELSE (a plain stdlib attribute like ``logging.BASIC_FORMAT``, never
-#: registered through here) still raises. An int constant (what
-#: ``setattr(logging, NAME, level)`` installs) carries no marker of its own
-#: the way the lower-cased method attributes do (``_duho_level_``), so
-#: ownership is tracked here instead.
+#: Level names :func:`add_logging_level` installed on ``logging``: a repeat call
+#: is a no-op (unless ``force=True``), but a name owned by anything else raises.
+#: An int constant carries no ``_duho_level_`` marker, so ownership is tracked here.
 _installed_level_names: set[str] = set()
 
 
@@ -87,11 +72,8 @@ def _getcolor(color: str):
     bare name (already an ANSI escape like ``"\\033[31m"``) is passed through
     unchanged.
     """
-    # A named color spec is letters/underscores plus an optional single "+"
-    # separator -- underscores so colorama's "_EX" bright variants
-    # (LIGHTRED_EX, ...) are recognized as names too, instead of falling
-    # through to the "already an ANSI code" passthrough and being rendered as
-    # literal text in front of every log line.
+    # A named spec is letters/underscores with one optional "+": underscores so
+    # colorama's "_EX" variants count as names, not ANSI passthrough text.
     if _COLOR_NAME_RE.match(color):
         colorama = _resolve_colorama()
         if not colorama:
@@ -172,14 +154,9 @@ def add_logging_level(
     log_logger._duho_level_ = level  # type: ignore[attr-defined]
 
     def log_root(msg, *args, **kwargs):
-        # Same stacklevel reasoning as log_logger, for the module-level
-        # `logging.<name>(...)` form. Calls the ROOT LOGGER'S `.log()`
-        # directly rather than the module-level `logging.log(...)` wrapper:
-        # that wrapper is an extra stdlib frame on top of `Logger.log`, which
-        # made `stacklevel=2` under-count by one and misattribute the record
-        # to this wrapper itself on Python 3.9 (3.11+'s smarter frame-skipping
-        # happened to paper over the extra hop, but not reliably enough to
-        # depend on).
+        # Call the root logger's `.log()` directly: the module-level
+        # `logging.log()` adds a frame, so `stacklevel=2` would misattribute the
+        # record to this wrapper on 3.9.
         kwargs.setdefault("stacklevel", 2)
         _logging.root.log(level, msg, *args, **kwargs)
 
@@ -216,11 +193,9 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
         *,
         color: bool = True,
     ) -> None:
-        # Direct construction stays always-colored by default (existing
-        # behavior, and what tests/test_logging_color.py pins); the one
-        # place duho itself decides otherwise is `init_stderr_logging`, which
-        # passes `color=False` when the target stream isn't a TTY or
-        # NO_COLOR/FORCE_COLOR says so.
+        # Direct construction stays always colored (tests/test_logging_color.py
+        # pins it); `init_stderr_logging` passes `color=False` for a non-TTY or
+        # NO_COLOR/FORCE_COLOR.
         self._duho_color_enabled = color
         super().__init__(fmt, datefmt, style, validate)
 
@@ -252,11 +227,8 @@ def initverbose() -> None:
         if name not in aliases:
             aliases.append(name)
 
-    # Prefer the CANONICAL name (what `logging.getLevelName` returns, e.g.
-    # "WARNING") as each level's first/displayed alias. Iteration order of
-    # `get_level_names_mapping()` lists stdlib's deprecated "WARN" before
-    # "WARNING", so without this the verbosity help text advertised the
-    # deprecated alias.
+    # Show the canonical name (`logging.getLevelName`) first: the mapping lists
+    # the deprecated "WARN" before "WARNING".
     for loglevel, aliases in levels.items():
         canonical = _logging.getLevelName(loglevel)
         if canonical in aliases and aliases[0] != canonical:
@@ -356,10 +328,8 @@ def init_stderr_logging(
     initverbose()
     logger = _logging.getLogger(name)
     if not any(getattr(h, _STDERR_HANDLER_TAG, False) for h in logger.handlers):
-        # Imported lazily (not at module top): `formatters` imports FROM this
-        # module (`_asicode`), so a module-level import here would be a cycle.
-        # By the time this function actually runs, `duho.logging` has already
-        # finished initializing, so the delayed import is safe.
+        # Lazy: `formatters` imports from this module (`_asicode`), so a
+        # top-level import would be a cycle.
         from . import formatters as _formatters
 
         color = _formatters._color_enabled(_sys.stderr)
@@ -382,14 +352,9 @@ def init_stderr_logging(
 #: ``str()`` instead logs the full traceback (``exc_info=True``).
 TRACEBACK_ENV = "DUHO_TRACEBACK"
 
-#: Values of :data:`TRACEBACK_ENV` that mean "on" (case-insensitive, after
-#: stripping) -- the shared ``duho.text.BOOL_TRUE`` table, so this and every
-#: other declared bool field agree on what "on" means. An empty/unset
-#: variable, an explicit "off" spelling, AND an unrecognized value are all
-#: off: unlike a declared bool field (which rejects an unrecognized
-#: string), an env var this framework itself only ever reads as a same-
-#: process safety switch defaults unknown input to the SAFER "off" reading
-#: rather than raising.
+#: Values of :data:`TRACEBACK_ENV` meaning "on" (the shared ``duho.text.BOOL_TRUE``
+#: table). Unset, "off" and unrecognized values are all off: a safety switch
+#: defaults unknown input to the safer reading instead of raising.
 _TRUTHY = _BOOL_TRUE
 
 

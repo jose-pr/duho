@@ -654,6 +654,10 @@ class Args(_argparse.Namespace):
         configuration ``_parser_`` doesn't itself expose (call
         ``super()._initparser_(parser, ...)`` first to keep this behavior).
 
+        An override must accept ``**kwargs`` and forward them to ``super()``:
+        ``_parser_`` passes build context by keyword and may pass more than
+        the signature below lists. ``explicit_prog`` is accepted and unused.
+
         ``external_config`` -- threaded down from :meth:`_parser_` -- tells
         :func:`_add_fields` that a config table WILL reach this class even
         though `cls` itself declares no `_config_` (an explicit `config=`

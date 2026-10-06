@@ -1117,7 +1117,9 @@ class name** when it declares none (`BuildPyz` → `build-pyz`), for class
 commands; and the file **stem with `_`→`-`** for module commands
 (`deploy_all.py` → `deploy-all`; override with a module-level `_parsername_`).
 You can
-also call `duho.discover_commands(source)` directly to get the `list[Command]`.
+also call `duho.discover_commands(source)` directly to get the `list[Command]`;
+read each one's name with `duho.parsers.command_name(command)` (a discovered class
+command has `_parsername_` only if it declares one).
 
 Discovery is **resilient**: a command that can't be imported (a missing optional
 dependency → `ImportError`) or isn't actually a command (`NotImplementedError`) is

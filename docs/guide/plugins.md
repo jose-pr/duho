@@ -73,7 +73,8 @@ override — it.
 ## Getting the list directly
 
 Call `duho.discover_entry_points(group)` to get the resolved `list[Command]`
-without building an app:
+without building an app (read a command's name with `duho.parsers.command_name`; a
+class command has `_parsername_` only if it declares one):
 
 ```python
 commands = duho.discover_entry_points("myapp.commands")

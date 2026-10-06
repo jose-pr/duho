@@ -348,7 +348,11 @@ empty when absent).
 ## Discovery
 
 - **`Command`** — `runtime_checkable` protocol: `_parsername_` + a runnable body. Two
-  kinds: a class command (strict `Cmd` subclass) and a `ModuleCommand`.
+  kinds: a class command (strict `Cmd` subclass) and a `ModuleCommand`. A discovered
+  class command is the class itself and carries `_parsername_` only when it declares
+  one, so `isinstance(cls, Command)` is `False` for one that does not and reading
+  `cmd._parsername_` on it raises `AttributeError`. Read a resolved command's name with
+  `duho.parsers.command_name(command)` (`-> str`), which works for both kinds.
   **`is_class_command(obj) -> bool`** / **`is_module_command(obj) -> bool`** — the
   corresponding type checks (a strict `Cmd` subclass; a `ModuleCommand` instance).
 - **`ModuleCommand`** — adapts a command `.py` module (plain wrapper, not a `ModuleType`

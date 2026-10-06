@@ -291,6 +291,11 @@ All of these are optional and default to the behaviour you already have.
   percent signs as written instead of doubled.
 - `python -m duho.scaffold` reports an invalid `app`, `libdir` or `python`
   value as a one-line usage error (exit 2) instead of a traceback.
+- Every public function and method is fully annotated, and its annotations
+  resolve with `typing.get_type_hints` on Python 3.9 as on 3.14, so tools that
+  read signatures at run time work. `duho.run_command` and the `dispatch=`
+  callback are typed as returning `Any`, like `duho.main` and `duho.app`: a
+  command's return value that is not an `int` passes through.
 - The wheel and sdist no longer ship `*.local.*` or `CLAUDE*` files when built
   from a checkout whose path makes hatchling ignore `.gitignore`.
 

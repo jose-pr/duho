@@ -375,9 +375,10 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     for `cls`'s own declared fields.
 
     Reads the raw config-table slice / instance overrides / env mapping
-    `_stash_layer_state` already attached to `parser` (empty/`None` when this
-    parser was built outside `main`/`parse`/`parse_globals`/`app`, in which
-    case this is a no-op, same as before). Precedence recorded here: instance
+    `_stash_layer_state` already attached to `parser`. A parser built outside
+    `main`/`parse`/`parse_globals`/`app` has none attached: it layers `os.environ`
+    and the class's own `_config_` (never an instance), as those entry points
+    do. Precedence recorded here: instance
     > env > config; CLI is enforced later, for free, by whichever value
     actually ends up on the parsed namespace (see `_finalize_layers`).
 
@@ -398,7 +399,11 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     """
     _restore_prior_layer_state(parser)
 
-    config_table = getattr(parser, "_duho_raw_config_table_", None) or {}
+    config_table = getattr(parser, "_duho_raw_config_table_", None)
+    if config_table is None:
+        # Not stashed: a parser built outside main/parse/parse_globals/app
+        # resolves the class's own `_config_`, as every entry point does.
+        config_table = _resolve_config_dict(cls, None)
     instance_overrides = getattr(parser, "_duho_instance_overrides_", None)
     env = getattr(parser, "_duho_env_", None)
 

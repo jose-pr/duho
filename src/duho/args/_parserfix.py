@@ -107,6 +107,25 @@ def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
     parser.parse_known_args = parse_known_args  # type: ignore
 
 
+def _short_cluster(known, token: str):
+    """Return ``(action, self_contained)`` for a recognized short-option cluster, else None.
+
+    Every character before the last must be a registered zero-value option; a
+    character whose option takes exactly one value takes the rest of the token
+    (``self_contained``) or, as the last character, the next argv token.
+    """
+    for position in range(1, len(token)):
+        member = known.get("-" + token[position])
+        if member is None:
+            return None
+        if member.nargs == 0:
+            continue
+        if member.nargs is not None:
+            return None
+        return member, position < len(token) - 1
+    return known["-" + token[-1]], True
+
+
 def _reorder_argv_for_variadic_positional(
     parser: "_argparse.ArgumentParser", argv: "list[str]"
 ) -> "list[str]":
@@ -199,16 +218,11 @@ def _reorder_argv_for_variadic_positional(
                 (action,) = candidates.values()
                 self_contained = bool(eq)
         if action is None and len(token) > 2 and token[0] == "-" and token[1] != "-":
-            # An attached short-option value (`-fVALUE`, `-j3`): recognized
-            # only when the two-character prefix maps to a registered short
-            # option that itself takes exactly one value -- a zero-value
-            # action (`-v`, `-h`) cannot absorb a trailing value this way, and
-            # a variadic-nargs one is ambiguous just like the separate-token
-            # case below.
-            short_action = known.get(token[:2])
-            if short_action is not None and short_action.nargs is None:
-                action = short_action
-                self_contained = True
+            # A cluster of short options (`-vv`, `-fVALUE`, `-vfVALUE`) is
+            # hoisted whole when `_short_cluster` recognizes every character.
+            cluster = _short_cluster(known, token)
+            if cluster is not None:
+                action, self_contained = cluster
 
         if self_contained:
             flags.append(token)

@@ -59,6 +59,7 @@ from .args import (
     _escape_help as _escape_help,
     _maybe_await as _maybe_await,
     _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger,
+    _keep_attached_double_dash as _keep_attached_double_dash,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
     _resolve_config_dict as _resolve_config_dict,
     _setup_instance_logging as _setup_instance_logging,
@@ -887,6 +888,7 @@ def _register_module_command(
     # hook) is in place, so `_has_variadic_positional` sees the parser's
     # final shape.
     _patch_parser_for_reorder(parser)
+    _keep_attached_double_dash(parser)
 
 
 def _build_parser(

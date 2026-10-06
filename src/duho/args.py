@@ -1858,6 +1858,40 @@ def _add_fields(
     return exclusive_groups
 
 
+def _keep_attached_double_dash(parser: "_argparse.ArgumentParser") -> None:
+    """Make an option's attached ``--`` value (``--k=--``, ``-k--``) reach the field.
+
+    Some argparse versions strip a bare ``--`` from every action's values, so an
+    attached one is lost on those versions; this returns what newer argparse
+    returns. A positional ``--`` is never touched. Idempotent per parser.
+    """
+    if getattr(parser, "_duho_keeps_double_dash_", False):
+        return
+    real_get_values = parser._get_values  # type: ignore[attr-defined]
+    passthrough_nargs = (
+        _argparse.PARSER,
+        _argparse.REMAINDER,
+        _argparse.SUPPRESS,
+    )
+
+    def _get_values(action, arg_strings):
+        if (
+            len(arg_strings) == 1
+            and arg_strings[0] == "--"
+            and action.option_strings
+            and action.nargs not in passthrough_nargs
+        ):
+            value = parser._get_value(action, "--")  # type: ignore[attr-defined]
+            parser._check_value(action, value)  # type: ignore[attr-defined]
+            if action.nargs in (None, _argparse.OPTIONAL):
+                return value
+            return [value]
+        return real_get_values(action, arg_strings)
+
+    parser._get_values = _get_values  # type: ignore[attr-defined]
+    parser._duho_keeps_double_dash_ = True  # type: ignore[attr-defined]
+
+
 def _patch_parser_for_reorder(parser: "_argparse.ArgumentParser") -> None:
     """Install JUST the flag-between-positionals reorder on a plain parser.
 
@@ -2611,6 +2645,7 @@ class Args(_argparse.Namespace):
             return instance, unk
 
         parser.parse_known_args = parse_known_args  # type: ignore
+        _keep_attached_double_dash(parser)
 
         def _unsupported_intermixed_args(*_a, **_kw):
             # argparse's own `parse_intermixed_args` (both the public

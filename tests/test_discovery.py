@@ -1292,7 +1292,8 @@ def test_repeated_discovery_of_unchanged_file_reuses_the_module(tmp_path):
     src = (
         '"""Records an import-time side effect."""\n'
         "from pathlib import Path\n\n"
-        f'Path(r"{marker}").open("a").write("x")\n\n\n'
+        f'with Path(r"{marker}").open("a", encoding="utf-8") as fh:\n'
+        '    fh.write("x")\n\n\n'
         'def main(args=None):\n    return "ran"\n'
     )
     _write(tmp_path, "once.py", src)

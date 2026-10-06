@@ -19,6 +19,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from conftest import subprocess_env
 
 _ROOT = Path(__file__).parents[1]
 _PYPROJECT = _ROOT / "pyproject.toml"
@@ -65,8 +66,8 @@ def test_pyproject_sdist_excludes_local_files():
 
 
 # hatchling drops every .gitignore pattern when the checkout's own path matches
-# one (a parent directory named `build`, `dist`, `site`, `.claude` or `.agents`),
-# so the private files must be excluded by the build targets themselves.
+# one (any parent directory named like an ignored one, such as `build`), so the
+# private files must be excluded by the build targets themselves.
 @pytest.mark.parametrize("parent", ["plain", "build"])
 def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path, parent):
     """Plant non-.md `.local` files and a CLAUDE.md in a real copy of the
@@ -282,7 +283,7 @@ def _run_tag_check(tmp_path, tag, filenames):
     return subprocess.run(
         [sys.executable, "-c", script],
         cwd=tmp_path,
-        env={**os.environ, "TAG": tag},
+        env=subprocess_env(extra={"TAG": tag}),
         capture_output=True,
         text=True,
     )
@@ -373,7 +374,7 @@ def _run_skip_check(tmp_path, skipped, limit):
     return subprocess.run(
         [sys.executable, "-c", script],
         cwd=tmp_path,
-        env={**os.environ, "MAX_SKIPS": str(limit)},
+        env=subprocess_env(extra={"MAX_SKIPS": str(limit)}),
         capture_output=True,
         text=True,
     )

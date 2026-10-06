@@ -411,7 +411,26 @@ def log_exception(
         logger.log(level, msg, *args, stacklevel=2)
 
 
-add_logging_level("TRACE", _logging.DEBUG - 5, color=_asicode(36))
+def _register_trace_level() -> None:
+    """Install ``TRACE`` at import, tolerating one the process already defines.
+
+    An existing integer ``logging.TRACE`` is reused (named and coloured at its
+    own number); a foreign ``trace`` attribute is left in place. Never raises.
+    """
+    try:
+        add_logging_level("TRACE", _logging.DEBUG - 5, color=_asicode(36))
+        return
+    except ValueError:
+        pass
+    level = getattr(_logging, "TRACE", None)
+    if isinstance(level, int) and not isinstance(level, bool):
+        if _logging.getLevelName(level) == f"Level {level}":
+            _logging.addLevelName(level, "TRACE")
+        DefaultFormatter.COLORS.setdefault(level, _asicode(36))
+    initverbose()
+
+
+_register_trace_level()
 initverbose()
 
 __all__ = [

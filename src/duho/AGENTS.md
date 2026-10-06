@@ -33,10 +33,11 @@ regardless of which internal module implements it:
 
 - **`Args`** — base declarative data class. Annotated non-`_` class attrs become CLI
   fields; an adjacent string literal is help text, an adjacent tuple literal is the flag
-  set (`("--env","-e")`; omit → positional named after the field). A field with no
-  declared flag tuple at all defaults to one long flag, `"--" + kebabcase(field_name)`
-  (`duho.text.kebabcase` — see "Text / names" below): `dry_run` → `--dry-run` (unchanged
-  from before), `testMe` → `--test-me`, `HTTPPort` → `--http-port`. This is the DEFAULT
+  set (`("--env","-e")`; a single dash-less entry such as `("src",)` makes a positional
+  named after the field). A field with no declared flag tuple at all is an option with
+  one long flag, `"--" + kebabcase(field_name)` (`duho.text.kebabcase` — see "Text /
+  names" below), required when it has no default: `dry_run` → `--dry-run`,
+  `testMe` → `--test-me`, `HTTPPort` → `--http-port`. This is the DEFAULT
   flag only — an explicitly spelled flag, the field's own attribute/dest name, and any
   config/env key are never touched. Inside a DECLARED flag tuple, an entry that is
   exactly `"--"` expands to that same default long flag: `("--",)` → `("--dry-run",)`,

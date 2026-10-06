@@ -114,6 +114,7 @@ from ._cmd import (
     Cmd,
     Cli,
     command,
+    subcommand,
 )
 from ._mcptrigger import (
     _MCP_NAME_ALLOWED,
@@ -159,6 +160,7 @@ __all__ = [
     "parse_globals",
     "print_agent_help",
     "print_completion",
+    "subcommand",
     "UpdateAction",
     "value_sources",
 ]

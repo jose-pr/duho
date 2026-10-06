@@ -60,6 +60,34 @@ class Cmd(Args):
             f"{type(self).__name__} is a Cmd but does not implement '__call__'"
         )
 
+    @classmethod
+    def _register_subcmd_(cls, child: "_C") -> "_C":
+        """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
+
+        Appends ``child`` to a per-class list, materialized copy-on-write on
+        first use: if ``_subcommands_`` is not set directly in ``vars(cls)``
+        (i.e. it is unset or inherited from a parent ``Cli``), a fresh list
+        is created -- never mutating a parent class's inherited list, so two
+        ``Cli`` subclasses never cross-contaminate. An inherited
+        ``_subcommands_`` seeds the fresh list (its children are kept, then
+        ``child`` is added). Idempotent: if ``child`` is already present it
+        is a no-op, so a child registered both statically (in a declared
+        ``_subcommands_``) and via this API appears exactly once. Returns
+        ``child`` so it can be used as a decorator.
+        """
+        if "_subcommands_" in vars(cls):
+            current = cls._subcommands_
+            existing = list(current) if current else []
+        else:
+            # Copy-on-write: seed from an inherited/unset value WITHOUT
+            # mutating the parent's list.
+            inherited = getattr(cls, "_subcommands_", None)
+            existing = list(inherited) if inherited else []
+        if child not in existing:
+            existing.append(child)
+        cls._subcommands_ = existing
+        return child
+
 
 class Cli(Cmd):
     """Application-root layer: an opt-in mixin over ``Cmd``.
@@ -237,34 +265,6 @@ class Cli(Cmd):
     _mcp_command_: "_ty.Union[str, bool]" = False
 
     @classmethod
-    def _register_subcmd_(cls, child: "_C") -> "_C":
-        """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
-
-        Appends ``child`` to a per-class list, materialized copy-on-write on
-        first use: if ``_subcommands_`` is not set directly in ``vars(cls)``
-        (i.e. it is unset or inherited from a parent ``Cli``), a fresh list
-        is created -- never mutating a parent class's inherited list, so two
-        ``Cli`` subclasses never cross-contaminate. An inherited
-        ``_subcommands_`` seeds the fresh list (its children are kept, then
-        ``child`` is added). Idempotent: if ``child`` is already present it
-        is a no-op, so a child registered both statically (in a declared
-        ``_subcommands_``) and via this API appears exactly once. Returns
-        ``child`` so it can be used as a decorator.
-        """
-        if "_subcommands_" in vars(cls):
-            current = cls._subcommands_
-            existing = list(current) if current else []
-        else:
-            # Copy-on-write: seed from an inherited/unset value WITHOUT
-            # mutating the parent's list.
-            inherited = getattr(cls, "_subcommands_", None)
-            existing = list(inherited) if inherited else []
-        if child not in existing:
-            existing.append(child)
-        cls._subcommands_ = existing
-        return child
-
-    @classmethod
     def subcommand(cls, child: "_C") -> "_C":
         """Decorator form of :meth:`_register_subcmd_`.
 
@@ -278,6 +278,25 @@ class Cli(Cmd):
         identity. Equivalent to calling ``MyApp._register_subcmd_(Deploy)``.
         """
         return cls._register_subcmd_(child)
+
+
+def subcommand(parent: "type[Cmd]") -> "_ty.Callable[[_C], _C]":
+    """Decorator factory: register the decorated class as a subcommand of ``parent``.
+
+    ``parent`` is any ``Cmd`` (or ``Cli``) class acting as a group::
+
+        @duho.subcommand(Tools)
+        class Build(duho.Cmd):
+            ...
+
+    The decorated class is returned unchanged. Equivalent to
+    ``parent._register_subcmd_(Build)``; registering twice is a no-op.
+    """
+
+    def register(child: "_C") -> "_C":
+        return parent._register_subcmd_(child)
+
+    return register
 
 
 def command(

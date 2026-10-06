@@ -29,6 +29,7 @@ from .args import (
     parse_globals,
     print_agent_help,
     print_completion,
+    subcommand,
     UpdateAction,
     value_sources,
 )
@@ -144,6 +145,7 @@ __all__ = [
     "register_command_provider",
     "run_command",
     "snakecase",
+    "subcommand",
     "utf8_stdio",
     "UpdateAction",
     "value_sources",

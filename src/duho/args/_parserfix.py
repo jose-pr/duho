@@ -146,12 +146,23 @@ def _reorder_argv_for_variadic_positional(
     )
     allow_abbrev = getattr(parser, "allow_abbrev", True)
 
+    subcommand_names = {
+        name
+        for action in parser._actions  # type: ignore[attr-defined]
+        if isinstance(action, _argparse._SubParsersAction)  # type: ignore[attr-defined]
+        for name in action.choices
+    }
+
     flags: "list[str]" = []
     positionals: "list[str]" = []
     i = 0
     n = len(argv)
     while i < n:
         token = argv[i]
+        if token in subcommand_names:
+            # Everything after a subcommand name belongs to the subparser.
+            positionals.extend(argv[i:])
+            break
         if token == "--":
             # A literal `--` separator is never part of THIS parser's own
             # flag/positional grammar (duho's `_passthrough_` handling

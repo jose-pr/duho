@@ -1,4 +1,5 @@
 import re as _re
+
 from .. import _compat as _compat
 
 #: A well-formed ``%(key)conversion`` mapping placeholder, or an already-

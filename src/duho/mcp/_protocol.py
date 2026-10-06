@@ -1,7 +1,8 @@
 import logging as _logging
 import typing as _ty
+
 from ..args import Cmd as _Cmd
-from ..args import _resolve_version as _resolve_version
+from ..args._naming import _resolve_version as _resolve_version
 from ..logging import log_exception as _log_exception
 
 from ._call import call_tool

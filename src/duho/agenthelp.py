@@ -687,7 +687,7 @@ def describe_parser(
         version = None
         version_cls = root_cls if root_cls is not None else cls
         if version_cls is not None:
-            from .args import _resolve_version
+            from .args._naming import _resolve_version
 
             try:
                 version = _resolve_version(version_cls)

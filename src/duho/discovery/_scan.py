@@ -4,7 +4,9 @@ import os as _os
 import sys as _sys
 import typing as _ty
 from pathlib import Path as _Path
-from ..args import Args as _Args, _command_name as _command_name
+
+from ..args import Args as _Args
+from ..args._naming import _command_name as _command_name
 from ..env import _BARE_DRIVE_RE as _BARE_DRIVE_RE
 from ..logging import log_exception as _log_exception
 

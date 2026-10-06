@@ -66,7 +66,7 @@ import logging as _logging
 import sys as _sys
 import typing as _ty
 
-from .args import _maybe_await as _maybe_await
+from .args._entry import _maybe_await as _maybe_await
 from .discovery import Command as _Command
 from .logging import log_exception as _log_exception
 from .runtime import run_command as _run_command

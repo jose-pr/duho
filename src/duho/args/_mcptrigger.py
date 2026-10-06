@@ -1,6 +1,7 @@
 import os as _os
 import sys as _sys
 import typing as _ty
+
 from .. import _compat as _compat
 
 from ._naming import _app_name

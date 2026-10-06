@@ -1,6 +1,7 @@
 import logging as _logging
 import sys as _sys
 import typing as _ty
+
 from ..text import kebabcase as _kebabcase
 
 from ._meta import AUTO

@@ -1,6 +1,7 @@
 import pkgutil as _pkgutil
 import sys as _sys
 import typing as _ty
+
 from .. import _compat as _compat
 from ..args import Cmd as _Cmd
 

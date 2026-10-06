@@ -1,13 +1,14 @@
 import inspect as _inspect
 import logging as _logging
 import typing as _ty
-from ..args import _maybe_await as _maybe_await
+
+from ..args._entry import _maybe_await as _maybe_await
 from ..discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
-    _command_name as _command_name,
     is_module_command as _is_module_command,
 )
+from ..args._naming import _command_name as _command_name
 
 _LOGGER = _logging.getLogger(__package__)
 

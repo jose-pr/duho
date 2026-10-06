@@ -1,14 +1,18 @@
 import argparse as _argparse
 import inspect as _inspect
 import typing as _ty
-from ..args import (
-    _add_fields as _add_fields,
+
+from ..args._argsclass import _add_fields as _add_fields
+from ..args._helptext import (
     _escape_description as _escape_description,
     _escape_help as _escape_help,
+)
+from ..args._parserfix import (
     _keep_attached_double_dash as _keep_attached_double_dash,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
 )
-from ..discovery import ModuleCommand as _ModuleCommand, _noop as _discovery_noop
+from ..discovery import ModuleCommand as _ModuleCommand
+from ..discovery._command import _noop as _discovery_noop
 
 
 def _register_class_command(

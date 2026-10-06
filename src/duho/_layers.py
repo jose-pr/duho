@@ -657,7 +657,7 @@ def _stash_layer_state(
     subparsers_action = _parsers.find_subparsers(parser)
     if subparsers_action is None:
         return
-    from .args import _command_name  # lazy: avoids a circular import (args.py
+    from .args._naming import _command_name  # lazy: avoids a circular import (args.py
 
     # re-exports this module's own public names)
     choices = subparsers_action.choices or {}
@@ -704,7 +704,7 @@ def _apply_layers(
     )
     overrides = None
     if instance is not None:
-        from .args import (  # lazy: avoids a circular import (args.py
+        from .args._argsclass import (  # lazy: avoids a circular import (args.py
             _duho_explicit_instance_fields,
         )
 
@@ -842,7 +842,7 @@ def value_sources(parsed) -> "dict[str, str]":
     ("env"/"config"/"instance"), or "default" if no layer touched it (value
     == the untouched class default).
     """
-    from .args import _duho_instance_last_parser_  # lazy: avoids a circular
+    from .args._argsclass import _duho_instance_last_parser_  # lazy: avoids a circular
 
     # import (args.py re-exports this module's own public names).
     parser = _duho_instance_last_parser_.get(id(parsed))

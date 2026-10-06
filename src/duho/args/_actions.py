@@ -1,5 +1,6 @@
 import argparse as _argparse
 import sys as _sys
+
 from .. import _compat as _compat
 
 from ._helptext import _write_machine_text

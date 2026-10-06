@@ -254,9 +254,9 @@ def command_name(command) -> str:
     import), because ``args.py`` itself imports this module for
     :func:`prerun_parse` -- a top-level import the other way would cycle.
     """
-    from . import args as _args
+    from .args._naming import _command_name
 
-    return _args._command_name(command)
+    return _command_name(command)
 
 
 def unique_subcommands(
@@ -324,11 +324,9 @@ def _is_terminal_action(action: _argparse.Action) -> bool:
     """
     if isinstance(action, (_argparse._HelpAction, _argparse._VersionAction)):
         return True
-    from . import args as _args
+    from .args._actions import _AgentHelpFlagAction, _PrintCompletionAction
 
-    return isinstance(
-        action, (_args._PrintCompletionAction, _args._AgentHelpFlagAction)
-    )
+    return isinstance(action, (_PrintCompletionAction, _AgentHelpFlagAction))
 
 
 def prerun_parse(

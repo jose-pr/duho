@@ -4,8 +4,9 @@ import logging as _logging
 import typing as _ty
 
 from . import logging as _duho_logging
-from .args import Args, NS, UpdateAction, _command_name as _command_name
-from .args import _logger_name_for
+from .args import Args, NS, UpdateAction
+from .args._naming import _command_name as _command_name
+from .args._entry import _logger_name_for
 from .logging import parse_loglevels
 
 

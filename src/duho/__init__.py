@@ -32,7 +32,7 @@ from .args import (
     UpdateAction,
     value_sources,
 )
-from .args import _A as _A
+from .args._meta import _A as _A
 from .discovery import (
     CmdBuilder,
     Command,

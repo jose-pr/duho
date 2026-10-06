@@ -3,13 +3,14 @@ import datetime as _datetime
 import enum as _enum
 import pathlib as _pathlib
 import typing as _ty
+
 from .. import _compat as _compat
 from .. import _introspect as _introspect
 from .. import agenthelp as _agenthelp
 from ..args import ArgumentBuilder as _ArgumentBuilder
 from ..args import Cmd as _Cmd
-from ..args import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
-from ..args import _escape_help as _escape_help
+from .._fieldspec import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
+from ..args._helptext import _escape_help as _escape_help
 
 _NOT_DEFINED = _introspect.NOT_DEFINED
 

@@ -1,11 +1,12 @@
 import typing as _ty
+
 from ..discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
-    _command_name as _command_name,
     is_class_command as _is_class_command,
     is_module_command as _is_module_command,
 )
+from ..args._naming import _command_name as _command_name
 
 from ._resolve import _full_names
 

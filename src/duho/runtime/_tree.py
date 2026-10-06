@@ -1,15 +1,18 @@
 import argparse as _argparse
 import logging as _logging
 import typing as _ty
+
 from .. import parsers as _parsers
-from ..args import _suppress_inherited_defaults as _suppress_inherited_defaults
+from ..args._parserfix import (
+    _suppress_inherited_defaults as _suppress_inherited_defaults,
+)
 from ..discovery import (
     Command as _Command,
     ModuleCommand as _ModuleCommand,
-    _command_name as _command_name,
     is_class_command as _is_class_command,
     is_module_command as _is_module_command,
 )
+from ..args._naming import _command_name as _command_name
 
 from ._parser import _apply_app_config_layers, _deregister_subparser
 from ._register import _register_class_command, _register_module_command

@@ -1,12 +1,13 @@
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
+
 from ..discovery import (
     Command as _Command,
-    _command_name as _command_name,
     discover_commands as _discover_commands,
     discover_entry_points as _discover_entry_points,
 )
+from ..args._naming import _command_name as _command_name
 from ..logging import log_exception as _log_exception
 
 if _ty.TYPE_CHECKING:  # pragma: no cover - type-checking only

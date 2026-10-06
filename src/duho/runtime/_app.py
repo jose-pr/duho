@@ -2,13 +2,11 @@ import argparse as _argparse
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
+
 from .. import _compat as _compat
-from ..args import (
-    Args as _Args,
-    Cmd as _Cmd,
-    _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger,
-    _setup_instance_logging as _setup_instance_logging,
-)
+from ..args import Args as _Args, Cmd as _Cmd
+from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
+from ..args._entry import _setup_instance_logging as _setup_instance_logging
 from ..discovery import Command as _Command, ModuleCommand as _ModuleCommand
 
 from ._mcpcmd import _build_mcp_command_class, _existing_command_names

@@ -1,8 +1,9 @@
 import logging as _logging
 import typing as _ty
 from types import ModuleType as _ModuleType
+
 from .. import _compat as _compat
-from ..args import _command_name as _command_name
+from ..args._naming import _command_name as _command_name
 from ..logging import log_exception as _log_exception
 
 from ._command import (

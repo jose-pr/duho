@@ -3,6 +3,7 @@ import os as _os
 import typing as _ty
 from pathlib import Path as _Path
 from types import ModuleType as _ModuleType
+
 from ..qualname import PythonName as _PythonName
 
 from ._command import (

@@ -313,6 +313,26 @@ def parse_loglevels(
 _STDERR_HANDLER_TAG = "_duho_stderr_handler_"
 
 
+class _StderrHandler(_logging.StreamHandler):
+    """A stream handler that writes to the ``sys.stderr`` current at emit time.
+
+    ``setStream`` still pins an explicit stream (the MCP server rebinds it
+    around a tool call); until then the handler follows ``sys.stderr``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pinned: object = None
+
+    @property
+    def stream(self):
+        return _sys.stderr if self._pinned is None else self._pinned
+
+    @stream.setter
+    def stream(self, value: object) -> None:
+        self._pinned = value
+
+
 def init_stderr_logging(
     name: "str | None" = None, level: "int | None" = None
 ) -> "_logging.Logger":
@@ -346,7 +366,7 @@ def init_stderr_logging(
             just_fix = getattr(colorama, "just_fix_windows_console", None)
             if callable(just_fix):
                 just_fix()
-        handler = _logging.StreamHandler(_sys.stderr)
+        handler = _StderrHandler()
         setattr(handler, _STDERR_HANDLER_TAG, True)
         handler.setFormatter(DefaultFormatter(color=color))
         logger.addHandler(handler)

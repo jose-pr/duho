@@ -658,7 +658,7 @@ manipulating a parser tree directly:
 - **`command_name(command) -> str`** — the effective subcommand name for a resolved
   `Command`.
 
-## Opt-in submodules (`duho.fanout`, `duho.runpath`, `duho.scaffold`, `duho.mcp`)
+## Opt-in submodules (`duho.fanout`, `duho.runpath`, `duho.scaffold`, `duho.mcp`, `duho.testing`)
 
 - **`duho.fanout`** — **`run_targets(func, targets, *, max_workers=None,
   aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (ThreadPool
@@ -672,6 +672,13 @@ manipulating a parser tree directly:
   records with `[<target>] ` without mutating the record's own message/args),
   **`current_target`** (the `contextvars.ContextVar` naming the target currently
   running, read by `TargetPrefixFilter`).
+- **`duho.testing`** — **`invoke(root, argv=(), *, env=None, stdin=None,
+  **app_kwargs) -> Result`** runs a command line in-process: `duho.main(root, argv)`,
+  or `duho.app(root, argv=argv, **app_kwargs)` when any `app_kwargs` is given.
+  **`Result`** is a named tuple `(status, stdout, stderr)`. `env` is applied to
+  `os.environ` for the call and restored; `stdin` is the text the command reads. A
+  `SystemExit` becomes `status` (text passed to it goes to `stderr`, status 1); any
+  other exception propagates.
 - **`duho.runpath`** — ordered `NN-name.py` step-runner over a dir with no `__init__.py`.
   **`is_runpath_dir(path)`** — whether a directory looks like a RunPath step directory.
   `import duho.runpath` auto-registers its discovery provider; **`register(base=None,

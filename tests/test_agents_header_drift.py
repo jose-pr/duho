@@ -44,6 +44,7 @@ _SUBMODULES = (
     "duho.runpath",
     "duho.scaffold",
     "duho.mcp",
+    "duho.testing",
 )
 
 

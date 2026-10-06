@@ -12,11 +12,11 @@ behavior rather than an already-fixed environment.
 """
 
 import json
-import os
 import subprocess
 import sys
 
 import pytest
+from conftest import subprocess_env
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32",
@@ -24,16 +24,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _default_env(extra_pythonpath=None):
-    """A copy of the current environment with PYTHONUTF8/PYTHONIOENCODING
-    removed -- the actual default a user gets unless they deliberately set
-    one, which is exactly the case that used to crash."""
-    env = dict(os.environ)
-    env.pop("PYTHONUTF8", None)
-    env.pop("PYTHONIOENCODING", None)
-    if extra_pythonpath:
-        env["PYTHONPATH"] = extra_pythonpath
-    return env
+def _default_env():
+    """The child environment with PYTHONUTF8/PYTHONIOENCODING removed -- the
+    actual default a user gets unless they deliberately set one, which is
+    exactly the case that used to crash."""
+    return subprocess_env(remove=("PYTHONUTF8", "PYTHONIOENCODING"))
 
 
 def _write_uniapp(tmp_path):

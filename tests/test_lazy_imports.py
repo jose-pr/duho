@@ -12,6 +12,8 @@ touches, so none of them should be paid for by every ``import duho``.
 import subprocess
 import sys
 
+from conftest import subprocess_env
+
 
 def test_plain_import_duho_does_not_load_completion_or_shlex():
     code = (
@@ -19,7 +21,9 @@ def test_plain_import_duho_does_not_load_completion_or_shlex():
         "print('duho.completion' in sys.modules)\n"
         "print('shlex' in sys.modules)\n"
     )
-    out = subprocess.check_output([sys.executable, "-c", code], text=True).splitlines()
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    ).splitlines()
     assert out == ["False", "False"]
 
 
@@ -30,19 +34,25 @@ def test_duho_completion_is_lazy_until_first_attribute_access():
         "duho.completion\n"
         "print('duho.completion' in sys.modules)\n"
     )
-    out = subprocess.check_output([sys.executable, "-c", code], text=True).splitlines()
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    ).splitlines()
     assert out == ["False", "True"]
 
 
 def test_duho_completion_importable_via_from_import():
     code = "from duho import completion; print(completion.__name__)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "duho.completion"
 
 
 def test_duho_completion_importable_via_submodule_import():
     code = "import duho.completion as c; print(c.__name__)"
-    out = subprocess.check_output([sys.executable, "-c", code], text=True)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
     assert out.strip() == "duho.completion"
 
 
@@ -59,5 +69,7 @@ def test_plain_import_duho_does_not_load_discovery_import_helpers():
         "print('importlib.util' in sys.modules)\n"
         "print('pkgutil' in sys.modules)\n"
     )
-    out = subprocess.check_output([sys.executable, "-c", code], text=True).splitlines()
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    ).splitlines()
     assert out == ["False", "False"]

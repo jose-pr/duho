@@ -10,10 +10,11 @@ Fixture CLIs that need AST-derived flags/docstrings are written as REAL ``.py``
 files (never ``python -c``), matching the project's AST/-c limitation.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
+
+from conftest import subprocess_env
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _EXAMPLES = _REPO_ROOT / "examples"
@@ -21,9 +22,7 @@ _EXAMPLES = _REPO_ROOT / "examples"
 
 def _run(args, *, cwd=None, extra_path=None):
     """Run a duho CLI as a child process with src on PYTHONPATH."""
-    src = str(_REPO_ROOT / "src")
-    pythonpath = src if extra_path is None else os.pathsep.join([extra_path, src])
-    env = {**os.environ, "PYTHONPATH": pythonpath}
+    env = subprocess_env(extra_path=extra_path)
     return subprocess.run(
         [sys.executable, *args],
         cwd=str(cwd) if cwd else None,

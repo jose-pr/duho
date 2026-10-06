@@ -1,15 +1,12 @@
 """``import duho`` never fails because the process already defines TRACE."""
 
-import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
+from conftest import subprocess_env
 
 import duho
-
-_SRC = str(Path(duho.__file__).resolve().parent.parent)
 
 
 def _run(setup: str) -> "subprocess.CompletedProcess[str]":
@@ -19,8 +16,7 @@ def _run(setup: str) -> "subprocess.CompletedProcess[str]":
         + "\nimport duho\nimport duho.logging as dl\n"
         + "print('ok', logging.getLevelName(logging.TRACE) if hasattr(logging, 'TRACE') else '-')\n"
     )
-    env = dict(os.environ, PYTHONPATH=_SRC)
-    env.pop("PYTHONIOENCODING", None)
+    env = subprocess_env(remove=("PYTHONIOENCODING",))
     return subprocess.run(
         [sys.executable, "-c", code], env=env, capture_output=True, text=True
     )

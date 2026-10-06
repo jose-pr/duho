@@ -7,12 +7,8 @@ documented patterns (``Arg[...]``, ``Meta(...)``, ``@Cli.subcommand``,
 run -- previously several of them either failed outright or silently widened
 to ``Any``/``type[Cmd]``.
 
-duho does NOT depend on mypy (``PYTHON.md``: type-checking is opt-in, never a
-project dependency), so this test never installs it -- it SKIPS whenever
-``mypy`` is not importable in the running interpreter, exactly like an
-optional-extra test guards a missing SDK. Run it explicitly by installing
-mypy into a venv (project or scratch) that already has duho installed
-editable, e.g. ``pip install mypy`` then ``pytest -k typing_surface``.
+mypy is a ``dev`` extra, not a runtime dependency, and the test skips when
+``mypy`` is not importable in the running interpreter.
 """
 
 import subprocess
@@ -21,6 +17,7 @@ import textwrap
 import typing
 
 import pytest
+from conftest import subprocess_env
 
 import duho
 
@@ -129,6 +126,8 @@ def test_documented_patterns_typecheck_clean(tmp_path):
         [sys.executable, "-m", "mypy", "--no-incremental", str(consumer)],
         capture_output=True,
         text=True,
+        # mypy ignores PYTHONPATH; MYPYPATH puts the tree under test first.
+        env=subprocess_env(extra={"MYPYPATH": subprocess_env()["PYTHONPATH"]}),
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output

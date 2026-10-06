@@ -56,18 +56,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items) -> None:
             item.add_marker(skip_toml)
 
 
-def subprocess_env(*, extra_path=None) -> "dict[str, str]":
+def subprocess_env(*, extra_path=None, remove=(), extra=None) -> "dict[str, str]":
     """Build a subprocess environment with the working tree's ``src`` on PYTHONPATH.
 
     A child ``sys.executable`` otherwise resolves whatever ``duho`` the
     interpreter finds on its own -- a stale, non-editable site-packages copy
     on a venv that isn't installed in editable mode -- not the code under
     test. ``extra_path`` (a directory holding a fixture module) is put ahead
-    of ``src`` on the child's PYTHONPATH.
+    of ``src`` on the child's PYTHONPATH; ``remove`` names variables dropped
+    from the child's environment and ``extra`` maps variables added to it.
     """
     src = str(_REPO_SRC)
     parts = [src] if extra_path is None else [str(extra_path), src]
     env = dict(os.environ)
+    for name in remove:
+        env.pop(name, None)
+    env.update(extra or {})
     env["PYTHONPATH"] = os.pathsep.join(parts)
     return env
 

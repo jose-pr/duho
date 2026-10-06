@@ -1,11 +1,9 @@
 """Breaking two dependency cycles gives one step order whatever the hash seed."""
 
-import os
 import subprocess
 import sys
-from pathlib import Path
 
-import duho
+from conftest import subprocess_env
 
 _SCRIPT = """\
 import logging
@@ -26,9 +24,7 @@ print(" ".join(s.name for s in _order_steps(steps)))
 
 
 def _order(seed):
-    env = dict(os.environ, PYTHONHASHSEED=str(seed))
-    src = str(Path(duho.__file__).resolve().parent.parent)
-    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    env = subprocess_env(extra={"PYTHONHASHSEED": str(seed)})
     done = subprocess.run(
         [sys.executable, "-c", _SCRIPT],
         env=env,

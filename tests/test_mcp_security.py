@@ -14,12 +14,12 @@ real source file (same convention as every other ``test_mcp_*.py``).
 import argparse
 import io
 import json
-import os
 import subprocess
 import sys
 import typing as ty
 
 import pytest
+from conftest import subprocess_env
 
 from duho import Arg, Cli, Cmd, LoggingArgs, NS
 from duho.args import _keep_attached_double_dash
@@ -1168,12 +1168,7 @@ def _run_subprocess_app(
     remove_env=(),
     input_bytes=None,
 ):
-    env = dict(os.environ)
-    for key in remove_env:
-        env.pop(key, None)
-    if extra_env:
-        env.update(extra_env)
-    env["PYTHONPATH"] = str(app_path.parent) + os.pathsep + env.get("PYTHONPATH", "")
+    env = subprocess_env(extra_path=app_path.parent, remove=remove_env, extra=extra_env)
     stdin_payload = (
         input_bytes
         if input_bytes is not None

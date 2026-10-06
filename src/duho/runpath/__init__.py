@@ -308,11 +308,9 @@ from ._command import (
 __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
 
 
-#: An app-supplied hook that rewrites a step's entrypoint before it is called.
-#: ``None`` (the default) means "call the step exactly as written", which is
-#: the behavior every RunPath app had before this existed. Configurable via
-#: :func:`register`'s ``step_adapter=`` -- set once per process/app, like
-#: :data:`_BASE`, since every RunPath command in one app shares it.
+#: App-supplied hook that rewrites a step's entrypoint before it is called;
+#: ``None`` calls the step as written. Set via :func:`register`'s
+#: ``step_adapter=``, once per app: every RunPath command shares it.
 _ADAPTER: _ty.Optional[_ty.Callable[..., object]] = None
 
 
@@ -321,29 +319,14 @@ _ADAPTER: _ty.Optional[_ty.Callable[..., object]] = None
 # --------------------------------------------------------------------------
 
 
-#: The base class every provider-built RunPathCmd subclass ALSO inherits from
-#: (alongside RunPathCmd itself), so an app's LoggingArgs-based root's
-#: METHODS (``_logger_``, ``_set_loglevels_``) -- not just its data fields --
-#: reach the parsed instance. ``app()``'s ``parents=`` mechanism already
-#: copies a root's data fields onto ANY subcommand's parsed namespace, but
-#: that is namespace-copying, not class inheritance -- a method exists only
-#: if the built class itself derives from it. Defaulting to ``LoggingArgs``
-#: matches this module's "the usual app shape" (see
-#: ``_runpath_logger_``): with no configuration at all, ``-v``/``_logger_``/
-#: ``_set_loglevels_`` work out of the box for every RunPath command.
-#: Configurable via :func:`register`'s ``base=`` so an app using a DIFFERENT
-#: shared root class (its own ``LoggingArgs`` subclass, or something else
-#: entirely) gets that inherited too -- set once per process/app, not
-#: per-directory (every RunPath command in one app shares one base).
+#: Class every provider-built RunPathCmd subclass also inherits, so a root's
+#: methods (``_logger_``, ``_set_loglevels_``), not just its data fields, reach
+#: the parsed instance. Set via :func:`register`'s ``base=``, once per app.
 _BASE: type = _presets.LoggingArgs
 
-#: Attrs that only make sense on an app ROOT (``Cli``'s own sandwich-named
-#: config attrs), masked back to a neutral default on every built RunPathCmd
-#: subclass: without this, ``register(base=<a Cli app root>)`` made a
-#: RunPath command inherit the root's ``_subcommands_``/``_version_``/etc,
-#: turning ``myapp rc`` into "pick a nested subcommand" or adding an
-#: unintended ``--version`` flag. ``base`` is meant to share a root's
-#: METHODS, never its app-level identity.
+#: App-root-only attrs reset on every built subclass, so ``base=`` shares a
+#: root's methods but not its identity (no nested-subcommand pick, no
+#: ``--version`` flag).
 _MASKED_ROOT_ATTRS: _ty.Dict[str, object] = {
     "_subcommands_": None,
     "_version_": None,
@@ -356,21 +339,9 @@ _MASKED_ROOT_ATTRS: _ty.Dict[str, object] = {
 def _build_runpath_command(path: _Path, qualname: str) -> type[RunPathCmd]:
     """Provider builder: make a per-directory :class:`RunPathCmd` subclass.
 
-    Binds the resolved directory and a subcommand name (the directory's basename,
-    ``_``->``-`` normalized, matching module-command naming) onto a fresh subclass
-    so ``CmdBuilder`` gets a ready-to-register command (this is the ONLY way a
-    RunPath directory resolves to a command -- ``discover_commands``/
-    ``CMDS_PATH``/``app(source=...)`` never consult providers at all; see
-    :func:`register`).
-
-    Also inherits :data:`_BASE` (default ``LoggingArgs``, configurable via
-    ``register(base=...)``) ALONGSIDE ``RunPathCmd``, so the built class
-    actually has ``_logger_``/``_set_loglevels_`` as real inherited methods.
-    ``__call__`` is set directly on the built class's own namespace to
-    ``RunPathCmd.__call__`` (wins over anything ``_BASE`` declares, regardless
-    of MRO order), and the app-root-only attrs in :data:`_MASKED_ROOT_ATTRS`
-    are reset to neutral defaults, so a ``base`` that happens to be an app's
-    own ``Cli`` root never turns this into anything but the step runner.
+    The subcommand name is the directory basename with ``_`` -> ``-``. The class
+    also inherits :data:`_BASE`; ``__call__`` is set on its own namespace so it
+    wins over ``_BASE`` whatever the MRO, and :data:`_MASKED_ROOT_ATTRS` are reset.
     """
     directory = _Path(path)
     name = directory.name.replace("_", "-")

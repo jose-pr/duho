@@ -77,3 +77,8 @@ markers = [
 
 [tool.black]
 target-version = ["py39"]
+
+# The coverage figure is for the package itself: tests import temporary
+# command files under the same `duho.` module prefix, which are not package code.
+[tool.coverage.report]
+include = ["src/duho/*"]

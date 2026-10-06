@@ -11,22 +11,12 @@ def _bashq(value: object) -> str:
 def _bash_wordlist(values: list) -> str:
     """Build a safe ``compgen -W`` word-list argument from ``values``.
 
-    ``compgen -W`` gives its word-list argument a SECOND evaluation at
-    Tab-press: after the shell parses/sources the generated script, ``compgen``
-    itself re-splits and re-expands that argument's runtime VALUE as if it
-    were freshly typed input -- command substitution, BOTH forms of process
-    substitution (``<(...)``/``>(...)``, which need no leading ``$`` and so
-    survive a narrower escape list untouched), word splitting, brace
-    expansion, globbing, and quote removal, all of it. Backslash-escape every
-    character outside the same conservative safe set `_zsh_word`/`_fish_word`
-    use (so ``< > ( ) * ? [ ~ { } ! & |`` and whitespace are all covered, not
-    just backslash/``$``/backtick/quotes), which also means an embedded space
-    or quote cannot open a second, unmatched region at that re-evaluation and
-    swallow every later value into one mangled candidate. Escaping the value list is
-    not enough on its own: the joined values still ride inside one
-    single-quoted argument for THIS (the static) parse, so once each value is
-    safe for the second pass, single-quote the whole list (embedded single
-    quotes as ``'\\''``) to survive the first.
+    ``compgen`` re-expands the argument's value at Tab-press (command and
+    process substitution, splitting, braces, globbing, quote removal), so each
+    value has every character outside the safe set shared with `_zsh_word`
+    backslash-escaped; an embedded space or quote then cannot open an
+    unmatched region. The joined list is then single-quoted (a quote as
+    ``'\\''``) to survive the first, static parse.
     """
     escaped: list[str] = []
     for value in values:
@@ -56,17 +46,13 @@ _ZSH_WORD_SAFE = frozenset(
 
 
 def _zsh_word(value: object) -> str:
-    """Escape ``value`` for zsh's SECOND (dynamic) evaluation.
+    """Escape ``value`` for zsh's second (dynamic) evaluation.
 
-    zsh's ``_arguments`` builds an action list like ``(a b c)`` with
-    ``eval``, and splits a message/action spec on ``:``. Backslash-escape
-    every character outside a conservative safe set -- the same approach
-    zsh's own ``${(q)}`` quoting uses -- so a value survives that second
-    pass literally: whitespace, ``$`` `` ` `` ``()[]{}`` ``;|&<>`` ``'"``
-    ``*?~#^!`` and ``:`` all become a literal character instead of shell
-    syntax. Apply this FIRST, then wrap the joined result in `_sq` for the
-    static parse. A leading ``=`` is escaped too: zsh's ``=cmd`` expansion
-    would otherwise replace the word with the path of that command.
+    ``_arguments`` evaluates an action list like ``(a b c)`` with ``eval`` and
+    splits specs on ``:``, so every character outside a conservative safe set
+    is backslash-escaped, as in zsh's ``${(q)}``. A leading ``=`` is escaped
+    too: ``=cmd`` would expand to that command's path. Apply this first, then
+    wrap the joined result in `_sq`.
     """
     word = "".join(c if c in _ZSH_WORD_SAFE else "\\" + c for c in str(value))
     return "\\" + word if word.startswith("=") else word
@@ -108,19 +94,12 @@ def _fsq(value: object) -> str:
 def _psq(value: object) -> str:
     """Single-quote a value for a PowerShell single-quoted string literal.
 
-    PowerShell escapes an embedded single quote by *doubling* it (``''``), the
-    only metacharacter live inside a single-quoted literal. When ``value``
-    contains a non-ASCII character, emit a pure-ASCII expression instead
-    (ASCII runs as quote-doubled literals, concatenated with
-    ``[char]0xNNNN`` for each non-ASCII UTF-16 code unit) rather than the raw
-    character: PowerShell decodes a native command's stdout with the
-    console's OEM code page, which duho cannot control, so non-ASCII text
-    piped through ``| Out-String | Invoke-Expression`` can arrive mangled
-    even though this Python process wrote correct UTF-8/text. A pure
-    ASCII script sidesteps the console code page entirely, on both Windows
-    PowerShell 5.1 and pwsh 7. This protects only the *script body* -- see
-    `powershell`'s docstring for what protects the *inserted candidate text*
-    at Tab-time.
+    An embedded single quote is doubled (``''``). A value with a non-ASCII
+    character becomes a pure-ASCII expression (quote-doubled ASCII runs joined
+    with ``[char]0xNNNN`` per UTF-16 code unit), because PowerShell decodes a
+    native command's stdout with the console's OEM code page and would mangle
+    raw non-ASCII. This protects the script body; the inserted candidate text
+    is quoted separately, see `powershell`.
     """
     text = str(value)
     if text.isascii():

@@ -72,12 +72,9 @@ def _reject_constant(name: str) -> _ty.NoReturn:
 def _write_message(stream: object, message: dict | list) -> None:
     import json
 
-    # `message` is a list only for a batch reply.
-    # `ensure_ascii=True`: the output stream's encoding is not known to be
-    # UTF-8-safe, and `\uXXXX` escapes are valid JSON for any text stream.
-    # `json.dumps` can fail on an unserializable result or a structure deep
-    # enough to overflow the recursion limit; fall back to a minimal error
-    # reply rather than raise out of the `serve` loop.
+    # `ensure_ascii=True`: the stream may not be UTF-8-safe. A `json.dumps`
+    # failure (unserializable or too deep) sends a minimal error reply instead
+    # of ending the `serve` loop.
     try:
         text = json.dumps(message, ensure_ascii=True, allow_nan=False)
     except Exception:

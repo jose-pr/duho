@@ -247,10 +247,9 @@ class ModuleCommand:
             )
         self._entrypoint = entry
 
-        # Stored as-is: a plain class is mixed with the app's root class at
-        # registration (`runtime._register_module_command`). The identity check
-        # rejects `Args`/`Cmd` themselves, which a module that only imported
-        # them would resolve here; subclasses of either pass.
+        # A plain class is mixed with the root class at registration. The
+        # identity check rejects `Args`/`Cmd` themselves, which a module that
+        # only imported them resolves here; subclasses pass.
         args_cls = getattr(module, "Args", None)
         self.args_cls: type | None = (
             args_cls

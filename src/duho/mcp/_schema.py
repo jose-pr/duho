@@ -41,10 +41,9 @@ _JSON_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"
 #: synthesize millions of repeated tokens and stall the single-threaded server.
 _MAX_COUNT_VALUE = 10
 
-#: Upper bound published (JSON Schema ``maxItems``/``maxProperties``) and
-#: enforced by :func:`_validate_arguments` for collection fields and the ``"--"``
-#: passthrough array. A huge client-supplied collection would otherwise stall
-#: the single-threaded stdio server.
+#: Bound published (``maxItems``/``maxProperties``) and enforced by
+#: :func:`_validate_arguments` on collections; a huge one would stall the
+#: single-threaded stdio server.
 _MAX_ARRAY_ITEMS = 1000
 
 _MAX_OBJECT_PROPERTIES = 1000

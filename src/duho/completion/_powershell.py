@@ -59,10 +59,8 @@ def powershell(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None)
     lines.append("    param($wordToComplete, $commandAst, $cursorPosition)")
     lines.append("")
     lines.append("    $elements = @($commandAst.CommandElements)")
-    # A plain `@{}` hashtable literal compares its string keys
-    # case-INsensitively, so sibling subcommand paths differing only in case
-    # (`run` vs `Run`) would fold to the SAME entry and clobber each other's
-    # table -- an ordinal Dictionary keeps every distinct-case path separate.
+    # `@{}` compares keys case-insensitively, so `run` and `Run` would share
+    # a table; an ordinal Dictionary keeps them apart.
     dict_ctor = (
         "[System.Collections.Generic.Dictionary[string,object]]::new("
         "[StringComparer]::Ordinal)"
@@ -101,13 +99,9 @@ def powershell(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None)
     lines.append("        # repeat the same text (e.g. a subcommand named the same as")
     lines.append("        # the word being completed), dropping it from $cmdPath.")
     lines.append("        if ($el.Extent.EndOffset -ge $cursorPosition) { continue }")
-    # Use the DEQUOTED value when the element is a literal string constant
-    # (the overwhelming common case for a native command's arguments), not
-    # its raw source text: a subcommand or value the user had to quote
-    # (spaces, a shell metacharacter) would otherwise never match our own
-    # unquoted comparison tables, since `.Extent.Text` keeps the user's
-    # quote characters. Anything else (a variable, an expression) falls
-    # back to the raw text, matching the previous behaviour.
+    # Use the dequoted value of a string constant: `.Extent.Text` keeps the
+    # user's quotes and would never match the unquoted tables. Anything else
+    # uses the raw text.
     lines.append(
         "        $text = if ($el -is "
         "[System.Management.Automation.Language.StringConstantExpressionAst]) "
@@ -215,15 +209,9 @@ def powershell(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None)
         "| Sort-Object -Unique -CaseSensitive | ForEach-Object {"
     )
     lines.append("        $text = $_")
-    # Always single-quote every inserted candidate, doubling both the ASCII
-    # single quote and PowerShell's Unicode "smart" single-quote range
-    # (U+2018-U+201B), which the tokenizer treats as equivalent quote
-    # characters when it delimits a string. Quoting only on an ASCII
-    # metacharacter class, or doubling only the ASCII quote, would let a
-    # smart quote close out of the argument when the completed line runs.
-    # Quoting unconditionally also means a bare `#` or `@` (a comment opener /
-    # splat sigil at the start of a token) is never inserted unquoted
-    # either, without needing its own special case.
+    # Quote every candidate, doubling the ASCII and the Unicode "smart" single
+    # quotes (U+2018-U+201B) the tokenizer treats alike; quoting unconditionally
+    # also keeps a leading `#` or `@` literal.
     lines.append(
         '        $text = "\'" + ($text -replace '
         "'[''\\u2018\\u2019\\u201A\\u201B]', '$0$0') + \"'\""

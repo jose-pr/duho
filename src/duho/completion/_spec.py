@@ -25,10 +25,9 @@ class CompletionPositional:
     name: str
     choices: _ty.Optional[tuple[str, ...]] = None
     is_path: bool = False
-    #: Hidden via ``help=argparse.SUPPRESS``: still occupies its ordinal slot
-    #: (every emitter counts positions sequentially to know which one is
-    #: pending), but offers no candidates of its own. Field goes LAST so
-    #: positional construction of the other fields is unaffected.
+    #: Hidden via ``help=argparse.SUPPRESS``: keeps its ordinal slot (emitters
+    #: count positions) but offers no candidates. Last, so positional
+    #: construction of the other fields is unaffected.
     hidden: bool = False
 
 
@@ -123,11 +122,8 @@ def _walk(
             # be omitted from completion entirely.
             continue
         if is_positional:
-            # A hidden POSITIONAL still occupies its ordinal slot -- every
-            # emitter counts positions sequentially to know which one is
-            # pending, so dropping it here would shift every later
-            # positional's completions one slot early. Keep the entry, just
-            # with no candidates of its own.
+            # A hidden positional keeps its ordinal slot (emitters count
+            # positions); dropping it would shift later completions one early.
             spec.positionals.append(
                 CompletionPositional(
                     name=action.dest,
@@ -147,14 +143,9 @@ def _walk(
         )
 
     if subparsers_action is not None:
-        # argparse keeps each subcommand's one-line help in the pseudo-actions,
-        # not on the subparser -- capture it here for the fish `-d` description,
-        # and skip any subcommand hidden via `help=argparse.SUPPRESS`. A
-        # pseudo-action exists only for the PRIMARY name passed to
-        # `add_parser` (never per-alias), so suppressing by that name alone
-        # leaves an alias of a hidden subcommand completable; key suppression
-        # off the underlying parser object instead, since every alias of the
-        # same subcommand maps to the same parser.
+        # Subcommand help lives in argparse's pseudo-actions, one per primary
+        # name and none per alias. Suppression is therefore keyed on the parser
+        # object, which every alias shares, so an alias of a hidden one stays hidden.
         help_by_name: dict[object, str] = {}
         suppressed_dests: set[object] = set()
         choices = subparsers_action.choices or {}

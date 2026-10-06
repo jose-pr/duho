@@ -32,16 +32,11 @@ def _fish_func_name(root_prog: str) -> str:
 def _fish_path_resolver(path_func: str, specs: list[CompletionSpec]) -> list[str]:
     """Emit a fish function that resolves the (sub)command path typed so far.
 
-    `__fish_seen_subcommand_from <name>` only asks "does this word appear
-    ANYWHERE on the command line", with no notion of position or depth: a
-    subcommand name reused at a deeper level (root `run` vs. nested `db
-    run`) makes the ROOT `run` node's own gate true too, leaking its flags
-    into the nested one. Resolving the exact path by walking the command
-    line -- exactly as the bash and PowerShell emitters already do -- and
-    then gating on exact path equality removes the ambiguity entirely:
-    `commandline -opc` gives fish's own tokenized, already-dequoted words up
-    to the cursor, so (unlike bash/PowerShell) no extra quote-stripping is
-    needed to recognise a subcommand name the user had to quote.
+    `__fish_seen_subcommand_from` ignores position and depth, so a name reused
+    at a deeper level (root `run`, nested `db run`) would leak the root node's
+    flags into the nested one. Walking the command line and gating on exact
+    path equality removes that. `commandline -opc` is already tokenized and
+    dequoted, so no quote-stripping is needed, unlike bash and PowerShell.
     """
     lines: list[str] = []
     lines.append(f"function {path_func}")

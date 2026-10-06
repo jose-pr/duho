@@ -182,12 +182,9 @@ def zsh(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str
             for idx, pos in enumerate(cspec.positionals):
                 lines.append(f"                {idx})")
                 if pos.choices:
-                    # Each candidate is its own literal shell word here --
-                    # `compadd`'s arguments get only the ONE (static) parse,
-                    # never a `_arguments`-style second evaluation -- so a
-                    # plain `_sq` per value is enough, unlike the
-                    # `_zsh_word` + `_sq` pairing an `_arguments` optspec
-                    # string needs.
+                    # Each candidate is one literal shell word (`compadd` gets only
+                    # the static parse), so `_sq` alone suffices, without the
+                    # `_zsh_word` an `_arguments` spec string needs.
                     values = " ".join(_sq(c) for c in pos.choices)
                     lines.append(f"                    compadd -- {values}")
                 elif pos.is_path:
@@ -198,21 +195,12 @@ def zsh(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str
             lines.append(f"                    compadd -- {names}")
             lines.append("                    ;;")
             lines.append("                *)")
-            # `_arguments -C` only republishes `$words`/`$CURRENT` relative to
-            # where `*::` itself starts -- it has no idea this node ALSO
-            # consumed `n_pos` of its own positionals ahead of the
-            # subcommand word, so a dispatched child still sees THOSE words
-            # too and misreads its own position count. Reset both
-            # explicitly, local to this branch, to exactly the words from
-            # the subcommand name onward (its own name as `words[1]`,
-            # matching what a node reached with zero leading positionals
-            # already gets for free).
+            # `_arguments -C` republishes `$words`/`$CURRENT` only relative to
+            # `*::`, not past this node's `n_pos` own positionals: reset both
+            # here to start at the subcommand name.
             lines.append("                    local words CURRENT")
-            # `(@)` keeps this a proper array slice (each element its own
-            # word, including a trailing EMPTY one for the word currently
-            # being completed) -- without it, an unquoted or bare-quoted
-            # slice flattens to one joined scalar and silently drops that
-            # trailing empty element.
+            # `(@)` keeps an array slice, including a trailing empty element for
+            # the word being completed; a plain slice would drop it.
             lines.append(f'                    words=("${{(@)line[{n_pos + 1},-1]}}")')
             lines.append("                    CURRENT=${#words}")
             lines.append(f"                    case ${{(Q)line[{n_pos + 1}]}} in")

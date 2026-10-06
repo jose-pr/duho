@@ -332,18 +332,13 @@ def _discover_from_path(
 ) -> list[Command]:
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
-    Only a lower-case ``.py`` suffix counts: Windows' case-insensitive ``glob``
-    also matches ``X.PY``, which Python's import machinery refuses.
-
-    While a file is imported, ``directory`` is appended to ``sys.path`` (after
-    the standard library and installed packages, which a command file must not
-    shadow) so ``from _helpers import x`` resolves; a relative import fails, as
-    these files have no parent package. Afterwards the entry is removed and
-    each module pulled in from inside ``directory`` is popped from
-    ``sys.modules``, so a same-named helper in another discovered directory is
-    not served a stale one. Modules from outside ``directory``, and those with
-    no ``__file__``, are left alone: evicting a shared class or a stdlib module
-    would break ``isinstance`` identity between command files.
+    Only a lower-case ``.py`` suffix counts (Windows ``glob`` also matches
+    ``X.PY``, which import refuses). During each import ``directory`` is
+    appended to ``sys.path``, after the packages a command file must not
+    shadow, so ``from _helpers import x`` resolves. Afterwards modules loaded
+    from inside it are popped from ``sys.modules`` so another directory's
+    same-named helper is not served stale; outside modules stay, as evicting a
+    shared class would break ``isinstance`` identity between command files.
     """
     directory = _Path(directory)
     if not directory.is_dir():

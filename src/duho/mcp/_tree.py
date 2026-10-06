@@ -26,16 +26,13 @@ from ._schema import _JSON_SCALARS, _MAX_ARRAY_ITEMS, json_schema_for_field
 class _Node:
     """One node of a command tree (class commands, and module commands under ``app()``).
 
-    ``ancestors`` runs from the root down to this node's parent (empty for the
-    root). ``cls`` is the class behind a class-command node, else ``None``;
-    ``module_command`` is the :class:`~duho.discovery.ModuleCommand` behind a
-    module-command node, else ``None`` (never both set). ``args_cls`` is a
-    module command's own declared ``Args`` class, if any.
+    ``ancestors`` runs from the root to this node's parent. ``cls`` is the
+    class of a class command, else ``None``; ``module_command`` is the
+    :class:`~duho.discovery.ModuleCommand` of a module command, else ``None``;
+    ``args_cls`` is a module command's declared ``Args``, if any.
 
-    ``excluded`` is true for a non-root node that opted out with ``_mcp_ =
-    False`` or inherited that from an ancestor. Such a node is never listed
-    and :func:`call_tool` treats it as an unknown name. The root's own ``_mcp_``
-    only controls the environment trigger, so it is never excluded.
+    ``excluded`` marks a non-root node that opted out with ``_mcp_ = False``
+    or inherited that: never listed, and an unknown name to :func:`call_tool`.
     """
 
     __slots__ = (

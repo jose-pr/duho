@@ -182,21 +182,14 @@ def _synthesize_argv(
 ) -> list[str]:
     """Turn a JSON ``arguments`` object into argv for ``cls``'s own fields.
 
-    Fields named in ``skip`` (redeclared by a deeper level in the chain)
-    contribute nothing; so does a field absent or ``null``. Branches on the
-    action actually built on ``parser``, so env/config-layered bools match:
-    ``store_true``/``store_false`` emit the bare flag only for their "on"
-    value; ``BooleanOptionalAction`` emits ``--no-<x>`` for ``False``. Counts
-    become ``-vvv`` (short-only) or a repeated long flag, capped by the schema
-    layer. A dict with a custom whole-string ``type=`` (``parse_loglevels``)
-    is joined into ONE ``NAME:LEVEL,...`` token; a generic ``KEY=VALUE`` dict
-    gets one token per item. Lists repeat the flag.
-
-    Option values are attached as ``--flag=value``. A positional that argparse
-    would read as an option, ``--``, or a subcommand name (this level's or
-    one in ``ancestor_forbidden``) is refused: the values are LLM-controlled.
+    Fields in ``skip`` (redeclared deeper in the chain), absent or ``null``
+    contribute nothing. Branches on the action built on ``parser``, so layered
+    bools match; a dict with a custom ``type=`` (``parse_loglevels``) is ONE
+    ``NAME:LEVEL,...`` token. Option values are attached as ``--flag=value``.
+    A positional that reads as an option, ``--`` or a subcommand name (this
+    level's or in ``ancestor_forbidden``) is refused: values are LLM-controlled.
     ``pin_positionals`` emits an omitted optional positional's default so it
-    cannot swallow the following subcommand name.
+    cannot swallow the next subcommand name.
     """
     argv: list[str] = []
     forbidden = _sibling_names(parser) | ancestor_forbidden

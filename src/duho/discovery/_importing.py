@@ -1,5 +1,6 @@
 import os as _os
 import sys as _sys
+import threading as _threading
 from pathlib import Path as _Path
 from types import ModuleType as _ModuleType
 
@@ -32,6 +33,12 @@ def _unique_module_name(base: str) -> str:
 _IMPORTED_BY_PATH: "dict[str, tuple[str, object]]" = {}
 
 
+#: Serialises the cache check, module execution and cache write so concurrent
+#: first imports of one file run its body once. Reentrant: a module body may
+#: itself import another file through :func:`import_from_path`.
+_IMPORT_LOCK = _threading.RLock()
+
+
 def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
     """Import a ``.py`` file at ``path`` under module key ``name`` and return it.
 
@@ -47,6 +54,11 @@ def _import_from_path(name: str, path: "_Path") -> "_ModuleType":
     of executing it again under a new key -- ``name`` is then unused for that
     call.
     """
+    with _IMPORT_LOCK:
+        return _import_from_path_locked(name, path)
+
+
+def _import_from_path_locked(name: str, path: "_Path") -> "_ModuleType":
     import importlib.util as _importutil
 
     resolved = _os.fspath(_Path(path).resolve())
@@ -93,4 +105,5 @@ def import_from_path(base_name: str, path: "_Path") -> "_ModuleType":
     first, and so far only, consumer) can import a ``.py`` file the exact
     same way without reaching into either private helper directly.
     """
-    return _import_from_path(_unique_module_name(base_name), path)
+    with _IMPORT_LOCK:
+        return _import_from_path(_unique_module_name(base_name), path)

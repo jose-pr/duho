@@ -6,6 +6,7 @@ import logging as _logging
 import sys as _sys
 import textwrap as _textwrap
 import tokenize as _tokenize
+import types as _types
 import typing as _ty
 from dataclasses import dataclass as _data
 from pathlib import Path as _Path
@@ -613,6 +614,43 @@ def _unwrap_annotated(hint, name: str, cls: type) -> "tuple[object, list]":
     return hint, []
 
 
+def _resolve_string_members(hint, cls: type, name: str):
+    """Replace a quoted member inside a builtin generic or Union (``list["Color"]``,
+    ``dict[str, "int"]``) with the object it names.
+
+    Python 3.9 leaves such a member a plain ``str`` (3.11+ resolves it); it is
+    evaluated against the module globals of ``cls`` and its bases. A name that
+    cannot be resolved raises a ``ValueError`` naming the field.
+    """
+    if isinstance(hint, str):
+        namespace: "dict[str, object]" = {}
+        for base in reversed(cls.__mro__):
+            namespace.update(getattr(_sys.modules.get(base.__module__), "__dict__", {}))
+        try:
+            return eval(hint, namespace)  # noqa: S307 - the user's own annotation text
+        except Exception as exc:
+            raise ValueError(
+                f"argument {name!r} on {cls.__name__!r}: the quoted type "
+                f"{hint!r} could not be resolved ({exc.__class__.__name__}: "
+                f"{exc}); define it at module level of {cls.__module__!r}, or "
+                f"use typing.List[...]/an unquoted name"
+            ) from None
+    origin = _ty.get_origin(hint)
+    if origin not in (list, set, frozenset, tuple, dict) and (
+        origin not in _compat.UNION_ORIGINS
+    ):
+        return hint
+    args = _ty.get_args(hint)
+    resolved = tuple(
+        a if a is Ellipsis else _resolve_string_members(a, cls, name) for a in args
+    )
+    if all(new is old for new, old in zip(resolved, args)):
+        return hint
+    if origin in _compat.UNION_ORIGINS:
+        return _ty.Union[resolved]
+    return _types.GenericAlias(origin, resolved)
+
+
 def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
     """Build each declared field's :class:`ClsArgDeclaration` for ``cls``.
 
@@ -653,6 +691,7 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
             continue
 
         hint, annotations = _unwrap_annotated(hint, name, cls)
+        hint = _resolve_string_members(hint, cls, name)
 
         argconstant = constants.get(name, [])
         if argconstant and isinstance(argconstant[0], str):

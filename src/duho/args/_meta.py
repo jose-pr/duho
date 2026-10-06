@@ -16,41 +16,37 @@ NOT_DEFINED = _introspect.NOT_DEFINED
 
 _NONETYPE = type(None)
 
+_T = _ty.TypeVar("_T")
+
 if _ty.TYPE_CHECKING:
     from typing_extensions import Self as _Self  # type: ignore
+else:
+    # A type checker reads `Self`; at run time a TypeVar stands in so an
+    # annotation that names it resolves with `typing.get_type_hints`.
+    _Self = _ty.TypeVar("_Self")
 
-    class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
-        """Type-checking-only view of the parser ``_parser_`` returns: an
-        ``ArgumentParser`` whose ``parse_args``/``parse_known_args`` are typed
-        as returning ``_T`` (the constructed ``Args``/``Cmd`` instance) instead
-        of a bare ``Namespace``. Never instantiated -- every real parser is a
-        plain ``argparse.ArgumentParser`` with ``parse_known_args`` patched in
-        place (see ``Args._initparser_``); this class exists only so
-        ``-> "_Parser[_Self]"`` return annotations and the one
-        ``typing.cast("_Parser[_Self]", ...)`` describe that shape to a type
-        checker, referenced exclusively through quoted annotations that are
-        never evaluated at runtime."""
 
-        def parse_args(self, args=None, namespace: _T | None = None) -> _T:  # type: ignore
-            raise NotImplementedError()
+class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
+    """The parser ``_parser_`` returns, as a type checker sees it: an
+    ``ArgumentParser`` whose ``parse_args``/``parse_known_args`` return ``_T``
+    (the constructed ``Args``/``Cmd`` instance), not a bare ``Namespace``.
 
-        def parse_known_args(  # type: ignore
-            self, args=None, namespace: _T | None = None
-        ) -> tuple[_T, list[str]]:
-            raise NotImplementedError()
+    Never instantiated: every real parser is a plain
+    ``argparse.ArgumentParser`` with ``parse_known_args`` patched in place
+    (see ``Args._initparser_``). It is a real class only so the public
+    annotations that name it resolve with ``typing.get_type_hints``.
+    """
+
+    def parse_args(self, args=None, namespace: _T | None = None) -> _T:  # type: ignore
+        raise NotImplementedError()
+
+    def parse_known_args(  # type: ignore
+        self, args=None, namespace: _T | None = None
+    ) -> tuple[_T, list[str]]:
+        raise NotImplementedError()
 
 
 _type = type
-
-_T = _ty.TypeVar("_T")
-
-if not _ty.TYPE_CHECKING:
-    # Stand-ins so `typing.get_type_hints` resolves `_Parser[_Self]` at run
-    # time; a type checker reads the declarations above instead.
-    _Self = _ty.TypeVar("_Self")
-
-    class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
-        """Never instantiated: every real parser is a plain ``ArgumentParser``."""
 
 
 #: Bound to :class:`Args`: lets ``duho.parse``/``duho.parse_globals`` return the

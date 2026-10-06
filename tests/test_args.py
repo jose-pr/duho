@@ -1352,16 +1352,17 @@ def test_suppress_honored_as_second_metadata_item():
 # --- dead/write-only internals -----------------------------------------
 
 
-def test_parser_typing_helper_is_not_a_real_runtime_class():
-    """The ``_Parser`` typing helper only ever describes an annotation/cast
-    shape for a type checker -- it is never instantiated, so it lives under
-    ``TYPE_CHECKING`` and is not a real attribute of either module at
-    runtime."""
+def test_parser_typing_helper_exists_only_so_annotations_resolve():
+    """``_Parser`` describes the parser ``_parser_`` returns to a type checker.
+    It is a real class so that ``typing.get_type_hints`` resolves the public
+    annotations naming it; no parser duho builds is an instance of it."""
     import duho
-    import duho.args
+    from duho.args import _meta
 
-    assert not hasattr(duho, "_Parser")
-    assert not hasattr(duho.args, "_Parser")
+    assert ty.get_type_hints(duho.parser)["return"] == _meta._Parser[_meta._A]
+    built = duho.parser(SimpleArgs)
+    assert isinstance(built, argparse.ArgumentParser)
+    assert not isinstance(built, _meta._Parser)
 
 
 def test_parser_no_longer_accepts_an_init_kwarg():

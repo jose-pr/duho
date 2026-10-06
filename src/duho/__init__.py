@@ -74,12 +74,12 @@ from .text import (
     snakecase,
 )
 
-from .args._meta import _Parser as _ParserOf
+from .args._meta import _Parser as _Parser
 
 __version__ = "0.6.4"
 
 
-def parser(cls: type[_A], *args: object, **kwargs: object) -> _ParserOf[_A]:
+def parser(cls: type[_A], *args: object, **kwargs: object) -> _Parser[_A]:
     """Build an ArgumentParser for an Args class.
 
     Public module-level entry point (delegates to ``cls._parser_``, matching

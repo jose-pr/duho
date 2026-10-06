@@ -134,6 +134,18 @@ def _module_entrypoint(module: object) -> "_ty.Callable[..., object] | None":
         fn = _own_callable(module, candidate)
         if fn is not None:
             return fn
+    for candidate in _ENTRYPOINT_NAMES:
+        if callable(getattr(module, candidate, None)):
+            _LOGGER.warning(
+                "module %r binds %r to a callable not defined in it (an "
+                "imported or decorator-wrapped function), so it is not a "
+                "command entrypoint; list %r in the module's __all__ to "
+                "accept it",
+                getattr(module, "__name__", module),
+                candidate,
+                candidate,
+            )
+            break
     return None
 
 

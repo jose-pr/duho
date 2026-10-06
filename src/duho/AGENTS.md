@@ -46,7 +46,7 @@ regardless of which internal module implements it:
   runnable on its own. Classmethods:
   - `_parser_(subparser=None, name=None, parents=(), **kw) -> ArgumentParser` — build
     this class's (sub)parser.
-  - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None)` —
+  - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None, external_config=False)` —
     populate an already-created parser with this class's fields. `explicit_prog` is
     accepted for compatibility and has no effect.
   - `_getargs_() -> list[ArgumentBuilder]` — this class's resolved field specs (cached).
@@ -147,12 +147,12 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 so it type-checks correctly) — `Arg[T, NS(...)]` needs ≥2 args; a plain-typed field is
 just its annotation.
 
-- **`NS(...)`** — a bare `argparse.Namespace` alias: an untyped metadata bag. Accepts
+- **`NS(**kwargs)`** — a bare `argparse.Namespace` alias: an untyped metadata bag. Accepts
   any keyword (`flags`, `help`, `env`, `conflicts=` exclusive-group key,
   `conflicts_required=`, `group=` titled-group name, `metavar`, `nargs`, `action`,
   `const`, `default`, `choices`, `required`, `type`, `version`, `kwargs=` raw
   `add_argument` passthrough, …) — a misspelled key is silently dropped.
-- **`Meta(...)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
+- **`Meta(help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, *, dest)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
   same fields as `NS` (`help`, `env`, `conflicts`, `conflicts_required`, `group`,
   `action`, `nargs`, `const`, `default`, `choices`, `metavar`, `required`, `type`,
   `version`, `flags`, `kwargs`) EXCEPT `dest` — `Meta` has no `dest` field at all (a
@@ -169,8 +169,8 @@ just its annotation.
   flag occurrence. Raises a build-time `ValueError` on a `set`/`tuple`-typed field
   (argparse's stdlib append action always produces a `list`; a repeatable `set`/`tuple`
   field already accumulates one value per occurrence without it).
-- **`Extend(sep_or_split, **kw)`** — split one flag occurrence's text into several
-  values (`sep_or_split` a separator string or a `str -> Iterable` callable). Composes
+- **`Extend(split, **kwargs)`** — split one flag occurrence's text into several
+  values (`split` a separator string or a `str -> Iterable` callable). Composes
   with the field's own declared element type AND collection kind — `Arg[list[int],
   Extend(",")]` yields ints, not strings, and `set`/`tuple`-typed fields work too, not
   just `list`. The field's own declared default is kept when the flag is absent and
@@ -250,11 +250,11 @@ just its annotation.
 
 ## Build / parse / run
 
-- **`parser(cls, ...) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
+- **`parser(cls, *args, **kwargs) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
   a type checker, `duho.parser(MyApp)`/`duho.parse(MyApp)`/`duho.parse_globals(MyApp)`/
   `Cli.subcommand`/`command()`'s decorated class all keep the caller's own class/type
   rather than widening to a base type (no runtime behavior change).
-- **`parse(spec, argv=None, *, parser_kwargs=None)`** — build+parse in one call. `spec` a
+- **`parse(spec, argv=None, *, parser_kwargs=None, config=None)`** — build+parse in one call. `spec` a
   type → new instance; `spec` an instance → its explicitly-set field values become
   defaults (CLI wins), returns a new `type(spec)` instance, `spec` itself is untouched.
   Full precedence: **CLI > instance > env > config > class default**. `parser_kwargs`
@@ -388,7 +388,7 @@ empty when absent).
 - **`unregister_command_provider(predicate, builder)`** — counterpart to
   `register_command_provider`: removes the exact `(predicate, builder)` pair
   (matched by equality); a no-op if that pair is not currently registered.
-- **`discover_entry_points(...)`** — enumerate installed entry points (imports
+- **`discover_entry_points(group) -> list[Command]`** — enumerate installed entry points (imports
   `importlib.metadata` lazily).
 
 ## Env / config
@@ -574,17 +574,17 @@ runtime dependency and zero per-invocation overhead.
 
 ## Text / names
 
-- **`expand(s)`** — brace-range expansion (non-zero-padded, e.g. `"a[1-3]"` → `"a1"`,
-  `"a2"`, `"a3"`). **`pysafe(s, separator=".")`** — coerce each `separator`-delimited
+- **`expand(text)`** — brace-range expansion (non-zero-padded, e.g. `"a[1-3]"` → `"a1"`,
+  `"a2"`, `"a3"`). **`pysafe(text, separator=".")`** — coerce each `separator`-delimited
   part into a valid Python identifier (symbol substitution via `PYREPLACE`, a leading
   digit or bare keyword gets an underscore, never produces an empty part). **`PYREPLACE`** —
-  the symbol→word substitution table `pysafe` consults (e.g. `+`→`plus`). **`camelcase(s,
-  separators=None)`** — case conversion to CamelCase. **`snakecase(s)`** — case
+  the symbol→word substitution table `pysafe` consults (e.g. `+`→`plus`). **`camelcase(text,
+  separators=None)`** — case conversion to CamelCase. **`snakecase(name)`** — case
   conversion to snake_case; an upper-case letter that immediately follows a separator is
   lower-cased WITHOUT an extra inserted underscore, so `snakecase("My-App")` correctly
   gives `"my_app"` (not `"my__app"`), and `snakecase("CamelCaseName")` gives
   `"camel_case_name"`; an acronym run lowers letter-by-letter (`"HTTPServer"` →
-  `"h_t_t_p_server"`). **`kebabcase(s)`** — acronym-aware kebab-case: splits on a
+  `"h_t_t_p_server"`). **`kebabcase(name)`** — acronym-aware kebab-case: splits on a
   lower/digit→Upper boundary, on an Upper letter followed by Upper+lower (an acronym run
   stays together up to its last letter: `"ShowHTTPStatus"` → `"show-http-status"`, unlike
   `snakecase`'s letter-by-letter acronym handling), and on one or more `_` (never yields a
@@ -611,8 +611,8 @@ runtime dependency and zero per-invocation overhead.
 Lower-level `argparse` plumbing `duho` itself is built on, exposed for a consumer
 manipulating a parser tree directly:
 
-- **`pop_action(parser, action)`** / **`insert_action(parser, action, index=None)`** —
-  remove/insert an action while correctly maintaining its owning argument GROUP's own
+- **`pop_action(parser, name)`** / **`insert_action(parser, action, index=None)`** —
+  remove an action by its `dest` name (returns it) / insert an action object, while correctly maintaining its owning argument GROUP's own
   action list too (not just the parser's flat list), since `format_help` renders from
   the group lists; `insert_action`'s default (`index=None`) truly appends at the end.
 - **`add_help_argument(parser)`** — add a standard `-h`/`--help` action
@@ -621,7 +621,7 @@ manipulating a parser tree directly:
   used to temporarily relax a subparsers action's own value validation; safely
   reentrant via a depth counter, so a nested `disable`/`enable` pair only the OUTERMOST
   pair actually saves/restores the original state.
-- **`prerun_parse(parser, argv, *, quiet=False)`** — an advisory pre-parse of root-level
+- **`prerun_parse(parser, argv=None, *, quiet=False)`** — an advisory pre-parse of root-level
   options only: detaches any subparsers action for the call (restored after), turns
   every terminal action (`-h`/`--help`, `--version`, `--print-completion`,
   `--help-agents`) into a no-op for the call, and optionally silences `parser.error()`
@@ -640,8 +640,9 @@ manipulating a parser tree directly:
 - **`duho.fanout`** — **`run_targets(func, targets, *, max_workers=None,
   aggregate=<worst-by-magnitude>, logger=None) -> int`** (ThreadPool per-target,
   exit-code reduced by `aggregate`; default logger is this module's own,
-  `"duho.fanout"`), **`fan_out_command(...)`** (sugar over `run_targets` that dispatches
-  one resolved duho `Command` per target via `run_command`), **`target_logging(...)`** (a
+  `"duho.fanout"`), **`fan_out_command(command, make_instance, targets, *, context=None, max_workers=None, aggregate=<worst-by-magnitude>, logger=None) -> int`** (sugar over `run_targets`: `make_instance(target)` builds
+  the parsed instance for each target and the resolved duho `Command` is dispatched via
+  `run_command`), **`target_logging(logger=None)`** (a
   context manager installing/removing a per-target log prefix for the duration of a
   fan-out), **`TargetPrefixFilter`** (the `logging.Filter` that prefixes active-target
   records with `[<target>] ` without mutating the record's own message/args),
@@ -650,7 +651,7 @@ manipulating a parser tree directly:
 - **`duho.runpath`** — ordered `NN-name.py` step-runner over a dir with no `__init__.py`.
   **`is_runpath_dir(path)`** — whether a directory looks like a RunPath step directory.
   `import duho.runpath` auto-registers its discovery provider; **`register(base=None,
-  step_adapter=None)`** / **`unregister()`** for explicit control. `register`'s `base`
+  step_adapter=<keep current>)`** / **`unregister()`** for explicit control. `register`'s `base`
   (default: keeps the current base, initially `LoggingArgs`) is the class every
   provider-built **`RunPathCmd`** subclass also inherits from — `app()`'s `parents=`
   only copies a root's DATA fields onto a class command's parsed instance, never its
@@ -695,7 +696,7 @@ manipulating a parser tree directly:
   schema instead. **`call_tool(root_cls, name, arguments) -> dict`**,
   **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
   answered directly), **`input_schema_for_command(cls) -> dict`**,
-  **`json_schema_for_field(...)`** (per-field JSON Schema fragment), **`main(argv=None)
+  **`json_schema_for_field(decl, builder) -> tuple[dict, bool]`** (per-field JSON Schema fragment), **`main(argv=None)
   -> int`** — CLI entry point: `python -m duho.mcp <app>` (`<app>` a `module:ClassName`
   or dotted `module.ClassName` path to a root `Cmd`/`Cli`). `root_cls` on every one of
   these also accepts an opaque server-core object built from a full `app()` tree, not

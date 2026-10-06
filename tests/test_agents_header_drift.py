@@ -14,7 +14,9 @@ not a hardcoded repo-relative path, so this test also passes against an
 installed wheel, not just an editable checkout.
 """
 
+import ast
 import importlib
+import inspect
 import re
 from pathlib import Path
 
@@ -83,6 +85,137 @@ def test_every_exported_name_is_mentioned_in_header(module_name):
     assert (
         not missing
     ), f"{module_name}.__all__ names missing from {_HEADER_PATH.name}: {missing}"
+
+
+# --- bold signature entries ------------------------------------------------
+
+#: A bold entry such as ``**`parse(spec, argv=None) -> T`**``; the parameter
+#: text may wrap over lines.
+_ENTRY = re.compile(r"\*\*`(\w+)\(([^`]*)\)[^`]*`", re.DOTALL)
+
+#: Entries that are not a callable's parameter list: ``Cmd(Args)`` and
+#: ``Cli(Cmd)`` name a base class, ``__call__`` is the method a subclass
+#: overrides.
+_NOT_A_SIGNATURE = frozenset({"Cmd", "Cli", "__call__"})
+
+#: Entries that list parameter names only, because every default is the same
+#: ``Meta.UNSET`` placeholder.
+_DEFAULTS_ELIDED = frozenset({"Meta"})
+
+
+def _split_top_level(text: str) -> "list[str]":
+    parts, depth, quote, current = [], 0, "", ""
+    for char in text:
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "\"'":
+            quote = char
+        elif char in "([{<":
+            depth += 1
+        elif char in ")]}>":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+            continue
+        current += char
+    if current.strip():
+        parts.append(current)
+    return [part.strip() for part in parts]
+
+
+def _header_parameters(text: str) -> "list[tuple[str, str | None]]":
+    """``(token, default text or None)`` per parameter of a header entry.
+
+    ``*`` and ``**name`` keep their stars so keyword-only markers and
+    variadics are compared too.
+    """
+    out = []
+    for piece in _split_top_level(" ".join(text.split())):
+        if piece == "/":
+            continue
+        name, sep, default = piece.partition("=")
+        out.append((name.strip(), default.strip() if sep else None))
+    return out
+
+
+def _real_parameters(obj) -> "list[tuple[str, object]]":
+    """The same shape from ``inspect.signature``, public parameters only."""
+    out, star_seen = [], False
+    for param in inspect.signature(obj).parameters.values():
+        if param.name.startswith("_"):
+            continue
+        default = None if param.default is param.empty else param.default
+        has_default = param.default is not param.empty
+        if param.kind is param.VAR_POSITIONAL:
+            out.append(("*" + param.name, (False, None)))
+            star_seen = True
+        elif param.kind is param.VAR_KEYWORD:
+            out.append(("**" + param.name, (False, None)))
+        else:
+            if param.kind is param.KEYWORD_ONLY and not star_seen:
+                out.append(("*", (False, None)))
+                star_seen = True
+            out.append((param.name, (has_default, default)))
+    return out
+
+
+def _entry_matches(name: str, header, real) -> bool:
+    if [token for token, _ in header] != [token for token, _ in real]:
+        return False
+    for (token, text), (_, (has_default, default)) in zip(header, real):
+        if text is None:
+            if has_default and name not in _DEFAULTS_ELIDED:
+                return False
+            continue
+        if not has_default:
+            return False
+        try:
+            literal = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            continue
+        if isinstance(default, (type(None), bool, int, float, str)):
+            if literal != default or type(literal) is not type(default):
+                return False
+    return True
+
+
+def _public_callables(name: str) -> list:
+    found = []
+    for module_name in ("duho",) + _SUBMODULES:
+        module = importlib.import_module(module_name)
+        if name in getattr(module, "__all__", ()):
+            found.append(getattr(module, name))
+    return found
+
+
+def _bold_entries() -> "list[tuple[str, str]]":
+    text = _HEADER_PATH.read_text(encoding="utf-8")
+    entries = []
+    for match in _ENTRY.finditer(text):
+        name, params = match.group(1), match.group(2)
+        if name in _NOT_A_SIGNATURE or params.strip().startswith("..."):
+            continue
+        entries.append((name, params))
+    return entries
+
+
+def test_bold_entries_were_found():
+    """The scan below is vacuous if the entry pattern stops matching."""
+    assert len(_bold_entries()) > 50
+
+
+@pytest.mark.parametrize("name, params", _bold_entries(), ids=lambda value: value[:30])
+def test_bold_entry_signature_matches_the_code(name, params):
+    """Each bold ``name(params)`` entry lists the real parameters and literal defaults."""
+    candidates = _public_callables(name)
+    assert candidates, f"{name} is not in any public __all__"
+    header = _header_parameters(params)
+    assert any(
+        _entry_matches(name, header, _real_parameters(obj)) for obj in candidates
+    ), f"{name}({' '.join(params.split())}) disagrees with " + " / ".join(
+        f"{name}{inspect.signature(obj)}" for obj in candidates
+    )
 
 
 # --- class-attribute table -------------------------------------------------

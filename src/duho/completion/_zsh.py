@@ -19,6 +19,13 @@ def _zsh_value_part(opt: "CompletionOption") -> str:
     return ":value:"
 
 
+def _zsh_optname(flag: str) -> str:
+    """Escape ``flag`` for ``_arguments``' own parse of an option spec, which
+    ends the name at an unescaped ``:`` or ``[`` and splits an exclusion list
+    on whitespace."""
+    return "".join("\\" + c if c in "\\:[] \t" else c for c in flag)
+
+
 def _zsh_optspec(opt: "CompletionOption") -> str:
     """Build one zsh ``_arguments`` optspec for ``opt``.
 
@@ -33,10 +40,11 @@ def _zsh_optspec(opt: "CompletionOption") -> str:
     if opt.takes_value:
         tail_inner += _zsh_value_part(opt)
     tail = _sq(tail_inner)
-    if len(opt.flags) == 1:
-        return _sq(opt.flags[0]) + tail
-    exclusion = _sq("(" + " ".join(opt.flags) + ")")
-    brace = "{" + ",".join(_sq(f) for f in opt.flags) + "}"
+    flags = [_zsh_optname(f) for f in opt.flags]
+    if len(flags) == 1:
+        return _sq(flags[0]) + tail
+    exclusion = _sq("(" + " ".join(flags) + ")")
+    brace = "{" + ",".join(_sq(f) for f in flags) + "}"
     return exclusion + brace + tail
 
 

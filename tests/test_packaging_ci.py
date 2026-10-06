@@ -43,10 +43,14 @@ def test_pyproject_sdist_excludes_local_files():
     assert '"*.local.*"' in text
 
 
-def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path):
-    """Plant non-.md `.local` files (as the review's reproduction did) in a
-    real copy of the project, build both artifacts, and confirm neither
-    ships them -- while README.md/AGENTS.md, which must ship, still do.
+# hatchling drops every .gitignore pattern when the checkout's own path matches
+# one (a parent directory named `build`, `dist`, `site`, `.claude` or `.agents`),
+# so the private files must be excluded by the build targets themselves.
+@pytest.mark.parametrize("parent", ["plain", "build"])
+def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path, parent):
+    """Plant non-.md `.local` files and a CLAUDE.md in a real copy of the
+    project, build both artifacts, and confirm neither ships them -- while
+    README.md/AGENTS.md, which must ship, still do.
     """
     hatchling_build = pytest.importorskip("hatchling.build")
 
@@ -55,7 +59,7 @@ def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path):
 
     import shutil
 
-    copy_root = tmp_path / "copy"
+    copy_root = tmp_path / parent / "duho"
     shutil.copytree(
         _ROOT,
         copy_root,
@@ -88,6 +92,8 @@ def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path):
 
     assert not [n for n in wheel_names if ".local." in n], wheel_names
     assert not [n for n in sdist_names if ".local." in n], sdist_names
+    assert not [n for n in wheel_names if "CLAUDE" in n], wheel_names
+    assert not [n for n in sdist_names if "CLAUDE" in n], sdist_names
     assert any(n.endswith("duho/AGENTS.md") for n in wheel_names)
     assert any(n.endswith("src/duho/AGENTS.md") for n in sdist_names)
 

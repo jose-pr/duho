@@ -65,8 +65,13 @@ Repository = "https://github.com/jose-pr/duho"
 [tool.hatch.build.targets.wheel.force-include]
 "README.md" = "duho/README.md"
 
+# Personal overrides (`*.local.*`) and agent config (`CLAUDE*`) never ship, even
+# from a tree without its .gitignore (a copy, a checkout under a `build/` directory).
 [tool.hatch.build.targets.sdist]
-exclude = ["/.*", "/benchmarks", "*.local.*"]
+exclude = ["/.*", "/benchmarks", "*.local.*", "CLAUDE*"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["*.local.*", "CLAUDE*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

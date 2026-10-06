@@ -1,4 +1,5 @@
 import argparse as _argparse
+import copy as _copy
 import typing as _ty
 
 from ._meta import NOT_DEFINED, NS
@@ -319,3 +320,28 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
             # deliberate override; keep it.
             continue
         action.default = _argparse.SUPPRESS
+
+
+def _set_private_default(child_parser, dest, value) -> None:
+    """Give ``child_parser`` its own copy of each option action for ``dest``, defaulting to ``value``.
+
+    A subparser built with ``parents=[...]`` shares the root's action objects with
+    every sibling, so changing ``action.default`` in place changes it for all of
+    them; the copy takes the child's place in the parser's registries instead.
+    """
+    for index, action in enumerate(child_parser._actions):
+        if action.dest != dest or not action.option_strings:
+            continue
+        private = _copy.copy(action)
+        private.default = value
+        child_parser._actions[index] = private
+        for option_string in action.option_strings:
+            child_parser._option_string_actions[option_string] = private
+        for group in child_parser._action_groups:
+            actions = group._group_actions
+            if action in actions:
+                actions[actions.index(action)] = private
+        for group in child_parser._mutually_exclusive_groups:
+            actions = group._group_actions
+            if action in actions:
+                actions[actions.index(action)] = private

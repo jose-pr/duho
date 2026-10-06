@@ -4,6 +4,7 @@ import typing as _ty
 
 from .. import parsers as _parsers
 from ..args._parserfix import (
+    _set_private_default as _set_private_default,
     _suppress_inherited_defaults as _suppress_inherited_defaults,
 )
 from ..discovery import (
@@ -254,6 +255,16 @@ def _finalize_command_tree(
         action._duho_display_required_ = True  # type: ignore[attr-defined]
     _formatters.install_required_usage_formatter(parser)
     for sub_parser in (subparsers.choices or {}).values():
+        # A class command's subparser shares the root's Action objects via
+        # `parents=[base_parser]`; a default it redeclares goes on a private
+        # copy so no sibling, and not the root, sees it.
+        command_cls = getattr(sub_parser, "_duho_cls_", None)
+        if command_cls is not None and command_cls is not root_cls:
+            for b in command_cls._getargs_():
+                if b.name in root_defaults:
+                    value = b._effective_default_()
+                    if value != root_defaults[b.name]:
+                        _set_private_default(sub_parser, b.name, value)
         _suppress_inherited_defaults(sub_parser, root_dests, root_defaults)
         # `parents=[base_parser]` copies EVERY root option onto each subparser,
         # including *required* globals. `_suppress_inherited_defaults` skips
@@ -302,24 +313,6 @@ def _finalize_command_tree(
                     action.dest
                 )
                 action._duho_default_source_ = None  # type: ignore[attr-defined]
-        # A `commands=`/`source=` class command's subparser
-        # shares the root's Action OBJECTS via `parents=[base_parser]` --
-        # `_suppress_inherited_defaults` correctly leaves a differing child
-        # default alone, but the shared action's OWN `.default` still needs
-        # setting to THAT child's value (a static `_subcommands_` child, built
-        # with its own dedicated actions, already gets this for free above).
-        command_cls = getattr(sub_parser, "_duho_cls_", None)
-        if command_cls is not None and command_cls is not root_cls:
-            child_defaults = {
-                b.name: b._effective_default_() for b in command_cls._getargs_()
-            }
-            differing = {
-                n: v
-                for n, v in child_defaults.items()
-                if n in root_defaults and v != root_defaults[n]
-            }
-            if differing:
-                sub_parser.set_defaults(**differing)
 
     # Thread env/config-file defaults down the app's command tree (a Cli root's
     # `_config_`, or an explicit `config`, plus each command's NS(env=...)

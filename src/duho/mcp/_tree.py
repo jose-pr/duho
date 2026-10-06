@@ -186,6 +186,10 @@ def _walk_tree(
         # successful parse this dest holds the tuple for the subparser
         # ACTUALLY reached -- not necessarily the one `call_tool` intended.
         parser.set_defaults(_duho_mcp_path_=dotted_parts)
+        if module_command is not None:
+            # Subparsers a module command's own register() hook adds are
+            # hand-made, not duho commands: they are not tools.
+            return
         for canonical, _aliases, subparser in _parsers.unique_subcommands(parser, seen):
             sub_cls = getattr(subparser, "_duho_cls_", None)
             _walk(

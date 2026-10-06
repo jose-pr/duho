@@ -8,33 +8,18 @@ from .. import _compat as _compat
 
 from ._helptext import _write_machine_text
 
-#: The shells `duho.print_completion`/`--print-completion` accept, in one
-#: place -- both the argparse `choices=` for the CLI flag and the
-#: standalone function's own validation read this, instead of duplicating the
-#: tuple (and silently drifting) between the two call sites.
+#: The shells `print_completion` and `--print-completion` accept; the flag's
+#: `choices=` and the function's validation both read this tuple.
 _COMPLETION_SHELLS = ("bash", "zsh", "fish", "powershell")
 
 
 class _Utf8SafeVersionAction(_argparse._VersionAction):
-    """Same behavior, text, and exit code as argparse's own ``action="version"``
-    (stdlib ``_VersionAction``, which this subclasses -- unchanged ``__init__``,
-    so a real ``isinstance(action, argparse._VersionAction)`` check, e.g.
-    ``parsers._is_terminal_action``'s, still recognizes it), except the
-    version string is written via :func:`duho._compat.write_human` instead
-    of ``parser._print_message``.
+    """argparse's ``version`` action, written through ``_compat.write_human``.
 
-    ``_print_message`` does ``file.write(message)`` directly and only
-    swallows ``(AttributeError, OSError)`` -- a ``UnicodeEncodeError`` from a
-    non-ASCII version/prog string propagates uncaught (empty output, exit 1)
-    on a non-UTF-8 stdout, e.g. Windows' default piped/redirected ``cp1252``.
-    ``write_human`` tries the same plain ``stream.write`` first, so the
-    common (ASCII, or already-UTF-8) case is byte-identical to stock
-    argparse; only a genuinely unrepresentable character falls back to the
-    stream's own encoding with ``errors="backslashreplace"`` instead of
-    raising. This is duho's crash-proofing for ``--version`` when
-    :func:`duho.utf8_stdio` did NOT already make stdout UTF-8 -- opted out
-    via ``_utf8_stdio_ = False``/``utf8_stdio=False``, or a parser built and
-    used outside ``duho.main``/``duho.app`` entirely.
+    ``parser._print_message`` raises ``UnicodeEncodeError`` for a non-ASCII
+    version on a non-UTF-8 stdout (a piped Windows ``cp1252``); ``write_human``
+    falls back to ``backslashreplace`` and is otherwise byte-identical.
+    Subclasses ``_VersionAction`` so ``isinstance`` checks still match.
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -50,17 +35,10 @@ class _Utf8SafeVersionAction(_argparse._VersionAction):
 
 
 class _PrintCompletionAction(_argparse.Action):
-    """argparse Action for --print-completion: emits a shell completion
-    script for the *root* parser tree and exits 0, mirroring how the
-    stdlib's own action="version" short-circuits before dispatch.
+    """``--print-completion``: emit the root parser's completion script, exit 0.
 
-    ``root_parser`` is captured at injection time (the top-level parser
-    built by this call to _parser_/_initparser_) rather than re-derived
-    from ``parser`` at call time, since a subcommand's own parser only
-    sees its own subtree, not the whole app.
-
-    The emitted script binds the root parser's ``prog`` -- the application's
-    name (see :func:`_app_name`), however the program was launched.
+    ``root_parser`` is captured at injection time because a subcommand's
+    parser sees only its own subtree. The script binds the root ``prog``.
     """
 
     def __init__(self, option_strings, dest, root_parser=None, **kwargs):
@@ -81,21 +59,15 @@ class _PrintCompletionAction(_argparse.Action):
 class _AgentHelpAction(_argparse._HelpAction):
     """``-h``/``--help`` action that emits agent help when the env trigger is set.
 
-    Installed by :meth:`Args._initparser_` via a per-instance ``__class__`` swap
-    of argparse's own ``_HelpAction`` -- the same blessed idiom ``parsers.py``
-    uses (``_NoOpHelpAction``/``_RelaxedSubParsersAction``): argparse's classes
-    are never mutated, so the surgery stays thread-safe and reentrant. When the
-    trigger env var (``_duho_agent_env_`` or the ``AGENT_HELP`` default) is set
-    truthy, it prints the machine-readable agent document for THIS parser and
-    exits 0; otherwise it defers to the normal human ``_HelpAction``.
+    Installed by a per-instance ``__class__`` swap of argparse's ``_HelpAction``,
+    so argparse's classes are never mutated. With the trigger env var
+    (``_duho_agent_env_``, default ``AGENT_HELP``) truthy it prints the agent
+    document for THIS parser; otherwise it prints the normal human help.
     """
 
-    #: The app's ROOT duho class (for version/exit-code lookup -- kept
-    #: distinct from THIS parser's own ``_duho_cls_``, which stays the current
-    #: node so a subcommand-scoped document still reports the APP's version
-    #: and exit codes, not its own usually-unset ones); the trigger env-var
-    #: name (``None`` -> the ``AGENT_HELP`` default). Both are set as instance
-    #: attrs right after the ``__class__`` swap.
+    #: The app's ROOT class (version and exit codes come from it, while
+    #: ``_duho_cls_`` stays the current node) and the trigger variable name
+    #: (``None`` means ``AGENT_HELP``); both are set after the ``__class__`` swap.
     _duho_agent_cls_ = None
     _duho_agent_env_ = None
 
@@ -108,24 +80,12 @@ class _AgentHelpAction(_argparse._HelpAction):
             )
             _compat.write_machine(_agenthelp.render(spec), _sys.stdout)
             parser.exit()
-        # Human help: show only each field's CLASS default, never a
-        # live env/config value `_stage_layers`/`_apply_default_layers_one`
-        # may have already installed as `action.default` for THIS invocation.
-        # `_stash_default_provenance` alone only stashes the class default
-        # onto each action for `DefaultsFormatter` (which only ever sees
-        # `action`, never `parser`) to read -- it does NOT touch
-        # `action.default` itself, so argparse's OWN `%(default)s` expansion
-        # (`HelpFormatter._expand_help`, which reads `action.default`
-        # directly and runs regardless of formatter) still saw the live
-        # value for any help text that spells the placeholder literally.
-        # `_redact_action_defaults` additionally swaps that attribute for the
-        # duration of this render, then restores it.
+        # Human help shows each field's class default, never a live env/config
+        # value installed as `action.default`: argparse's own `%(default)s`
+        # expansion reads that attribute whatever the formatter, so it is
+        # swapped out for the duration of the render.
         with _agenthelp._redact_action_defaults(parser):
-            # Write via the stream's own encoding with a lossy
-            # fallback (`errors="backslashreplace"`) instead of argparse's own
-            # `_print_message`, which writes strict-encoded text and raises
-            # `UnicodeEncodeError` (empty output, exit 1) for a docstring/help
-            # character outside a piped Windows console's code page.
+            # `_print_message` raises UnicodeEncodeError on a non-UTF-8 pipe.
             _compat.write_human(parser.format_help(), _sys.stdout)
         parser.exit()
 
@@ -133,10 +93,8 @@ class _AgentHelpAction(_argparse._HelpAction):
 class _AgentHelpFlagAction(_argparse.Action):
     """The opt-in ``--help-agents`` flag: always emit agent help, then exit 0.
 
-    Mirrors :class:`_PrintCompletionAction`: ``root_parser`` is captured at
-    injection time (in ``_initparser_``, before subparsers are attached) but the
-    same parser object carries the full tree by the time the flag fires at parse
-    time, so the emitted document covers every subcommand.
+    ``root_parser`` is captured before subparsers are attached; it carries the
+    full tree when the flag fires, so the document covers every subcommand.
     """
 
     def __init__(self, option_strings, dest, root_parser=None, root_cls=None, **kwargs):
@@ -156,27 +114,13 @@ class _AgentHelpFlagAction(_argparse.Action):
 
 
 def _install_agent_help(parser, cls, is_subcommand, agent_root_cls=None):
-    """Wire up both agent-help triggers on a freshly built parser.
+    """Wire both agent-help triggers onto a freshly built parser.
 
-    1. Stash ``cls`` on the parser as ``_duho_cls_`` so the emitter can enrich
-       each command with duho's field metadata (env bindings, conflicts, declared
-       types) -- see :mod:`duho.agenthelp`.
-    2. Swap every ``_HelpAction`` on this parser to :class:`_AgentHelpAction` so
-       ``--help`` becomes agent-aware (env-triggered). Always on: it only changes
-       ``--help`` behavior when the trigger env var is deliberately set, so
-       normal human help is unchanged.
-    3. On the top-level parser only, when ``_agent_help_ = True``, add the opt-in
-       ``--help-agents`` flag (guarded against a duplicate dest).
-
-    ``agent_root_cls`` is the APP's true root class, threaded down from
-    :meth:`Args._parser_`'s own recursive ``_subcommands_`` build (mirrors how
-    ``_inherited_formatter_class_`` propagates the effective help formatter) --
-    ``None`` at the true top level, where ``cls`` itself IS the root. It is
-    stashed on the (possibly swapped) help action as ``_duho_agent_cls_`` so a
-    subcommand-scoped document (``AGENT_HELP=1 app sub --help``) still reports
-    the APP's own ``_version_``/``_exit_codes_``, not the subcommand's usually
-    unset ones -- ``_duho_cls_`` itself stays ``cls`` (the current node), since
-    field metadata must still come from THIS node, not the root.
+    Stashes ``cls`` as ``parser._duho_cls_`` (the node whose field metadata is
+    described), swaps each ``_HelpAction`` for :class:`_AgentHelpAction`, and on
+    the top-level parser adds ``--help-agents`` when ``_agent_help_`` is set.
+    ``agent_root_cls`` is the app's root class (``None`` at the top, where
+    ``cls`` is the root); it supplies the version and exit codes.
     """
     parser._duho_cls_ = cls  # type: ignore[attr-defined]
     root_cls = agent_root_cls if agent_root_cls is not None else cls

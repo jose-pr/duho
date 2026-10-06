@@ -1,25 +1,16 @@
 """The env/config/instance layering pipeline.
 
-Precedence CLI > instance-override > env > config > class default.
-Conversion is deliberately DEFERRED: :func:`_apply_layers`/
-:func:`_stash_layer_state` only stash each class's own raw, unconverted
-config-table slice / env values / instance overrides onto its parser (and
-recurse into a statically declared ``_subcommands_`` tree so every node gets
-its own slice); the actual env/config/instance-to-Python conversion happens
-LAZILY inside :func:`_stage_layers`/:func:`_finalize_layers`, wired into
-``Args._initparser_``'s patched ``parse_known_args``, so a value belonging to
-a subcommand a given invocation never reaches is never even resolved.
-:func:`_apply_default_layers_one` is the one exception: an immediate,
-non-deferred sibling for a parser with no such patched hook to defer through
-(a ``duho.app`` module command's bare stdlib subparser).
+Precedence CLI > instance-override > env > config > class default. Conversion
+is deferred: :func:`_apply_layers` and :func:`_stash_layer_state` only stash
+each class's raw config slice, env values and instance overrides on its parser
+(recursing through a static ``_subcommands_`` tree); :func:`_stage_layers` and
+:func:`_finalize_layers`, wired into ``Args._initparser_``'s patched
+``parse_known_args``, convert them, so a value for a subcommand that is never
+reached is never resolved. :func:`_apply_default_layers_one` converts at once,
+for a parser with no such hook.
 
-This pipeline, and the type->spec ladder in ``_fieldspec.py``, are the two
-subsystems ``duho.args`` itself and ``duho.runtime`` both depend on. Every name here
-only needs ``cls._getargs_()`` by duck typing, so this module has no import
-of ``.args`` at module scope; the two spots that DO need something from
-there (a class's canonical name, and the live instance-explicit-fields map)
-import it lazily, function-local, to avoid a circular import (``duho.args``
-re-exports this module's public names).
+This module needs ``cls._getargs_()`` only by duck typing and imports ``.args``
+inside functions, because ``duho.args`` re-exports this module's public names.
 """
 
 from __future__ import annotations
@@ -43,19 +34,12 @@ _LOGGER = _logging.getLogger(__name__)
 
 def _raw_env_values(cls, env=None) -> dict[str, object]:
     """{field_name: raw_string} for every declared ``NS(env=...)`` var that is
-    currently set, read from `env` (a ``Mapping`` override -- e.g. a future
-    ``duho.mcp`` caller resolving env vars from somewhere other than the
-    process environment) when given, else ``os.environ``.
+    set, read from `env` (a ``Mapping``) when given, else ``os.environ``.
 
-    Left UNCONVERTED on purpose: conversion happens later, only
-    for a field the CLI turns out not to supply, inside the parser that
-    actually gets reached -- see `_stage_layers`/`_finalize_layers`.
-
-    An env var set to the EMPTY string counts as unset for every field
-    EXCEPT a bare scalar ``str`` field, which keeps the empty string as its
-    value -- matching ``Env.list``'s own "empty means absent" rule elsewhere
-    in duho (an empty ``list[Path]``/``Optional[int]`` env var must not turn
-    into ``[Path('.')]`` or raise).
+    Values stay unconverted; `_stage_layers` converts only fields the CLI does
+    not supply. An empty string counts as unset, except for a bare ``str``
+    field, which keeps it (as ``Env.list`` does, so an empty ``list[Path]`` var
+    does not become ``[Path('.')]``).
     """
     source = env if env is not None else _os.environ
     resolved: dict[str, object] = {}
@@ -79,25 +63,14 @@ def _load_config(
     path: str | _pathlib.Path,
     loader: _ty.Callable[[_pathlib.Path], dict] | None = None,
 ) -> dict:
-    """Read a config file into a plain dict, dispatching on shape.
+    """Read a config file into a plain dict.
 
-    Resolution order:
-
-    * **``loader`` hook** (``Cli._config_loader_``, if declared) -- when given, it
-      is called with the expanded ``Path`` and its result used verbatim. This is
-      the zero-dependency escape hatch: a user who wants YAML plugs their own
-      ``yaml.safe_load`` here without duho ever importing (or depending on) it.
-    * **``.json`` suffix** -- parsed with the stdlib ``json`` module (imported
-      lazily, so a non-JSON config never pays its import cost). A parse error is
-      re-raised as a ``ValueError`` naming the file.
-    * **``.toml`` / anything else** -- parsed with stdlib ``tomllib`` (3.11+) or
-      the third-party ``tomli`` IFF installed. Neither is a hard dependency (duho
-      stays zero-runtime-deps); if neither is importable a clear ``RuntimeError``
-      tells the user to ``pip install tomli``.
-
-    Both JSON and TOML yield the same nested-dict shape (top-level keys -> root
-    fields; a nested table/object named for a subcommand -> that subcommand's
-    fields), so the layering walk is format-agnostic.
+    A `loader` (``_config_loader_``) is called with the expanded path and its
+    result used verbatim. Otherwise ``.json`` goes through ``json`` (a parse
+    error becomes a ``ValueError`` naming the file) and anything else through
+    ``tomllib`` or ``tomli``; with neither importable it raises
+    ``_TomlBackendMissing``. Both formats give the same nested-dict shape: top
+    keys are root fields, a table named for a subcommand holds its fields.
     """
     p = _pathlib.Path(path).expanduser()
 
@@ -147,10 +120,9 @@ def _load_config(
 
 
 def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
-    """The subset of `config_table` naming this class's own declared fields,
-    left UNCONVERTED (a native TOML/JSON value keeps its type; conversion
-    happens later -- see `_stage_layers`/`_finalize_layers`). Unknown keys are
-    ignored (logged at debug), for forward-compat, same as before.
+    """The subset of `config_table` naming this class's declared fields,
+    unconverted (a native TOML/JSON value keeps its type). Unknown keys are
+    ignored with a debug log, so one file can serve several versions.
     """
     if not config_table:
         return {}
@@ -169,22 +141,12 @@ def _resolve_config_dict(
 ) -> dict:
     """Resolve a class's config table.
 
-    `loaded` lets a caller that already loaded the table once (`duho.app`)
-    hand it over verbatim instead of reloading it.
-
-    Otherwise: an explicit `config` kwarg is STRICT (today's behavior -- a
-    missing/invalid file raises, since the caller named it deliberately). A
-    class-level `_config_` that does not exist YET is treated as `{}` with a
-    DEBUG log -- the ordinary first-run state for a per-user path like
-    `~/.config/myapp/config.toml` -- so it never blocks `--help`/`--version`
-    on a fresh machine; its `_config_loader_` hook (if any) is not called
-    either in that case.
-
-    The loaded shape is also normalized: `None` (an empty JSON file, or a
-    `_config_loader_` such as `yaml.safe_load` returning `None` for an empty
-    file) becomes `{}`; anything else that is not a Mapping raises a clear
-    `ValueError` naming the file, instead of an opaque `AttributeError` deep
-    inside the layering walk.
+    `loaded` is handed back verbatim (``duho.app`` loaded it already). An
+    explicit `config` is strict: a missing or invalid file raises. A class
+    `_config_` that does not exist yet is ``{}`` with a debug log (the normal
+    first run), so it never blocks ``--help``, and its loader is not called.
+    ``None`` from a loader becomes ``{}``; any other non-Mapping raises a
+    ``ValueError`` naming the file.
     """
     if loaded is not None:
         return loaded
@@ -212,15 +174,11 @@ def _resolve_config_or_error(
     parser: _argparse.ArgumentParser, cls, config: str | _pathlib.Path | None
 ) -> dict:
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
-    config through ``parser.error`` like a bad value (usage line, exit 2).
+    config through ``parser.error`` (usage line, exit 2).
 
-    That covers the built-in JSON and TOML readers and the top-level shape
-    check. A ``ValueError`` raised by the class's own ``_config_loader_``
-    propagates unchanged, for the application to report.
-
-    A missing TOML backend is held on the parser and reported once parsing
-    finishes (:func:`_finalize_layers`), so ``--help`` and ``--version`` still
-    work; the config layer is then empty.
+    A ``ValueError`` from the class's own ``_config_loader_`` propagates
+    unchanged. A missing TOML backend is held on the parser and reported by
+    :func:`_finalize_layers`, so ``--help`` and ``--version`` still work.
     """
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
     try:
@@ -237,22 +195,13 @@ def _resolve_config_or_error(
 
 class _LayeredDefault:
     """Placeholder installed by :func:`_stage_layers` for a field sourced from
-    env, config, or an instance override -- not yet converted or validated.
+    env, config or an instance override, not yet converted.
 
-    argparse's own default-reconversion (``_parse_known_args``: a ``str``
-    default is run through ``type=`` again when the CLI leaves it untouched)
-    only fires for ``isinstance(action.default, str)``; this object never is
-    one, so a layered value is never silently run through a non-idempotent
-    factory a second time.
-
-    After the real parse, whichever dest on the namespace is STILL this exact
-    object (``is``, not ``==`` -- reliable even for a collection/dict field,
-    which argparse / ``_CollectionAction`` / ``UpdateAction`` REPLACE outright
-    rather than mutate when the CLI does supply the flag) was untouched by the
-    CLI and gets converted by :func:`_finalize_layers`; anything else means
-    the CLI won and the raw layered value is never even looked at (a bad
-    layered value for a field the CLI already supplies, or that
-    belongs to a subcommand never reached, never raises).
+    It is never a ``str``, so argparse does not re-run it through ``type=``.
+    After the parse, a dest that is still this exact object (``is``, since
+    argparse replaces rather than mutates it) was untouched by the CLI and
+    :func:`_finalize_layers` converts it; otherwise the CLI won and the raw
+    value is never looked at.
     """
 
     __slots__ = ("raw", "kind")
@@ -268,19 +217,9 @@ class _LayeredDefault:
         return str(self.raw)
 
 
-#: argparse action types whose CLI occurrence REPLACES whatever is already on
-#: the namespace outright (a plain store, a bool flag, duho's own collection/
-#: dict/append actions) -- so a not-yet-converted `_LayeredDefault` placeholder
-#: default is safe: the CLI either leaves it completely untouched (identity
-#: check in `_finalize_layers`) or overwrites it wholesale. `_AppendAction`
-#: (`duho.Append()`) belongs here for the same reason `_CollectionAction`
-#: does: BOTH track their running elements on a private per-parse sidecar,
-#: never by reading `namespace.<dest>` itself, so the first CLI occurrence
-#: always starts fresh regardless of what layered default was staged there.
-#: An explicit whitelist, not "everything except stdlib count/append/
-#: extend/append_const": an action type this ladder doesn't recognize at all
-#: (a user's own custom `Action` subclass) is conservatively treated as
-#: ACCUMULATING too, same as those -- see `_is_replace_semantics_action`.
+#: Actions whose CLI occurrence replaces the namespace value outright, so an
+#: unconverted `_LayeredDefault` is safe (`_AppendAction` and `_CollectionAction`
+#: keep elements on a sidecar). An allow-list: unknown actions accumulate.
 _REPLACE_SEMANTICS_ACTION_TYPES = (
     _argparse._StoreAction,
     _argparse._StoreConstAction,  # covers store_true/store_false (subclasses)
@@ -295,35 +234,21 @@ _REPLACE_SEMANTICS_ACTION_TYPES = (
 def _is_replace_semantics_action(action) -> bool:
     """True when `action`'s CLI occurrence replaces its dest outright.
 
-    False for argparse's own stdlib count/append/extend/append_const -- each
-    reads whatever is ALREADY on the namespace and accumulates onto it
-    (increments a count, appends to a list), which crashes on a
-    not-yet-converted `_LayeredDefault` placeholder (e.g. `-v` with a config
-    `verbose = 1` raising ``TypeError: unsupported operand type(s) for +:
-    '_LayeredDefault' and 'int'``) -- and for any action type not in the
-    whitelist above, conservatively, for the same reason. duho's own
-    `_AppendAction` (`duho.Append()`) is NOT stdlib "append" and IS in the
-    whitelist: unlike it, `_AppendAction` never reads the placeholder back at
-    all (see `_REPLACE_SEMANTICS_ACTION_TYPES`).
+    False for stdlib count/append/extend/append_const, which accumulate onto
+    the namespace value and would fail on a `_LayeredDefault` (``-v`` with a
+    config ``verbose = 1`` raises ``TypeError``), and for any action not in the
+    allow-list above.
     """
     return isinstance(action, _REPLACE_SEMANTICS_ACTION_TYPES)
 
 
 def _bound_lookup_choices_desc(factory) -> str | None:
-    """Describe what a *bound* lookup factory (``NS(type=SOME_MAPPING.
-    __getitem__)``/``.get``, the idiom for "convert to a value looked up in
-    this table") actually accepts, instead of the useless "expected
-    __getitem__"/"expected get" the generic ``__name__`` fallback gives --
-    that name is the FACTORY's own internal name, not a description of what
-    it converts to.
+    """Describe what a bound lookup factory (``NS(type=MAPPING.__getitem__)`` or
+    ``.get``) accepts, instead of its internal name.
 
-    ``factory.__self__`` is the mapping the bound method is attached to. A
-    small mapping (<= 20 keys) lists every key, sorted in a safe (repr-keyed,
-    so mixed/unorderable key types never raise) order; a larger one just
-    names its owner type instead of dumping the whole table. Never echoes a
-    VALUE from the mapping -- only its keys -- and never the rejected input.
-    Returns ``None`` for anything that isn't this exact shape, so the plain
-    ``__name__`` fallback still applies to every other factory.
+    A mapping of up to 20 keys lists them sorted by ``repr`` (so unorderable
+    keys never raise); a larger one names its type. Never echoes a value or the
+    rejected input. ``None`` for any other factory.
     """
     if getattr(factory, "__name__", None) not in ("__getitem__", "get"):
         return None
@@ -411,21 +336,12 @@ def _convert_layered_or_error(parser, builder, raw, kind: str, cls):
 
 
 def _restore_prior_layer_state(parser: _argparse.ArgumentParser) -> None:
-    """Undo whatever the PREVIOUS `_stage_layers` call on this same (reused)
-    parser changed to its actions'/groups' ``default``/``required``, before
-    this call computes its own layering from scratch.
+    """Undo what the previous `_stage_layers` call on this reused parser did to
+    its actions' and groups' ``default``/``required``.
 
-    A cached, reused parser (``duho.parser(cls)`` built once, then
-    ``.parse_args()`` called more than once) otherwise only behaves like a
-    freshly built one for a dest THIS call also has a layered value for -- a
-    dest whose env var was UNSET this time (removed between calls) kept the
-    STALE placeholder default and ``required=False`` the earlier call
-    installed, forever, since nothing overwrote it again (a second parse with
-    the env var cleared would otherwise silently reuse the first parse's
-    already-converted value, and a REQUIRED field with no CLI/env/config
-    value on this call would never re-raise "required"). Restoring first,
-    unconditionally, then staging fresh makes a reused parser behave exactly
-    like a new one on every call.
+    Without it a dest whose env var is unset on a later ``parse_args()`` would
+    keep the stale placeholder and ``required=False``, and a required field
+    would never re-raise.
     """
     prior_actions: dict[str, tuple[object, object]] | None = getattr(
         parser, "_duho_prior_action_state_", None
@@ -451,28 +367,12 @@ def _stage_layers(parser: _argparse.ArgumentParser, cls) -> None:
     """Install not-yet-converted env/config/instance placeholders on `parser`
     for `cls`'s own declared fields.
 
-    Reads the raw config-table slice / instance overrides / env mapping
-    `_stash_layer_state` already attached to `parser`. A parser built outside
-    `main`/`parse`/`parse_globals`/`app` has none attached: it layers `os.environ`
-    and the class's own `_config_` (never an instance), as those entry points
-    do. Precedence recorded here: instance
-    > env > config; CLI is enforced later, for free, by whichever value
-    actually ends up on the parsed namespace (see `_finalize_layers`).
-
-    Restores whatever the previous call on a REUSED parser changed
-    (`_restore_prior_layer_state`) before computing anything, so a cached
-    parser's second `parse_args()` call is never contaminated by its first.
-
-    A field whose action ACCUMULATES onto the existing namespace value
-    (count/append/extend/append_const, or any action type this ladder
-    doesn't specifically recognize -- see `_is_replace_semantics_action`) is
-    converted EAGERLY here instead of staged as a deferred placeholder: the
-    CLI's own action then increments/appends ON TOP of this already-converted
-    starting value, exactly as it always has.
-
-    Called from :meth:`Args._initparser_`'s patched ``parse_known_args``,
-    every time it runs -- lazily, so a value that belongs to a subcommand the
-    user's invocation never reaches is never even resolved.
+    Reads the slices `_stash_layer_state` attached; a parser built outside
+    `main`/`parse`/`parse_globals`/`app` has none and layers ``os.environ`` and
+    the class's own `_config_`. Precedence here is instance > env > config; the
+    CLI wins because its value replaces the placeholder on the namespace. A
+    field whose action accumulates (`_is_replace_semantics_action`) is converted
+    eagerly, so the CLI action adds to a converted value.
     """
     _restore_prior_layer_state(parser)
 
@@ -484,7 +384,7 @@ def _stage_layers(parser: _argparse.ArgumentParser, cls) -> None:
     instance_overrides = getattr(parser, "_duho_instance_overrides_", None)
     env = getattr(parser, "_duho_env_", None)
 
-    # name -> (raw, kind); precedence instance > env > config, same as before.
+    # name -> (raw, kind); later writes win: instance > env > config.
     raw_by_name: dict[str, tuple[object, str]] = {}
     for name, raw in _raw_config_values(cls, config_table).items():
         raw_by_name[name] = (raw, "config")
@@ -504,13 +404,9 @@ def _stage_layers(parser: _argparse.ArgumentParser, cls) -> None:
     eager: dict[str, object] = {}
     for name, (raw, kind) in raw_by_name.items():
         action = actions_by_dest.get(name)
-        # Drop any dest whose action is SUPPRESS-suppressed on this parser:
-        # that dest is a root field inherited by a child parser, suppressed
-        # precisely so the value the root already parsed (from an option
-        # given BEFORE the subcommand) survives. Installing a placeholder/
-        # eager default here would overwrite the SUPPRESS marker and clobber
-        # that parsed value -- the root parser's own staging already covers
-        # the real (root) field.
+        # Skip a dest SUPPRESS-suppressed here: it is a root field inherited by
+        # a child parser, and a default would clobber the value the root parsed
+        # from an option given before the subcommand.
         if action is not None and action.default is _argparse.SUPPRESS:
             continue
         sources[name] = kind
@@ -536,10 +432,8 @@ def _stage_layers(parser: _argparse.ArgumentParser, cls) -> None:
         for action in parser._actions:
             if action.dest in touched:
                 action.required = False
-        # Part 1: a layered/instance value also un-requires the WHOLE
-        # conflicts= group it belongs to -- argparse tracks a mutex group's
-        # requiredness on the GROUP object, not on the member action, so
-        # un-requiring only the action (above) is not enough.
+        # argparse tracks a mutex group's requiredness on the group, so a
+        # layered value un-requires the whole conflicts= group too.
         layered_conflicts = {
             getattr(builders_by_name[n], "conflicts", None)
             for n in touched
@@ -584,14 +478,9 @@ def _finalize_layers(parser: _argparse.ArgumentParser, cls, parsed) -> None:
         if getattr(parsed, name, None) is placeholder:
             untouched[name] = placeholder
 
-    # Part 2: an untouched layered member whose conflicts= sibling WAS
-    # given a value on the CLI loses to that sibling -- the group's
-    # exactly-one invariant wins over a stale env/config value. The sibling
-    # itself need not be layered at all (e.g. `--token-file f` with no
-    # NS(env=...) of its own), so "given" is checked against EVERY member of
-    # a relevant group, not just ones `_stage_layers` installed a placeholder
-    # for: identity against its own placeholder when it has one, else the
-    # same value-vs-effective-default heuristic `value_sources` itself uses.
+    # An untouched layered member loses to a conflicts= sibling given on the
+    # CLI. The sibling need not be layered: check identity against its
+    # placeholder, else value against the effective default.
     relevant_conflicts = {
         getattr(builders_by_name[n], "conflicts", None) for n in untouched
     } - {None}
@@ -628,31 +517,18 @@ def _finalize_layers(parser: _argparse.ArgumentParser, cls, parsed) -> None:
         setattr(parsed, name, value)
         merged[name] = value
 
-    # `.update`, never reassign: a child parser's own `_finalize_layers` may
-    # already have merged ITS results into this same dict via
-    # `_merge_layers_upward` (children finish before a parent's own finalize
-    # runs, since the real parse of a nested selection happens INSIDE this
-    # parser's own `_argparse.ArgumentParser.parse_known_args` call, above) --
-    # reassigning here would silently wipe that out.
+    # `.update`, never reassign: a child's `_finalize_layers` already merged
+    # into this dict via `_merge_layers_upward` (children finish first).
     parser._duho_merged_defaults_.update(merged)  # type: ignore[attr-defined]
 
 
 def _merge_layers_upward(parser: _argparse.ArgumentParser) -> None:
-    """Merge THIS parser's own (already-finalized) provenance/values/builders
-    up into its parent's, one level, if it has one.
+    """Merge this parser's finalized provenance, values and builders into its
+    parent's, one level.
 
-    `_duho_parent_parser_` is set at BUILD time (`Args._parser_`'s
-    `_subcommands_` loop; `runtime._register_class_command` for `duho.app`)
-    for a genuine parent/child pair. Since a NON-selected sibling's own
-    `parse_known_args` never runs at all (argparse only invokes the chosen
-    subparser), this merge only ever happens for parsers actually reached
-    during dispatch -- fixing the "last sibling in declaration order wins"
-    (the old whole-tree merge happened eagerly, at BUILD time, across every
-    sibling regardless of selection). By the time the ROOT's own closure
-    resumes after the full recursive parse, its own maps hold the union of
-    the whole SELECTED chain, which is what `value_sources` (via
-    `_duho_last_parser_`, stashed as the root's `parser`) reads -- also
-    giving a subcommand instance its inherited root fields for free.
+    `_duho_parent_parser_` is set at build time. A sibling that was not
+    selected never parses, so only the selected chain merges; the root then
+    holds the whole chain's maps, which `value_sources` reads.
     """
     parent = getattr(parser, "_duho_parent_parser_", None)
     if parent is None:
@@ -683,18 +559,13 @@ def _stash_layer_state(
     instance_overrides: dict | None = None,
     env=None,
 ) -> None:
-    """Attach `cls`'s own config-table slice (and, for the ROOT call, any
-    instance overrides / env mapping) to `parser`, then recurse into a
-    STATICALLY declared ``_subcommands_`` tree so every node gets its own
-    slice -- cheaply (pure dict slicing, so unlike the old whole-tree
-    `_apply_default_layers` walk this replaces, it can never raise).
+    """Attach `cls`'s config-table slice (for the root call also the instance
+    overrides and env mapping) to `parser`, then recurse through the static
+    ``_subcommands_`` tree. Pure dict slicing, so it cannot raise.
 
-    The actual layering (env/config/instance conversion, choices/conflicts
-    checks) happens LAZILY, inside each node's own `_initparser_`-patched
-    ``parse_known_args`` (`_stage_layers`/`_finalize_layers`), so only the
-    parser chain a given invocation actually reaches ever runs it.
-    `duho.app` stashes its dynamically-resolved commands the same way, from
-    `runtime._apply_app_config_layers`.
+    Conversion happens later in each node's patched ``parse_known_args``
+    (`_stage_layers`/`_finalize_layers`); `duho.app` stashes its dynamic
+    commands the same way from `runtime._apply_app_config_layers`.
     """
     parser._duho_raw_config_table_ = config_table or {}  # type: ignore[attr-defined]
     parser._duho_instance_overrides_ = instance_overrides  # type: ignore[attr-defined]
@@ -771,22 +642,13 @@ def _apply_layers(
     config: str | _pathlib.Path | dict | None = None,
     instance: object = None,
 ) -> dict:
-    """The one env/config/instance layering entry point, used by
-    `duho.main`, `duho.parse`, `duho.parse_globals`, and `duho.app`
-    (also exposed for a future `duho.mcp` caller).
+    """The one layering entry point, used by `duho.main`, `duho.parse`,
+    `duho.parse_globals` and `duho.app`.
 
-    Resolves `config` once (a path/None via `_resolve_config_dict`, or an
-    already-loaded dict, as `duho.app` passes having loaded it itself),
-    computes `instance`'s field overrides (see `_instance_overrides`: a value
-    `Args.__init__` seeded and nobody changed is not an override), and stashes both (plus `env`, an optional
-    Mapping override for where `NS(env=...)` vars are read from) across
-    `cls`'s static `_subcommands_` tree via `_stash_layer_state`. Actual
-    conversion is deferred -- see `_stage_layers`/`_finalize_layers` for why
-    and how (wired into `Args._initparser_`'s patched ``parse_known_args``).
-
-    Returns the resolved config dict, so a caller that also needs it for its
-    own (non-static-tree) bookkeeping -- `duho.app`, whose commands are not
-    reachable via `cls._subcommands_` -- does not have to load it twice.
+    Resolves `config` once (a path or None, or an already-loaded dict), takes
+    `instance`'s overrides (`_instance_overrides`) and stashes both, plus
+    `env`, across `cls`'s static ``_subcommands_`` tree; conversion is deferred.
+    Returns the resolved config dict so `duho.app` need not load it twice.
     """
     raw_config = (
         config
@@ -803,17 +665,11 @@ def _apply_layers(
 def _apply_default_layers_one(
     parser: _argparse.ArgumentParser, cls, config_table: dict
 ) -> None:
-    """Apply env/config layers to a single parser IMMEDIATELY (not deferred).
+    """Apply env/config layers to one parser immediately, not deferred.
 
-    Used where no `_initparser_`-patched ``parse_known_args`` hook exists to
-    defer conversion through -- `duho.app`'s MODULE commands,
-    whose subparser is deliberately a bare stdlib one (see `runtime`'s module
-    docstring), so `_stage_layers`/`_finalize_layers` never run for it. Shares
-    `convert_layered`'s choices check, the empty-env-is-unset rule, and
-    the conflicts-group un-require with the lazy
-    path used everywhere else; it does NOT defer conversion, so a bad value
-    here still raises before parsing -- a narrower, known gap than the
-    class-command path, which has no such seam available.
+    For `duho.app`'s module commands, whose subparser is a bare stdlib one with
+    no patched ``parse_known_args`` to defer through. A bad value therefore
+    raises before parsing, unlike the class-command path.
     """
     builders_by_name = {b.name: b for b in cls._getargs_()}
     sources: dict[str, str] = {}

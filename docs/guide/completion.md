@@ -44,6 +44,42 @@ PowerShell's own file completion takes over.
 `_completion_` is off by default — the same opt-in precedent as `_version_` —
 so the flag doesn't clutter `--help` for tools that don't want it.
 
+## As a subcommand
+
+Set `_completion_command_` on a `Cli` root to register a subcommand that prints the
+script instead (`True` names it `completion`, a string names it itself):
+
+<!-- runnable -->
+```python
+import duho
+from duho import Cli, Cmd
+from duho.testing import invoke
+
+class Leaf(Cmd):
+    def __call__(self):
+        return 0
+
+class App(Cli):
+    _parsername_ = "myapp"
+    _completion_command_ = True
+    _subcommands_ = [Leaf]
+
+result = invoke(App, ["completion", "fish"])
+assert result.status == 0 and result.stdout.startswith("# fish completion for myapp")
+```
+
+```bash
+myapp completion bash > ~/.local/share/bash-completion/completions/myapp
+```
+
+It takes one required positional, the shell (`bash`, `zsh`, `fish` or `powershell`),
+and writes that shell's script to stdout; the script includes the `completion`
+subcommand itself. The name must not contain whitespace or start with `-`, the app
+needs at least one other subcommand, and the name must be free (also against the MCP
+subcommand's name): otherwise the build raises `ValueError` naming
+`_completion_command_`. `duho.main` and `duho.app` both read it; there is no keyword
+argument. The command is never an MCP tool, and `--print-completion` is unchanged.
+
 ## Without the flag
 
 Generate a script without exposing the option at all:

@@ -47,12 +47,44 @@ $ app --target x --loglevel urllib3:WARNING,myapp:TRACE
 `INFO`, and they offset each other (`-vv -q` nets one step more verbose). Both
 ends of the scale clamp rather than wrapping or erroring.
 
+### Changing the starting level
+
+`_base_loglevel_` on the `LoggingArgs` root sets the level `-v` and `-q` step from. It
+is a level number or the name of a registered level; anything else is a `ValueError`
+naming it when the command is dispatched.
+
+<!-- runnable -->
+```python
+import logging
+import duho
+from duho import Cli, Cmd, LoggingArgs
+
+class Leaf(Cmd):
+    def __call__(self):
+        return 0
+
+class App(LoggingArgs, Cli):
+    _base_loglevel_ = logging.WARNING
+    _subcommands_ = [Leaf]
+
+duho.main(App, ["-v", "leaf"])
+assert logging.getLogger("app").level == logging.INFO   # -v: WARNING -> INFO
+```
+
+A plain `Cmd` leaf under a `LoggingArgs` root uses the root's value, and a command
+that overrides `_verbose_loglevel_` still wins.
+
 ## Colored output
 
 `duho.init_stderr_logging()` installs a handler with `DefaultFormatter`, which
 colors the level name with raw ANSI codes — no dependency required. Color is
 gated the same way duho's `--help` formatters are: only to a TTY, off when
-`NO_COLOR` is set, forced on with `FORCE_COLOR`.
+`NO_COLOR` is set (to anything, including empty) or `TERM=dumb`, forced on with a
+truthy `FORCE_COLOR`.
+
+The handler writes to the `sys.stderr` that is current when each record is emitted,
+so a later reassignment or redirection of `sys.stderr` is followed.
+`handler.setStream(stream)` pins an explicit stream instead.
 
 [colorama](https://pypi.org/project/colorama/) is not needed for color itself;
 when it's installed and color is enabled, `colorama.just_fix_windows_console()`
@@ -82,7 +114,11 @@ duho.add_logging_level("NOTICE", 25, color="cyan")
 ```
 
 The new level is usable as `logger.notice(...)`, participates in the `-v`/`-q`
-scale, and is accepted by `--loglevel`.
+scale, and is accepted by `--loglevel`. Registering the same name again at the same
+number does nothing; at another number it raises `ValueError` unless you pass
+`force=True`. `import duho` registers `TRACE` itself and tolerates a process that
+already defines one: an integer `TRACE` level is reused and a foreign `trace` method
+is kept. Only an explicit `add_logging_level` call raises on such a collision.
 
 ## Naming the logger
 

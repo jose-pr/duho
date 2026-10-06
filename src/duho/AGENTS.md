@@ -456,6 +456,12 @@ empty when absent).
 
 ## Logging
 
+`duho.logging` is a superset of stdlib `logging`: every public (non-underscore) stdlib
+name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
+`.LoggerAdapter`, `.WARNING`, `.DEBUG`, ... — and it adds `TRACE` (level 5). So
+`from duho import logging` can stand in for `import logging`. A name beginning with
+`_` is not forwarded (`AttributeError`). Only the names listed below are duho's own.
+
 - **`LoggingArgs`** — mixin adding `-v/--verbose`, `-q/--quiet` (both repeatable count
   flags — long spellings work alongside the short ones), and `--loglevel
   [NAME:]LEVEL[,...]` (a per-logger level spec, NOT a generic `KEY=VALUE` dict grammar —

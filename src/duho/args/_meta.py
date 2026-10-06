@@ -125,17 +125,10 @@ class Meta:
         times: Arg[int, Meta(flags=("-n", "--times"))] = 1
     """
 
-    # Field order matters: `Meta` is a plain dataclass, so positional
-    # construction (`Meta("help text")`) binds by position. The prefix
-    # through `version` matches the pre-existing (pre-`Meta`-rewrite) order
-    # exactly; `flags` takes over `dest`'s old slot (the removed `dest`
-    # field, a documented [minor] break) immediately before `kwargs`, which
-    # ALSO stays in dest's old neighboring slot -- right after `flags`, not
-    # last. Every field added SINCE `kwargs` existed (`default`) goes AFTER
-    # it: appending there, never inserting before an already-existing field,
-    # is what keeps every earlier field's positional index (`Meta("help
-    # text")`, `Meta(..., kwargs={...})`) from silently shifting each time a
-    # new one is added.
+    # Field order is the positional order of `Meta(...)`: append new fields,
+    # never insert, so earlier positional uses (`Meta("help text")`,
+    # `Meta(..., kwargs={...})`) keep their index. `flags` sits in the removed
+    # `dest`'s old slot, just before `kwargs`.
     help: _ty.Any = _META_UNSET
     env: _ty.Any = _META_UNSET
     conflicts: _ty.Any = _META_UNSET

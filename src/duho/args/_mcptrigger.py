@@ -8,9 +8,7 @@ from .. import _compat as _compat
 
 from ._naming import _app_name
 
-#: Characters a normalized MCP env-var-name segment may contain; anything
-#: else (a ``-``, a ``.``, whitespace, ...) becomes ``_``. See
-#: :func:`_mcp_env_var_name`.
+#: Characters an MCP env-var-name segment may contain; others become ``_``.
 _MCP_NAME_ALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 
@@ -44,31 +42,18 @@ def _maybe_serve_mcp_trigger(
     name: _ty.Optional[str] = None,
     core_factory: _ty.Optional[_ty.Callable[[], object]] = None,
 ) -> _ty.Optional[int]:
-    """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger;
-    called first thing by both :func:`main` and :func:`duho.runtime.app`,
-    before anything else runs.
+    """Check and consume the ``<PREFIX>MCP``/``<NAME>_MCP`` launch trigger.
 
-    Returns ``None`` when the caller should proceed with its own normal CLI
-    run: the trigger is disabled (``cls``'s own ``_mcp_`` class attribute,
-    default ``True`` -- checked via ``getattr`` so ANY class works, not just
-    a ``Cli``; the variable is then left ENTIRELY untouched),
-    the variable is unset, or it is set but empty (an explicit "no
-    preference" spelling). Otherwise the variable is REMOVED from
-    ``os.environ`` immediately (so neither this process nor any child it
-    spawns ever sees it again) and either an MCP server ran to completion --
-    returning ITS exit code -- or the value named an unsupported transport,
-    in which case a usage message is printed to stderr and ``2`` is
-    returned. ``argv`` is never consulted in server mode: the whole point of
-    server mode is to serve the CLI's own tool tree, not run one command
-    from it.
+    Called first by :func:`main` and :func:`duho.runtime.app`. Returns ``None``
+    when the caller should run its normal CLI: the class sets ``_mcp_ = False``
+    (the variable is then left untouched), or the variable is unset or empty.
+    Otherwise the variable is removed from ``os.environ`` (so no child sees it)
+    and the result is the MCP server's exit code, or ``2`` after a stderr usage
+    message for a transport other than ``stdio``. ``argv`` is never consulted.
 
-    ``core_factory`` -- a zero-arg callable returning either a ``Cmd``/``Cli``
-    class or a ``duho.mcp._ServerCore`` -- lets the caller supply an
-    ``app()``-built tree (:func:`duho.mcp._core_for_app`) instead of the
-    default :func:`duho.mcp._core_for_class(cls)`. ``duho.mcp`` is imported
-    lazily, ONLY inside the branch that actually serves (the value was
-    exactly ``"stdio"``) -- a normal run, including one where the variable
-    is merely unset, never imports it.
+    ``core_factory`` supplies an ``app()``-built tree instead of
+    ``duho.mcp._core_for_class(cls)``. ``duho.mcp`` is imported only when
+    serving.
     """
     if not getattr(cls, "_mcp_", True):
         return None
@@ -81,11 +66,8 @@ def _maybe_serve_mcp_trigger(
     if not value:
         return None
     if value != "stdio":
-        # `stripped` is env-supplied text (the `<PREFIX>MCP`/`<NAME>_MCP`
-        # value itself) -- `write_human` instead of a raw `print(...,
-        # file=sys.stderr)` so a non-ASCII value can't raise even on a
-        # stderr this module cannot assume is UTF-8 (opted out of
-        # `duho.utf8_stdio`, or this trigger reached outside `main`/`app`).
+        # `write_human`, not print(): a non-ASCII env value must not raise on a
+        # stderr that may not be UTF-8.
         _compat.write_human(
             "unsupported MCP transport %r (supported: stdio)\n" % (stripped,),
             _sys.stderr,

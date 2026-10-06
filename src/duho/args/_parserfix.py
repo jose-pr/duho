@@ -6,40 +6,20 @@ import typing as _ty
 
 from ._meta import NOT_DEFINED, NS
 
-#: `nargs` values that make a positional variable-arity -- the shape that
-#: triggers argparse's greedy positional-run-matching papercut (bpo-15112)
-#: when ANOTHER positional sits in the same parser. Verified this session
-#: (bare stdlib, no duho): `"*"` and `"?"` fail identically for a flag placed
-#: between the two positionals; `"+"` fails too, just at a different arg
-#: count (2+ trailing values instead of 1) -- all three are the trigger set.
+#: `nargs` values that make a positional variable-arity: the trigger set for
+#: argparse's greedy positional-run matching (bpo-15112) when another positional
+#: shares the parser.
 _VARIADIC_NARGS = ("*", "+", "?")
 
 
 def _has_variadic_positional(parser: _argparse.ArgumentParser) -> bool:
     """True if ``parser`` has at least one variable-arity positional.
 
-    Two DIFFERENT argparse papercuts both need this reorder, and between them
-    a single variable-arity positional is already enough to trigger one:
-
-    * A flag placed BETWEEN a variable-arity positional and ANOTHER
-      positional breaks under argparse's greedy positional-run matching
-      (bpo-15112): the run is settled against the argv slice before the next
-      optional token, so the variadic one can close out empty/short and
-      never reopen.
-    * A flag placed anywhere touching a LONE variable-arity positional's own
-      run -- with no sibling positional at all -- ALSO gets swallowed as
-      "unrecognized arguments" (bpo-14191); a previous version of this
-      docstring claimed a lone variadic positional was unaffected, which was
-      not actually true (verified this session, bare stdlib).
-
-    Both shapes are handled by the same reorder pass below, so this only
-    needs to detect "at least one variable-arity positional" -- no sibling
-    required.
-
-    The subparsers action itself (``dest="_duho_command_"``, added by
-    ``add_subparsers``) is NOT option-string-bearing either, but it is not a
-    user-declared positional field -- excluded explicitly so a root class
-    with subcommands and no OTHER declared positional doesn't false-trigger.
+    One is enough to need the reorder: a flag between it and another positional
+    breaks greedy matching (bpo-15112), and a flag touching a lone variadic
+    positional's run is swallowed as unrecognized (bpo-14191). The subparsers
+    action (``_duho_command_``) is excluded, so a root with subcommands and no
+    declared positional does not false-trigger.
     """
     positionals = [
         action
@@ -85,17 +65,12 @@ def _keep_attached_double_dash(parser: _argparse.ArgumentParser) -> None:
 
 
 def _patch_parser_for_reorder(parser: _argparse.ArgumentParser) -> None:
-    """Install JUST the flag-between-positionals reorder on a plain parser.
+    """Install only the flag-between-positionals reorder on a plain parser.
 
-    For parsers built outside ``Args._initparser_`` -- a module command's
-    subparser (``runtime._register_module_command``), built via a bare
-    ``subparsers.add_parser(...)`` -- so they never get the patched
-    ``parse_known_args`` a declarative ``Args``/``Cmd`` subparser does. That
-    parser needs neither ``"#cls"`` dispatch nor ``_passthrough_`` splitting
-    (a module command has no subclass to select and the root already owns the
-    ``--`` split), only this one fix, so a full ``_initparser_`` call would be
-    the wrong tool -- it would also try to construct an ``Args`` instance from
-    a parser that was never declared as one.
+    For a module command's subparser (``runtime._register_module_command``),
+    which never gets ``Args._initparser_``'s patched ``parse_known_args``: it
+    needs no ``"#cls"`` dispatch or ``_passthrough_`` split, and there is no
+    ``Args`` instance to build.
     """
     real_parse_known_args = parser.parse_known_args
 
@@ -131,35 +106,17 @@ def _short_cluster(known, token: str):
 def _reorder_argv_for_variadic_positional(
     parser: _argparse.ArgumentParser, argv: list[str]
 ) -> list[str]:
-    """Hoist recognized flags (+ their values) before the positional run.
+    """Hoist recognized flags (and their values) before the positional run.
 
-    Preprocessing ONLY -- never decides an input is invalid. Scans ``argv``
-    against ``parser``'s OWN, already-built ``_option_string_actions``
-    registry; a token recognized there (bare, or via its ``key`` half of a
-    ``--flag=value`` form) is hoisted, along with the value(s) its action's
-    ``nargs``/type says it consumes, into a leading ``flags`` run. Everything
-    else stays in a trailing ``positionals`` run, in original relative order.
-    Concatenating ``flags + positionals`` gives argparse a slice where the
-    positional run is contiguous and never interrupted by a flag, sidestepping
-    the greedy-matching papercut this function exists for.
+    Preprocessing only; it never decides an input is invalid. A token that the
+    parser's ``_option_string_actions`` recognizes (exact, ``--flag=value``,
+    attached short value ``-fVALUE``, or an unambiguous ``allow_abbrev`` prefix)
+    moves with its values to a leading run, so ``flags + positionals`` keeps the
+    positional run contiguous.
 
-    Recognizes a flag by exact key, by its ``--flag=value`` split, by an
-    attached short-option value (``-fVALUE``), and by an unambiguous
-    ``allow_abbrev`` long-option prefix (``--filt`` for ``--filter``)
-    -- the same spellings argparse itself accepts, so a flag written that way
-    between two positionals is hoisted exactly like its long/separate-token
-    form is.
-
-    **Bails (returns ``argv`` UNCHANGED) on anything it isn't certain about**
-    -- a `-`-prefixed token NOT recognized by any of the above (and not a
-    negative-number value the parser itself would accept, per its own
-    ``_negative_number_matcher``/``_has_negative_number_optionals``), or a
-    flag needing a value with none left in ``argv``. This is deliberate: a
-    genuine typo (``--filtr`` for ``--filter``) must still surface argparse's
-    own honest "unrecognized arguments" error through the UNMODIFIED real
-    parse, never get silently absorbed as a phantom positional value. This
-    function only ever makes a VALID input parse correctly, or gets out of
-    the way entirely.
+    Returns ``argv`` UNCHANGED on anything uncertain: an unrecognized ``-``
+    token (not an accepted negative number) or a flag missing its value. A
+    genuine typo then still gets argparse's own error from the real parse.
     """
     known = parser._option_string_actions  # type: ignore[attr-defined]
     negative_number_matcher = getattr(parser, "_negative_number_matcher", None)
@@ -186,13 +143,8 @@ def _reorder_argv_for_variadic_positional(
             positionals.extend(argv[i:])
             break
         if token == "--":
-            # A literal `--` separator is never part of THIS parser's own
-            # flag/positional grammar (duho's `_passthrough_` handling
-            # already splits argv on the FIRST `--` before this function
-            # ever sees it -- see `_initparser_`'s patched
-            # `parse_known_args` -- so reaching one here means a SECOND
-            # `--`, which is itself part of the payload). Stop reordering;
-            # everything from here on is left exactly as-is.
+            # A literal `--`: `_passthrough_` already split on the FIRST one, so
+            # this is a second, part of the payload. Stop reordering.
             positionals.extend(argv[i:])
             break
 
@@ -205,12 +157,9 @@ def _reorder_argv_for_variadic_positional(
             # value token to hoist alongside it.
             self_contained = action is not None
         if action is None and key.startswith("--") and allow_abbrev:
-            # An unambiguous long-option PREFIX under argparse's own
-            # `allow_abbrev` rule (e.g. `--filt` for `--filter`, or
-            # `--filt=value` for `--filter=value`) -- recognized only when
-            # exactly one ACTION (aliases of the same one still count as
-            # one) has an option string starting with this token's flag
-            # half (the part before `=`, when present).
+            # An unambiguous long-option PREFIX under `allow_abbrev` (`--filt`
+            # for `--filter`): exactly one ACTION, aliases counting once, has an
+            # option string starting with the flag half of the token.
             candidates = {
                 id(a): a
                 for opt, a in known.items()
@@ -240,20 +189,10 @@ def _reorder_argv_for_variadic_positional(
                 i += 1
                 continue
             if action.nargs is not None:
-                # The flag's OWN nargs is variable (`"*"`/`"+"`/`"?"`) or an
-                # explicit fixed count -- e.g. a variadic positional's own
-                # `nargs="*"`, or an OPTION field given an explicit
-                # `NS(nargs="*")` override. Confirmed (bare stdlib): a
-                # variadic-nargs FLAG placed
-                # directly before positional values, with no separator, is
-                # AMBIGUOUS FOR ARGPARSE ITSELF -- even correctly-ordered
-                # argv silently misparses (extra tokens get absorbed into
-                # the flag's own value list instead of the positional they
-                # belonged to; see `docs/guide/arguments.md` /
-                # `AGENTS.md`'s note on this shape). Reordering cannot
-                # resolve an ambiguity the REAL parser cannot resolve either
-                # -- bail unreordered rather than guess and risk swallowing
-                # a token that belonged to a positional.
+                # The flag's own nargs is variable or a fixed count: a variadic
+                # FLAG before positionals is ambiguous for argparse itself, and
+                # reordering cannot fix it. Bail rather than risk swallowing a
+                # positional's token.
                 return argv
             if i + 1 >= n:
                 # A flag needing exactly one value, with none left in argv --
@@ -270,17 +209,14 @@ def _reorder_argv_for_variadic_positional(
                 negative_number_matcher and negative_number_matcher.match(token)
             )
             if looks_negative_number and not has_negative_number_optionals:
-                # A negative-number-shaped token this parser has no
-                # negative-number-shaped OPTIONAL to collide with -- treat
-                # as a genuine positional value (mirrors argparse's own
-                # `_negative_number_matcher` logic for the same decision).
+                # A negative-number-shaped token with no negative-number-like
+                # OPTIONAL to collide with is a positional value (as argparse
+                # decides).
                 positionals.append(token)
                 i += 1
                 continue
-            # An unrecognized `-`-prefixed token. Could be a real typo, or a
-            # flag this reorder pass doesn't understand -- either way, NOT
-            # confident enough to reorder. Bail unchanged; the real parse
-            # surfaces its own honest error.
+            # Unrecognized `-` token, a typo or something not handled here:
+            # bail, and let the real parse report it.
             return argv
 
         positionals.append(token)
@@ -292,23 +228,17 @@ def _reorder_argv_for_variadic_positional(
 def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
     """Make a subcommand's inherited-option defaults not clobber the root's value.
 
-    For each action on ``child_parser`` whose ``dest`` is also a field declared
-    on the root (``root_dests``), set the action's default to ``SUPPRESS`` so
-    that, when the flag is absent from the subcommand's argv, argparse leaves the
-    namespace value the root already parsed (from an option given before the
-    subcommand) intact. Only flagged actions are touched -- positionals keep
-    their behavior, and the
-    subparsers action itself (``dest="_duho_command_"``) is never a root field.
-    A required option of the root is made non-required on the child (the root
-    enforces it) and keeps rendering as required in the child's usage.
+    For each flagged action on ``child_parser`` whose ``dest`` is in
+    ``root_dests``, the default becomes ``SUPPRESS``, so an option given before
+    the subcommand keeps the value the root parsed. Positionals and the
+    subparsers action are untouched. A required root option becomes
+    non-required on the child (the root enforces it) but still renders as
+    required in usage.
 
-    ``root_defaults`` (optional ``{dest: effective_default}``) lets the caller
-    skip suppression for a dest the child DELIBERATELY re-declares with a default
-    differing from the root's: that override is intentional and must win, so the
-    child keeps its own default rather than deferring to the root.
-
-    ``value_sources`` / config layering are unaffected: they operate on the root
-    parser's own actions, not these child copies.
+    ``root_defaults`` (``{dest: effective_default}``) skips a dest the child
+    deliberately re-declares with a different default, which must win.
+    ``value_sources`` and config layering work on the root's actions and are
+    unaffected.
     """
     root_defaults = root_defaults or {}
     for action in child_parser._actions:

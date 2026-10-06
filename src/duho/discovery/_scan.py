@@ -235,7 +235,7 @@ def discover_commands(
       **filesystem**: iterate ``sorted(dir.glob("*.py"))``, skip
       ``_``-prefixed files, import each under a synthesized unique
       ``sys.modules`` name, and collect its commands;
-    * any other ``str`` -> tried FIRST as a **dotted package**:
+    * any other ``str`` -> FIRST taken as a **dotted package**:
       ``import_module`` it, require a ``__path__`` (it must be a package, not a
       plain module), walk its submodules with ``pkgutil.iter_modules``, import
       each, and collect. Only when the name does not resolve to an importable
@@ -383,12 +383,11 @@ def _discover_from_path(
     *inside* ``directory`` is ever popped -- a command file routinely imports
     shared helper classes, or ordinary stdlib/third-party modules, as a normal
     side effect of executing its body; blindly popping every name added to
-    ``sys.modules`` during the import (as an earlier version of this function
-    did) evicted THOSE too, so a second discovered file sharing one of those
-    classes lost its ``isinstance``/``is`` identity against the first (and a
-    popped stdlib module simply reimported cleanly, but with a rebuilt C
-    extension state, on the next access -- unnecessary churn ``duho.env``
-    warned about on every run). A module with no resolvable ``__file__``
+    ``sys.modules`` during the import would evict THOSE too, so a second
+    discovered file sharing one of those classes would lose its
+    ``isinstance``/``is`` identity against the first (and a popped stdlib
+    module would reimport with a rebuilt C extension state). A module with
+    no resolvable ``__file__``
     (a namespace package, a C extension) is left alone -- there is no
     "inside/outside" ``directory`` to test, and leaving it in place is the
     safe default.

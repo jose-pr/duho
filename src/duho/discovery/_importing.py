@@ -52,7 +52,7 @@ def _import_from_path(name: str, path: _Path) -> _ModuleType:
     ``NameError``) propagates unchanged.
 
     Re-importing the SAME file (matched by resolved path + mtime, see
-    :data:`_IMPORTED_BY_PATH`) returns the previously-imported module instead
+    :data:`_IMPORTED_BY_PATH`) returns the already-imported module instead
     of executing it again under a new key -- ``name`` is then unused for that
     call.
     """

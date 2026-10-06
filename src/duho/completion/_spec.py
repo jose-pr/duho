@@ -37,9 +37,8 @@ class CompletionSpec:
     """Shell-agnostic view of a single (sub)parser and its subcommand tree."""
 
     # Field order matters: this is a plain dataclass, so positional
-    # construction binds by position. `prog` through `help` matches the
-    # pre-existing order exactly; `path` (added later) goes LAST instead of
-    # in 2nd position, so it no longer shifts every field after it.
+    # construction binds by position, so `path` goes LAST: adding a field
+    # elsewhere would shift every field after it.
     prog: str
     options: list[CompletionOption] = _dc.field(default_factory=list)
     positionals: list[CompletionPositional] = _dc.field(default_factory=list)

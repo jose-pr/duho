@@ -133,7 +133,7 @@ def zsh(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None) -> str
     dispatch, since `$line` preserves the user's raw typed form. Every
     choice and positional message is escaped for zsh's SECOND (dynamic)
     evaluation via `_zsh_word` before being wrapped in `_sq` for the first:
-    a value containing `$(...)`, `;`, or a colon can no longer run code or
+    a value containing `$(...)`, `;`, or a colon cannot run code or
     break the spec at Tab-time. The root function name itself is hashed
     (`_zsh_root_func_name`), matching `_bash_func_name`/`_fish_func_name`, so
     two progs that sanitise to the same identifier (`my-app`/`my.app`) never

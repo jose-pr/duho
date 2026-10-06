@@ -24,10 +24,7 @@ Two design points worth calling out:
   teach :class:`CmdBuilder` how to build a command from a directory shape core
   duho does not itself understand (e.g. a directory of numbered step files),
   WITHOUT core duho importing that package. If no provider matches, a directory
-  or module is imported normally.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9.
-"""
+  or module is imported normally."""
 
 from __future__ import annotations
 
@@ -93,12 +90,9 @@ from ._entrypoints import (
     discover_entry_points,
 )
 
-# `_command_name` used to be a byte-for-byte copy of `args._command_name`
-# (itself re-derived a THIRD time in `runtime.py` and inlined again in
-# `mcp.py`) -- imported directly instead, so there is exactly one definition
-# (the own-class-dict rule lives there) shared by every reader that needs
-# a command's subcommand name: `args.py` itself, `runtime.py`, `mcp.py`, and
-# `presets.LoggingArgs._logger_`.
+# `_command_name` (imported above from `duho.args`) is the one definition of
+# a command's subcommand name, with the own-class-dict rule, shared by
+# `duho.args`, `duho.runtime`, `duho.mcp` and `presets.LoggingArgs._logger_`.
 
 __all__ = [
     "Command",

@@ -47,15 +47,13 @@ def unregister_command_provider(
     predicate: _ty.Callable[[_Path], bool],
     builder: _ty.Callable[[_Path, str], object],
 ) -> None:
-    """Remove a provider previously registered with
+    """Remove a provider registered with
     :func:`register_command_provider` -- the exact ``(predicate, builder)``
     pair (matched the same way ``list.remove`` would).
 
     A no-op if that exact pair is not currently registered, so a caller does
-    not need to track whether it already unregistered. Before this,
-    the provider seam had no supported way to opt back out: a consumer
-    needing one (test isolation, a plugin reloading itself) had no choice but
-    to reach into ``_PROVIDERS`` directly.
+    not need to track whether it already unregistered. Use it for test
+    isolation or a plugin reloading itself.
     """
     try:
         _PROVIDERS.remove((predicate, builder))

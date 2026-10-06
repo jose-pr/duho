@@ -218,12 +218,10 @@ def powershell(parser: _argparse.ArgumentParser, prog: _ty.Optional[str] = None)
     # Always single-quote every inserted candidate, doubling both the ASCII
     # single quote and PowerShell's Unicode "smart" single-quote range
     # (U+2018-U+201B), which the tokenizer treats as equivalent quote
-    # characters when it delimits a string. The old code only quoted a
-    # candidate matching an ASCII metacharacter class and only doubled the
-    # ASCII quote, so a candidate containing a smart quote (never in that
-    # class) was inserted completely unquoted -- letting it close out of
-    # the argument the moment the completed line was run. Quoting
-    # unconditionally also means a bare `#` or `@` (a comment opener /
+    # characters when it delimits a string. Quoting only on an ASCII
+    # metacharacter class, or doubling only the ASCII quote, would let a
+    # smart quote close out of the argument when the completed line runs.
+    # Quoting unconditionally also means a bare `#` or `@` (a comment opener /
     # splat sigil at the start of a token) is never inserted unquoted
     # either, without needing its own special case.
     lines.append(

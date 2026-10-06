@@ -21,8 +21,8 @@ def _bash_wordlist(values: list) -> str:
     character outside the same conservative safe set `_zsh_word`/`_fish_word`
     use (so ``< > ( ) * ? [ ~ { } ! & |`` and whitespace are all covered, not
     just backslash/``$``/backtick/quotes), which also means an embedded space
-    or quote can no longer open a second, unmatched region at that re-evaluation and swallow
-    every later value into one mangled candidate. Escaping the value list is
+    or quote cannot open a second, unmatched region at that re-evaluation and
+    swallow every later value into one mangled candidate. Escaping the value list is
     not enough on its own: the joined values still ride inside one
     single-quoted argument for THIS (the static) parse, so once each value is
     safe for the second pass, single-quote the whole list (embedded single

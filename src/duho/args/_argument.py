@@ -72,19 +72,11 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
             filter(lambda x: isinstance(x, (list, tuple, set)), decl.exprs),
             None,
         )
-        if isinstance(flags_expr, set):
-            # A set has no defined iteration order, so `flags[0]` (positional
-            # detection) is nondeterministic and previously crashed. Reject it
-            # with a clear build-time error naming the field.
-            raise ValueError(
-                f"argument {name!r}: flags must be given as a list or tuple, "
-                f"not a set {flags_expr!r} (a set has no guaranteed order)"
-            )
         default_flag = _default_long_flag(name)
         if flags_expr is None:
             flags: "tuple[str, ...]" = (default_flag,)
         else:
-            flags = _expand_flag_shorthand(name, flags_expr, default_flag)
+            flags = _normalise_flags(name, flags_expr, default_flag)
         required = None
         choices = None
         metavar = None
@@ -191,6 +183,25 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         return Arg
 
 
+def _normalise_flags(name: str, flags: object, default_flag: str) -> "tuple[str, ...]":
+    """A declared flag sequence as a tuple, with the ``"--"`` shorthand expanded.
+
+    A set (no defined order) or an empty sequence raises a ``ValueError``
+    naming the field.
+    """
+    if isinstance(flags, str):
+        flags = (flags,)
+    if isinstance(flags, (set, frozenset)):
+        raise ValueError(
+            f"argument {name!r}: flags must be given as a list or tuple, "
+            f"not a set {flags!r} (a set has no guaranteed order)"
+        )
+    flags = tuple(_ty.cast("_ty.Sequence[str]", flags))
+    if not flags:
+        raise ValueError(f"argument {name!r}: flags must not be empty")
+    return _expand_flag_shorthand(name, flags, default_flag)
+
+
 def _apply_argument_options(builder: "ArgumentBuilder", options: dict) -> None:
     """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built
     ``ArgumentBuilder``.
@@ -207,6 +218,10 @@ def _apply_argument_options(builder: "ArgumentBuilder", options: dict) -> None:
     """
     for k, v in options.items():
         setattr(builder, k, v)
+    if "flags" in options:
+        builder.flags = _normalise_flags(
+            builder.name, options["flags"], _default_long_flag(builder.name)
+        )
     if "nargs" in options:
         # An explicit NS(nargs=...)/Meta(nargs=...) override wins outright --
         # clear the "came from the type ladder" marker so `_kwargs` never

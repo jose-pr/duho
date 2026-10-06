@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ast as _ast
 import functools as _functools
 import inspect as _inspect
@@ -36,7 +38,7 @@ _TypeAliasType = getattr(_ty, "TypeAliasType", None)
 
 
 @_functools.lru_cache(maxsize=None)
-def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
+def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
     """Parse a source file once and index every ClassDef by qualname.
 
     Qualname is reconstructed by walking the tree while tracking the
@@ -54,7 +56,7 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
     cookie (this previously forced a plain UTF-8 ``read_text``, which raised
     on either).
     """
-    index: "dict[str, list[_ast.ClassDef]]" = {}
+    index: dict[str, list[_ast.ClassDef]] = {}
     raw = _Path(filename).read_bytes()
     encoding, _lines = _tokenize.detect_encoding(_io.BytesIO(raw).readline)
     src = raw.decode(encoding)
@@ -109,13 +111,13 @@ _BYTES_PER_BLOCK_READ = 12_000
 
 #: file -> (mtime and size, block-read budget, first lines already read by
 #: block); the file is stat-ed once, not per class.
-_BLOCK_READS: "dict[str, tuple[tuple, int, set[int]]]" = {}
+_BLOCK_READS: dict[str, tuple[tuple, int, set[int]]] = {}
 
 
 @_functools.lru_cache(maxsize=None)
 def _classdef_from_block(
-    filename: str, firstlineno: int, name: str, nested: bool, stamp: "tuple" = ()
-) -> "_ast.ClassDef | None":
+    filename: str, firstlineno: int, name: str, nested: bool, stamp: tuple = ()
+) -> _ast.ClassDef | None:
     """The ClassDef whose statement starts at line ``firstlineno`` of
     ``filename``, parsed from that block alone; ``None`` on any doubt.
 
@@ -157,7 +159,7 @@ def _classdef_from_block(
 
 def _classdef_by_firstlineno(
     cls: type, file: str, qualname: str
-) -> "_ast.ClassDef | None":
+) -> _ast.ClassDef | None:
     """Read only ``cls``'s own statement when the interpreter recorded where
     it starts (``__firstlineno__``, 3.13+); ``None`` sends the caller to the
     whole-file index.
@@ -186,7 +188,7 @@ def _classdef_by_firstlineno(
     return _classdef_from_block(file, firstlineno, name, "." in qualname, stamp)
 
 
-def _own_annotations(cls: type) -> "dict[str, object]":
+def _own_annotations(cls: type) -> dict[str, object]:
     """``cls``'s own (never inherited) annotations, without raising on one that
     cannot be evaluated: on 3.14 (lazy annotations) such a value comes back as
     a ``ForwardRef``; before that ``vars(cls)`` holds them already evaluated.
@@ -201,8 +203,8 @@ def _own_annotations(cls: type) -> "dict[str, object]":
 
 
 def _pick_live_classdef(
-    cls: type, candidates: "list[_ast.ClassDef]"
-) -> "_ast.ClassDef | None":
+    cls: type, candidates: list[_ast.ClassDef]
+) -> _ast.ClassDef | None:
     """Pick the ClassDef Python actually bound to ``cls`` out of several
     sharing one qualname (an if/else or try/except fallback both defining the
     same name).
@@ -236,7 +238,7 @@ def _pick_live_classdef(
     own_annotations = set(_own_annotations(cls))
     own_doc = cls.__doc__
 
-    def _annotated_names(node: "_ast.ClassDef") -> "set[str]":
+    def _annotated_names(node: _ast.ClassDef) -> set[str]:
         return {
             stmt.target.id
             for stmt in node.body
@@ -254,7 +256,7 @@ def _pick_live_classdef(
     return candidates[-1]
 
 
-def getclsdef(cls: type) -> "_ast.ClassDef | None":
+def getclsdef(cls: type) -> _ast.ClassDef | None:
     """Locate the ClassDef AST node for cls. Never raises."""
     try:
         module = _sys.modules.get(getattr(cls, "__module__", None))
@@ -304,10 +306,10 @@ def getclsdef(cls: type) -> "_ast.ClassDef | None":
         return None
 
 
-_MODULE_SOURCE_READABLE: "dict[str, bool]" = {}
+_MODULE_SOURCE_READABLE: dict[str, bool] = {}
 
 
-def _module_source_readable(module_name: "str | None") -> bool:
+def _module_source_readable(module_name: str | None) -> bool:
     """True when `module_name`'s source text can be read (cached per module).
 
     Tells a class created at runtime in an ordinary source module (its module
@@ -356,7 +358,7 @@ def _merge_help_literals(cls: type, name: str, literals: list) -> list:
     space, wherever that run stands among the field's other literals. A help
     that is a single flag-shaped token is a build-time error.
     """
-    run: "list[str] | None" = None
+    run: list[str] | None = None
     in_run = False
     others: list = []
     for value in literals:
@@ -378,7 +380,7 @@ def _merge_help_literals(cls: type, name: str, literals: list) -> list:
     return [" ".join(run)] + others
 
 
-def _class_constants(cls: type) -> "dict[str, list]":
+def _class_constants(cls: type) -> dict[str, list]:
     """Scan a single class body for name -> [docstring?, *exprs] lists.
 
     Cached on the class itself (checked via vars(), not getattr, so
@@ -390,7 +392,7 @@ def _class_constants(cls: type) -> "dict[str, list]":
     if "_duho_constants_" in vars(cls):
         return cls._duho_constants_  # type: ignore
 
-    result: "dict[str, list]" = {}
+    result: dict[str, list] = {}
     if cls.__module__ not in _SKIP_MODULES:
         clsdef = getclsdef(cls)
         if clsdef is None:
@@ -461,7 +463,7 @@ def _class_constants(cls: type) -> "dict[str, list]":
     return result
 
 
-def get_clsargs_constants(cls: type) -> "dict[str, list]":
+def get_clsargs_constants(cls: type) -> dict[str, list]:
     """Resolve each field's ``[docstring?, *exprs]`` list across ``cls``'s MRO.
 
     The docstring and the non-docstring expressions (flags tuple, ``env()``
@@ -472,17 +474,17 @@ def get_clsargs_constants(cls: type) -> "dict[str, list]":
     base's help text, and one that overrides only the help text still
     inherits the base's flags.
     """
-    per_class: "dict[type, dict[str, list]]" = {}
-    names: "set[str]" = set()
+    per_class: dict[type, dict[str, list]] = {}
+    names: set[str] = set()
     for base in cls.__mro__:
         own = _class_constants(base)
         per_class[base] = own
         names.update(own)
 
-    result: "dict[str, list]" = {}
+    result: dict[str, list] = {}
     for name in names:
         docstring = None
-        exprs: "list" = []
+        exprs: list = []
         exprs_found = False
         for base in cls.__mro__:
             own = per_class[base].get(name)
@@ -541,7 +543,7 @@ def _looks_like_a_resolved_type(value: object) -> bool:
     return not isinstance(value, (bool, int, float, str, bytes, type(None)))
 
 
-def _raw_public_annotations(base: type) -> "dict[str, object]":
+def _raw_public_annotations(base: type) -> dict[str, object]:
     """``base``'s OWN (not inherited) public annotations, UNEVALUATED where
     possible.
 
@@ -582,7 +584,7 @@ def _raw_public_annotations(base: type) -> "dict[str, object]":
     """
     clsdef = None if base.__module__ in _SKIP_MODULES else getclsdef(base)
     if clsdef is not None:
-        raw: "dict[str, object]" = {}
+        raw: dict[str, object] = {}
         for node in clsdef.body:
             if isinstance(node, _ast.AnnAssign) and isinstance(node.target, _ast.Name):
                 raw[node.target.id] = _ast.unparse(node.annotation)
@@ -591,7 +593,7 @@ def _raw_public_annotations(base: type) -> "dict[str, object]":
     return {k: v for k, v in raw.items() if not k.startswith("_")}
 
 
-def _resolve_public_type_hints(cls: type) -> "dict[str, object]":
+def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls``.
 
     The fast, PRIMARY path is plain ``typing.get_type_hints(cls,
@@ -651,7 +653,7 @@ def _resolve_public_type_hints(cls: type) -> "dict[str, object]":
     return public
 
 
-def _resolve_public_type_hints_isolated(cls: type) -> "dict[str, object]":
+def _resolve_public_type_hints_isolated(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls`` (its own MRO), one field at
     a time, in complete isolation from every OTHER field. See
     :func:`_resolve_public_type_hints` (the only caller) for when and why.
@@ -665,14 +667,14 @@ def _resolve_public_type_hints_isolated(cls: type) -> "dict[str, object]":
     real class and field, never a bare ``NameError``/``TypeError`` pointing at
     neither.
     """
-    names: "dict[str, tuple[str, object]]" = {}
+    names: dict[str, tuple[str, object]] = {}
     for base in reversed(cls.__mro__):
         if base is object:
             continue
         for name, raw in _raw_public_annotations(base).items():
             names[name] = (getattr(base, "__module__", None), raw)
 
-    hints: "dict[str, object]" = {}
+    hints: dict[str, object] = {}
     for name, (module_name, raw) in names.items():
         probe = type(
             "_duho_annotation_probe_",
@@ -708,7 +710,7 @@ def _resolve_public_type_hints_isolated(cls: type) -> "dict[str, object]":
     return hints
 
 
-def _unwrap_annotated(hint, name: str, cls: type) -> "tuple[object, list]":
+def _unwrap_annotated(hint, name: str, cls: type) -> tuple[object, list]:
     """Peel a PEP 695 alias and/or ``Annotated`` metadata off ``hint``.
 
     Handles three shapes:
@@ -758,7 +760,7 @@ def _resolve_string_members(hint, cls: type, name: str):
     cannot be resolved raises a ``ValueError`` naming the field.
     """
     if isinstance(hint, str):
-        namespace: "dict[str, object]" = {}
+        namespace: dict[str, object] = {}
         for base in reversed(cls.__mro__):
             namespace.update(getattr(_sys.modules.get(base.__module__), "__dict__", {}))
         try:
@@ -786,7 +788,7 @@ def _resolve_string_members(hint, cls: type, name: str):
     return _types.GenericAlias(origin, resolved)
 
 
-def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
+def get_clsargs(cls: type) -> dict[str, ClsArgDeclaration]:
     """Build each declared field's :class:`ClsArgDeclaration` for ``cls``.
 
     Combines the AST-derived docstrings/flags/env exprs
@@ -800,7 +802,7 @@ def get_clsargs(cls: type) -> "dict[str, ClsArgDeclaration]":
 
     typehints = _resolve_public_type_hints(cls)
     constants = get_clsargs_constants(cls)
-    args: "dict[str, ClsArgDeclaration]" = {}
+    args: dict[str, ClsArgDeclaration] = {}
     for name, hint in typehints.items():
         if not _looks_like_a_resolved_type(hint):
             raise TypeError(

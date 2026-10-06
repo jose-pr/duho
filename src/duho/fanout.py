@@ -57,6 +57,8 @@ ones (already-running targets are allowed to finish) and re-raises
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import concurrent.futures as _futures
 import contextlib as _contextlib
 import contextvars as _contextvars
@@ -84,14 +86,14 @@ _LOGGER = _logging.getLogger(__name__)
 #: each worker call (so it is thread-local by virtue of each worker thread having
 #: its own context) and read by :class:`TargetPrefixFilter` to tag records. The
 #: default ``None`` means "no active target" -- records are then left unprefixed.
-current_target: "_contextvars.ContextVar[object]" = _contextvars.ContextVar(
+current_target: _contextvars.ContextVar[object] = _contextvars.ContextVar(
     "duho_fanout_current_target", default=None
 )
 
 
 #: The log-prefix text for the current target when a ``label`` was given;
 #: ``None`` means the prefix is the target itself.
-_current_label: "_contextvars.ContextVar[_ty.Optional[str]]" = _contextvars.ContextVar(
+_current_label: _contextvars.ContextVar[_ty.Optional[str]] = _contextvars.ContextVar(
     "duho_fanout_current_label", default=None
 )
 
@@ -158,9 +160,7 @@ class TargetPrefixFilter(_logging.Filter):
     3.9-3.11.
     """
 
-    def filter(
-        self, record: "_logging.LogRecord"
-    ) -> "_ty.Union[bool, _logging.LogRecord]":
+    def filter(self, record: _logging.LogRecord) -> _ty.Union[bool, _logging.LogRecord]:
         target = current_target.get()
         if target is None or getattr(record, "_duho_target_tagged_", False):
             return True
@@ -174,7 +174,7 @@ class TargetPrefixFilter(_logging.Filter):
         return record if _sys.version_info >= (3, 12) else True
 
 
-def _handlers_for(logger: "_logging.Logger") -> "list[_logging.Handler]":
+def _handlers_for(logger: _logging.Logger) -> list[_logging.Handler]:
     """Collect the effective handlers for ``logger`` (walking up to the root).
 
     Mirrors ``logging``'s own propagation: a logger with no handlers of its own
@@ -182,8 +182,8 @@ def _handlers_for(logger: "_logging.Logger") -> "list[_logging.Handler]":
     attached to whichever handlers will actually format the records. Stops at the
     first ancestor whose ``propagate`` is false (same rule as ``Logger.callHandlers``).
     """
-    handlers: "list[_logging.Handler]" = []
-    current: "_logging.Logger | None" = logger
+    handlers: list[_logging.Handler] = []
+    current: _logging.Logger | None = logger
     while current is not None:
         handlers.extend(current.handlers)
         if not current.propagate:
@@ -194,8 +194,8 @@ def _handlers_for(logger: "_logging.Logger") -> "list[_logging.Handler]":
 
 @_contextlib.contextmanager
 def target_logging(
-    logger: "_logging.Logger | None" = None,
-) -> "_ty.Iterator[TargetPrefixFilter]":
+    logger: _logging.Logger | None = None,
+) -> _ty.Iterator[TargetPrefixFilter]:
     """Install a :class:`TargetPrefixFilter` on ``logger``'s handlers, then remove it.
 
     ``logger`` defaults to the root logger (the app's stderr handler set up by
@@ -222,10 +222,10 @@ def target_logging(
 
 
 def _run_one(
-    func: "_ty.Callable[[object], object]",
+    func: _ty.Callable[[object], object],
     target: object,
-    logger: "_logging.Logger",
-    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
+    logger: _logging.Logger,
+    label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
     """Run ``func(target)`` in a target-tagged context and normalise to an exit code.
 
@@ -277,7 +277,7 @@ def _run_one(
         current_target.reset(token)
 
 
-def _worst(codes: "_ty.Sequence[int]") -> int:
+def _worst(codes: _ty.Sequence[int]) -> int:
     """Reduce per-target exit codes to the worst one, ranking by magnitude.
 
     The default ``aggregate`` for :func:`run_targets`/:func:`fan_out_command`.
@@ -292,13 +292,13 @@ def _worst(codes: "_ty.Sequence[int]") -> int:
 
 
 def run_targets(
-    func: "_ty.Callable[[object], object]",
-    targets: "_ty.Iterable[object]",
+    func: _ty.Callable[[object], object],
+    targets: _ty.Iterable[object],
     *,
-    max_workers: "int | None" = None,
-    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
-    logger: "_logging.Logger | None" = None,
-    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
+    max_workers: int | None = None,
+    aggregate: _ty.Callable[[_ty.Sequence[int]], int] = _worst,
+    logger: _logging.Logger | None = None,
+    label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
     """Run ``func(target)`` for each target concurrently; return an aggregate code.
 
@@ -382,15 +382,15 @@ def run_targets(
 
 
 def fan_out_command(
-    command: "_Command",
-    make_instance: "_ty.Callable[[object], object]",
-    targets: "_ty.Iterable[object]",
+    command: _Command,
+    make_instance: _ty.Callable[[object], object],
+    targets: _ty.Iterable[object],
     *,
     context: object = None,
-    max_workers: "int | None" = None,
-    aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
-    logger: "_logging.Logger | None" = None,
-    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
+    max_workers: int | None = None,
+    aggregate: _ty.Callable[[_ty.Sequence[int]], int] = _worst,
+    logger: _logging.Logger | None = None,
+    label: _ty.Optional[_ty.Callable[[object], str]] = None,
 ) -> int:
     """Fan a single duho ``command`` out over targets, one parsed instance each.
 

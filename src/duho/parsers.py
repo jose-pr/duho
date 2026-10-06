@@ -1,5 +1,7 @@
 """Subparser utilities and helper functions."""
 
+from __future__ import annotations
+
 import argparse as _argparse
 import typing as _ty
 
@@ -37,7 +39,7 @@ def pop_action(parser: _argparse.ArgumentParser, name: str) -> _argparse.Action:
 def insert_action(
     parser: _argparse.ArgumentParser,
     action: _argparse.Action,
-    index: "int | None" = None,
+    index: int | None = None,
 ) -> None:
     """Insert an action into a parser (optionally at a given index).
 
@@ -186,7 +188,7 @@ def enable_subparser_check(action: _argparse._SubParsersAction) -> None:
 
 def find_subparsers(
     parser: _argparse.ArgumentParser,
-) -> "_argparse._SubParsersAction | None":
+) -> _argparse._SubParsersAction | None:
     """``parser``'s subparsers action, if it has one.
 
     The one lookup every parser-tree walker needs (a parser can carry at most
@@ -260,8 +262,8 @@ def command_name(command) -> str:
 
 
 def unique_subcommands(
-    parser: _argparse.ArgumentParser, seen: "set | None" = None
-) -> "_ty.Iterator[tuple]":
+    parser: _argparse.ArgumentParser, seen: set | None = None
+) -> _ty.Iterator[tuple]:
     """Yield ``(canonical_name, aliases, subparser)`` once per DISTINCT
     subcommand of ``parser``.
 
@@ -286,8 +288,8 @@ def unique_subcommands(
     if subparsers_action is None:
         return
 
-    grouped: "dict" = {}
-    order: "list" = []
+    grouped: dict = {}
+    order: list = []
     for choice_name, subparser in (subparsers_action.choices or {}).items():
         key = id(subparser)
         if key not in grouped:
@@ -331,10 +333,10 @@ def _is_terminal_action(action: _argparse.Action) -> bool:
 
 def prerun_parse(
     parser: _argparse.ArgumentParser,
-    argv: "_ty.Sequence[str] | None" = None,
+    argv: _ty.Sequence[str] | None = None,
     *,
     quiet: bool = False,
-) -> "_argparse.Namespace":
+) -> _argparse.Namespace:
     """Parse arguments without a subcommand descent or any print-and-exit
     side effect.
 

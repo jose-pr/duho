@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import copy as _copy
 import logging as _logging
@@ -22,7 +24,7 @@ if _ty.TYPE_CHECKING:
 #: ``_getcolor`` and memoized here. ``False`` means "not yet probed";
 #: once probed, this holds the real module, or ``None`` when colorama is not
 #: installed.
-_color: "object | bool | None" = False
+_color: object | bool | None = False
 
 
 def _resolve_colorama():
@@ -71,7 +73,7 @@ _COLOR_NAME_RE = _re.compile(r"^[A-Za-z_]+(\+[A-Za-z_]+)?$")
 #: ``setattr(logging, NAME, level)`` installs) carries no marker of its own
 #: the way the lower-cased method attributes do (``_duho_level_``), so
 #: ownership is tracked here instead.
-_installed_level_names: "set[str]" = set()
+_installed_level_names: set[str] = set()
 
 
 def _getcolor(color: str):
@@ -103,7 +105,7 @@ def _getcolor(color: str):
 
 
 def add_logging_level(
-    name: str, level: int, force: bool = False, color: "str | None" = None
+    name: str, level: int, force: bool = False, color: str | None = None
 ) -> None:
     """Register a custom log level.
 
@@ -209,7 +211,7 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
         self,
         fmt="%(asctime)s | %(levelname)8s | %(name)s: %(message)s",
         datefmt=None,
-        style: "_logging._FormatStyle" = "%",
+        style: _logging._FormatStyle = "%",
         validate=True,
         *,
         color: bool = True,
@@ -232,7 +234,7 @@ class DefaultFormatter(_logging.Formatter):  # type: ignore
         return super().format(record)
 
 
-VERBOSE_LEVELS: "dict[int, list[str]]" = {}
+VERBOSE_LEVELS: dict[int, list[str]] = {}
 VERBOSE_HELP = ""
 _LEVELSIZE = 4
 
@@ -241,7 +243,7 @@ def initverbose() -> None:
     """Initialize verbose level mappings."""
     global VERBOSE_LEVELS, VERBOSE_HELP, _LEVELSIZE
 
-    levels: "dict[int, list[str]]" = {}
+    levels: dict[int, list[str]] = {}
     for name, loglevel in get_level_names_mapping().items():
         if not loglevel:
             continue
@@ -267,7 +269,7 @@ def initverbose() -> None:
 
 def parse_loglevels(
     text: str, itemdivider: str = ",", valkey_separator: str = ":"
-) -> "dict[str, int]":
+) -> dict[str, int]:
     """Parse a ``[NAME:]LEVEL[,NAME:LEVEL...]`` log level specification.
 
     ``LEVEL`` is matched against the registered level names -- first by its
@@ -334,8 +336,8 @@ class _StderrHandler(_logging.StreamHandler):
 
 
 def init_stderr_logging(
-    name: "str | None" = None, level: "int | None" = None
-) -> "_logging.Logger":
+    name: str | None = None, level: int | None = None
+) -> _logging.Logger:
     """Initialize logging to stderr with color support.
 
     Idempotent: a repeat call on the same logger (directly, or via
@@ -407,7 +409,7 @@ def traceback_enabled() -> bool:
 
 
 def log_exception(
-    logger: "_logging.Logger",
+    logger: _logging.Logger,
     msg: str,
     *args: object,
     level: int = _logging.ERROR,

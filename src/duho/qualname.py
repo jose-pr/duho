@@ -8,6 +8,8 @@ A :class:`QualName` base defines the parts/parent/join/split algebra, a
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import functools as _functools
 import pathlib as _pathlib
 import typing as _ty
@@ -23,7 +25,7 @@ class QualName:
     """Abstract dotted-name algebra: parts, parent, join/split, path mapping."""
 
     @property
-    def parts(self) -> "_ty.Sequence[str]":
+    def parts(self) -> _ty.Sequence[str]:
         """The name's parts, most-significant first (e.g. ``("a", "b", "c")``)."""
         raise NotImplementedError()
 
@@ -33,13 +35,13 @@ class QualName:
         return self.parts[-1]
 
     @_functools.cached_property
-    def parent(self) -> "QualName":
+    def parent(self) -> QualName:
         """The name with its last part dropped (e.g. ``"a.b"`` for ``"a.b.c"``)."""
         return self.qualjoin(self.parts[:-1])
 
     @classmethod
-    def _qualparts(cls, *parts: "str | _ty.Iterable[str] | QualName") -> "list[str]":
-        _parts: "list[str]" = []
+    def _qualparts(cls, *parts: str | _ty.Iterable[str] | QualName) -> list[str]:
+        _parts: list[str] = []
         for part in parts:
             if hasattr(part, "parts"):
                 _parts.extend(_ty.cast(QualName, part).parts)
@@ -50,34 +52,34 @@ class QualName:
         return [part for part in _parts if part]
 
     @classmethod
-    def qualjoin(cls, *parts: "str | _ty.Iterable[str] | QualName") -> "QualName":
+    def qualjoin(cls, *parts: str | _ty.Iterable[str] | QualName) -> QualName:
         """Join ``parts`` (strings, iterables of strings, or other qualnames)."""
         return cls._qualjoin(cls._qualparts(*parts))
 
     @classmethod
-    def qualsplit(cls, name: "str | QualName") -> "_ty.Sequence[str]":
+    def qualsplit(cls, name: str | QualName) -> _ty.Sequence[str]:
         """Split ``name`` into its parts (a qualname's ``.parts`` if it has one)."""
         if hasattr(name, "parts"):
             return _ty.cast(QualName, name).parts
         return cls._qualsplit(_ty.cast(str, name))
 
-    def with_name(self, name: str) -> "QualName":
+    def with_name(self, name: str) -> QualName:
         """This qualname's parent joined with a new last part, ``name``."""
         return self.qualjoin(self.parent, name)
 
     @classmethod
-    def _qualsplit(cls, name: str) -> "list[str]":
+    def _qualsplit(cls, name: str) -> list[str]:
         raise NotImplementedError()
 
     @classmethod
-    def _qualjoin(cls, parts: "list[str]") -> "QualName":
+    def _qualjoin(cls, parts: list[str]) -> QualName:
         raise NotImplementedError()
 
-    def __truediv__(self, key: "str | _ty.Iterable[str] | QualName") -> "QualName":
+    def __truediv__(self, key: str | _ty.Iterable[str] | QualName) -> QualName:
         """``self / key`` -- alias for ``self.qualjoin(self, key)``."""
         return self.qualjoin(self, key)
 
-    def relative_to(self, name: "QualName") -> "QualName":
+    def relative_to(self, name: QualName) -> QualName:
         """This qualname's parts with ``name``'s (a required prefix) stripped.
 
         Raises :class:`ValueError` with a readable message if ``name`` is not a
@@ -101,9 +103,9 @@ class QualName:
     def camelcase(
         self,
         start: int = 0,
-        end: "int | None" = None,
+        end: int | None = None,
         *,
-        separators: "str | _ty.Sequence[str] | None" = None,
+        separators: str | _ty.Sequence[str] | None = None,
     ) -> str:
         """``CamelCase`` over ``parts[start:end]``, then re-split on ``separators``.
 
@@ -121,7 +123,7 @@ class QualName:
         )
         return _text.camelcase(camelcased, separators=separators)
 
-    def as_path(self, root: "str | _P" = "/") -> "_P":
+    def as_path(self, root: str | _P = "/") -> _P:
         """This qualname's parts joined onto ``root`` (a :class:`~pathlib.PurePath`)."""
         if not hasattr(root, "joinpath"):
             root = _ty.cast(_P, _pathlib.PurePosixPath(root))
@@ -135,11 +137,11 @@ class DotQualNamed(QualName, str):
     SEPARATOR: str = "."
 
     @_functools.cached_property
-    def parts(self) -> "_ty.Sequence[str]":  # type: ignore[override]
+    def parts(self) -> _ty.Sequence[str]:  # type: ignore[override]
         return self._qualsplit(self)
 
     @classmethod
-    def _qualsplit(cls, name: str) -> "list[str]":
+    def _qualsplit(cls, name: str) -> list[str]:
         # Drop empty segments (a leading, trailing or doubled separator), same
         # as `_qualparts` -- otherwise a name like "a." or "a..b" carries a ""
         # part downstream, and `QualName.camelcase`'s `part[0]` raises
@@ -147,7 +149,7 @@ class DotQualNamed(QualName, str):
         return [part for part in name.split(cls.SEPARATOR) if part]
 
     @classmethod
-    def _qualjoin(cls, parts: "list[str]") -> "DotQualNamed":
+    def _qualjoin(cls, parts: list[str]) -> DotQualNamed:
         return cls(cls.SEPARATOR.join(parts))
 
 
@@ -155,7 +157,7 @@ class PythonName(DotQualNamed):
     """A dotted name whose parts are Python-safe (via :func:`duho.text.pysafe`)."""
 
     @classmethod
-    def new(cls, *parts: "str | QualName", sanitize: bool = True) -> "PythonName":
+    def new(cls, *parts: str | QualName, sanitize: bool = True) -> PythonName:
         """Build a new instance by joining ``parts``.
 
         Each dotted part is coerced through :func:`duho.text.pysafe` unless

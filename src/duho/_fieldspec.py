@@ -19,6 +19,8 @@ what actually shrinks that file's maintainability problem. Public names
 so every existing import path keeps working.
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import collections as _collections
 import datetime as _datetime
@@ -102,7 +104,7 @@ def _bool_from_text(text, /):
 _bool_from_text.__name__ = "bool"
 
 
-def _choice_checked(factory: "Factory", choices) -> "Factory":
+def _choice_checked(factory: Factory, choices) -> Factory:
     """Wrap `factory` so its result must be one of `choices`.
 
     A Union field never gets argparse's own ``choices=`` kwarg (it can't
@@ -122,7 +124,7 @@ def _choice_checked(factory: "Factory", choices) -> "Factory":
     return _checked
 
 
-def _enum_name_factory(enum_cls: type) -> "Factory":
+def _enum_name_factory(enum_cls: type) -> Factory:
     """Build a factory that resolves CLI text to an enum member by NAME.
 
     Validates against ``enum_cls.__members__`` rather than iterating
@@ -161,7 +163,7 @@ def _enum_name_factory(enum_cls: type) -> "Factory":
     return _factory
 
 
-def _enum_value_factory(enum_cls: type, field: str) -> "Factory":
+def _enum_value_factory(enum_cls: type, field: str) -> Factory:
     """Build a factory that resolves CLI text to an enum member by ``str(value)``.
 
     Two members whose values render to the same text cannot be told apart, so
@@ -169,7 +171,7 @@ def _enum_value_factory(enum_cls: type, field: str) -> "Factory":
     name for the same member) is not a clash. Raises :class:`_ConversionError`
     for text that matches no member, like :func:`_enum_name_factory`.
     """
-    by_text: "dict[str, object]" = {}
+    by_text: dict[str, object] = {}
     for member in enum_cls.__members__.values():
         text = str(member.value)
         prior = by_text.setdefault(text, member)
@@ -260,7 +262,7 @@ class _CollectionAction(_argparse.Action):
         setattr(namespace, self.dest, self._collection_(items))
 
 
-def _collection_action(collection: type) -> "type[_argparse.Action]":
+def _collection_action(collection: type) -> type[_argparse.Action]:
     """Build a ``_CollectionAction`` subclass bound to a target collection."""
 
     class _BoundCollectionAction(_CollectionAction):
@@ -329,7 +331,7 @@ class _NegatedBoolAction(_argparse.Action):
         setattr(namespace, self.dest, option_string in self._duho_negative_)
 
 
-def _split_kv(text: str, name: str) -> "tuple[str, str]":
+def _split_kv(text: str, name: str) -> tuple[str, str]:
     """Split a ``KEY=VALUE`` token on its first ``=``.
 
     Raises :class:`_ConversionError` naming the field when no ``=`` is
@@ -355,7 +357,7 @@ class _KVFactory:
     values the same way a CLI ``KEY=VALUE`` token would.
     """
 
-    def __init__(self, name: str, value_factory: "Factory"):
+    def __init__(self, name: str, value_factory: Factory):
         self.name = name
         self.value_factory = value_factory
 
@@ -378,7 +380,7 @@ class _KVFactory:
         return {key: converted}
 
 
-def _isoformat_factory(cls: type) -> "Factory":
+def _isoformat_factory(cls: type) -> Factory:
     """Build the ``fromisoformat`` factory for a date/datetime/time `cls`.
 
     Before Python 3.11, ``fromisoformat`` only accepts its OWN ``isoformat()``
@@ -429,11 +431,11 @@ _FieldSpec = _collections.namedtuple(
 )
 
 
-def _scalar_spec(factory=None) -> "_FieldSpec":
+def _scalar_spec(factory=None) -> _FieldSpec:
     return _FieldSpec(factory, None, None, None, None, NOT_DEFINED, None)
 
 
-def _literal_spec(args: tuple) -> "_FieldSpec":
+def _literal_spec(args: tuple) -> _FieldSpec:
     """Spec for a ``Literal[...]`` annotation: choices + a round-trip factory."""
     literal_types: list = []
     for lit in args:
@@ -447,7 +449,7 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
             # bool is never a valid CLI text factory on its own: bool(text) is
             # true for almost any non-empty string, so Literal[True, False]
             # with "--flag False" silently became True.
-            factory: "Factory" = _bool_from_text
+            factory: Factory = _bool_from_text
         elif isinstance(lit_ty, type) and issubclass(lit_ty, _enum.Enum):
             # A Literal of specific Enum MEMBERS (as opposed to a bare Enum
             # annotation, handled by `_enum_spec`) previously fell through to
@@ -504,7 +506,7 @@ def _literal_spec(args: tuple) -> "_FieldSpec":
     return _FieldSpec(factory, tuple(args), metavar, None, None, NOT_DEFINED, None)
 
 
-def _union_spec(members: "list", name: str, enum_by: str = "name") -> "_FieldSpec":
+def _union_spec(members: list, name: str, enum_by: str = "name") -> _FieldSpec:
     """Spec for a Union of ``members`` (``None`` already stripped).
 
     Each member is resolved through :func:`_factory_for` so a member like
@@ -584,7 +586,7 @@ def _union_spec(members: "list", name: str, enum_by: str = "name") -> "_FieldSpe
     return _scalar_spec(factory)
 
 
-def _enum_spec(tp: type, name: str = "", enum_by: str = "name") -> "_FieldSpec":
+def _enum_spec(tp: type, name: str = "", enum_by: str = "name") -> _FieldSpec:
     """Spec for an ``enum.Enum`` annotation: a choose-by-name (or, with
     ``enum_by="value"``, by-value-text) factory plus a ``{member,...}``
     metavar built from the same canonical choices."""
@@ -598,7 +600,7 @@ def _enum_spec(tp: type, name: str = "", enum_by: str = "name") -> "_FieldSpec":
     return _FieldSpec(factory, None, metavar, None, None, NOT_DEFINED, None)
 
 
-def _dict_spec(key_ty, val_ty, name: str, enum_by: str = "name") -> "_FieldSpec":
+def _dict_spec(key_ty, val_ty, name: str, enum_by: str = "name") -> _FieldSpec:
     """Spec for a ``dict[K, V]`` annotation: ``KEY=VALUE`` tokens merged via
     :class:`UpdateAction`. Bare ``dict`` == ``dict[str, str]``. Only ``str``
     keys are supported (a CLI token's key half is always text); rejected
@@ -619,7 +621,7 @@ def _dict_spec(key_ty, val_ty, name: str, enum_by: str = "name") -> "_FieldSpec"
 
 def _sequence_spec(
     collection: type, elem_ty, name: str, what: str, default, enum_by: str = "name"
-) -> "_FieldSpec":
+) -> _FieldSpec:
     """Spec for a homogeneous ``list``/``set``/``frozenset``/variadic
     ``tuple[T, ...]`` annotation.
 
@@ -670,7 +672,7 @@ def _unwrap_type_alias(tp):
         return tp
 
 
-def _member_spec(member, name: str, enum_by: str = "name") -> "_FieldSpec":
+def _member_spec(member, name: str, enum_by: str = "name") -> _FieldSpec:
     """:func:`_factory_for` for a Union member or a collection element, except
     that a type with its own ``_argbuilder_`` (the ``Argument`` protocol)
     supplies its factory, choices and metavar through that builder.
@@ -691,7 +693,7 @@ def _member_spec(member, name: str, enum_by: str = "name") -> "_FieldSpec":
     )
 
 
-def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> "tuple":
+def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> tuple:
     """Resolve a collection ELEMENT or dict VALUE type through the same
     ladder a top-level field uses, so an enum element matches by
     name, a date element parses ISO text, a bool element parses strictly,
@@ -727,7 +729,7 @@ def _element_spec(elem_ty, name: str, what: str, enum_by: str = "name") -> "tupl
     return factory, spec.choices, spec.metavar
 
 
-def _factory_for(tp, name: str, enum_by: str = "name") -> "_FieldSpec":
+def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
     """Resolve a single annotation type to its :class:`_FieldSpec`.
 
     The one dispatch ladder shared by the top-level field, every Union

@@ -25,6 +25,8 @@ import it lazily, function-local, to avoid a circular import (``args.py``
 re-exports this module's public names).
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import logging as _logging
 import os as _os
@@ -42,7 +44,7 @@ from ._fieldspec import UpdateAction as UpdateAction
 _LOGGER = _logging.getLogger(__name__)
 
 
-def _raw_env_values(cls, env=None) -> "dict[str, object]":
+def _raw_env_values(cls, env=None) -> dict[str, object]:
     """{field_name: raw_string} for every declared ``NS(env=...)`` var that is
     currently set, read from `env` (a ``Mapping`` override -- e.g. a future
     ``duho.mcp`` caller resolving env vars from somewhere other than the
@@ -59,7 +61,7 @@ def _raw_env_values(cls, env=None) -> "dict[str, object]":
     into ``[Path('.')]`` or raise).
     """
     source = env if env is not None else _os.environ
-    resolved: "dict[str, object]" = {}
+    resolved: dict[str, object] = {}
     for builder in cls._getargs_():
         if not builder.env:
             continue
@@ -77,8 +79,8 @@ class _TomlBackendMissing(RuntimeError):
 
 
 def _load_config(
-    path: "str | _pathlib.Path",
-    loader: "_ty.Callable[[_pathlib.Path], dict] | None" = None,
+    path: str | _pathlib.Path,
+    loader: _ty.Callable[[_pathlib.Path], dict] | None = None,
 ) -> dict:
     """Read a config file into a plain dict, dispatching on shape.
 
@@ -147,7 +149,7 @@ def _load_config(
             ) from None
 
 
-def _raw_config_values(cls, config_table: dict) -> "dict[str, object]":
+def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
     """The subset of `config_table` naming this class's own declared fields,
     left UNCONVERTED (a native TOML/JSON value keeps its type; conversion
     happens later -- see `_stage_layers`/`_finalize_layers`). Unknown keys are
@@ -155,7 +157,7 @@ def _raw_config_values(cls, config_table: dict) -> "dict[str, object]":
     """
     if not config_table:
         return {}
-    resolved: "dict[str, object]" = {}
+    resolved: dict[str, object] = {}
     field_names = {b.name for b in cls._getargs_()}
     for key, raw in config_table.items():
         if key not in field_names:
@@ -166,7 +168,7 @@ def _raw_config_values(cls, config_table: dict) -> "dict[str, object]":
 
 
 def _resolve_config_dict(
-    cls, config: "str | _pathlib.Path | None", *, loaded: "dict | None" = None
+    cls, config: str | _pathlib.Path | None, *, loaded: dict | None = None
 ) -> dict:
     """Resolve a class's config table.
 
@@ -210,7 +212,7 @@ def _resolve_config_dict(
 
 
 def _resolve_config_or_error(
-    parser: "_argparse.ArgumentParser", cls, config: "str | _pathlib.Path | None"
+    parser: _argparse.ArgumentParser, cls, config: str | _pathlib.Path | None
 ) -> dict:
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
     config through ``parser.error`` like a bad value (usage line, exit 2).
@@ -310,7 +312,7 @@ def _is_replace_semantics_action(action) -> bool:
     return isinstance(action, _REPLACE_SEMANTICS_ACTION_TYPES)
 
 
-def _bound_lookup_choices_desc(factory) -> "str | None":
+def _bound_lookup_choices_desc(factory) -> str | None:
     """Describe what a *bound* lookup factory (``NS(type=SOME_MAPPING.
     __getitem__)``/``.get``, the idiom for "convert to a value looked up in
     this table") actually accepts, instead of the useless "expected
@@ -411,7 +413,7 @@ def _convert_layered_or_error(parser, builder, raw, kind: str, cls):
     raise AssertionError("parser.error returned")  # pragma: no cover
 
 
-def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
+def _restore_prior_layer_state(parser: _argparse.ArgumentParser) -> None:
     """Undo whatever the PREVIOUS `_stage_layers` call on this same (reused)
     parser changed to its actions'/groups' ``default``/``required``, before
     this call computes its own layering from scratch.
@@ -428,7 +430,7 @@ def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
     unconditionally, then staging fresh makes a reused parser behave exactly
     like a new one on every call.
     """
-    prior_actions: "dict[str, tuple[object, object]] | None" = getattr(
+    prior_actions: dict[str, tuple[object, object]] | None = getattr(
         parser, "_duho_prior_action_state_", None
     )
     if prior_actions:
@@ -438,7 +440,7 @@ def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
             if action is not None:
                 action.default = default
                 action.required = required
-    prior_groups: "dict[object, bool] | None" = getattr(
+    prior_groups: dict[object, bool] | None = getattr(
         parser, "_duho_prior_group_state_", None
     )
     if prior_groups:
@@ -448,7 +450,7 @@ def _restore_prior_layer_state(parser: "_argparse.ArgumentParser") -> None:
                 group.required = prior_groups[group_key]
 
 
-def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
+def _stage_layers(parser: _argparse.ArgumentParser, cls) -> None:
     """Install not-yet-converted env/config/instance placeholders on `parser`
     for `cls`'s own declared fields.
 
@@ -486,7 +488,7 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     env = getattr(parser, "_duho_env_", None)
 
     # name -> (raw, kind); precedence instance > env > config, same as before.
-    raw_by_name: "dict[str, tuple[object, str]]" = {}
+    raw_by_name: dict[str, tuple[object, str]] = {}
     for name, raw in _raw_config_values(cls, config_table).items():
         raw_by_name[name] = (raw, "config")
     for name, raw in _raw_env_values(cls, env).items():
@@ -500,9 +502,9 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     actions_by_dest = {action.dest: action for action in parser._actions}
     builders_by_name = {b.name: b for b in cls._getargs_()}
 
-    sources: "dict[str, str]" = {}
-    placeholders: "dict[str, object]" = {}
-    eager: "dict[str, object]" = {}
+    sources: dict[str, str] = {}
+    placeholders: dict[str, object] = {}
+    eager: dict[str, object] = {}
     for name, (raw, kind) in raw_by_name.items():
         action = actions_by_dest.get(name)
         # Drop any dest whose action is SUPPRESS-suppressed on this parser:
@@ -526,8 +528,8 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
         )
 
     touched = {**placeholders, **eager}
-    prior_actions: "dict[str, tuple[object, object]]" = {}
-    prior_groups: "dict[object, bool]" = {}
+    prior_actions: dict[str, tuple[object, object]] = {}
+    prior_groups: dict[object, bool] = {}
     if touched:
         for name in touched:
             action = actions_by_dest.get(name)
@@ -561,7 +563,7 @@ def _stage_layers(parser: "_argparse.ArgumentParser", cls) -> None:
     parser._duho_prior_group_state_ = prior_groups  # type: ignore[attr-defined]
 
 
-def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
+def _finalize_layers(parser: _argparse.ArgumentParser, cls, parsed) -> None:
     """Convert whichever placeholders `_stage_layers` installed are still
     untouched on `parsed`, drop one whose ``conflicts=`` sibling was given a
     value on the CLI instead (part 2), and report a bad value the same
@@ -572,17 +574,15 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
     config_error = getattr(parser, "_duho_config_error_", None)
     if config_error:
         parser.error(config_error)
-    placeholders: "dict[str, object]" = (
-        getattr(parser, "_duho_placeholders_", None) or {}
-    )
+    placeholders: dict[str, object] = getattr(parser, "_duho_placeholders_", None) or {}
     if not placeholders:
         return
     builders_by_name = getattr(parser, "_duho_builders_", None) or {
         b.name: b for b in cls._getargs_()
     }
-    sources: "dict[str, str]" = parser._duho_value_sources_  # type: ignore[attr-defined]
+    sources: dict[str, str] = parser._duho_value_sources_  # type: ignore[attr-defined]
 
-    untouched: "dict[str, _LayeredDefault]" = {}
+    untouched: dict[str, _LayeredDefault] = {}
     for name, placeholder in placeholders.items():
         if getattr(parsed, name, None) is placeholder:
             untouched[name] = placeholder
@@ -599,7 +599,7 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
         getattr(builders_by_name[n], "conflicts", None) for n in untouched
     } - {None}
     if relevant_conflicts:
-        given_conflicts: "set[object]" = set()
+        given_conflicts: set[object] = set()
         for name, builder in builders_by_name.items():
             conflicts = getattr(builder, "conflicts", None)
             if conflicts not in relevant_conflicts or name in untouched:
@@ -619,7 +619,7 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
                 setattr(parsed, name, builders_by_name[name]._effective_default_())
                 sources.pop(name, None)
 
-    merged: "dict[str, object]" = {}
+    merged: dict[str, object] = {}
     for name, placeholder in untouched.items():
         builder = builders_by_name[name]
         if placeholder.kind == "instance":
@@ -640,7 +640,7 @@ def _finalize_layers(parser: "_argparse.ArgumentParser", cls, parsed) -> None:
     parser._duho_merged_defaults_.update(merged)  # type: ignore[attr-defined]
 
 
-def _merge_layers_upward(parser: "_argparse.ArgumentParser") -> None:
+def _merge_layers_upward(parser: _argparse.ArgumentParser) -> None:
     """Merge THIS parser's own (already-finalized) provenance/values/builders
     up into its parent's, one level, if it has one.
 
@@ -680,10 +680,10 @@ def _merge_layers_upward(parser: "_argparse.ArgumentParser") -> None:
 
 
 def _stash_layer_state(
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     cls,
-    config_table: "dict | None",
-    instance_overrides: "dict | None" = None,
+    config_table: dict | None,
+    instance_overrides: dict | None = None,
     env=None,
 ) -> None:
     """Attach `cls`'s own config-table slice (and, for the ROOT call, any
@@ -732,7 +732,7 @@ def _values_differ(a: object, b: object) -> bool:
         return True
 
 
-def _instance_overrides(instance: object) -> "dict[str, object]":
+def _instance_overrides(instance: object) -> dict[str, object]:
     """The field values of `instance` that count as set by its caller.
 
     A field counts when it was passed to the constructor or when its value
@@ -747,7 +747,7 @@ def _instance_overrides(instance: object) -> "dict[str, object]":
 
     explicit = _duho_explicit_instance_fields.get(id(instance))
     seeded = _duho_seeded_instance_values.get(id(instance))
-    overrides: "dict[str, object]" = {}
+    overrides: dict[str, object] = {}
     values = vars(instance)
     for builder in type(instance)._getargs_():
         name = builder.name
@@ -767,11 +767,11 @@ def _instance_overrides(instance: object) -> "dict[str, object]":
 
 
 def _apply_layers(
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     cls,
     *,
-    env: "_ty.Mapping[str, str] | None" = None,
-    config: "str | _pathlib.Path | dict | None" = None,
+    env: _ty.Mapping[str, str] | None = None,
+    config: str | _pathlib.Path | dict | None = None,
     instance: object = None,
 ) -> dict:
     """The one env/config/instance layering entry point, used by
@@ -804,7 +804,7 @@ def _apply_layers(
 
 
 def _apply_default_layers_one(
-    parser: "_argparse.ArgumentParser", cls, config_table: dict
+    parser: _argparse.ArgumentParser, cls, config_table: dict
 ) -> None:
     """Apply env/config layers to a single parser IMMEDIATELY (not deferred).
 
@@ -819,8 +819,8 @@ def _apply_default_layers_one(
     class-command path, which has no such seam available.
     """
     builders_by_name = {b.name: b for b in cls._getargs_()}
-    sources: "dict[str, str]" = {}
-    merged: "dict[str, object]" = {}
+    sources: dict[str, str] = {}
+    merged: dict[str, object] = {}
 
     for name, raw in _raw_config_values(cls, config_table).items():
         builder = builders_by_name[name]
@@ -875,7 +875,7 @@ def _apply_default_layers_one(
     parser._duho_merged_defaults_ = merged  # type: ignore[attr-defined]
 
 
-def value_sources(parsed) -> "dict[str, str]":
+def value_sources(parsed) -> dict[str, str]:
     """Report the origin layer ("cli", "env", "config", "instance", or
     "default") of each field on a parsed instance produced by
     `duho.parse`/`duho.main`.
@@ -916,12 +916,12 @@ def value_sources(parsed) -> "dict[str, str]":
         parser = type(parsed).__dict__.get("_duho_last_parser_")
     if parser is None:
         return {}
-    sources: "dict[str, str]" = getattr(parser, "_duho_value_sources_", None) or {}
-    merged: "dict[str, object]" = getattr(parser, "_duho_merged_defaults_", None) or {}
-    builders: "dict[str, object]" = dict(getattr(parser, "_duho_builders_", None) or {})
+    sources: dict[str, str] = getattr(parser, "_duho_value_sources_", None) or {}
+    merged: dict[str, object] = getattr(parser, "_duho_merged_defaults_", None) or {}
+    builders: dict[str, object] = dict(getattr(parser, "_duho_builders_", None) or {})
     builders.update({b.name: b for b in type(parsed)._getargs_()})
 
-    result: "dict[str, str]" = {}
+    result: dict[str, str] = {}
     for name, builder in builders.items():
         if not hasattr(parsed, name):
             continue

@@ -3,6 +3,8 @@
 Opt-in: core never imports this module (``import duho.testing`` to use it).
 """
 
+from __future__ import annotations
+
 import contextlib as _contextlib
 import io as _io
 import os as _os
@@ -23,7 +25,7 @@ class Result(_ty.NamedTuple):
     stderr: str
 
 
-def _status(code: object, stderr: "_io.StringIO") -> int:
+def _status(code: object, stderr: _io.StringIO) -> int:
     """An exit code as ``sys.exit`` would report it: text goes to stderr, status 1."""
     if code is None:
         return 0
@@ -34,7 +36,7 @@ def _status(code: object, stderr: "_io.StringIO") -> int:
 
 
 @_contextlib.contextmanager
-def _environ(overrides: "_ty.Optional[_ty.Mapping[str, str]]"):
+def _environ(overrides: _ty.Optional[_ty.Mapping[str, str]]):
     """Apply ``overrides`` to ``os.environ``, restoring every touched key on exit."""
     saved = {key: _os.environ.get(key) for key in (overrides or {})}
     _os.environ.update(overrides or {})
@@ -50,11 +52,11 @@ def _environ(overrides: "_ty.Optional[_ty.Mapping[str, str]]"):
 
 def invoke(
     root: type,
-    argv: "_ty.Sequence[str]" = (),
+    argv: _ty.Sequence[str] = (),
     *,
-    env: "_ty.Optional[_ty.Mapping[str, str]]" = None,
-    stdin: "_ty.Optional[str]" = None,
-    **app_kwargs: "_ty.Any",
+    env: _ty.Optional[_ty.Mapping[str, str]] = None,
+    stdin: _ty.Optional[str] = None,
+    **app_kwargs: _ty.Any,
 ) -> Result:
     """Run ``root`` with ``argv`` in-process and return a :class:`Result`.
 

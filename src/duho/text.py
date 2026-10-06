@@ -9,6 +9,8 @@ where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and
 raises ``TypeError``.
 """
 
+from __future__ import annotations
+
 import itertools as _itertools
 import keyword as _keyword
 import re as _re
@@ -42,8 +44,8 @@ except ImportError:  # pragma: no cover - gettext is always present in CPython
 #: The truthy/falsy text tokens every bool-ish text parser in duho matches
 #: against (CLI, env and config values, ``Env.bool``), case-insensitively after
 #: ``.strip()``. ``""`` is falsy.
-BOOL_TRUE: "_ty.FrozenSet[str]" = frozenset({"1", "true", "yes", "on", "y", "t"})
-BOOL_FALSE: "_ty.FrozenSet[str]" = frozenset({"0", "false", "no", "off", "n", "f", ""})
+BOOL_TRUE: _ty.FrozenSet[str] = frozenset({"1", "true", "yes", "on", "y", "t"})
+BOOL_FALSE: _ty.FrozenSet[str] = frozenset({"0", "false", "no", "off", "n", "f", ""})
 
 
 def parse_bool(text: str) -> bool:
@@ -83,7 +85,7 @@ def snakecase(name: str) -> str:
     std = _re.sub(r"\W|^(?=\d)", "_", std)
     std = std[0].lower() + std[1:]
 
-    def _lower(match: "_re.Match[str]") -> str:
+    def _lower(match: _re.Match[str]) -> str:
         idx = match.start()
         prefix = "" if idx == 0 or std[idx - 1] == "_" else "_"
         return prefix + match.group(0).lower()
@@ -201,7 +203,7 @@ def pysafe(text: str, separator: str = ".") -> str:
     return separator.join(_pysafe_fixup(part) for part in text.split(separator))
 
 
-def camelcase(text: str, separators: "_ty.Sequence[str] | str | None" = None) -> str:
+def camelcase(text: str, separators: _ty.Sequence[str] | str | None = None) -> str:
     """Join ``text`` into ``CamelCase``, splitting on ``separators``.
 
     ``separators`` defaults to ``(".", "_", "-")``; a single string is treated
@@ -229,15 +231,15 @@ _EXPAND_PATTERN = _re.compile(r"\[([A-Za-z0-9]+)-([A-Za-z0-9]+)(:[^\[\]]*)?\]")
 _range = range
 
 
-def unicode_range(start: str, end: str, step: int = 1) -> "_ty.Iterator[str]":
+def unicode_range(start: str, end: str, step: int = 1) -> _ty.Iterator[str]:
     """Yield characters from ``start`` to ``end`` inclusive."""
     for c in _range(ord(start), ord(end) + 1, step):
         yield chr(c)
 
 
 def range(
-    start: str, end: str, step: int = 1, format: "str | None" = None
-) -> "_ty.Iterator[str]":
+    start: str, end: str, step: int = 1, format: str | None = None
+) -> _ty.Iterator[str]:
     """Yield formatted range members between ``start`` and ``end`` inclusive.
 
     Digit endpoints produce an integer range; single-letter endpoints of the
@@ -289,7 +291,7 @@ def range(
         yield f"{{{format}}}".format(i)
 
 
-def expand(text: str) -> "_ty.Iterator[str]":
+def expand(text: str) -> _ty.Iterator[str]:
     """Expand ``[a-b]`` brace ranges in ``text``.
 
     ``expand("host[01-03]")`` yields ``host1``, ``host2``, ``host3`` (output is
@@ -316,8 +318,8 @@ def expand(text: str) -> "_ty.Iterator[str]":
         yield text
         return
 
-    literals: "list[str]" = []
-    choices: "list[list[str]]" = []
+    literals: list[str] = []
+    choices: list[list[str]] = []
     pos = 0
     for match in matches:
         literals.append(text[pos : match.start()])

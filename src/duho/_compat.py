@@ -3,6 +3,8 @@
 Centralizes all version-specific logic and fallbacks.
 """
 
+from __future__ import annotations
+
 import codecs as _codecs
 import contextvars as _contextvars
 import logging as _logging
@@ -30,7 +32,7 @@ UNION_ORIGINS: tuple = (
 #: (``args.main``, ``runtime.app``) and the one reader (``duho.mcp``, which
 #: neither writer may import at module top) can reach it with no circular
 #: import. ``default=None`` means "no app is currently dispatching".
-_MCP_CONTEXT: "_contextvars.ContextVar" = _contextvars.ContextVar(
+_MCP_CONTEXT: _contextvars.ContextVar = _contextvars.ContextVar(
     "duho_mcp_context", default=None
 )
 
@@ -48,7 +50,7 @@ def get_level_names_mapping() -> dict[str, int]:
     return _logging._nameToLevel.copy()
 
 
-def iter_entry_points(group: str) -> "list":
+def iter_entry_points(group: str) -> list:
     """Return the installed-distribution entry points in ``group``.
 
     Bridges the two ``importlib.metadata.entry_points`` shapes:
@@ -82,8 +84,8 @@ def iter_entry_points(group: str) -> "list":
         # Python 3.9 fallback (see docstring above).
         import re as _re
 
-        seen_names: "set[str]" = set()
-        result: "list" = []
+        seen_names: set[str] = set()
+        result: list = []
         for dist in _md.distributions():
             name = (dist.metadata or {}).get("Name")
             if name:
@@ -169,8 +171,8 @@ def write_human(text: str, stream=None) -> None:
 
 
 def utf8_stdio(
-    streams: "_ty.Optional[_ty.Mapping[str, _ty.Any]]" = None,
-) -> "list[str]":
+    streams: _ty.Optional[_ty.Mapping[str, _ty.Any]] = None,
+) -> list[str]:
     """Reconfigure text streams to UTF-8 in place, so piped/redirected output
     can never crash with ``UnicodeEncodeError`` for a non-ASCII character the
     host's default locale encoding (``cp1252`` on Windows, piped/captured)
@@ -225,7 +227,7 @@ def utf8_stdio(
     if getattr(_sys.flags, "utf8_mode", 0):
         return []
 
-    switched: "list[str]" = []
+    switched: list[str] = []
     for stream_name, stream in streams.items():
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:

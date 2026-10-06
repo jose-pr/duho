@@ -13,6 +13,8 @@ where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and
 raises ``TypeError``.
 """
 
+from __future__ import annotations
+
 import collections.abc as _abc
 import importlib as _importlib
 import logging as _logging
@@ -120,19 +122,19 @@ class Env(_abc.MutableMapping):
         #: Explicit values: `**env` kwargs and any later `env[k] = v` runtime
         #: write. Outranks BOTH the real environment and the companion
         #: module -- a caller/runtime write is a deliberate override.
-        self._env: "dict[str, str]" = {}
+        self._env: dict[str, str] = {}
         #: Companion-module-seeded values. Genuinely lowest precedence: a
         #: shipped default must never shadow a real exported environment
         #: variable (that inversion was a bug -- see module CHANGELOG entry).
         #: Kept separate from `self._env` so `__getitem__` can consult
         #: `os.environ` BEFORE falling back to this layer.
-        self._defaults: "dict[str, str]" = {}
+        self._defaults: dict[str, str] = {}
         #: Tombstones: keys explicitly `del`eted that are still visible via
         #: `os.environ`/`self._defaults` (an override in `self._env` is
         #: removed outright instead -- see `__delitem__`). Makes the
         #: `MutableMapping` surface (`pop`/`clear`/`popitem`/`in`) consistent
         #: WITHOUT ever mutating the real process environment.
-        self._deleted: "set[str]" = set()
+        self._deleted: set[str] = set()
         if autoload and prefix and _VALID_PREFIX_CHARS.issuperset(prefix):
             modname = f"{prefix.lower()}env"
             try:
@@ -196,8 +198,8 @@ class Env(_abc.MutableMapping):
             raise KeyError(key)
         self._deleted.add(key)
 
-    def __iter__(self) -> "_ty.Iterator[str]":
-        seen: "set[str]" = set()
+    def __iter__(self) -> _ty.Iterator[str]:
+        seen: set[str] = set()
         for key in self._env:
             seen.add(key)
             yield key
@@ -232,8 +234,8 @@ class Env(_abc.MutableMapping):
         return self.get(key, "0").strip().lower() in _compat.BOOL_TRUE
 
     def list(
-        self, key: str, sep: str = ":", ty: "_ty.Callable[[str], _T]" = str
-    ) -> "_List[_T]":
+        self, key: str, sep: str = ":", ty: _ty.Callable[[str], _T] = str
+    ) -> _List[_T]:
         """Return ``key`` split on ``sep`` with ``ty`` applied to each part.
 
         A missing or empty value yields ``[]`` -- an empty list, NOT ``[ty("")]``.
@@ -291,11 +293,11 @@ class Env(_abc.MutableMapping):
     def paths(
         self,
         key: str,
-        ty: "_ty.Callable[[str], _T]" = str,
+        ty: _ty.Callable[[str], _T] = str,
         *,
         strict: _bool = True,
-        on_reject: "_ty.Callable[[str, str], None] | None" = None,
-    ) -> "_List[_T]":
+        on_reject: _ty.Callable[[str, str], None] | None = None,
+    ) -> _List[_T]:
         """Return a path-list env var (e.g. ``CMDS_PATH``) split on the OS separator.
 
         Unlike :meth:`list` (whose ``sep`` defaults to ``":"`` for generic lists
@@ -395,8 +397,8 @@ class Env(_abc.MutableMapping):
         raw = self.get(key, "")
         if not raw:
             return []
-        result: "_List[_T]" = []
-        cwd: "_Path | None" = None
+        result: _List[_T] = []
+        cwd: _Path | None = None
         for part in raw.split(sep):
             part = part.strip()
             if not part:

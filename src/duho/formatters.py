@@ -18,6 +18,8 @@ The ANSI codes reuse ``logging.py``'s ``_asicode`` (hard-coded escapes -- no
 ``colorama`` import, so ``import duho`` pays nothing for these).
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import os as _os
 import sys as _sys

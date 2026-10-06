@@ -35,6 +35,8 @@ data, kept out of the ``import duho`` hot path (``args.py`` imports it lazily,
 only when an agent-help trigger actually fires).
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import contextlib as _contextlib
 import enum as _enum
@@ -86,14 +88,14 @@ _DEFAULT_EXIT_CODES = {
 }
 
 
-def _truthy(raw: "str | None") -> bool:
+def _truthy(raw: str | None) -> bool:
     if raw is None:
         return False
     return raw.strip().lower() not in _compat.BOOL_FALSE
 
 
 def agent_help_requested(
-    env_name: "str | None" = None, environ: "_ty.Mapping[str, str] | None" = None
+    env_name: str | None = None, environ: _ty.Mapping[str, str] | None = None
 ) -> bool:
     """True when a trigger env var is set truthy.
 
@@ -652,13 +654,13 @@ def _install_help_redaction(parser) -> None:
 
 
 def describe_parser(
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     *,
     root: bool = False,
-    root_cls: "type[_Args] | None" = None,
-    name: "str | None" = None,
-    aliases: "_ty.Sequence[str] | None" = None,
-) -> "dict":
+    root_cls: type[_Args] | None = None,
+    name: str | None = None,
+    aliases: _ty.Sequence[str] | None = None,
+) -> dict:
     """Describe one built ``ArgumentParser`` (and its subtree) as plain data.
 
     ``root`` adds the document-level keys (schema tag, version, exit codes,
@@ -670,14 +672,14 @@ def describe_parser(
 
 
 def _describe_parser(
-    parser: "_argparse.ArgumentParser",
+    parser: _argparse.ArgumentParser,
     *,
     root: bool,
-    root_cls: "type[_Args] | None",
-    name: "str | None",
-    aliases: "_ty.Sequence[str] | None",
-    seen: "set",
-) -> "dict":
+    root_cls: type[_Args] | None,
+    name: str | None,
+    aliases: _ty.Sequence[str] | None,
+    seen: set,
+) -> dict:
     """:func:`describe_parser`'s walk; ``seen`` guards against re-describing a
     subparser reached under several (alias) names."""
     builders, clsargs = _cls_metadata(parser)
@@ -779,7 +781,7 @@ def _describe_parser(
     return spec
 
 
-def describe(cls: "type[_Args]", argv: "_ty.Sequence[str] | None" = None) -> "dict":
+def describe(cls: type[_Args], argv: _ty.Sequence[str] | None = None) -> dict:
     """Build ``cls``'s parser and return its agent-help document (a dict).
 
     Standalone counterpart to the ``--help-agents`` flag / ``AGENT_HELP`` trigger:
@@ -791,7 +793,7 @@ def describe(cls: "type[_Args]", argv: "_ty.Sequence[str] | None" = None) -> "di
     return describe_parser(parser, root=True, root_cls=cls)
 
 
-def render(spec: "dict") -> str:
+def render(spec: dict) -> str:
     """Serialise an agent-help document to a JSON string (trailing newline).
 
     ``json`` is imported lazily (not at module top) so ``import duho`` never pays
@@ -812,9 +814,7 @@ def render(spec: "dict") -> str:
     return _json.dumps(spec, indent=2, ensure_ascii=True) + "\n"
 
 
-def print_agent_help(
-    cls: "type[_Args]", file: "_ty.Optional[_ty.TextIO]" = None
-) -> None:
+def print_agent_help(cls: type[_Args], file: _ty.Optional[_ty.TextIO] = None) -> None:
     """Print ``cls``'s agent-help JSON document to ``file`` (default stdout).
 
     Written via :func:`duho._compat.write_machine`: raw UTF-8

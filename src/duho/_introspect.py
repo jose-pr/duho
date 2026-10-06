@@ -3,6 +3,7 @@ import functools as _functools
 import inspect as _inspect
 import io as _io
 import logging as _logging
+import re as _re
 import sys as _sys
 import textwrap as _textwrap
 import tokenize as _tokenize
@@ -239,6 +240,40 @@ class ClsArgDeclaration:
     exprs: list
 
 
+#: A lone help literal that is only a flag (`-x`, `--long-name`, `--`): a
+#: one-element flag tuple written without its trailing comma.
+_FLAG_SHAPED = _re.compile(r"--?[A-Za-z][\w-]*|--")
+
+
+def _merge_help_literals(cls: type, name: str, literals: list) -> list:
+    """Reduce a field's literal statements to ``[help?, *non-string literals]``.
+
+    The help is the first run of consecutive string literals, joined with one
+    space, wherever that run stands among the field's other literals. A help
+    that is a single flag-shaped token is a build-time error.
+    """
+    run: "list[str] | None" = None
+    in_run = False
+    others: list = []
+    for value in literals:
+        if not isinstance(value, str):
+            in_run = False
+            others.append(value)
+        elif run is None:
+            run, in_run = [value], True
+        elif in_run:
+            run.append(value)
+    if run is None:
+        return others
+    if len(run) == 1 and _FLAG_SHAPED.fullmatch(run[0]):
+        raise ValueError(
+            f"argument {name!r} on {cls.__name__!r}: the string {run[0]!r} "
+            f"after the field would become its help text; a one-element flag "
+            f"tuple needs a trailing comma: ({run[0]!r},)"
+        )
+    return [" ".join(run)] + others
+
+
 def _class_constants(cls: type) -> "dict[str, list]":
     """Scan a single class body for name -> [docstring?, *exprs] lists.
 
@@ -329,6 +364,8 @@ def _class_constants(cls: type) -> "dict[str, list]":
                         result.setdefault(argument, []).append(value)
                 else:
                     argument = None
+            for name in result:
+                result[name] = _merge_help_literals(cls, name, result[name])
 
     try:
         setattr(cls, "_duho_constants_", result)

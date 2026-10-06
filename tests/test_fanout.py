@@ -461,22 +461,25 @@ def test_serialised_and_parallel_both_correct():
 
 
 def test_parallel_actually_overlaps():
-    """With max_workers>1 the targets run concurrently (overlap observed)."""
-    overlap = {"max": 0}
-    active = {"n": 0}
-    lock = threading.Lock()
+    """With max_workers>1 the targets run concurrently: each one waits for
+    another to be running at the same moment, which a serial run never offers."""
+    meet = threading.Barrier(2, timeout=10)
 
     def func(t):
-        with lock:
-            active["n"] += 1
-            overlap["max"] = max(overlap["max"], active["n"])
-        time.sleep(0.02)
-        with lock:
-            active["n"] -= 1
+        meet.wait()
         return 0
 
-    run_targets(func, list(range(4)), max_workers=4)
-    assert overlap["max"] >= 2  # at least two ran at once
+    assert run_targets(func, [0, 1], max_workers=2) == 0
+
+
+def test_serial_run_never_overlaps():
+    meet = threading.Barrier(2, timeout=0.2)
+
+    def func(t):
+        meet.wait()
+        return 0
+
+    assert run_targets(func, [0, 1], max_workers=1) == 1
 
 
 # --------------------------------------------------------------------------

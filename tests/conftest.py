@@ -12,10 +12,13 @@ fixtures are autouse so no test has to remember to ask for them.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import shutil
 import sys
 import sysconfig
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -31,6 +34,14 @@ _STDLIB_DIRS = tuple(
     Path(p).resolve()
     for p in {sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib")}
 )
+
+
+# hypothesis keeps its example database and constants cache under `.hypothesis`
+# in the directory pytest was started from; a temporary directory keeps the
+# suite from writing there. Set before any test module imports hypothesis.
+_HYPOTHESIS_HOME = tempfile.mkdtemp(prefix="duho-hypothesis-")
+os.environ["HYPOTHESIS_STORAGE_DIRECTORY"] = _HYPOTHESIS_HOME
+atexit.register(shutil.rmtree, _HYPOTHESIS_HOME, ignore_errors=True)
 
 
 def _has_toml_backend() -> bool:

@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import typing as _ty
 
 
-def _resolve_completion_command_name(root: "_ty.Optional[type]") -> "_ty.Optional[str]":
+def _resolve_completion_command_name(root: _ty.Optional[type]) -> _ty.Optional[str]:
     """Resolve ``root``'s opt-in completion subcommand name from ``_completion_command_``.
 
     Returns ``None`` for ``False`` (or no root), ``"completion"`` for ``True``,
@@ -23,11 +25,11 @@ def _resolve_completion_command_name(root: "_ty.Optional[type]") -> "_ty.Optiona
 
 
 def _build_completion_command_class(
-    root: "_ty.Optional[type]",
-    other_command_names: "set[str]",
+    root: _ty.Optional[type],
+    other_command_names: set[str],
     *,
     has_other_subcommand: bool,
-) -> "_ty.Optional[type]":
+) -> _ty.Optional[type]:
     """Build the per-call ``CompletionCmd`` subclass for ``root``'s ``_completion_command_``.
 
     Returns ``None`` when the attribute is off. Otherwise requires another

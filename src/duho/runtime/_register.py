@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import inspect as _inspect
 import typing as _ty
@@ -17,12 +19,12 @@ from ._arity import accepts_positional as _accepts_positional
 
 
 def _register_class_command(
-    subparsers: "_argparse._SubParsersAction",
+    subparsers: _argparse._SubParsersAction,
     command: type,
-    base_parser: "_argparse.ArgumentParser",
+    base_parser: _argparse.ArgumentParser,
     *,
     inherited_config_hint: bool = False,
-) -> "_argparse.ArgumentParser":
+) -> _argparse.ArgumentParser:
     """Register a class command under ``subparsers`` with parent-arg inheritance.
 
     Delegates to the class's own ``_parser_(subparsers, parents=[base_parser])``:
@@ -53,7 +55,7 @@ def _register_class_command(
     )
 
 
-def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
+def _wants_logger_arg(register: _ty.Callable[..., object]) -> bool:
     """True if a module ``register`` hook accepts a resolved ``logger``.
 
     A module's ``register`` may be written 2-arg ``(parser, args)``, 3-arg
@@ -88,7 +90,7 @@ def _wants_logger_arg(register: "_ty.Callable[..., object]") -> bool:
     return _accepts_positional(register, 3)
 
 
-def _wants_logger_by_keyword(register: "_ty.Callable[..., object]") -> bool:
+def _wants_logger_by_keyword(register: _ty.Callable[..., object]) -> bool:
     """True if ``register``'s logger must be passed as ``logger=...``.
 
     A keyword-only ``logger`` parameter (``def register(parser, args, *,
@@ -108,7 +110,7 @@ def _wants_logger_by_keyword(register: "_ty.Callable[..., object]") -> bool:
     )
 
 
-def _conflicting_option_strings(exc: "_argparse.ArgumentError") -> "list[str]":
+def _conflicting_option_strings(exc: _argparse.ArgumentError) -> list[str]:
     """Extract the actual conflicting option string(s) from an argparse
     ``ArgumentError`` raised by ``_ActionsContainer._handle_conflict_error``.
 
@@ -130,7 +132,7 @@ def _conflicting_option_strings(exc: "_argparse.ArgumentError") -> "list[str]":
     return [s.strip() for s in tail.split(",") if s.strip()]
 
 
-def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None":
+def _module_args_cls(command: _ModuleCommand, root_cls: type) -> type | None:
     """Resolve the effective declarative ``Args`` class for a module command.
 
     ``command.args_cls`` (see :class:`duho.discovery.ModuleCommand`) is
@@ -163,7 +165,7 @@ def _module_args_cls(command: "_ModuleCommand", root_cls: type) -> "type | None"
 
 
 def _add_module_declared_fields(
-    parser: "_argparse.ArgumentParser", args_cls: type
+    parser: _argparse.ArgumentParser, args_cls: type
 ) -> None:
     """Add ``args_cls``'s own declared fields directly to ``parser``.
 
@@ -185,9 +187,9 @@ def _add_module_declared_fields(
 
 
 def _register_module_command(
-    subparsers: "_argparse._SubParsersAction",
-    command: "_ModuleCommand",
-    base_parser: "_argparse.ArgumentParser",
+    subparsers: _argparse._SubParsersAction,
+    command: _ModuleCommand,
+    base_parser: _argparse.ArgumentParser,
     root_instance_args: object,
     root_cls: type,
 ) -> None:

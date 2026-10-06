@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import contextlib as _contextlib
 import logging as _logging
@@ -23,11 +25,11 @@ _LOGGER = _logging.getLogger(__package__)
 
 
 def _build_parser(
-    root: "type | None",
-    name: "str | None",
-    description: "str | None",
-    config: "str | _Path | None" = None,
-) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type]":
+    root: type | None,
+    name: str | None,
+    description: str | None,
+    config: str | _Path | None = None,
+) -> tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type]:
     """Build the top-level parser and a help-free base parser for ``root``.
 
     Returns ``(parser, base_parser, root_cls)``. ``root`` may be any ``Cmd``/
@@ -50,7 +52,7 @@ def _build_parser(
     (help-suppressed) just donates the root's non-help options downward.
     """
     root_cls = root if root is not None else _Args
-    parser_kwargs: "dict[str, object]" = {}
+    parser_kwargs: dict[str, object] = {}
     if name is not None:
         parser_kwargs["name"] = name
     if description is not None:
@@ -81,7 +83,7 @@ def _build_parser(
     return parser, base_parser, root_cls
 
 
-def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) -> None:
+def _deregister_subparser(subparsers: _argparse._SubParsersAction, name: str) -> None:
     """Remove a previously-registered subparser ``name``, and every alias of
     the SAME subparser, from ``subparsers``.
 
@@ -112,7 +114,7 @@ def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) 
 
 
 def _defer_module_layers(
-    sub_parser: "_argparse.ArgumentParser",
+    sub_parser: _argparse.ArgumentParser,
     args_cls: type,
     table: dict,
     agenthelp,
@@ -143,8 +145,8 @@ def _defer_module_layers(
 
 def _apply_app_config_layers(
     root_cls: type,
-    subparsers: "_argparse._SubParsersAction",
-    registry: "dict[str, tuple[str, object]]",
+    subparsers: _argparse._SubParsersAction,
+    registry: dict[str, tuple[str, object]],
     raw_config: dict,
 ) -> None:
     """Thread env/config-file defaults down a ``Cli`` app's command tree.
@@ -218,7 +220,7 @@ def _apply_app_config_layers(
 
 
 @_contextlib.contextmanager
-def _unrequired_options(parser: "_argparse.ArgumentParser", root_cls: type):
+def _unrequired_options(parser: _argparse.ArgumentParser, root_cls: type):
     """Treat the root's required options as optional for the duration.
 
     Lets the advisory prepass parse (and so hand a ``register`` hook an
@@ -240,13 +242,13 @@ def _unrequired_options(parser: "_argparse.ArgumentParser", root_cls: type):
 
 
 def _prepare_app_parser(
-    root: "type | None",
-    name: "str | None",
-    description: "str | None",
-    config: "str | _Path | None",
-    argv: "_ty.Sequence[str] | None",
-    resolved_commands: "list[_Command]",
-) -> "tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type, dict, object]":
+    root: type | None,
+    name: str | None,
+    description: str | None,
+    config: str | _Path | None,
+    argv: _ty.Sequence[str] | None,
+    resolved_commands: list[_Command],
+) -> tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type, dict, object]:
     """Build :func:`app`'s top-level parser and run its advisory prepass.
 
     Returns ``(parser, base_parser, root_cls, raw_config, prepass_args)``.

@@ -41,6 +41,8 @@ No target fan-out / thread pools live here -- a single command is dispatched.
 Parallel/fan-out patterns are a documented client wrapper and a future add-on.
 """
 
+from __future__ import annotations
+
 import argparse as _argparse
 import inspect as _inspect
 import logging as _logging

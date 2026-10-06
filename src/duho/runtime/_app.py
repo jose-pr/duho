@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import logging as _logging
 import typing as _ty
@@ -26,15 +28,15 @@ _LOGGER = _logging.getLogger(__package__)
 
 
 def _run_app(
-    parser: "_argparse.ArgumentParser",
-    argv: "_ty.Sequence[str] | None",
-    env: "_Env | None",
+    parser: _argparse.ArgumentParser,
+    argv: _ty.Sequence[str] | None,
+    env: _Env | None,
     setup_logging: bool,
     root_cls: type,
-    required_root_actions: "list[_argparse.Action]",
-    cmds_path_overridden: "set[str]",
-    notices: "list[tuple[int, str]]",
-    run: "_ty.Callable[[_Command, object], int]",
+    required_root_actions: list[_argparse.Action],
+    cmds_path_overridden: set[str],
+    notices: list[tuple[int, str]],
+    run: _ty.Callable[[_Command, object], int],
 ) -> int:
     """Parse ``argv``, finish per-invocation setup, and dispatch one command.
 
@@ -125,9 +127,9 @@ def _run_app(
 
 
 def _default_run(
-    dispatch: "_ty.Optional[_ty.Callable[[_Command, object], int]]",
-    adapter: "_ty.Optional[_ty.Callable[..., object]]",
-) -> "_ty.Callable[[_Command, object], int]":
+    dispatch: _ty.Optional[_ty.Callable[[_Command, object], int]],
+    adapter: _ty.Optional[_ty.Callable[..., object]],
+) -> _ty.Callable[[_Command, object], int]:
     """The final run step: ``dispatch``, else :func:`run_command` bound to ``adapter``."""
     if dispatch is not None:
         if adapter is not None:
@@ -142,24 +144,28 @@ def _default_run(
 
 
 def app(
-    root: "type | None" = None,
+    root: type | None = None,
     *,
-    commands: "_ty.Sequence[_Command] | None" = None,
-    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]" = None,
-    entry_points: "str | None" = None,
-    argv: "_ty.Sequence[str] | None" = None,
-    name: "str | None" = None,
-    description: "str | None" = None,
-    env: "_Env | None" = None,
-    config: "str | _Path | None" = None,
+    commands: _ty.Sequence[_Command] | None = None,
+    source: _ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None] = None,
+    entry_points: str | None = None,
+    argv: _ty.Sequence[str] | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    env: _Env | None = None,
+    config: str | _Path | None = None,
     setup_logging: bool = True,
-    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
-    mcp: "bool | None" = None,
-    mcp_command: "str | bool | None" = None,
-    utf8_stdio: "bool | None" = None,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
-) -> "_ty.Any":
+    dispatch: _ty.Callable[[_Command, object], int] | None = None,
+    mcp: bool | None = None,
+    mcp_command: str | bool | None = None,
+    utf8_stdio: bool | None = None,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+    adapter: _ty.Optional[
+        _ty.Callable[
+            [_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]
+        ]
+    ] = None,
+) -> _ty.Any:
     """Build a multi-command app, parse ``argv``, and dispatch one command.
 
     ``root`` is a ``Cmd``/``Args``/``LoggingArgs`` subclass supplying the app's
@@ -336,7 +342,7 @@ def app(
     # registry collision for the SAME name is this very (intentional,
     # already-accounted-for) override, not a second, independent one worth
     # its own warning.
-    cmds_path_overridden: "set[str]" = set()
+    cmds_path_overridden: set[str] = set()
     resolved_commands = _resolve_commands(
         root,
         commands,
@@ -414,12 +420,12 @@ def app(
 
 
 def _make_post_parse_dispatch(
-    env: "_Env | None",
+    env: _Env | None,
     root_cls: type,
-    notices: "list[tuple[int, str]]",
-    cmds_path_overridden: "set[str]",
-    run: "_ty.Callable[[object, object], int]" = run_command,
-) -> "_ty.Callable[[object, object], int]":
+    notices: list[tuple[int, str]],
+    cmds_path_overridden: set[str],
+    run: _ty.Callable[[object, object], int] = run_command,
+) -> _ty.Callable[[object, object], int]:
     """Build a ``dispatch(command, instance) -> int`` closure replicating
     :func:`_run_app`'s POST-parse steps for one already-parsed instance:
     attaching the resolved ``env`` as ``instance._env_``, logging setup
@@ -457,20 +463,24 @@ def _make_post_parse_dispatch(
 
 
 def _build_app_core(
-    root: "type | None" = None,
+    root: type | None = None,
     *,
-    commands: "_ty.Sequence[_Command] | None" = None,
-    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]" = None,
-    entry_points: "str | None" = None,
-    argv: "_ty.Sequence[str] | None" = None,
-    name: "str | None" = None,
-    description: "str | None" = None,
-    env: "_Env | None" = None,
-    config: "str | _Path | None" = None,
-    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
-) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
+    commands: _ty.Sequence[_Command] | None = None,
+    source: _ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None] = None,
+    entry_points: str | None = None,
+    argv: _ty.Sequence[str] | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    env: _Env | None = None,
+    config: str | _Path | None = None,
+    dispatch: _ty.Callable[[_Command, object], int] | None = None,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+    adapter: _ty.Optional[
+        _ty.Callable[
+            [_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]
+        ]
+    ] = None,
+) -> tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]:
     """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
     dispatching -- the building block :mod:`duho.mcp` needs to serve an
     ``app()``-based CLI's full tree (class AND module commands) over MCP.
@@ -500,7 +510,7 @@ def _build_app_core(
     LLM-controlled and must never be allowed to silently redirect dispatch to
     an unintended command (see ``duho.mcp``'s own dispatch-identity guard).
     """
-    cmds_path_overridden: "set[str]" = set()
+    cmds_path_overridden: set[str] = set()
     resolved_commands = _resolve_commands(
         root,
         commands,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect as _inspect
 import logging as _logging
 import typing as _ty
@@ -45,11 +47,15 @@ def _reject_coroutine(result: object, where: str) -> None:
 
 
 def run_command(
-    command: "_Command",
+    command: _Command,
     instance: object,
     *,
     context: object = None,
-    adapter: "_ty.Optional[_ty.Callable[[_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]]]" = None,
+    adapter: _ty.Optional[
+        _ty.Callable[
+            [_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]
+        ]
+    ] = None,
 ) -> int:
     """Dispatch one already-resolved command against a parsed ``instance``.
 

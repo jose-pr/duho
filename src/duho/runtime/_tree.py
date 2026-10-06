@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse as _argparse
 import logging as _logging
 import typing as _ty
@@ -21,16 +23,18 @@ from ._resolve import _full_names
 
 
 def _register_commands(
-    root: "type | None",
-    resolved_commands: "list[_Command]",
-    parser: "_argparse.ArgumentParser",
-    base_parser: "_argparse.ArgumentParser",
+    root: type | None,
+    resolved_commands: list[_Command],
+    parser: _argparse.ArgumentParser,
+    base_parser: _argparse.ArgumentParser,
     root_cls: type,
     prepass_args: object,
-    cmds_path_overridden: "set[str]",
+    cmds_path_overridden: set[str],
     inherited_config_hint: bool = False,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-) -> "tuple[_argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]]":
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+) -> tuple[
+    _argparse._SubParsersAction, dict[str, tuple[str, object]], list[tuple[int, str]]
+]:
     """Register every resolved command on ``parser`` and resolve collisions.
 
     Returns ``(subparsers, registry, notices)``. ``registry`` (PRIMARY names
@@ -49,7 +53,7 @@ def _register_commands(
     while building one command's parser (a ``register`` hook included):
     returning drops that command, raising aborts.
     """
-    notices: "list[tuple[int, str]]" = []
+    notices: list[tuple[int, str]] = []
 
     # Map each subcommand name to (kind, command) in ONE registry so registration
     # and dispatch agree. A name registered twice (e.g. a module command and a
@@ -61,8 +65,8 @@ def _register_commands(
     # name). `claimed` mirrors it but also carries every class command's
     # ALIASES (`_full_names`), so the collision check below catches an alias
     # clash too, not just a primary-name one.
-    registry: "dict[str, tuple[str, object]]" = {}
-    claimed: "dict[str, tuple[str, object]]" = {}
+    registry: dict[str, tuple[str, object]] = {}
+    claimed: dict[str, tuple[str, object]] = {}
 
     # A root class with `_subcommands_` already had them registered by its own
     # `_parser_`, which created a subparsers action. argparse allows only one per
@@ -137,7 +141,7 @@ def _register_commands(
             )
 
         names = _full_names(command, cmd_name, kind)
-        colliding: "dict[int, tuple[str, object]]" = {}
+        colliding: dict[int, tuple[str, object]] = {}
         for n in names:
             prev = claimed.get(n)
             if prev is not None:
@@ -218,12 +222,12 @@ def _register_commands(
 
 
 def _finalize_command_tree(
-    parser: "_argparse.ArgumentParser",
-    subparsers: "_argparse._SubParsersAction",
+    parser: _argparse.ArgumentParser,
+    subparsers: _argparse._SubParsersAction,
     root_cls: type,
-    registry: "dict[str, tuple[str, object]]",
+    registry: dict[str, tuple[str, object]],
     raw_config: dict,
-) -> "list[_argparse.Action]":
+) -> list[_argparse.Action]:
     """Suppress inherited root defaults and thread config/env layers down.
 
     Returns ``required_root_actions`` -- the root's own required-global

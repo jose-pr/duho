@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as _ty
 
 from ..discovery import (
@@ -12,8 +14,8 @@ from ._resolve import _full_names
 
 
 def _resolve_mcp_command_name(
-    root: "type | None", mcp_command: "str | bool | None"
-) -> "str | None":
+    root: type | None, mcp_command: str | bool | None
+) -> str | None:
     """Resolve ``app()``'s opt-in MCP subcommand name.
     ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
     means "use the class attribute instead" -- including to turn a
@@ -52,8 +54,8 @@ def _resolve_mcp_command_name(
 
 
 def _existing_command_names(
-    root: "type | None", resolved_commands: "_ty.Sequence[_Command]"
-) -> "set[str]":
+    root: type | None, resolved_commands: _ty.Sequence[_Command]
+) -> set[str]:
     """Every name (primary + aliases) already claimed by ``root``'s own
     static ``_subcommands_`` plus ``resolved_commands`` -- used to reject an
     ``mcp_command`` name that collides with one of them, the same "every
@@ -62,7 +64,7 @@ def _existing_command_names(
     up front so a collision is a build-time ``ValueError`` rather than a
     silent override.
     """
-    names: "set[str]" = set()
+    names: set[str] = set()
     for sub in getattr(root, "_subcommands_", None) or ():
         cmd_name = _command_name(sub)
         if cmd_name:
@@ -81,12 +83,12 @@ def _existing_command_names(
 
 
 def _build_mcp_command_class(
-    root: "type | None",
-    mcp_command: "str | bool | None",
-    other_command_names: "set[str]",
+    root: type | None,
+    mcp_command: str | bool | None,
+    other_command_names: set[str],
     *,
     has_other_subcommand: bool,
-) -> "type | None":
+) -> type | None:
     """Resolve, validate, and build the dynamic ``McpCmd`` subclass for
     ``root``'s opt-in MCP subcommand (``mcp_command=``/``root``'s own
     ``_mcp_command_``) -- the ONE place :func:`app` and ``duho.main`` both

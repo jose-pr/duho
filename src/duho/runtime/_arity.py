@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import inspect as _inspect
 import typing as _ty
 
 
-def accepts_positional(func: "_ty.Callable[..., object]", count: int) -> bool:
+def accepts_positional(func: _ty.Callable[..., object], count: int) -> bool:
     """True if ``func`` can be called with ``count`` positional arguments.
 
     That holds when it declares at least ``count`` positional parameters (with

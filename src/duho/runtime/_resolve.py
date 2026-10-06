@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
@@ -18,9 +20,9 @@ _LOGGER = _logging.getLogger(__package__)
 
 
 def _cmds_path_commands(
-    env: "_Env | None",
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-) -> "list[_Command]":
+    env: _Env | None,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+) -> list[_Command]:
     """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
 
     Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
@@ -73,7 +75,7 @@ def _cmds_path_commands(
         raw = None
     if not raw:
         return []
-    rejected: "list[tuple[str, str]]" = []
+    rejected: list[tuple[str, str]] = []
     try:
         segments = env.paths(
             "CMDS_PATH",
@@ -93,7 +95,7 @@ def _cmds_path_commands(
         _LOGGER.warning(
             "CMDS_PATH entry %r rejected (%s); skipping", bad_segment, reason
         )
-    discovered: "list[_Command]" = []
+    discovered: list[_Command] = []
     for segment in segments:
         segment = segment.strip() if isinstance(segment, str) else str(segment)
         if not segment:
@@ -118,10 +120,10 @@ def _cmds_path_commands(
 
 
 def _merge_discovered(
-    base: "list[_Command]",
-    discovered: "list[_Command]",
-    overridden: "set[str] | None" = None,
-) -> "list[_Command]":
+    base: list[_Command],
+    discovered: list[_Command],
+    overridden: set[str] | None = None,
+) -> list[_Command]:
     """Merge ``discovered`` on top of ``base``: discovered wins on a name clash.
 
     Keeps ``base``'s order for everything NOT overridden, then appends every
@@ -156,14 +158,14 @@ def _merge_discovered(
 
 
 def _resolve_commands(
-    root: "type | None",
-    commands: "_ty.Sequence[_Command] | None",
-    source: "_ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None]",
-    env: "_Env | None",
-    entry_points: "str | None" = None,
-    overridden: "set[str] | None" = None,
-    on_error: "_ty.Optional[_ty.Callable[[object, BaseException], object]]" = None,
-) -> "list[_Command]":
+    root: type | None,
+    commands: _ty.Sequence[_Command] | None,
+    source: _ty.Union[str, _Path, _ty.Sequence[_ty.Union[str, _Path]], None],
+    env: _Env | None,
+    entry_points: str | None = None,
+    overridden: set[str] | None = None,
+    on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
+) -> list[_Command]:
     """Resolve the command set for :func:`app` by precedence.
 
     Base-source order: an explicit ``commands`` list > ``discover_commands
@@ -219,7 +221,7 @@ def _resolve_commands(
     )
 
 
-def _full_names(command: object, cmd_name: str, kind: str) -> "list[str]":
+def _full_names(command: object, cmd_name: str, kind: str) -> list[str]:
     """Every name ``command`` claims in a subparsers action.
 
     A class command claims its primary ``cmd_name`` PLUS its own

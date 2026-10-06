@@ -294,6 +294,9 @@ def _discover_from_package(dotted_name: str) -> "list[Command]":
 def _discover_from_path(directory: "_Path") -> "list[Command]":
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
+    Only a lower-case ``.py`` suffix counts: Windows' case-insensitive ``glob``
+    would also match ``X.PY``, which Python's import machinery then refuses.
+
     **Sibling imports.** While importing each file, ``directory`` is
     temporarily appended to ``sys.path`` (after the standard library and
     installed packages, which a same-named command file must not shadow) so a
@@ -332,7 +335,7 @@ def _discover_from_path(directory: "_Path") -> "list[Command]":
     dirstr = _os.fspath(directory)
     running = _running_script()
     for path in sorted(directory.glob("*.py")):
-        if path.name.startswith("_"):
+        if path.name.startswith("_") or path.suffix != ".py":
             continue
         if running is not None and path.resolve() == running:
             continue

@@ -78,7 +78,12 @@ def _import_from_path_locked(name: str, path: "_Path") -> "_ModuleType":
 
     spec = _importutil.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise ImportError(name=name, path=_os.fspath(path))
+        raise ImportError(
+            "cannot import %s: no loader for this file name (a command file "
+            "needs a lower-case .py suffix)" % _os.fspath(path),
+            name=name,
+            path=_os.fspath(path),
+        )
     module = _importutil.module_from_spec(spec)
     _sys.modules[name] = module
     try:

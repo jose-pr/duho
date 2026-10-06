@@ -20,18 +20,12 @@ _LOGGER = _logging.getLogger(__package__)
 
 
 def _reject_coroutine(result: object, where: str) -> None:
-    """Refuse a coroutine ``result`` from a module command's entrypoint/hooks.
+    """Raise ``TypeError`` for a coroutine ``result`` from a module command's hooks.
 
-    duho only ever awaits ``Cmd.__call__`` (via ``duho.args._maybe_await`` --
-    a class command may declare ``async def __call__``, driven to completion
-    with ``asyncio.run`` at the call site). A module command's ``main``/
-    ``init``/``success``/``finally_`` are NOT awaited: before this, an
-    ``async def`` hook silently produced a coroutine nothing ever ran, whose
-    only symptom was an easy-to-miss "coroutine was never awaited"
-    ``RuntimeWarning`` raised later from the coroutine's own ``__del__``. This
-    turns that into an immediate, loud failure instead. Mirrors
-    :func:`duho.runpath._reject_coroutine` -- a separate copy, since
-    ``duho.runtime`` and ``duho.runpath`` intentionally don't import each other.
+    Only ``Cmd.__call__`` is awaited (``duho.args._maybe_await``); an
+    ``async def`` hook would otherwise yield a coroutine that never runs.
+    A copy of :func:`duho.runpath._reject_coroutine`, since the packages do not
+    import each other.
     """
     if _inspect.iscoroutine(result):
         result.close()
@@ -127,9 +121,7 @@ def run_command(
                 )
         return 0 if result is None else result
 
-    # Class command: the parsed instance is the command; run it via __call__.
-    # An ``async def __call__`` returns a coroutine; drive it to completion with
-    # its own ``asyncio.run`` per call -- so a fan-out worker dispatching
-    # the command per target gets an independent loop each time.
+    # Class command: the instance is the command. An `async def __call__` gets its
+    # own `asyncio.run` per call, so each fan-out worker has an independent loop.
     result = _maybe_await(instance())  # type: ignore[operator]
     return 0 if result is None else result

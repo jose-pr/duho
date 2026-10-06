@@ -23,47 +23,18 @@ def _cmds_path_commands(
 ) -> list[_Command]:
     """Resolve every command discoverable from ``env``'s ``CMDS_PATH``.
 
-    Returns ``[]`` if ``env`` is ``None``, ``CMDS_PATH`` is unset/empty, or
-    ``env`` doesn't support the expected interface -- all best-effort, never
-    raises for a resolution problem (a per-entry issue is logged and that
-    entry skipped; see below). Only touches ``CMDS_PATH`` when it is actually
-    set and non-empty: a missing value must NOT be split/globbed -- that is
-    what turned an unset var into "import every ``.py`` in the CWD".
-    Splits on the OS path separator (``os.pathsep``; ``PATHSEP`` overrides),
-    NOT a hard-coded ``":"`` -- otherwise a Windows ``"C:\\..."`` drive letter
-    is mis-split into a bogus ``"C"`` path. See :meth:`duho.env.Env.paths`.
+    Best effort: ``[]`` when ``env`` is ``None``, the variable is unset or empty
+    (never split or globbed, which once meant "import every ``.py`` in the CWD"),
+    or ``env`` lacks the interface. Splits on ``os.pathsep`` (see
+    :meth:`duho.env.Env.paths`). Blank segments are dropped here as well, since
+    ``env`` is duck-typed, and must never become ``Path('.')``. A segment that is
+    not an existing directory is skipped with a WARNING, as is a command file
+    raising ``ImportError``.
 
-    **Empty segments never mean the CWD.** ``env.paths``
-    already drops an empty/whitespace-only segment before converting it to a
-    ``Path`` (a leading, trailing, or doubled separator -- the common
-    ``X="$X:/extra"`` append idiom run while ``X`` was unset -- must never
-    resolve to ``Path('.')`` and glob-import/execute the current directory).
-    This function does NOT trust that alone, since ``env`` is duck-typed and
-    may not be a real :class:`duho.env.Env`: it re-requests the raw STRING
-    segments (``ty=str``, no ``Path`` conversion yet) and filters blank ones
-    itself before ever constructing a ``Path`` -- a defense-in-depth second
-    layer that holds even for a caller-supplied ``env`` whose own ``paths()``
-    does not filter. (An explicit ``"."`` segment is still honoured.)
-
-    **A stale entry is skipped, not fatal.** Each entry is expanded
-    with ``~`` (``Path.expanduser()``) and, if it does not resolve to an
-    existing directory, logged at WARNING and skipped -- a removed plugin
-    directory or an unexpanded ``~`` must not take down every invocation,
-    built-ins and ``--help`` included. Discovery's own resilience still
-    applies per entry (an ``ImportError`` from a single bad command file is
-    logged and skipped; a ``SyntaxError`` still propagates).
-
-    **One bad entry (a bare drive, or one resolving to the CWD -- see
-    :meth:`duho.env.Env.paths`) must not drop every OTHER entry.** Requests
-    ``strict=False`` so :meth:`Env.paths` skips a rejected segment instead of
-    raising for the whole call (raising here would be swallowed by the bare
-    ``except Exception`` below, silently dropping the ENTIRE ``CMDS_PATH``,
-    valid entries included, with no log at all).
-    Each rejected segment is collected via ``on_reject`` and logged at
-    WARNING once resolution succeeds. A duck-typed ``env`` (not a real
-    :class:`duho.env.Env`) may not accept those keywords at all -- caught
-    separately and retried with the plain two-arg call, so such a caller
-    keeps best-effort behavior.
+    ``strict=False`` lets :meth:`Env.paths` skip a rejected segment instead of
+    raising, which the broad ``except`` below would turn into dropping every
+    entry; rejections are logged at WARNING. An ``env`` that rejects those
+    keywords is retried with the plain call.
     """
     if env is None:
         return []
@@ -124,19 +95,10 @@ def _merge_discovered(
 ) -> list[_Command]:
     """Merge ``discovered`` on top of ``base``: discovered wins on a name clash.
 
-    Keeps ``base``'s order for everything NOT overridden, then appends every
-    discovered command. A name collision drops the ``base`` entry (the
-    override story is intentional, but never silent).
-
-    **Logging is deferred, not skipped.** Called from
-    :func:`_resolve_commands` -- itself called before ``app()`` has set up any
-    logging handler -- an immediate ``_LOGGER.info`` here is emitted into the
-    void: Python's ``logging.lastResort`` handler only prints WARNING and
-    above, so the override notice would be silently lost even under ``-vv``.
-    When ``overridden`` is given, the overridden name is recorded into it
-    instead of logged immediately, so the caller (``app()``) can log it once
-    logging is actually configured. When ``overridden`` is omitted (a direct,
-    non-``app()`` caller), the old immediate-INFO behavior is kept.
+    ``base`` keeps its order, minus overridden entries; discovered commands are
+    appended. When ``overridden`` is given the name is recorded there instead of
+    logged, because no handler exists yet when ``app()`` calls this and the
+    INFO record would be lost; without it the notice is logged at once.
     """
     if not discovered:
         return base
@@ -166,41 +128,13 @@ def _resolve_commands(
 ) -> list[_Command]:
     """Resolve the command set for :func:`app` by precedence.
 
-    Base-source order: an explicit ``commands`` list > ``discover_commands
-    (source)`` > ``discover_entry_points(entry_points)`` > ``root._subcommands_``.
-    ``env``-derived paths (``CMDS_PATH``) then ALWAYS merge on top of whichever
-    base source produced the list -- a LAYER, not a branch reachable only when
-    no other source was given: passing an explicit
-    ``commands=``/``source=``/``entry_points=`` does not disable ``CMDS_PATH``,
-    even when ``env=`` was also passed.
+    Base source: explicit ``commands`` > ``discover_commands(source)`` >
+    ``discover_entry_points(entry_points)`` > ``root._subcommands_``. ``CMDS_PATH``
+    is always merged on top; a discovered command wins a name clash. ``app()``
+    registers ``root``'s own ``_subcommands_`` regardless, so these are additive.
 
-    ``CMDS_PATH`` is additive: an app's base commands stay available and the
-    discovered ones are added alongside. Setting it to drop the base commands
-    would make every invocation depend on the variable being right, which is a
-    footgun for a *supplementary* command directory -- the usual reason to point
-    at one is "I have a few extra commands", not "replace this CLI". A discovered
-    command whose name collides with a base command **wins** (that is the
-    override story), and the shadowing is never silent (see ``overridden``).
-
-    **Additive, not exclusive, w.r.t. a root's OWN declared subcommands.**
-    This function only falls back to ``root._subcommands_`` as ITS
-    OWN base when none of ``commands``/``source``/``entry_points`` is given.
-    But ``app()`` separately, and always, registers ``root``'s own declared
-    ``_subcommands_`` too (via ``root_cls._parser_()``, independent of this
-    function) -- so passing ``commands=``/``source=``/``entry_points=``
-    alongside a root that already declares ``_subcommands_`` does not remove
-    or replace those; this function's result is layered on top of them, not
-    instead of them. Pass an explicit, subcommand-free root (or ``root=None``)
-    to get a command set with nothing but what this function resolves.
-
-    ``overridden``, when given, receives the name of every base command a
-    CMDS_PATH-discovered one replaced (see :func:`_merge_discovered`) --
-    ``app()`` uses this to log the override once, after logging is set up,
-    and to avoid a second, redundant collision warning when registering.
-
-    Discovery is resilient (a bad command drops out with a warning -- see
-    :func:`duho.discovery.discover_commands` /
-    :func:`duho.discovery.discover_entry_points`).
+    ``overridden``, when given, receives each replaced base name (see
+    :func:`_merge_discovered`) so ``app()`` can log it once.
     """
     if commands is not None:
         base = list(commands)
@@ -221,16 +155,10 @@ def _resolve_commands(
 def _full_names(command: object, cmd_name: str, kind: str) -> list[str]:
     """Every name ``command`` claims in a subparsers action.
 
-    A class command claims its primary ``cmd_name`` PLUS its own
-    ``_parseraliases_`` (argparse's ``add_parser(..., aliases=...)`` registers
-    each alias as an extra ``_name_parser_map`` key pointing at the same
-    subparser object). A module command has no alias mechanism and claims
-    only its primary name. Serves to detect -- and, on an override, fully
-    undo -- a collision against ANY of a command's names, not just its
-    primary one: checking only ``cmd_name`` would miss the case where an
-    INCOMING command's alias collides with an already-registered name/alias,
-    which argparse itself only reports at ``add_parser()`` time (raising on
-    3.11+, silently overwriting on 3.9).
+    A class command claims ``cmd_name`` plus its ``_parseraliases_``; a module
+    command only its own name. Checking every name catches an incoming alias
+    clash, which argparse reports only at ``add_parser()`` (raising on 3.11+,
+    overwriting on 3.9).
     """
     names = [cmd_name]
     if kind == "class":

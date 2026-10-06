@@ -37,14 +37,11 @@ def _register_commands(
 ]:
     """Register every resolved command on ``parser`` and resolve collisions.
 
-    Returns ``(subparsers, registry, notices)``. ``registry`` (primary names
-    only) feeds :func:`_apply_app_config_layers`; ``notices`` are override and
-    collision log records for :func:`app` to flush once logging is configured.
-    ``inherited_config_hint`` is forwarded to :func:`_register_class_command`.
-
-    ``on_error(command, exc)``, when given, is called for an exception raised
-    while building one command's parser: returning drops that command, raising
-    aborts.
+    Returns ``(subparsers, registry, notices)``: ``registry`` (primary names)
+    feeds :func:`_apply_app_config_layers`; ``notices`` are log records for
+    :func:`app` to flush once logging is configured. ``on_error(command, exc)``
+    is called when building one command's parser raises: returning drops that
+    command, raising aborts.
     """
     notices: list[tuple[int, str]] = []
 

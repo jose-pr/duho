@@ -17,18 +17,12 @@ def _resolve_mcp_command_name(
     root: type | None, mcp_command: str | bool | None
 ) -> str | None:
     """Resolve ``app()``'s opt-in MCP subcommand name.
-    ``mcp_command`` is ``app()``'s own explicit kwarg (``None``
-    means "use the class attribute instead" -- including to turn a
-    class-level ``True``/non-empty ``str`` back OFF by passing ``False``
-    explicitly); the class attribute is ``root``'s own ``_mcp_command_``
-    (declared on ``Cli``, default ``False``; ``root=None`` has none).
 
-    Returns ``None`` (no subcommand) for ``False``, the literal ``"mcp"``
-    for ``True``, or the given name for a non-empty ``str`` -- validated
-    here (non-empty, no whitespace, not starting with ``"-"``), raising
-    ``ValueError`` naming the bad value otherwise. Does NOT check for a
-    name collision or "does this root even have another subcommand" --
-    :func:`app` does both once the full resolved command set is known.
+    An explicit ``mcp_command`` wins, ``False`` included; ``None`` falls back to
+    ``root``'s ``_mcp_command_`` (default ``False``). Returns ``None`` for off,
+    ``"mcp"`` for ``True``, else the name, which must be non-empty, without
+    whitespace and not start with ``"-"`` (``ValueError`` otherwise). Collisions
+    and the need for another subcommand are checked by the caller.
     """
     value = (
         mcp_command
@@ -56,13 +50,9 @@ def _resolve_mcp_command_name(
 def _existing_command_names(
     root: type | None, resolved_commands: _ty.Sequence[_Command]
 ) -> set[str]:
-    """Every name (primary + aliases) already claimed by ``root``'s own
-    static ``_subcommands_`` plus ``resolved_commands`` -- serves to reject an
-    ``mcp_command`` name that collides with one of them, the same "every
-    name a command claims" accounting :func:`_full_names` gives
-    :func:`_register_commands`'s own collision handling, just checked
-    up front so a collision is a build-time ``ValueError`` rather than a
-    silent override.
+    """Every name (primary and aliases) already claimed by ``root``'s
+    ``_subcommands_`` and ``resolved_commands``, so an ``mcp_command`` collision
+    is a build-time ``ValueError`` instead of a silent override.
     """
     names: set[str] = set()
     for sub in getattr(root, "_subcommands_", None) or ():
@@ -89,31 +79,14 @@ def _build_mcp_command_class(
     *,
     has_other_subcommand: bool,
 ) -> type | None:
-    """Resolve, validate, and build the dynamic ``McpCmd`` subclass for
-    ``root``'s opt-in MCP subcommand (``mcp_command=``/``root``'s own
-    ``_mcp_command_``) -- the ONE place :func:`app` and ``duho.main`` both
-    go through (the latter via a lazy ``from . import runtime``, since
-    ``duho.args`` never imports this module at load time), so the resolution
-    rules and the exact ``ValueError`` text never drift between the two
-    entry points.
+    """Resolve, validate and build the dynamic ``McpCmd`` subclass, or ``None``.
 
-    Returns ``None`` when no subcommand should be registered
-    (:func:`_resolve_mcp_command_name` resolved ``mcp_command``/the class
-    attribute to "off"). Otherwise validates that ``has_other_subcommand``
-    is true and that the resolved name isn't already in
-    ``other_command_names``, then builds and returns a fresh, per-call
-    ``duho.mcp.McpCmd`` subclass under that name.
-
-    A dynamic, per-call subclass -- never a shared one -- so two apps (or
-    the same app/``cls`` registering under two different names across
-    calls, e.g. in a test) never clash over a class-level ``_parsername_``.
-    Seeds ``_duho_constants_`` empty like ``_module_args_cls``'s own
-    synthesized class does: ``type(...)`` gives this class ``__module__`` =
-    this module, which has no class named ``_McpCmd`` in its OWN source to
-    AST-parse for. Also sets an explicit ``__doc__`` -- ``type()`` does NOT
-    inherit ``__doc__`` from a base class (unlike every other declarative
-    attribute, which normal ``getattr``/MRO lookup finds fine), so without
-    this the subcommand's own ``--help`` row came up blank.
+    Shared by :func:`app` and ``duho.main``, so the rules and ``ValueError`` text
+    stay identical. ``ValueError`` if there is no other subcommand or the name
+    is in ``other_command_names``. The subclass is fresh per call so two apps
+    never share a ``_parsername_``; ``_duho_constants_`` is seeded empty (no
+    ``_McpCmd`` in this module's source to AST-parse) and ``__doc__`` is set
+    because ``type()`` does not inherit it, which would blank the ``--help`` row.
     """
     mcp_command_name = _resolve_mcp_command_name(root, mcp_command)
     if mcp_command_name is None:

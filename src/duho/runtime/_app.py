@@ -38,18 +38,13 @@ def _run_app(
 ) -> _ty.Any:
     """Parse ``argv``, finish per-invocation setup, and dispatch one command.
 
-    The real ``parse_args`` call, the required-global re-check,
-    attaching ``_env_``, logging setup, flushing the deferred override/
-    collision notices, and resolving + running the selected command
-    (module vs class). Split out of :func:`app`; no behavior change,
-    the full suite is the guard.
+    Covers the real ``parse_args``, the required-global re-check, ``_env_``,
+    logging setup, the deferred notices, and running the selected command.
     """
     instance = parser.parse_args(argv)
 
-    # A root required global un-required above must still
-    # have ended up with a real value from SOMEWHERE (the root itself, a child
-    # given the flag after the subcommand, or a config/env layer) -- report it
-    # the same way argparse's own required-arguments check would.
+    # A required global un-required earlier must still have a value from the
+    # root, a child, or a config/env layer.
     missing_required = [
         a for a in required_root_actions if getattr(instance, a.dest, None) is None
     ]
@@ -62,9 +57,8 @@ def _run_app(
             )
         )
 
-    # Make the resolved app-wide `Env` reachable from the dispatched command via
-    # the sandwich-named `_env_` handle (never a user field). A command reads
-    # `self._env_` for app-level settings; None when no env was passed.
+    # The app-wide `Env` is reachable as `self._env_` (never a user field);
+    # `None` when no env was passed.
     try:
         instance._env_ = env  # type: ignore[attr-defined]
     except (AttributeError, TypeError):  # pragma: no cover - namespaces allow it
@@ -72,42 +66,29 @@ def _run_app(
 
     _setup_instance_logging(instance, setup_logging, root_cls)
 
-    # Flush every deferred override/collision notice now that logging is
-    # actually configured -- an INFO emitted earlier, before any
-    # handler existed, would have been silently lost even under `-vv`
-    # (`logging.lastResort` only prints WARNING and above). The intentional,
-    # documented CMDS_PATH-over-a-base-command override is INFO; anything
-    # else the registration loop collected (two independently-resolved
-    # commands genuinely colliding) is WARNING -- and it alone, not both, so
-    # the documented override does not warn on every run.
+    # Flushed here because an earlier INFO would be lost: no handler exists yet and
+    # `logging.lastResort` prints only WARNING and above. The CMDS_PATH override is
+    # INFO; any other collision is WARNING, so the intended override stays quiet.
     for overridden_name in sorted(cmds_path_overridden):
         _LOGGER.info("CMDS_PATH command %r overrides the built-in", overridden_name)
     for level, message in notices:
         _LOGGER.log(level, message)
 
-    # Resolve which command was selected. A class command selection yields a
-    # constructed instance that IS the command (a Cmd subclass); a module
-    # command selection leaves ``instance`` as the root instance, identified
-    # by the private ``_duho_module_command_`` marker its OWN subparser set
-    # via ``set_defaults`` -- NOT by any shared ``command``/
-    # ``_duho_command_`` dest, which a nested ``_subcommands_`` tree sharing
-    # a subcommand's name, or a root field a user happens to call ``command``,
-    # could otherwise silently redirect dispatch through. ``pop`` (mirroring
-    # the ``"#cls"`` sidecar convention) keeps this framework bookkeeping out
-    # of ``vars(instance)``.
+    # A class command yields an instance that is the command. A module command
+    # leaves the root instance, marked by the private `_duho_module_command_` its
+    # subparser set, not by the shared `_duho_command_` dest, which a nested tree
+    # or a root field named `command` could redirect. `pop` keeps the marker out
+    # of `vars(instance)`.
     module_command = _ty.cast(
         "_ModuleCommand | None", vars(instance).pop("_duho_module_command_", None)
     )
 
     if module_command is not None:
-        # run_command owns the full lifecycle (init -> main -> success/finally_).
-        # Don't pre-build the context here or init would run twice. When a custom
-        # `dispatch` was supplied it replaces this final run step (default is
-        # `run_command`); it receives the resolved ModuleCommand and the instance.
+        # `run_command` owns the lifecycle; building the context here would run
+        # `init` twice. A custom `dispatch` replaces this step.
         return run(module_command, instance)
 
-    # Class command (or the root itself if it is a runnable Cmd): dispatch the
-    # parsed instance directly. It is already the deepest selected Cmd.
+    # Class command, or a runnable root: the instance is the deepest selected Cmd.
     if not isinstance(instance, _Cmd):
         subparsers = _parsers.find_subparsers(parser)
         if subparsers is None or not subparsers.choices:
@@ -332,14 +313,8 @@ def app(
         config = _class_config_location(root, argv)
 
     run = _default_run(dispatch, adapter)
-    # Names CMDS_PATH overrode (see `_resolve_commands`/`_merge_discovered`).
-    # Collected rather than logged immediately: at this point in `app()` no
-    # logging handler has been installed yet, so an immediate `_LOGGER.info`
-    # would be emitted into the void -- flushed once `_run_app` has set
-    # up logging. Also used by `_register_commands` to recognize that a
-    # registry collision for the SAME name is this very (intentional,
-    # already-accounted-for) override, not a second, independent one worth
-    # its own warning.
+    # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also
+    # lets `_register_commands` treat a collision on that name as this override.
     cmds_path_overridden: set[str] = set()
     resolved_commands = _resolve_commands(
         root,
@@ -390,13 +365,8 @@ def app(
         parser, subparsers, root_cls, registry, raw_config
     )
 
-    # Recorded so `duho.mcp.serve_running_app` (called from within a
-    # dispatched command -- the whole point of the `mcp_command` subcommand
-    # just above, but any command may call it) can serve THIS SAME
-    # already-built tree, with no rediscovery: `parser`/`root_cls` and the
-    # post-parse dispatch closure (env attach, logging, notices, then `run`)
-    # are exactly what this call already resolved. Set only around the
-    # actual dispatch step (`_run_app`), never left behind afterward.
+    # Lets `duho.mcp.serve_running_app`, called from a dispatched command, serve
+    # this already-built tree. Set only around the dispatch.
     mcp_dispatch = _make_post_parse_dispatch(
         env, root_cls, notices, cmds_path_overridden, run
     )
@@ -424,19 +394,12 @@ def _make_post_parse_dispatch(
     cmds_path_overridden: set[str],
     run: _ty.Callable[[object, object], int] = run_command,
 ) -> _ty.Callable[[object, object], int]:
-    """Build a ``dispatch(command, instance) -> int`` closure replicating
-    :func:`_run_app`'s POST-parse steps for one already-parsed instance:
-    attaching the resolved ``env`` as ``instance._env_``, logging setup
-    (unconditionally -- every caller of this closure, MCP serving, wants a
-    served command's logging configured regardless of what a NORMAL CLI run
-    of this same app would pass as its own ``setup_logging``), and flushing
-    the deferred override/collision ``notices`` (once total across every
-    call this ONE closure serves, not once per call). Shared by
-    :func:`_build_app_core` (``duho.mcp._core_for_app``'s building block)
-    and :func:`app` itself (which stashes an equivalent closure in
-    ``duho.mcp.serve_running_app``'s context, reusing THIS SAME already-
-    resolved ``env``/``notices``/``cmds_path_overridden`` rather than
-    rebuilding them).
+    """Build a ``dispatch(command, instance) -> int`` closure for the post-parse steps.
+
+    Attaches ``env`` as ``instance._env_``, sets up logging unconditionally (MCP
+    serving wants it whatever a CLI run would pass), flushes the deferred
+    ``notices`` once per closure, and runs the command. Shared by
+    :func:`_build_app_core` and :func:`app`.
     """
     logged = False
 
@@ -479,34 +442,15 @@ def _build_app_core(
         ]
     ] = None,
 ) -> tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]:
-    """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
-    dispatching -- the building block :mod:`duho.mcp` needs to serve an
-    ``app()``-based CLI's full tree (class AND module commands) over MCP.
+    """Build an ``app()`` command tree's parser without parsing ``argv`` or dispatching.
 
-    Runs the exact same discovery/parser-build/registration/config-thread-down
-    steps :func:`app` itself calls (:func:`_resolve_commands`,
-    :func:`_prepare_app_parser`, :func:`_register_commands`,
-    :func:`_finalize_command_tree`) -- built ONCE, not per MCP tool call, same
-    as a real ``app()`` invocation builds its parser once per process.
-    ``argv`` here only feeds the advisory ``register``-hook prepass
-    (:func:`_prepare_app_parser`); it is never parsed for real by this
-    function -- an MCP tool call parses its own synthesized argv against the
-    returned parser instead.
+    The building block :mod:`duho.mcp` uses to serve a full tree, built once.
+    ``argv`` only feeds the advisory ``register`` prepass.
 
-    Returns ``(parser, root_cls, dispatch)``. ``dispatch(command, instance)``
-    replicates :func:`_run_app`'s POST-parse steps for one already-parsed
-    instance: attaching the resolved ``env`` as ``instance._env_``, logging
-    setup (identical to a real ``app()`` run), flushing the deferred
-    override/collision notices (once, not once per call), and
-    :func:`run_command` (or ``dispatch``, when given, as :func:`app` does).
-    The caller (``duho.mcp``) is responsible for parsing
-    argv against ``parser`` and resolving which command to dispatch -- the
-    same responsibility split :func:`_run_app` has, just with the parse step
-    performed by the caller instead of internally, so a caller can verify
-    IDENTITY (which command actually got selected) before ever calling
-    ``dispatch`` -- a security-relevant check for MCP, whose arguments are
-    LLM-controlled and must never be allowed to silently redirect dispatch to
-    an unintended command (see ``duho.mcp``'s own dispatch-identity guard).
+    Returns ``(parser, root_cls, dispatch)``. ``dispatch`` is the post-parse
+    closure of :func:`_make_post_parse_dispatch`. The caller parses against
+    ``parser`` and checks which command was selected before dispatching, since
+    MCP arguments are model-controlled and must not redirect dispatch.
     """
     cmds_path_overridden: set[str] = set()
     resolved_commands = _resolve_commands(

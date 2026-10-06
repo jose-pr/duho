@@ -49,6 +49,11 @@ class Cmd(Args):
     #: Read from the command the parse selects, so a subcommand sets its own.
     _allow_passthrough_: bool = True
 
+    #: On a group: the subcommand (name or alias) used when the first token
+    #: that is not one of the group's own options names no subcommand.
+    #: ``None`` (default) keeps the subcommand required. Read at parse time.
+    _default_subcommand_: "_ty.Optional[str]" = None
+
     def __call__(self):  # noqa: D401 - contract stub, overridden by subclasses
         """Run the command. Override ``__call__`` in a ``Cmd`` subclass.
 

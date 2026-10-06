@@ -313,7 +313,7 @@ class Args(_argparse.Namespace):
     #: declares real fields whose flags-tuples must still be scanned.
     _duho_constants_: dict = {}
 
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, /, **kwargs: object) -> None:
         # Namespace.__init__ only setattrs what's passed, so a directly-built
         # instance (or the self-cloning `type(self)(**self._get_kwargs())`
         # pattern) would be missing any declared field not supplied -- notably
@@ -331,7 +331,11 @@ class Args(_argparse.Namespace):
         # every other instance and every later parse's default too.
         # `vars(self)` only sees THIS instance's own attributes, so the gap
         # still gets filled with `_effective_default_()`'s fresh copy.
-        super().__init__(**kwargs)
+        # Not `super().__init__(**kwargs)`: Namespace's receiver is not
+        # positional-only, so a field named `self` would collide with it.
+        super().__init__()
+        for key, value in kwargs.items():
+            setattr(self, key, value)
         if "_passthrough_" not in vars(self):
             self._passthrough_ = []
         seeded: "dict[str, object]" = {}

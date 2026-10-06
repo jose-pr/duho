@@ -124,8 +124,11 @@ def _pick_live_classdef(
 
     firstlineno = getattr(cls, "__firstlineno__", None)
     if firstlineno is not None:
+        # `__firstlineno__` is the first decorator's line for a decorated
+        # class on 3.13+, but the `class` line of its ClassDef node.
         for node in candidates:
-            if node.lineno == firstlineno:
+            lines = {node.lineno, *(d.lineno for d in node.decorator_list)}
+            if firstlineno in lines:
                 return node
 
     own_annotations = set(vars(cls).get("__annotations__", {}))

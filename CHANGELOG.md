@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+All of these are optional and default to the behaviour you already have.
+
+- `discover_commands` takes a list of sources as well as one. Each is
+  discovered on its own and a command with the same name in a later source
+  replaces the earlier one. `on_error=` is a function `(source, exc)` called
+  for any exception raised while importing or building one command; return to
+  skip it, raise to stop. Without it, only `ImportError` and
+  `NotImplementedError` are skipped, with a warning, as before.
+  `providers=True` also offers each directory under a filesystem source to the
+  registered command providers.
+- `duho.app(source=[...], on_error=..., adapter=...)` takes the same lists
+  and error policy. `on_error` is also called, with `(command, exc)`, when
+  one command's parser or `register` hook fails, and that command is dropped.
+  `adapter=` is a function that receives a module command's entry point and
+  returns the callable to run in its place (a falsy return keeps the entry
+  point); `duho.run_command(command, instance, adapter=...)` takes it too.
+  Combining `adapter=` with `dispatch=` raises `ValueError`: pass it to
+  `run_command` from your `dispatch` function.
+- `ModuleCommand.entrypoint` returns the callable a module command runs, and
+  `duho.runtime.accepts_positional(func, count)` tells whether a callable
+  takes at least `count` positional arguments (or `*args`).
+- `duho.command_name(command)` gives a command's name. `duho.subcommand(Group)`
+  registers the decorated class under any `Cmd` group, not only a `Cli`.
+  `unregister_command_provider`, `is_class_command`, `is_module_command` and
+  `import_from_path` are now importable from `duho`, `ClsArgDeclaration` from
+  `duho.args`, and `main` is listed in `duho.scaffold.__all__`.
+- `_allow_passthrough_ = False` on a command makes a non-empty `--` tail a
+  usage error (exit 2) naming the command. The default, `True`, captures the
+  tail in `_passthrough_` as before.
+- `_default_subcommand_ = "name"` on a group names the subcommand to use when
+  the first word after the group's own options is not a subcommand or alias:
+  `tool bob` runs `tool resolve bob`. A name that is not a registered
+  subcommand raises `ValueError` naming the class when the parser is built.
+- `Meta(enum_by="value")` (or `NS(enum_by="value")`) matches an `Enum` field
+  by the text of its value instead of its member name, on the command line,
+  in the environment and in config. Help, completion, agent help and the MCP
+  schema list the value text and the field still holds the member. The
+  default is `"name"`.
+- `Meta(literal_value=True)` (or `NS(literal_value=True)`) on an option that
+  takes one value makes it always take the next word, so `--key --` and
+  `--key -x` give the option that value. The default is `False`. An
+  abbreviated long flag and a short flag inside a cluster (`-vk -x`) are not
+  covered.
+- A converter you pass as `type=` in `NS(...)` or `Meta(...)` that raises
+  `ValueError` or `TypeError` with a message now has that message in the usage
+  error, for example `argument --port: port must be 1..65535`, instead of
+  `invalid parse_port value`. Builtin types, duho's own converters, an empty
+  message and `argparse.ArgumentTypeError` keep their text.
+- Two mistakes are now reported once, as a `WARNING` on the `duho.args`
+  logger, when the parser is first built: a class attribute such as
+  `_verison_` that nearly matches one duho reads (`did you mean
+  '_version_'?`), and an `NS(...)` key such as `hlep` that is not a `Meta`
+  field. Neither is an error and the key is still ignored.
+- `duho.text.parse_bool(text)` (also `duho.parse_bool`) parses a strict
+  boolean: `1/true/yes/on/y/t` and `0/false/no/off/n/f/` (empty), ignoring
+  case and surrounding space; anything else raises `ValueError` listing the
+  accepted words. `duho.text.BOOL_TRUE` and `BOOL_FALSE` are those tables.
+- `run_targets` and `fan_out_command` take `label=`, a function from a target
+  to the text of its `[...]` log prefix. The default is `str(target)`.
+- `LoggingArgs._base_loglevel_` (default `logging.INFO`) is the level `-v` and
+  `-q` step from. A plain `Cmd` under a `LoggingArgs` root uses the root's
+  value.
+- `duho.testing.invoke(root, argv, env=, stdin=)` runs a command line in the
+  current process and returns `Result(status, stdout, stderr)`, for tests.
+  It is imported only when you use it. Extra keyword arguments go to
+  `duho.app`.
+- `_completion_command_ = True` (or a name) on a root `Cli` adds a subcommand,
+  `completion` by default, that prints the completion script for `bash`,
+  `zsh`, `fish` or `powershell`. The default, `False`, adds nothing;
+  `--print-completion` is unchanged.
+- `_config_env_` names an environment variable that holds the config file's
+  path, and `_config_field_` names a declared field that holds it. Order,
+  highest first: an explicit `config=`, the field (when given on the command
+  line or in its own variable), the variable, then `_config_`. A path chosen by
+  the field or the variable must exist, like an explicit `config=`.
+- On Python 3.13 and later the first parser build reads only the class's own
+  source, once per 12,000 bytes of file and from a whole-file index after
+  that, so building a command in a very large file no longer costs more as
+  the file grows. Results are the same.
+
 ### Changed
 
 - An application now has one name, used for the usage line, the
@@ -37,12 +119,180 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     that defines it, for example `duho.args._argsclass`, not `duho.args`.
   - Code that rebinds the private `duho.args._AUTO_VERSION_CACHE` on the
     package no longer affects duho: the cache lives in `duho.args._naming`.
+- A malformed JSON or TOML config file, or one whose top level is not a table,
+  is now a one-line usage error (exit 2) naming the file and position under
+  `duho.main`, `duho.parse` and `duho.app`, where it used to end in a
+  traceback or a `ValueError`. An exception raised by your own
+  `_config_loader_` is not converted: it reaches the caller as before. A
+  loader that returns something that is not a mapping is a usage error naming
+  the file. With no TOML reader installed, `--help` and `--version` still work
+  and any other run reports that `duho[config]` is needed; `duho.app` still
+  raises `RuntimeError` for that.
+- A parser from `duho.parser(cls)` or `cls._parser_()` now applies the
+  class's own `_config_` file, as `duho.parse` and `duho.main` do. Before, it
+  applied only `NS(env=...)`.
+- A subcommand alias equal to a sibling's name or alias now raises
+  `ValueError` naming both classes when the parser is built, as two equal
+  names already did. Python 3.9 used to dispatch silently to the wrong
+  command, and 3.14 raised an unnamed argparse error. A class listed twice in
+  `_subcommands_` is registered once.
+- A string literal after a field that is only a flag, `("--dry-run")` without
+  the trailing comma, is now a build error naming the field and the missing
+  comma. A help string written after a flag tuple is now used as the help.
+  Consecutive string literals after a field are joined with a space instead of
+  all but the first being dropped.
+- A bare `None` annotation is refused when the parser is built, naming the
+  field. An `Any` or `object` annotation used to build and then reject every
+  value; it now takes the text as given.
+- Instances are more alike however they are made. Every `Args` and `Cmd`
+  instance has `_passthrough_ == []`, a parsed subcommand instance no longer
+  carries a private `_duho_command_` attribute, so it equals the same instance
+  built directly, and an optional positional with no default is `None` on a
+  directly built instance, as on a parsed one. A field with no default is
+  still left unset on a direct instance.
+- `duho.parse(instance)` now keeps a field you assigned after building the
+  instance. A field counts as set when it was passed to the constructor or its
+  value differs from the default.
+- Directory discovery appends the command directory to `sys.path` instead of
+  putting it first, so the standard library and installed packages win over a
+  command file with the same name as one of their modules. A helper that
+  shadowed an installed module on purpose no longer does.
+- Directory discovery skips the script that is running, so a launcher that
+  scans its own directory no longer lists itself as a subcommand, and ignores
+  a command file with an upper-case `.PY` suffix on Windows, as it already did
+  elsewhere.
+- Over MCP, an error from parsing a tool's arguments now returns only the
+  error line, without the usage line. A command excluded with `_mcp_ = False`
+  is never named in it. A root's `_mcp_ = False` (which only disables the
+  environment trigger) no longer removes the commands that subclass the root
+  from the tool list; a command's own `_mcp_ = False` still does.
+- `tools/list` and the agent-help document no longer publish a default for
+  an option added directly to an argparse parser, for example by a module
+  command's `register` hook. Fields declared with duho keep theirs.
+- Colour in log output is now off when `TERM=dumb`, even on a terminal,
+  unless `FORCE_COLOR` forces it. An empty `NO_COLOR` still turns it off.
+- `add_logging_level` now raises `ValueError` when a name it installed is
+  registered again at a different number (`force=True` renumbers). A repeat at
+  the same number is still a no-op.
+- `expand` raises `ValueError`, not `IndexError` or `KeyError`, for a format
+  suffix containing braces; the `:spec` suffix (`host[1-3:02d]`) is
+  documented.
+- The `colorama` extra now requires `colorama>=0.4.6,<0.5`, the `config` extra
+  `tomli>=2.0,<3` (Python below 3.11), and building needs `hatchling>=1.27`.
+  The package metadata links the changelog and no longer carries the
+  `System :: Shells` classifier.
 
 ### Fixed
 
 - `_version_ = duho.AUTO` on a root that also sets `_mcp_command_` looked up
   duho's own distribution and reported duho's version; it now looks up the
   application's own distribution, like any other root.
+- Options and `--` handling:
+  - An option written after a subcommand name now always binds to the
+    subcommand, also when the root declares an optional or variadic positional.
+    It used to be taken by the root's same-named or prefix-matching option.
+  - A required option declared on a root and inherited by a subcommand is
+    satisfied by a value given before the subcommand name; it used to be
+    demanded a second time.
+  - A cluster of short options such as `-vv` or `-vao` between positionals now
+    parses as it does anywhere else.
+  - `duho.parse_globals` no longer reads an option written after the
+    subcommand name as a root option when the root has a static `_subcommands_`
+    tree, matching `duho.parse`.
+- Under `duho.app`, a command that redeclares a root option's default no longer
+  changes that option for the other commands, and a value given before the
+  subcommand is no longer overwritten by a sibling's default. `duho.app` also
+  no longer builds the root's static subcommand parsers a second time.
+- A subcommand group that inherits `_subcommands_` from a base class now has
+  those subcommands when nested under another command, as it does as a root.
+- `duho.app` with no resolved commands runs a runnable root `Cmd`, and
+  otherwise says no command is available instead of `required: {}`.
+- A bad env or config value for a module command fails only that command
+  (exit 2), not every invocation including `--help`. A `register` hook of a
+  module command is no longer called with `args=None` when the root has a
+  required option that was not given; the real parse reports the usage error
+  or the help text.
+- The `Append`, `Choice`, `Const`, `Count` and `Extend` helpers accept `help`,
+  `env`, `group`, `conflicts`, `conflicts_required` and `flags`, and a raw
+  `kwargs={"help": ...}` overrides the derived help instead of failing.
+- The `"--"` flag shorthand now also expands inside `Meta(flags=...)` and
+  `NS(flags=...)`, and list flags are accepted. An empty or set `flags` value
+  raises a `ValueError` naming the field. The error for `Meta(dest=...)` now
+  says an argument's `dest` is always its field name; it used to point to
+  `NS(dest=...)`, which does nothing.
+- `LoggingArgs.loglevels` read from a config table now accepts level names and
+  numbers per logger, converted like `--loglevel NAME:LEVEL`. A malformed
+  integer log level such as `--5`, or one with a non-ASCII digit, is an
+  ordinary invalid-value usage error naming it, not a bare `ValueError`.
+- A field named `self` can be declared, parsed and constructed like any other.
+  A field named like its own builtin type (`bool: bool = False`) builds from
+  the class source on every Python instead of raising depending on its sibling
+  fields.
+- On Python 3.9 and 3.10 a quoted type inside a builtin generic
+  (`list["Color"]`, `dict[str, "int"]`) now resolves as on 3.11 and later, and
+  an unresolvable name is reported naming the field. On 3.14 a class whose
+  source cannot be read (a frozen app) no longer loses all its fields when one
+  private annotation cannot be resolved. On 3.13 and later a decorated class
+  defined twice under one name (`if`/`else`) resolves its flags and help from
+  the branch that ran.
+- A custom type that defines `_argbuilder_` keeps its own builder (factory,
+  metavar, choices) when used as an `Optional` or `Union` member, a
+  `list`/`set`/`tuple` element or a `dict` value, not only as a top-level
+  field.
+- A bad environment or config value for a field with a custom action is now a
+  usage error that does not echo the value, instead of a traceback showing it.
+- A bare-string source naming a directory without `__init__.py`, such as
+  `source="cmds"`, now loads its files as loose command files, so sibling
+  imports like `_helpers.py` work.
+- Importing a command or step file from several threads at once runs its
+  module body once, not once per thread.
+- A command file whose `main`, `run` or `call` is a wrapper from a decorator
+  defined in another file now logs a warning that names the `__all__` escape
+  hatch, instead of being ignored silently.
+- The step order `RunPath` uses when it breaks dependency cycles no longer
+  varies between runs.
+- `import duho` no longer fails when another library already defined
+  `logging.TRACE` or `Logger.trace`; an existing integer `TRACE` level is
+  reused. An explicit `add_logging_level` call still raises on a foreign name.
+- Logging an exception from a fan-out target through a `QueueHandler` no
+  longer loses its traceback.
+- The log handler duho installs writes to the current `sys.stderr`, so
+  `capsys` and a swapped `sys.stderr` see its output. `handler.setStream(...)`
+  still pins a stream.
+- MCP argument handling:
+  - A tool value starting with the parser's `fromfile_prefix_chars` character
+    is refused as an invalid argument instead of being read as an argument
+    file.
+  - A tool below a command with an optional single-value positional runs
+    without the client sending that positional; its default is passed. A
+    variadic or env/config-layered positional is not pinned, and a shifted
+    dispatch is still refused.
+  - A module command whose `register` hook adds its own subparsers is listed
+    as one tool, and can be called by choosing the subparser with a property
+    named after the subparsers' `dest`. The hand-made subparsers are not
+    listed separately and their own options are not served.
+  - A command served over MCP no longer sees a private path-marker entry in
+    its instance variables.
+  - An `app()` `dispatch=` callable now also wraps every command served
+    through the `<NAME>_MCP=stdio` trigger.
+  - With that trigger, output printed while commands are discovered goes to
+    stderr, not the protocol stream.
+  - The server rejects `NaN` and `Infinity` as a parse error, answers `-32600`
+    for a missing or wrong `jsonrpc` member or an `id` that is not a string, a
+    number or null, ignores client response objects, and accepts a
+    whole-number float such as `5.0` for an integer field.
+  - `python -m duho.mcp` behaves like a duho CLI: `--help` and `--version`
+    print to stdout and exit 0, and a missing app, an unknown option or an
+    extra argument exits 2 with nothing on stdout. It closes its two protocol
+    streams when the app spec does not resolve.
+- Completion scripts: zsh no longer breaks, or runs text, when a flag name
+  contains a colon, bracket, backslash or whitespace, and offers a choice that
+  begins with `=` as written. fish shows a subcommand description with its
+  percent signs as written instead of doubled.
+- `python -m duho.scaffold` reports an invalid `app`, `libdir` or `python`
+  value as a one-line usage error (exit 2) instead of a traceback.
+- The wheel and sdist no longer ship `*.local.*` or `CLAUDE*` files when built
+  from a checkout whose path makes hatchling ignore `.gitignore`.
 
 ### Notes for readers upgrading from 0.6.1 or earlier
 

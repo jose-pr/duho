@@ -13,8 +13,8 @@ def pop_action(parser: _argparse.ArgumentParser, name: str) -> _argparse.Action:
     the owning argument group's ``_group_actions`` -- ``format_help`` renders
     from the group lists, so missing the last one left a "removed" flag still
     visible in help output -- AND every ``_mutually_exclusive_groups``
-    entry it belonged to, so a required mutex group's error no longer names a
-    flag that no longer exists.
+    entry it belonged to, so a required mutex group's error does not name a
+    removed flag.
     """
     index = None
     for idx, action in enumerate(parser._actions):
@@ -255,7 +255,7 @@ def command_name(command: object) -> str:
     Exposed here so a parser-tree consumer that only needs naming/subparser
     utilities (this module) does not also have to import ``duho.args``
     directly. Forwards lazily, function-local (rather than a top-level
-    import), because ``args.py`` itself imports this module for
+    import), because ``duho.args`` itself imports this module for
     :func:`prerun_parse` -- a top-level import the other way would cycle.
     """
     from .args._naming import _command_name
@@ -279,10 +279,8 @@ def unique_subcommands(
     ``seen`` is the caller's running set of already-yielded subparser ids,
     threaded through a whole-tree walk (pass the same set into a recursive
     call) so a subparser reached under multiple paths is never yielded twice;
-    omit it (the default) for a single-level call. Previously copied by hand,
-    with the same grouping/tie-break logic, by ``duho.agenthelp`` and
-    ``duho.mcp`` -- a fix to canonical-name selection used to have
-    to land in both copies to not silently diverge.
+    omit it (the default) for a single-level call. ``duho.agenthelp`` and
+    ``duho.mcp`` share this one grouping and canonical-name rule.
     """
     if seen is None:
         seen = set()
@@ -321,8 +319,8 @@ def _is_terminal_action(action: _argparse.Action) -> bool:
     duho's own ``--print-completion``/``--help-agents`` actions.
 
     The latter two are recognized via a LAZY, in-function import of
-    ``duho.args`` rather than a module-level one: ``args.py`` imports
-    ``parsers.py`` (for :func:`prerun_parse` itself), so a top-level import
+    ``duho.args`` rather than a module-level one: ``duho.args`` imports
+    ``duho.parsers`` (for :func:`prerun_parse` itself), so a top-level import
     the other way would be circular. By the time this function is actually
     CALLED, both modules are fully loaded.
     """

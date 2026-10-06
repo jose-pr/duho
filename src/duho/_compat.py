@@ -144,13 +144,13 @@ def write_human(text: str, stream=None) -> None:
     newline translation (``\\n`` -> ``\\r\\n`` on Windows) -- the same
     translation ``print()``/argparse's own ``print_help()`` get for free.
     Human console text is meant to look native, so this must NOT bypass that
-    translation in the common case (a fix that regressed this once: routing
-    unconditionally through ``.buffer`` avoided the encoding crash but also
-    silently dropped every ``--help`` output to LF-only on Windows). The
+    translation in the common case: writing unconditionally through ``.buffer``
+    would avoid the encoding crash but emit every ``--help`` output LF-only on
+    Windows. The
     ``.buffer`` fallback -- which, writing raw bytes, is necessarily LF-only
     -- is used only for the genuinely-unrepresentable-character case
     ``write_machine`` exists for; that trade-off (a rare escaped line's
-    newline no longer gets translated either) is accepted rather than losing
+    newline is not translated either) is accepted rather than losing
     the message.
     """
     if stream is None:

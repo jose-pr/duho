@@ -13,15 +13,12 @@ a subcommand a given invocation never reaches is never even resolved.
 non-deferred sibling for a parser with no such patched hook to defer through
 (a ``duho.app`` module command's bare stdlib subparser).
 
-Split out of ``args.py``: this pipeline, and the type->spec ladder in
-``_fieldspec.py``, are the two subsystems ``duho.args`` itself and
-``duho.runtime`` both depend on -- giving each its own small module (instead
-of reaching into a single ~4000-line file for a handful of private names) is
-what actually shrinks that file's maintainability problem. Every name here
+This pipeline, and the type->spec ladder in ``_fieldspec.py``, are the two
+subsystems ``duho.args`` itself and ``duho.runtime`` both depend on. Every name here
 only needs ``cls._getargs_()`` by duck typing, so this module has no import
 of ``.args`` at module scope; the two spots that DO need something from
 there (a class's canonical name, and the live instance-explicit-fields map)
-import it lazily, function-local, to avoid a circular import (``args.py``
+import it lazily, function-local, to avoid a circular import (``duho.args``
 re-exports this module's public names).
 """
 
@@ -709,7 +706,7 @@ def _stash_layer_state(
     subparsers_action = _parsers.find_subparsers(parser)
     if subparsers_action is None:
         return
-    from .args._naming import _command_name  # lazy: avoids a circular import (args.py
+    from .args._naming import _command_name  # lazy: avoids a circular import (duho.args
 
     # re-exports this module's own public names)
     choices = subparsers_action.choices or {}
@@ -910,7 +907,7 @@ def value_sources(parsed: object) -> dict[str, str]:
     """
     from .args._argsclass import _duho_instance_last_parser_  # lazy: avoids a circular
 
-    # import (args.py re-exports this module's own public names).
+    # import (duho.args re-exports this module's own public names).
     parser = _duho_instance_last_parser_.get(id(parsed))
     if parser is None:
         parser = type(parsed).__dict__.get("_duho_last_parser_")

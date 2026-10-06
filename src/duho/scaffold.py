@@ -29,10 +29,7 @@ By default an existing launcher is **not** clobbered -- pass ``overwrite=True``
 (``--force`` on the CLI) to rewrite a launcher a user may have customized.
 
 The CLI dogfoods duho itself: ``python -m duho.scaffold <app> [--root DIR]
-[--libdir lib] [--python PY] [--force]`` is implemented as a :class:`duho.Cmd`.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9.
-"""
+[--libdir lib] [--python PY] [--force]`` is implemented as a :class:`duho.Cmd`."""
 
 from __future__ import annotations
 
@@ -169,8 +166,7 @@ def _windows_launcher(app: str, libdir: str, python: str) -> str:
     <app> %*``. ``PYTHON`` defaults to ``<python>`` when unset so a caller can
     override the interpreter. Generic -- no project names. The text embeds
     literal CRLF line endings, and the caller writes it with ``newline=""`` so
-    Python does not translate them again (this used to say Python
-    writes it with "the platform newline", which is wrong on POSIX).
+    Python does not translate them again.
     """
     return (
         "@echo off\r\n"

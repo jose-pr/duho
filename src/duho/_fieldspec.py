@@ -10,13 +10,9 @@ branch determines about the field (its text-to-value ``factory``, argparse
 ``choices``, ``metavar``, ``action``, ``nargs``, empty ``default``, and
 ``collection`` type).
 
-Split out of ``args.py``: this ladder, and the env/config layering
-pipeline in ``_layers.py``, are the two subsystems ``duho.args`` itself and
-``duho.mcp`` both depend on -- giving each its own small module (instead of
-reaching into a single ~4000-line file for a handful of private names) is
-what actually shrinks that file's maintainability problem. Public names
-(``Factory``, ``UpdateAction``) are re-exported from ``duho.args`` unchanged,
-so every existing import path keeps working.
+This ladder, and the env/config layering pipeline in ``_layers.py``, are the
+two subsystems ``duho.args`` itself and ``duho.mcp`` both depend on. Public
+names (``Factory``, ``UpdateAction``) are re-exported from ``duho.args``.
 """
 
 from __future__ import annotations
@@ -81,11 +77,11 @@ def _bool_from_text(text, /):
     """Strict CLI-text-to-bool factory.
 
     Plain ``bool`` is never a valid CLI/element/value factory: ``bool(text)``
-    is true for almost any non-empty string, so ``--flag False`` silently
-    became ``True``. This shares the same shared token table
-    (:data:`_compat.BOOL_TRUE`/:data:`_compat.BOOL_FALSE`) the layered
-    (env/config) converter already used, closing the gap where the CLI and
-    env/config disagreed on the very same field. A real ``bool`` passes
+    is true for almost any non-empty string, so ``--flag False`` would be
+    ``True``. This shares the token table
+    (:data:`duho.text.BOOL_TRUE`/:data:`duho.text.BOOL_FALSE`) the layered
+    (env/config) converter uses, so the CLI and
+    env/config agree on the very same field. A real ``bool`` passes
     through unchanged (a native TOML/JSON value, or a value already
     converted upstream); any other non-string is rejected the same as
     unrecognized text, rather than crashing on ``.strip()``.
@@ -306,7 +302,7 @@ class _NegatedBoolAction(_argparse.Action):
     ``--no-``-prefixed option string outright (3.9-3.14+ alike), so it is
     never reachable for this shape (see ``ArgumentBuilder.add_to_parser``,
     the only caller). This does the same job by hand, as ONE action
-    carrying BOTH the field's own originally-declared flags (``negative`` --
+    carrying BOTH the field's own declared flags (``negative`` --
     presence sets ``True``, this field's own honest "on" spelling) and an
     EXTRA, stripped positive-sense counterpart argparse also registers
     under the SAME dest (presence sets ``False``) -- never a SECOND action:
@@ -402,8 +398,8 @@ def _isoformat_factory(cls: type) -> Factory:
         # A non-str `text` (a native TOML/JSON date/datetime object passed
         # through the env/config layer) has no `.endswith` -- let
         # `fromisoformat` itself reject it (a TypeError, caught by
-        # `_convert_non_str`'s fallback the same way this used to on 3.11+
-        # too) instead of crashing here with an unrelated AttributeError.
+        # `_convert_non_str`'s fallback, as on 3.11+) instead of crashing here
+        # with an unrelated AttributeError.
         if isinstance(text, str) and text.endswith(("Z", "z")):
             text = text[:-1] + ("Z" if _accepts_z else "+00:00")
         return _cls.fromisoformat(text)
@@ -451,15 +447,10 @@ def _literal_spec(args: tuple) -> _FieldSpec:
             # with "--flag False" silently became True.
             factory: Factory = _bool_from_text
         elif isinstance(lit_ty, type) and issubclass(lit_ty, _enum.Enum):
-            # A Literal of specific Enum MEMBERS (as opposed to a bare Enum
-            # annotation, handled by `_enum_spec`) previously fell through to
-            # `factory = lit_ty` -- the enum CLASS itself, which looks members
-            # up by VALUE (`Color("RED")`), not by name, so a "choose from"
-            # name that argparse's own metavar/choices already advertised
-            # (`{Color.RED,Color.BLUE}`, from `repr()`-ing the raw members)
-            # was rejected outright. Resolve by NAME instead, scoped to only
-            # the members THIS Literal actually lists (a subset is allowed),
-            # matching `_enum_spec`'s own by-name convention.
+            # A Literal of specific Enum MEMBERS (a bare Enum annotation goes
+            # through `_enum_spec`). The enum class looks members up by VALUE,
+            # but the advertised choices are names, so resolve by NAME, scoped
+            # to the members this Literal lists, as `_enum_spec` does.
             names = tuple(member.name for member in args)
             valid = frozenset(names)
 
@@ -749,9 +740,8 @@ def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
 
     if origin is _ty.Annotated:
         # A nested Annotated/Arg[...] Union member (e.g.
-        # `Optional[Arg[int, NS(env=...)]]`) previously crashed later at the
-        # unhashable-metadata isoformat lookup, or silently dropped its
-        # metadata. Reject it loudly instead.
+        # `Optional[Arg[int, NS(env=...)]]`) has unhashable metadata the
+        # later lookups cannot use, so it is rejected here.
         raise ValueError(
             f"argument {name!r}: a nested Annotated/Arg[...] type {tp!r} is "
             f"not supported inside a Union; put the metadata on the OUTER "
@@ -814,10 +804,8 @@ def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
     if origin is not None:
         # Some other subscripted generic this ladder doesn't know how to
         # build a factory for (frozenset is handled above; this catches
-        # things like Sequence[str]/Iterable[str], which previously fell
-        # through to calling the raw typing alias on every value -- failing
-        # per-value at PARSE time instead of once at build time, or (for a
-        # bare `frozenset`) silently splitting text into characters).
+        # things like Sequence[str]/Iterable[str]: calling the raw typing
+        # alias per value would fail at PARSE time, not once at build time).
         raise ValueError(
             f"argument {name!r}: unsupported annotation {tp!r}; duho does "
             f"not know how to build a CLI factory for this generic type "

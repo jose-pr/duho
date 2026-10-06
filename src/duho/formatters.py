@@ -59,7 +59,7 @@ class DefaultsFormatter(_argparse.HelpFormatter):
     fields) never gains a suffix.
 
     Shows the field's CLASS default, never a live env/config value:
-    ``duho.agenthelp._stash_default_provenance`` -- called from ``args.py``'s
+    ``duho.agenthelp._stash_default_provenance`` -- called from ``duho.args``'s
     ``_AgentHelpAction`` right before it renders human help -- snapshots each
     action's declared default (and, when the value actually came from env or
     config, a value-free provenance note) as ``_duho_class_default_``/
@@ -106,7 +106,7 @@ def _color_enabled(stream=None) -> bool:
 
     ``NO_COLOR`` (set to anything) forces color OFF; ``FORCE_COLOR`` forces it
     ON regardless of TTY when its value is one of the shared truthy tokens
-    (``_compat.BOOL_TRUE`` -- "1", "true", "yes", "on", "y", "t",
+    (``duho.text.BOOL_TRUE`` -- "1", "true", "yes", "on", "y", "t",
     case-insensitive) -- the convention the test-suite relies on. An
     unrecognized value (``FORCE_COLOR=0``/``false``/``no``, or plain
     garbage) is treated as UNSET, never as an explicit "off". Otherwise

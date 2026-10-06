@@ -2,12 +2,7 @@
 
 Brace-range expansion (:func:`expand`), Python-safe name coercion
 (:func:`pysafe`), case conversion (:func:`snakecase`, :func:`camelcase`),
-and a :mod:`gettext` shim.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9,
-where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and
-raises ``TypeError``.
-"""
+and a :mod:`gettext` shim."""
 
 from __future__ import annotations
 
@@ -120,7 +115,7 @@ def kebabcase(name: str) -> str:
 
     This is the one rule behind duho's own kebab-case derived names (a
     command's default subcommand name, the default long flag of a field) --
-    see ``duho.args._command_name`` / the field-flag default in ``args.py``.
+    see ``duho.args._command_name`` / the field-flag default in ``duho.args``.
     """
     if not name:
         return ""

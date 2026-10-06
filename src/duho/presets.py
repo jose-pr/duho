@@ -55,7 +55,7 @@ def _apply_loglevels(
     root's parsed ``-v``/``-q``/``--loglevel`` values onto the shared instance
     regardless of which class ends up constructed, but only a ``LoggingArgs``
     subclass has the ``_set_loglevels_``/``_logger_`` MEMBERS to apply them
-    through -- previously that made verbosity flags a silent no-op on such a
+    through; without it, verbosity flags would be a silent no-op on such a
     leaf. ``default_logger`` names the logger that receives the -v/-q-derived
     (or a bare ``--loglevel LEVEL``) level: ``LoggingArgs._set_loglevels_``
     passes its own ``_logger_.name``; ``duho.main``/``duho.app`` pass the
@@ -169,15 +169,10 @@ class LoggingArgs(Args):
     action already exists (e.g. supplied by a parent parser).
     """
 
-    # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. LoggingArgs
-    # used to be deliberately left UNSEEDED so `_introspect._class_constants`
-    # would AST-scan this class body for a trailing docstring + flags-tuple
-    # after each field. Every field now carries its flags/help directly in
-    # its own `NS(...)` instead, so that scan is no longer needed -- which
-    # means duho's own `-v`/`-q`/`--loglevel` no longer silently change shape
-    # (to `--verbose`/`--quiet`/`--loglevels`, derived from the bare field
-    # names) under a PyInstaller/.pyc-only/Nuitka build that ships no .py
-    # source for duho itself to scan.
+    # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli` do. Every field carries
+    # its flags/help in its own `NS(...)`, so no class-body AST scan is
+    # needed, and `-v`/`-q`/`--loglevel` keep their shape under a
+    # PyInstaller/.pyc-only/Nuitka build that ships no .py source to scan.
     _duho_constants_: dict = {}
 
     loglevels: _ty.Annotated[

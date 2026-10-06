@@ -6,12 +6,7 @@ companion ``<prefix>env`` module of defaults an app may ship.
 
 Distinct from the per-field ``NS(env=...)`` default layer: that resolves
 one argparse field; this is the app-level accessor a driver reads settings through
-(command search paths, ``DEBUG``, import hooks).
-
-All union annotations are quoted so the module imports cleanly on Python 3.9,
-where an unquoted PEP-604 ``X | Y`` in a signature evaluates at def time and
-raises ``TypeError``.
-"""
+(command search paths, ``DEBUG``, import hooks)."""
 
 from __future__ import annotations
 
@@ -223,10 +218,10 @@ class Env(_abc.MutableMapping):
         """Return ``key`` interpreted as a boolean.
 
         Truthy values (case-insensitive, whitespace-stripped) are
-        ``_compat.BOOL_TRUE`` (``1``, ``true``, ``yes``, ``y``, ``t``,
+        ``duho.text.BOOL_TRUE`` (``1``, ``true``, ``yes``, ``y``, ``t``,
         ``on``); anything else (including a missing key) is ``False``.
 
-        The truthy set is the same shared ``_compat.BOOL_TRUE`` the layered
+        The truthy set is the same shared ``duho.text.BOOL_TRUE`` the layered
         (env/config) converter uses -- but this accessor
         stays LENIENT where that one is strict: an unrecognized value here is
         ``False`` rather than a user error.
@@ -308,7 +303,7 @@ class Env(_abc.MutableMapping):
         :meth:`_resolve_pathsep`) overrides the separator when set, so a
         caller can still force a separator regardless of platform -- SCOPED
         to this app's prefix, never a bare/global ``PATHSEP`` read straight
-        off ``os.environ``: that used to let ANY process-wide ``PATHSEP``
+        off ``os.environ``: that would let ANY process-wide ``PATHSEP``
         (set for a wholly unrelated program) bypass every safety rule below
         for every duho app on the system, splitting e.g. ``C:\\...\\cmds`` on
         its own drive-letter colon into a bare ``C:`` segment (a
@@ -330,7 +325,7 @@ class Env(_abc.MutableMapping):
         ``X`` was unset) -- is dropped BEFORE ``ty`` ever sees it, and is never
         treated as the current directory. This is deliberately unlike POSIX
         ``$PATH``, where an empty entry means the CWD: here, an empty CMDS_PATH
-        segment used to become ``ty("")`` -- ``Path("")`` is ``Path(".")`` --
+        segment would become ``ty("")`` -- ``Path("")`` is ``Path(".")`` --
         which glob-imported and executed every file in the CWD (a security-relevant fix).
         A caller who genuinely wants the current directory writes it
         explicitly as a ``"."`` segment, which IS still honoured.
@@ -370,9 +365,9 @@ class Env(_abc.MutableMapping):
         segment and keeps going, returning every OTHER valid entry -- for a
         caller like :func:`duho.runtime.app`'s ``CMDS_PATH`` resolution, one
         misconfigured entry among several must not silently drop the whole
-        list (a security/robustness fix: raising here used to propagate
-        past a bare ``except Exception`` at the call site, discarding every
-        valid entry along with the bad one, unlogged). ``on_reject``, when
+        list (raising here would propagate past a bare ``except Exception`` at
+        the call site, discarding every valid entry along with the bad one,
+        unlogged). ``on_reject``, when
         given, is called as ``on_reject(segment, reason)`` for each skipped
         entry -- ``reason`` a short human phrase (``"bare drive segment"`` /
         ``"ambiguous relative segment under a custom separator"`` /

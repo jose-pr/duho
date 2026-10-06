@@ -52,10 +52,7 @@ hidden by any succeeding (``0``) target the way ``max`` would hide it. Pass
 
 **Ctrl-C.** An interrupt while targets are still queued cancels the queued
 ones (already-running targets are allowed to finish) and re-raises
-``KeyboardInterrupt`` -- it does not silently drain the rest of the queue.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9.
-"""
+``KeyboardInterrupt`` -- it does not silently drain the rest of the queue."""
 
 from __future__ import annotations
 

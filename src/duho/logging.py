@@ -343,8 +343,8 @@ def init_stderr_logging(
     Idempotent: a repeat call on the same logger (directly, or via
     ``duho.main``/``duho.app`` each time they run) finds the handler this
     function installed last time (tagged, never matched by identity/count)
-    and does not add a second one -- calling it twice no longer duplicates
-    every log line. ``level``, when given, is still (re)applied.
+    and does not add a second one -- calling it twice does not duplicate
+    log lines. ``level``, when given, is still (re)applied.
 
     Color is gated the same way duho's own ``--help`` formatters are:
     ANSI only when the stream is a TTY, off when ``NO_COLOR`` is set, forced
@@ -383,7 +383,7 @@ def init_stderr_logging(
 TRACEBACK_ENV = "DUHO_TRACEBACK"
 
 #: Values of :data:`TRACEBACK_ENV` that mean "on" (case-insensitive, after
-#: stripping) -- the shared ``_compat.BOOL_TRUE`` table, so this and every
+#: stripping) -- the shared ``duho.text.BOOL_TRUE`` table, so this and every
 #: other declared bool field agree on what "on" means. An empty/unset
 #: variable, an explicit "off" spelling, AND an unrecognized value are all
 #: off: unlike a declared bool field (which rejects an unrecognized

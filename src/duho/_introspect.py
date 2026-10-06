@@ -43,7 +43,7 @@ def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
 
     Qualname is reconstructed by walking the tree while tracking the
     enclosing scope chain: entering a ClassDef appends "Name.", entering a
-    Function/AsyncFunctionDef appends "name.<locals>." -- this reproduces
+    Function/AsyncFunctionDef appends "name.<locals>." -- this yields
     __qualname__ exactly, so nested and function-local classes resolve.
 
     A qualname maps to a LIST, not a single node: the same qualname can be
@@ -53,8 +53,7 @@ def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
 
     Source is read as BYTES and decoded via ``tokenize.detect_encoding``,
     which honors both a UTF-8 BOM and a PEP 263 ``# -*- coding: ... -*-``
-    cookie (this previously forced a plain UTF-8 ``read_text``, which raised
-    on either).
+    cookie, both of which a plain UTF-8 ``read_text`` would raise on.
     """
     index: dict[str, list[_ast.ClassDef]] = {}
     raw = _Path(filename).read_bytes()
@@ -597,12 +596,10 @@ def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls``.
 
     The fast, PRIMARY path is plain ``typing.get_type_hints(cls,
-    include_extras=True)`` -- unchanged from before this fix, so a function-
-    local class/enum referenced by a public field's annotation (a real,
-    existing, exercised feature: the annotation is not a string at all in
-    the common case, already evaluated eagerly -- or, on 3.14, lazily via a
-    real closure that still sees the enclosing function's locals) keeps
-    working exactly as it always has.
+    include_extras=True)``, so a function-local class/enum referenced by a
+    public field's annotation works: the annotation is already evaluated
+    eagerly in the common case, or on 3.14 lazily through a closure that
+    still sees the enclosing function's locals.
 
     Only if that raises does this fall back to
     :func:`_resolve_public_type_hints_isolated`, which re-resolves each

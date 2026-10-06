@@ -3,10 +3,7 @@
 A :class:`QualName` base defines the parts/parent/join/split algebra, a
 :class:`DotQualNamed` mixes it into ``str`` with ``.`` as the separator, and
 :class:`PythonName`, whose :meth:`PythonName.new` runs parts through
-:func:`duho.text.pysafe`.
-
-All union annotations are quoted so the module imports cleanly on Python 3.9.
-"""
+:func:`duho.text.pysafe`."""
 
 from __future__ import annotations
 

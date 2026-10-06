@@ -7,7 +7,7 @@ one shot: every subcommand, each option with its type/default/required/
 repeatable flags, positionals, per-field environment-variable bindings,
 mutually-exclusive conflict groups, examples, and exit codes.
 
-**Two triggers, both wired up by ``args.py``:**
+**Two triggers, both wired up by ``duho.args``:**
 
 * **The ``AGENT_HELP``/``AGENTS_HELP`` environment variables (always on,
   zero-config; either truthy triggers).** When one is set to a truthy value,
@@ -31,7 +31,7 @@ still described from its argparse actions alone -- just without the duho-only
 metadata (env bindings, conflicts) that has no argparse equivalent.
 
 This mirrors :mod:`duho.completion`: one parser-tree walk that produces plain
-data, kept out of the ``import duho`` hot path (``args.py`` imports it lazily,
+data, kept out of the ``import duho`` hot path (``duho.args`` imports it lazily,
 only when an agent-help trigger actually fires).
 """
 
@@ -102,7 +102,7 @@ def agent_help_requested(
     (``AGENT_HELP`` and ``AGENTS_HELP``); either truthy triggers agent help.
     ``environ`` defaults to ``os.environ`` (injectable for tests). An unset
     variable is False; a set variable is True unless its stripped/lowercased
-    value is one of :data:`duho._compat.BOOL_FALSE`.
+    value is one of :data:`duho.text.BOOL_FALSE`.
     """
     environ = _os.environ if environ is None else environ
     if env_name is not None:
@@ -535,7 +535,7 @@ def _stash_default_provenance(parser, cls=None) -> None:
     ``parser`` -- argparse's own ``HelpFormatter`` API has no seam for it --
     so it cannot itself consult ``parser._duho_value_sources_``/``cls._getargs_()``
     the way :func:`describe_parser` does for the JSON document. Called from
-    ``args.py``'s ``_AgentHelpAction`` right before it renders human help (the
+    ``duho.args``'s ``_AgentHelpAction`` right before it renders human help (the
     one place in the print path that still has both ``parser`` and the
     about-to-render actions), so ``--help`` never shows a live env/config
     value either, matching the JSON document's own redaction.
@@ -617,7 +617,7 @@ class _RedactedHelpAction(_argparse._HelpAction):
 
     Installed on a MODULE COMMAND's subparser (:func:`_install_help_redaction`)
     -- a bare stdlib ``add_parser()`` instance that never goes through
-    ``args.py``'s ``_install_agent_help``/``_AgentHelpAction`` (see this
+    ``duho.args``'s ``_install_agent_help``/``_AgentHelpAction`` (see this
     module's own docstring on why a module command's subparser deliberately
     has no ``_duho_cls_``), so it never got this protection any other way.
     Unlike :class:`_AgentHelpAction`, this never emits the agent-help JSON
@@ -700,7 +700,7 @@ def _describe_parser(
     # only ``%%``-escaped at the source when it literally contains a
     # `%(prog)` placeholder (`Args._escape_description`), matching argparse's
     # own rule that a description is `%`-formatted only in that same case.
-    # Un-escaping it UNCONDITIONALLY here (an earlier fix did) corrupted a
+    # Un-escaping it UNCONDITIONALLY here would corrupt a
     # description that genuinely contains a literal `%%`; read it as stored.
     spec["description"] = (parser.description or "").strip()
     if root:
@@ -710,7 +710,7 @@ def _describe_parser(
         # that (like almost every subcommand) declares no `_version_` of its
         # own. `root_cls` is `None` only when `describe_parser` was called
         # directly on a raw/never-rooted parser, in which case `cls` is the
-        # best available fallback (matches the earlier behavior there).
+        # best available fallback.
         version = None
         version_cls = root_cls if root_cls is not None else cls
         if version_cls is not None:
@@ -746,9 +746,8 @@ def _describe_parser(
     if subparsers_action is not None:
         # argparse registers alias names as extra keys pointing at the SAME
         # subparser object; `unique_subcommands` groups by identity so each
-        # command is described once, under one canonical name (previously a
-        # hand-copy of this exact grouping, kept separately in
-        # `duho.mcp`, that could silently diverge from this one).
+        # command is described once, under one canonical name (`duho.mcp`
+        # shares this grouping).
         for canonical, alias_names, subparser in _parsers.unique_subcommands(
             parser, seen=seen
         ):
@@ -816,7 +815,7 @@ def print_agent_help(cls: type[_Args], file: _ty.Optional[_ty.TextIO] = None) ->
 
     Written via :func:`duho._compat.write_machine`: raw UTF-8
     bytes with LF-only newlines, bypassing ``file``'s text-mode encoding and
-    newline translation, the same writer ``args.py``'s agent-help actions use
+    newline translation, the same writer ``duho.args``'s agent-help actions use
     -- so this standalone entry point and the ``-h``/``--help-agents``
     triggers behave identically on any host encoding.
     """

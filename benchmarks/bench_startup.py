@@ -25,8 +25,8 @@ introspection (``inspect.getsource``) then raises OSError and silently skips
 the AST scan, so a ``-c``-based e2e number never exercises the per-invocation
 AST/getsource path it claims to measure. ``e2e_build_parse_large`` is the same
 snippet in a probe file of about 1,000 lines with the class last, so the cost
-of reading the defining file shows. ``e2e_no_source`` keeps the old
-``-c``-based variant as a separate, informational (not gated) metric, for
+of reading the defining file shows. ``e2e_no_source`` is the
+``-c``-based variant, a separate, informational (not gated) metric, for
 comparison.
 
     python benchmarks/bench_startup.py            # print summary

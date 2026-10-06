@@ -131,10 +131,10 @@ CACHE_ATTRS = ("_duho_constants_", "_duho_clsargs_", "_duho_builders_")
 
 #: Args/Cmd/Cli each pre-seed ``_duho_constants_ = {}`` in their own class body
 #: (see the docstring on ``duho.Args._duho_constants_``) so that building
-#: ANY user parser never AST-parses duho's own ``args.py`` to scan these
+#: ANY user parser never AST-parses duho's own source to scan these
 #: framework base classes -- they declare no real CLI fields. A fresh process
-#: always has this seed. Deleting it here forced every "cold" sample to
-#: additionally index and AST-parse the ~2300-line args.py on its next build,
+#: always has this seed. Deleting it here would make every "cold" sample
+#: additionally index and AST-parse duho's own source on its next build,
 #: inflating cold.build.complex/cold.tree.* by 4-10x with a cost no real
 #: invocation ever pays. Excluded from the drop for exactly these three
 #: classes; a real user subclass's own seed is still cleared normally.
@@ -352,7 +352,7 @@ def warm_metrics() -> "dict":
 def cold_metrics() -> "dict":
     """Informational COLD metrics (caches dropped before each build).
 
-    Reproduces the real per-invocation cost a fresh CLI process pays. Noisier
+    Measures the real per-invocation cost a fresh CLI process pays. Noisier
     than warm metrics (dominated by ``ast.parse`` of the user's own file), so
     reported but NOT gated.
     """

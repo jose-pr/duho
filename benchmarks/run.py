@@ -19,7 +19,7 @@ rather than averaged away. Counts are fixed so numbers stay comparable across
 runs and commits. Requires duho importable (PYTHONPATH=src, or installed).
 
 Warm metrics (caches populated) are the ones CI regression-gates -- see
-check_baseline.py. Cold metrics reproduce the real per-invocation cost and are
+check_baseline.py. Cold metrics measure the real per-invocation cost and are
 reported for insight, not gated (they are dominated by ast.parse noise).
 """
 

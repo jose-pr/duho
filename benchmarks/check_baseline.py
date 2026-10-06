@@ -25,24 +25,22 @@ its OWN measurement domain, not a single shared one:
     already measures this as ``abs.python_pass``) -- a bare subprocess spawn,
     the same way.
 
-A single shared calibration ratio was tried first and rejected: measured
-directly on a real confirming CI run, a runner-speed swing moved the
-in-process workload's ratio by a different amount than the subprocess
+A single shared calibration ratio would be wrong: a runner-speed swing moves
+the in-process workload's ratio by a different amount than the subprocess
 spawn's ratio (python_pass 13-17% faster vs. the in-process calibration 39%
-faster, same run) -- dividing ``import_duho_delta`` by the in-process ratio
-turned its own harmless 0.87x raw ratio into a false "1.39x REGRESSION".
+faster in the same run), so dividing ``import_duho_delta`` by the in-process
+ratio would turn its harmless 0.87x raw ratio into a false "1.39x REGRESSION".
 Domain-matching each group to its own reference is what makes the
-cancellation in the next paragraph actually hold.
+cancellation in the next paragraph hold.
 
 Each group's calibration ratio is current/baseline for that reference. A
 uniformly slower (or faster) shared ``ubuntu-latest`` runner moves a group's
 calibration ratio by the same factor it moves every metric IN THAT GROUP, so
 dividing cancels that common factor; a regression confined to duho's own code
 still moves a metric's ratio without moving its group's calibration ratio, so
-it still trips the gate. A baseline entry from before this change has no
-``calibration_ms``/``calibration_subprocess_ms``, so the corresponding ratio
-falls back to 1.0 (unnormalised, the old behavior) until the entry is
-regenerated.
+it still trips the gate. A baseline entry without
+``calibration_ms``/``calibration_subprocess_ms`` falls back to a 1.0 ratio
+(unnormalised) until the entry is regenerated.
 
 Thresholds are deliberately generous -- CI runner timing noise is real -- so a
 trip means a structural regression, not jitter. When the baseline has no entry
@@ -119,8 +117,8 @@ def main(argv=None):
 
     # Runner-speed references: see the module docstring for why
     # there are two, domain-matched ones rather than one shared ratio. A
-    # baseline entry predating this change has neither key -- fall back to
-    # an unnormalised 1.0 ratio (the old behavior) rather than failing.
+    # baseline entry without either key falls back to an unnormalised 1.0
+    # ratio rather than failing.
     def _ratio(current, baseline_value):
         return current / baseline_value if baseline_value else 1.0
 

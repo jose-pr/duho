@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Regression tests for the benchmarks/ harness itself.
+"""Tests for the benchmarks/ harness itself.
 
 Not part of the main `tests/` suite (pytest's `testpaths` is `tests/`) --
 run explicitly:
 
     PYTHONPATH=src python -m pytest benchmarks/test_bench_harness.py -q
 
-Each test is written to fail against the harness code as it stood before the
-fix its docstring describes.
+Each test pins the behavior its docstring describes.
 """
 
 import json
@@ -48,8 +47,8 @@ def _child_env():
 
 def test_drop_caches_preserves_framework_seed():
     """A fresh process always has Args/Cmd/Cli's pre-seeded
-    ``_duho_constants_ = {}``. Pre-fix, ``drop_caches`` deleted it along with
-    every other cache attribute reachable from the MRO, so this would raise
+    ``_duho_constants_ = {}``; ``drop_caches`` must keep it, since deleting
+    it with every other cache attribute reachable from the MRO would raise
     AttributeError."""
     _bench.drop_caches(_bench.ComplexArgs)
     assert duho.Args._duho_constants_ == {}
@@ -59,7 +58,7 @@ def test_drop_caches_preserves_framework_seed():
 
 def test_drop_caches_never_reintrospects_framework_classes(monkeypatch):
     """Once the seed is dropped, the next build must AST-parse duho's own
-    args.py to re-populate it for Args/Cmd/Cli -- work no real invocation ever
+    source to re-populate it for Args/Cmd/Cli -- work no real invocation ever
     does. Spy on ``getclsdef`` (what triggers that parse) and assert it is
     never called for the three framework classes after a cold drop+rebuild."""
     calls = []
@@ -79,9 +78,8 @@ def test_drop_caches_never_reintrospects_framework_classes(monkeypatch):
 
 
 def test_compare_cache_drop_also_preserves_seed():
-    """compare_cache.py used to keep its own copy of the drop logic with the
-    same bug; it now imports _bench.drop_caches directly, so this is really
-    the same fix verified through compare_cache's own entry point."""
+    """compare_cache.py imports _bench.drop_caches directly, so this is the
+    same behavior verified through compare_cache's own entry point."""
     compare_cache.drop_caches(compare_cache.ComplexArgs)
     assert duho.Args._duho_constants_ == {}
 
@@ -124,10 +122,8 @@ def test_real_file_source_registers_class_body_flags():
 
 
 def test_measure_times_gated_e2e_from_a_real_file(monkeypatch):
-    """Unit-level regression: bench_startup.measure() must route the gated
-    e2e_build_parse metric through source_ms() (a real .py file), not
-    subprocess_ms() (`-c`). Pre-fix, measure() had no source_ms and timed e2e
-    with the same `python -c` helper as everything else."""
+    """bench_startup.measure() must route the gated e2e_build_parse metric
+    through source_ms() (a real .py file), not subprocess_ms() (`-c`)."""
     source_calls = []
     code_calls = []
 
@@ -273,8 +269,8 @@ def test_check_baseline_wording_no_longer_claims_normalized_runner_speed():
 
 def test_baseline_only_covers_ci_matrix_versions():
     """`.github/workflows/test.yml`'s benchmark job matrix is exactly
-    ["3.9", "3.13", "3.14"]; baseline.json previously also carried unused
-    3.10-3.12 entries (measured locally, never compared against)."""
+    ["3.9", "3.13", "3.14"]; baseline.json carries no entries for other
+    versions (they would never be compared against)."""
     data = json.loads((_HERE / "baseline.json").read_text())
     assert set(data) <= {"3.9", "3.13", "3.14"}
 
@@ -320,9 +316,8 @@ def test_check_baseline_normalises_uniform_runner_slowdown(tmp_path, monkeypatch
     """A uniformly slower runner -- every timing (both calibration workloads,
     warm metrics, startup delta) scaled by the SAME constant factor -- must
     still pass: this is exactly what the calibration-ratio normalisation
-    exists to cancel. Pre-fix (raw ratio, no calibration division) this
-    would fail, since every raw ratio equals the factor, well above either
-    threshold."""
+    exists to cancel. Without the calibration division every raw ratio would
+    equal the factor, well above either threshold."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {
@@ -420,17 +415,16 @@ def test_check_baseline_falls_back_to_unnormalised_without_calibration(
 
 
 def test_check_baseline_warm_and_startup_calibrate_independently(tmp_path, monkeypatch):
-    """Reproduces the exact failure caught on a real confirming CI run: a
-    runner-speed swing moved the in-process calibration workload's ratio
-    (0.61x) by a different amount than the subprocess
-    python_pass ratio (0.87x) on the SAME run. Under a single shared
-    calibration ratio, dividing the startup delta's own harmless raw ratio
-    (0.87x, well under the 1.3x threshold) by the unrelated in-process ratio
-    produced a false "1.39x REGRESSION". With each group normalised against
-    its OWN domain-matched reference, the startup delta's ratio comes out
-    close to its own raw ratio (~0.87x / ~0.87x ~= 1.0x) and must pass, even
-    though the in-process calibration swung hard enough that it would have
-    mis-normalised it."""
+    """A runner-speed swing that moves the in-process calibration workload's
+    ratio (0.61x) by a different amount than the subprocess python_pass
+    ratio (0.87x) in the SAME run must not trip the gate. Under a single
+    shared calibration ratio, dividing the startup delta's harmless raw
+    ratio (0.87x, well under the 1.3x threshold) by the unrelated in-process
+    ratio would report a false "1.39x REGRESSION". With each group
+    normalised against its OWN domain-matched reference, the startup delta's
+    ratio comes out close to its own raw ratio (~0.87x / ~0.87x ~= 1.0x) and
+    passes, even though the in-process calibration swung hard enough to
+    mis-normalise it."""
     baseline_path = _write_fake_baseline(
         tmp_path,
         {

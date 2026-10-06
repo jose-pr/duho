@@ -99,6 +99,10 @@ from ._mcpcmd import (
     _existing_command_names,
     _build_mcp_command_class,
 )
+from ._completioncmd import (
+    _resolve_completion_command_name,
+    _build_completion_command_class,
+)
 from ._register import (
     _register_class_command,
     _wants_logger_arg,

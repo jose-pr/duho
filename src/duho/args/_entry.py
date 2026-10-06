@@ -215,44 +215,61 @@ def main(
         return served
 
     root_cls = cls
-    if getattr(cls, "_mcp_command_", False) is not False:
-        # Lazy: `duho.runtime` (and, transitively, `duho.mcp`) is imported
-        # only when the class attribute is anything other than the literal
-        # `False` default -- an explicit empty string must still reach
-        # `_build_mcp_command_class`'s validation and raise, exactly like
-        # `app()`'s own unconditional call does, so this is `is not False`,
-        # not a truthiness check (`""` is falsy but NOT a valid opt-out).
-        # A `main` call with the default `False` never pays for either
-        # import.
+    extra_cmds: "list[type]" = []
+    completion_cls = None
+    if (
+        getattr(cls, "_mcp_command_", False) is not False
+        or getattr(cls, "_completion_command_", False) is not False
+    ):
+        # Lazy: `duho.runtime` (and, transitively, `duho.mcp`/`duho.completion`)
+        # is imported only when a class attribute is anything other than the
+        # literal `False` default -- an explicit empty string must still reach
+        # the builders' validation and raise, exactly like `app()`'s own
+        # unconditional call does, so this is `is not False`, not a truthiness
+        # check (`""` is falsy but NOT a valid opt-out). A `main` call with the
+        # defaults never pays for either import.
         from .. import runtime as _runtime
 
+        has_other = bool(getattr(cls, "_subcommands_", None))
         mcp_cls = _runtime._build_mcp_command_class(
             cls,
             None,
             _runtime._existing_command_names(cls, ()),
-            has_other_subcommand=bool(getattr(cls, "_subcommands_", None)),
+            has_other_subcommand=has_other,
         )
         if mcp_cls is not None:
-            # A fresh subclass of `cls` carrying the extra subcommand,
-            # built fresh per call (never mutating `cls` itself, which
-            # would leak across calls/threads) -- mirrors `duho.app`'s own
-            # per-call `_McpCmd` synthesis. `_MCP_CONTEXT` below is set to
-            # `("class", cls)` -- the ORIGINAL class, not this subclass --
-            # so a nested `serve_running_app()` call re-serves `cls`'s own
-            # tree, which never included this injected subcommand to begin
-            # with (no separate exclusion logic needed).
-            extra_attrs: "dict[str, object]" = {
-                "__module__": cls.__module__,
-                "__qualname__": cls.__qualname__,
-                "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
-                + [mcp_cls],
-                "_duho_constants_": {},
-                "__doc__": cls.__doc__,
-            }
-            own_parsername = vars(cls).get("_parsername_")
-            if own_parsername is not None:
-                extra_attrs["_parsername_"] = own_parsername
-            root_cls = type(cls.__name__, (cls,), extra_attrs)
+            extra_cmds.append(mcp_cls)
+        completion_cls = _runtime._build_completion_command_class(
+            cls,
+            _runtime._existing_command_names(cls, ())
+            | {c._parsername_ for c in extra_cmds},
+            has_other_subcommand=has_other,
+        )
+        if completion_cls is not None:
+            extra_cmds.append(completion_cls)
+    if extra_cmds:
+        # A fresh subclass of `cls` carrying the extra subcommands, built
+        # fresh per call (never mutating `cls` itself, which would leak across
+        # calls/threads) -- mirrors `duho.app`'s own per-call synthesis.
+        # `_MCP_CONTEXT` below is set to `("class", cls)` -- the ORIGINAL
+        # class, not this subclass -- so a nested `serve_running_app()` call
+        # re-serves `cls`'s own tree, which never included the injected
+        # subcommands to begin with (no separate exclusion logic needed).
+        extra_attrs: "dict[str, object]" = {
+            "__module__": cls.__module__,
+            "__qualname__": cls.__qualname__,
+            "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
+            + extra_cmds,
+            "_duho_constants_": {},
+            "__doc__": cls.__doc__,
+        }
+        own_parsername = vars(cls).get("_parsername_")
+        if own_parsername is not None:
+            extra_attrs["_parsername_"] = own_parsername
+        root_cls = type(cls.__name__, (cls,), extra_attrs)
+        if completion_cls is not None:
+            # The script describes the tree including its own subcommand.
+            completion_cls._completion_tree_ = root_cls
 
     parser = root_cls._parser_(_inherited_config_hint_=config is not None)
     _apply_layers(parser, root_cls, config=config)

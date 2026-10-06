@@ -22,8 +22,8 @@ UNION_ORIGINS: tuple = (
 #: The currently-dispatching app's MCP-serving context, set by
 #: ``duho.main``/``duho.app`` around their own dispatch step so
 #: ``duho.mcp.serve_running_app`` (called from within a dispatched command,
-#: e.g. ``McpCmd``) can serve the SAME already-built tree, with no
-#: rediscovery. A plain tuple -- ``("class", cls)`` for a static
+#: e.g. ``McpCmd``) and the app-built completion subcommand can read the SAME
+#: already-built tree, with no rediscovery. A plain tuple -- ``("class", cls)`` for a static
 #: ``_subcommands_`` tree (``duho.main``), or ``("app", parser, root_cls,
 #: dispatch)`` for a full ``app()`` build -- kept opaque here on purpose:
 #: this module is a leaf (imports nothing internal), so BOTH writers

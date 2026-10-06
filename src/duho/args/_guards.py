@@ -16,6 +16,8 @@ _KNOWN_ATTRS: "_ty.FrozenSet[str]" = frozenset(
         "_base_loglevel_",
         "_collection_",
         "_completion_",
+        "_completion_command_",
+        "_completion_tree_",
         "_config_",
         "_config_loader_",
         "_default_subcommand_",

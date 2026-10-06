@@ -153,6 +153,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
+| `_completion_command_` | `str \| bool` | `False` | root | registers a subcommand that prints a shell completion script (`True` → `completion`, a string → that name); its one argument is the shell |
 | `_parsername_` | `str` | kebab-case class name | command | the subcommand name (and the application's name on a root) |
 | `_parseraliases_` | `Sequence[str]` | none | command | extra subcommand names |
 | `_runpath_dir_` | `Path \| None` | `None` | `duho.runpath.RunPathCmd` subclass | the directory of `NN-name.py` steps; the provider sets it |

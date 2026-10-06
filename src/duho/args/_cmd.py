@@ -269,6 +269,15 @@ class Cli(Cmd):
     #: (see ``_version_`` above).
     _mcp_command_: "_ty.Union[str, bool]" = False
 
+    #: Opt-in built-in subcommand that prints a shell completion script,
+    #: read by both ``duho.main`` and ``duho.app`` through the same
+    #: registration rules as ``_mcp_command_`` (same name validation, collision
+    #: and "needs another subcommand" errors). ``False`` (default): none.
+    #: ``True``: a subcommand named ``"completion"``; a non-empty ``str``
+    #: names it. It takes one positional, the shell (``bash``, ``zsh``,
+    #: ``fish`` or ``powershell``), and is never an MCP tool.
+    _completion_command_: "_ty.Union[str, bool]" = False
+
     @classmethod
     def subcommand(cls, child: "_C") -> "_C":
         """Decorator form of :meth:`_register_subcmd_`.

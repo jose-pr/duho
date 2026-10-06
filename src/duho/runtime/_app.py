@@ -10,6 +10,7 @@ from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trig
 from ..args._entry import _setup_instance_logging as _setup_instance_logging
 from ..discovery import Command as _Command, ModuleCommand as _ModuleCommand
 
+from ._completioncmd import _build_completion_command_class
 from ._mcpcmd import _build_mcp_command_class, _existing_command_names
 from ._parser import _prepare_app_parser
 from ._resolve import _resolve_commands
@@ -351,6 +352,15 @@ def app(
     )
     if mcp_cls is not None:
         resolved_commands = list(resolved_commands) + [mcp_cls]
+
+    completion_cls = _build_completion_command_class(
+        root,
+        _existing_command_names(root, resolved_commands),
+        has_other_subcommand=bool(resolved_commands)
+        or bool(getattr(root, "_subcommands_", None)),
+    )
+    if completion_cls is not None:
+        resolved_commands = list(resolved_commands) + [completion_cls]
 
     parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
         root, name, description, config, argv, resolved_commands

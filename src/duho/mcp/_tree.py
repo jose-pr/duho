@@ -268,8 +268,9 @@ def _core_for_app(root: "type | None" = None, **app_kwargs: object) -> "_ServerC
     alongside class-command ones. ``**app_kwargs`` accepts every keyword
     :func:`duho.app` itself does (``commands``, ``source``, ``entry_points``,
     ``argv``, ``name``, ``description``, ``env``, ``config``) except
-    ``setup_logging``/``dispatch``, which have no meaning for a server that
-    dispatches once per MCP tool call rather than once per process.
+    ``dispatch``, which replaces the final run step of every tool call exactly
+    as it does for a CLI run, and except ``setup_logging``, which has no
+    meaning for a server that sets logging up once per tool call.
     """
     parser, root_cls, dispatch = _build_app_core(root, **app_kwargs)
     # The root tool-name segment is the application's name, `parser.prog`.

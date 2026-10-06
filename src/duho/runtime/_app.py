@@ -278,6 +278,7 @@ def app(
                 description=description,
                 env=env,
                 config=config,
+                dispatch=dispatch,
             )
 
         served = _maybe_serve_mcp_trigger(
@@ -410,6 +411,7 @@ def _build_app_core(
     description: "str | None" = None,
     env: "_Env | None" = None,
     config: "str | _Path | None" = None,
+    dispatch: "_ty.Callable[[_Command, object], int] | None" = None,
 ) -> "tuple[_argparse.ArgumentParser, type, _ty.Callable[[object, object], int]]":
     """Build an ``app()`` command tree's parser, WITHOUT parsing ``argv`` or
     dispatching -- the building block :mod:`duho.mcp` needs to serve an
@@ -430,7 +432,8 @@ def _build_app_core(
     instance: attaching the resolved ``env`` as ``instance._env_``, logging
     setup (identical to a real ``app()`` run), flushing the deferred
     override/collision notices (once, not once per call), and
-    :func:`run_command`. The caller (``duho.mcp``) is responsible for parsing
+    :func:`run_command` (or ``dispatch``, when given, as :func:`app` does).
+    The caller (``duho.mcp``) is responsible for parsing
     argv against ``parser`` and resolving which command to dispatch -- the
     same responsibility split :func:`_run_app` has, just with the parse step
     performed by the caller instead of internally, so a caller can verify
@@ -461,5 +464,8 @@ def _build_app_core(
 
     _finalize_command_tree(parser, subparsers, root_cls, registry, raw_config)
 
-    dispatch = _make_post_parse_dispatch(env, root_cls, notices, cmds_path_overridden)
-    return parser, root_cls, dispatch
+    run = dispatch if dispatch is not None else run_command
+    post_parse = _make_post_parse_dispatch(
+        env, root_cls, notices, cmds_path_overridden, run
+    )
+    return parser, root_cls, post_parse

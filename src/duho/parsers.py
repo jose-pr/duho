@@ -90,15 +90,10 @@ def add_help_argument(parser: _argparse.ArgumentParser) -> _argparse.Action:
 class _NoOpAction(_argparse.Action):
     """An ``Action`` whose ``__call__`` does nothing.
 
-    Installed transiently, via a per-instance ``__class__`` swap, on any
-    action :func:`prerun_parse` treats as "terminal" for the duration of its
-    advisory parse -- argparse's own ``-h``/``--help`` and ``--version``
-    (``_HelpAction``/``_VersionAction``, including duho's ``_AgentHelpAction``,
-    which IS a ``_HelpAction``), plus duho's ``--print-completion``/
-    ``--help-agents`` actions (see :func:`_is_terminal_action`). Swapping the
-    *instance's* class, never argparse's or duho's own class, keeps the
-    surgery local and thread-safe; the caller restores it in a
-    ``finally``.
+    Swapped in per instance (``__class__``) for the duration of
+    :func:`prerun_parse`'s advisory parse on each terminal action (see
+    :func:`_is_terminal_action`); the caller restores it in a ``finally``.
+    Swapping the instance's class keeps it local and thread-safe.
     """
 
     def __call__(self, parser, namespace, values, option_string=None):  # noqa: D401
@@ -121,11 +116,9 @@ class _RelaxedSubParsersAction(_argparse._SubParsersAction):
         arg_strings = values[1:]
 
         if not getattr(self, "_duho_action_called_", False):
-            # argparse's own `_SubParsersAction.__call__` guards this identical
-            # assignment with `if self.dest is not SUPPRESS` -- a subparsers
-            # action built via a plain `add_subparsers()` (no explicit `dest=`)
-            # otherwise leaves a literal `"==SUPPRESS=="` key on the returned
-            # namespace.
+            # Like argparse's own `__call__`, skip a SUPPRESS dest: a subparsers
+            # action built without `dest=` would leave a literal `"==SUPPRESS=="`
+            # key on the namespace.
             if self.dest is not _argparse.SUPPRESS:
                 setattr(namespace, self.dest, parser_name)
             self._duho_action_called_ = True  # type: ignore[attr-defined]
@@ -313,16 +306,12 @@ def unique_subcommands(
 
 
 def _is_terminal_action(action: _argparse.Action) -> bool:
-    """True for an action :func:`prerun_parse` must silence during its
-    advisory parse: argparse's own ``_HelpAction``/``_VersionAction`` (a duho
-    ``_AgentHelpAction`` IS a ``_HelpAction``, so it's covered too) plus
-    duho's own ``--print-completion``/``--help-agents`` actions.
+    """True for an action :func:`prerun_parse` must silence during its advisory
+    parse: argparse's ``_HelpAction``/``_VersionAction`` (which covers duho's
+    ``_AgentHelpAction``) plus duho's ``--print-completion``/``--help-agents``.
 
-    The latter two are recognized via a LAZY, in-function import of
-    ``duho.args`` rather than a module-level one: ``duho.args`` imports
-    ``duho.parsers`` (for :func:`prerun_parse` itself), so a top-level import
-    the other way would be circular. By the time this function is actually
-    CALLED, both modules are fully loaded.
+    The latter two come from a lazy import of ``duho.args``, which imports this
+    module, so a top-level import would be circular.
     """
     if isinstance(action, (_argparse._HelpAction, _argparse._VersionAction)):
         return True

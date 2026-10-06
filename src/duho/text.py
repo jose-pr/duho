@@ -221,9 +221,12 @@ def range(
     range -- for: mismatched-kind endpoints (one digit, one letter), a
     multi-character letter endpoint, mixed-case letter endpoints (which would
     otherwise walk the ASCII punctuation between the two cases), or a reversed
-    range (``start`` after ``end``).
+    range (``start`` after ``end``), or a ``format`` containing braces or one the
+    member does not accept (``":03d"`` on a letter range).
     """
     format = format or ""
+    if "{" in format or "}" in format:
+        raise ValueError("range format must not contain braces: %r" % format)
     start_is_digit = start.isdigit()
     end_is_digit = end.isdigit()
     if start_is_digit != end_is_digit:
@@ -261,6 +264,10 @@ def expand(text: str) -> "_ty.Iterator[str]":
 
     ``expand("host[01-03]")`` yields ``host1``, ``host2``, ``host3`` (output is
     NOT zero-padded); ``expand("x[A-C]")`` yields ``xA``, ``xB``, ``xC``.
+    A ``:spec`` suffix inside the brackets is a ``str.format`` spec applied to
+    each member, so ``expand("host[1-3:02d]")`` yields ``host01``, ``host02``,
+    ``host03``; a spec with braces, or one the member does not accept, raises
+    :class:`ValueError`.
     Multiple ranges expand as their Cartesian product, computed iteratively
     (:func:`itertools.product`) rather than by recursion, so the number of
     ranges in ``text`` is not bounded by Python's recursion limit -- but in the
@@ -270,8 +277,8 @@ def expand(text: str) -> "_ty.Iterator[str]":
     :func:`itertools.product`'s own left-to-right nesting, which is why the
     ranges are iterated in reverse and each combination un-reversed before
     use). Text with no range is yielded unchanged. A malformed range
-    (reversed, mismatched-kind, or a multi-character/mixed-case letter
-    endpoint) raises :class:`ValueError` rather than silently yielding nothing
+    (reversed, mismatched-kind, a multi-character/mixed-case letter
+    endpoint, or a bad format spec) raises :class:`ValueError` rather than silently yielding nothing
     or a surprising result -- see :func:`range`.
     """
     matches = list(_EXPAND_PATTERN.finditer(text))

@@ -24,6 +24,8 @@ import sys
 import types
 from unittest import mock
 
+import pytest
+
 from duho import Args, _introspect
 
 
@@ -138,6 +140,17 @@ class _NoSourceWithFields:
 
     name: str = "x"
     "A name."
+
+
+@pytest.fixture(autouse=True)
+def _forget_introspection_of_the_sourceless_classes():
+    """Introspection caches its result on the class, so a second test reaching
+    the same class would find the cache and log nothing."""
+    for cls in (_NoSourceWithFields, _NoSourceNoFields):
+        for attr in ("_duho_constants_", "_duho_clsargs_", "_duho_builders_"):
+            if attr in vars(cls):
+                delattr(cls, attr)
+    yield
 
 
 def test_missing_source_warns_for_a_class_with_annotated_fields(caplog):

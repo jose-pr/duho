@@ -37,63 +37,40 @@ def _register_commands(
 ]:
     """Register every resolved command on ``parser`` and resolve collisions.
 
-    Returns ``(subparsers, registry, notices)``. ``registry`` (PRIMARY names
-    only) is later consumed by :func:`_apply_app_config_layers`; ``notices``
-    collects override/collision log records for :func:`app` to flush once
-    logging is actually configured. Split out of :func:`app`;
-    no behavior change, the full suite is the guard.
-
-    ``inherited_config_hint`` is ``app()``'s own ``config is not None``,
-    forwarded to :func:`_register_class_command` for every dynamically
-    resolved class command (``commands=``/``source=``/CMDS_PATH) -- see that
-    function's docstring for why a command resolved this way needs it too,
-    not just one reachable via a root's static ``_subcommands_`` tree.
+    Returns ``(subparsers, registry, notices)``. ``registry`` (primary names
+    only) feeds :func:`_apply_app_config_layers`; ``notices`` are override and
+    collision log records for :func:`app` to flush once logging is configured.
+    ``inherited_config_hint`` is forwarded to :func:`_register_class_command`.
 
     ``on_error(command, exc)``, when given, is called for an exception raised
-    while building one command's parser (a ``register`` hook included):
-    returning drops that command, raising aborts.
+    while building one command's parser: returning drops that command, raising
+    aborts.
     """
     notices: list[tuple[int, str]] = []
 
-    # Map each subcommand name to (kind, command) in ONE registry so registration
-    # and dispatch agree. A name registered twice (e.g. a module command and a
-    # class command sharing a name) warns naming both; the LAST registration wins
-    # -- the earlier subparser is deregistered so argparse does not raise
-    # `conflicting subparser`, and dispatch resolves via this same registry.
-    # `registry` stays keyed by PRIMARY names only (its shape `_apply_app_config_
-    # layers` below relies on, one config-table lookup per canonical subcommand
-    # name). `claimed` mirrors it but also carries every class command's
-    # ALIASES (`_full_names`), so the collision check below catches an alias
-    # clash too, not just a primary-name one.
+    # One registry keeps registration and dispatch in agreement. A name registered
+    # twice warns naming both and the LAST wins: the earlier subparser is
+    # deregistered, or argparse raises `conflicting subparser`.
+    # `registry` is keyed by primary names; `claimed` also carries class-command
+    # aliases so the collision check catches an alias clash.
     registry: dict[str, tuple[str, object]] = {}
     claimed: dict[str, tuple[str, object]] = {}
 
-    # A root class with `_subcommands_` already had them registered by its own
-    # `_parser_`, which created a subparsers action. argparse allows only one per
-    # parser ("cannot have multiple subparser arguments"), so reuse that action
-    # rather than adding a second -- otherwise a root with built-ins could not
-    # also take discovered commands (CMDS_PATH being additive depends on this).
-    # Re-registering a name is safe: `_deregister_subparser` drops the earlier
-    # entry so the later one wins.
+    # A root with `_subcommands_` already created a subparsers action, and argparse
+    # allows one per parser: reuse it so CMDS_PATH can add to built-ins.
     subparsers = _parsers.find_subparsers(parser)
     if subparsers is None:
-        # A private dest -- matches the one a class root's own
-        # static `_subcommands_` tree uses (`Args._parser_`) -- so a root
-        # field a user happens to name `command` is never silently
-        # overwritten by subcommand selection. Dispatch below does not read
-        # this dest (a module command is identified by its own
-        # `_duho_module_command_` marker instead); it exists purely so
-        # argparse can enforce "a subcommand is required".
+        # Private dest, like `Args._parser_`, so a root field named `command` is
+        # not overwritten. Dispatch does not read it; argparse uses it to enforce
+        # "a subcommand is required".
         subparsers = parser.add_subparsers(
             title="command",
             dest="_duho_command_",
             required=bool(resolved_commands),
         )
     else:
-        # Names the root's own `_parser_` already wired up. Re-registering one
-        # here would drop its `"#cls"` selection hook and break dispatch, so skip
-        # any resolved command that is already present and identical -- only a
-        # genuinely different command (a CMDS_PATH override) re-registers.
+        # Skip a resolved command already registered by the root's `_parser_` and
+        # identical: re-registering would drop its `"#cls"` selection hook.
         preregistered = set(subparsers._name_parser_map)  # type: ignore[attr-defined]
         builtin_by_name = {
             _command_name(c): c
@@ -108,15 +85,9 @@ def _register_commands(
                 and builtin_by_name.get(_command_name(c)) is c
             )
         ]
-        # Seed `registry` with the root's own pre-registered builtins so the
-        # collision-check loop below (keyed on `cmd_name in registry`) also
-        # catches a genuinely DIFFERENT command overriding one of THESE names
-        # -- not just a collision between two commands both resolved in the
-        # loop itself. Without this, a CMDS_PATH override of a preregistered
-        # builtin skips `_deregister_subparser` entirely (registry looked
-        # empty for that name) and argparse's own `add_parser` raises
-        # `conflicting subparser` when the loop tries to register the
-        # override under the same, still-occupied name.
+        # Seed `registry` with the pre-registered builtins so an override of one
+        # reaches `_deregister_subparser`; otherwise `add_parser` raises
+        # `conflicting subparser`.
         for builtin_name, builtin_command in builtin_by_name.items():
             if builtin_name in preregistered:
                 registry[builtin_name] = ("class", builtin_command)
@@ -131,10 +102,8 @@ def _register_commands(
             cmd_name = _ty.cast(_ModuleCommand, command)._parsername_
             kind = "module"
         else:
-            # A provider/caller can hand `commands=`/`source=` anything;
-            # silently dropping a non-command (behind a "can't happen" pragma
-            # that coverage proved wrong) left the user staring at argparse's
-            # bare "invalid choice ... (choose from )" with no hint why.
+            # `commands=`/`source=` can hand over anything; dropping a non-command
+            # silently leaves argparse's bare "invalid choice" with no hint why.
             raise TypeError(
                 f"app(): expected a Cmd subclass or a discovered ModuleCommand, "
                 f"got {command!r} ({type(command).__name__})"
@@ -150,10 +119,8 @@ def _register_commands(
         for prev_kind, prev_obj in colliding.values():
             prev_name = _command_name(prev_obj)
             if cmd_name not in cmds_path_overridden:
-                # Not the documented CMDS_PATH-overrides-a-base-command story
-                # (that one is reported once via `cmds_path_overridden` below,
-                # after logging is set up) -- a genuine, otherwise-silent
-                # collision between two independently-resolved commands.
+                # A CMDS_PATH override is reported separately via
+                # `cmds_path_overridden`; this is a collision between two sources.
                 notices.append(
                     (
                         _logging.WARNING,
@@ -185,10 +152,7 @@ def _register_commands(
                     base_parser,
                     inherited_config_hint=inherited_config_hint,
                 )
-                # Link this class command's own parser to the app root
-                # so its (and, recursively, any of ITS OWN nested subcommands')
-                # provenance merges upward once actually selected -- the same
-                # mechanism the static `_subcommands_` tree gets in `Args._parser_`.
+                # Lets provenance merge upward once selected, as in `Args._parser_`.
                 child_parser._duho_parent_parser_ = parser  # type: ignore[attr-defined]
             else:
                 _register_module_command(
@@ -209,13 +173,8 @@ def _register_commands(
         for n in names:
             claimed[n] = (kind, command)
 
-    # Same rule `Args._parser_` applies to its own static `_subcommands_`
-    # tree: without an explicit `metavar`, argparse falls back to the
-    # ACTION'S DEST (never `choices`) for its "required"/"invalid choice"
-    # ERROR text, leaking the private `_duho_command_` dest. Set it from the
-    # FINAL registry (primary names only, sorted for a deterministic
-    # message) now that every command -- static builtins and CMDS_PATH-
-    # discovered alike -- is registered.
+    # Without a metavar argparse's error text shows the private `_duho_command_`
+    # dest; sorted primary names keep the message deterministic.
     subparsers.metavar = "{" + ",".join(sorted(registry)) + "}"
 
     return subparsers, registry, notices
@@ -230,34 +189,21 @@ def _finalize_command_tree(
 ) -> list[_argparse.Action]:
     """Suppress inherited root defaults and thread config/env layers down.
 
-    Returns ``required_root_actions`` -- the root's own required-global
-    actions un-required here so a value given AFTER the subcommand, or
-    supplied by config/env, is not rejected; :func:`app` re-checks these
-    against the parsed instance once parsing is done. Split out of
-    :func:`app`; no behavior change, the full suite is the guard.
+    Returns the root's required-global actions, un-required here so a value
+    given after the subcommand, or from config/env, is not rejected; :func:`app`
+    re-checks them against the parsed instance.
     """
     from .. import formatters as _formatters
 
-    # Suppress the root's own optional dests on every registered subparser so an
-    # option given BEFORE the subcommand (or supplied by the root env/config
-    # layer) is not clobbered by the child's inherited default. This is the
-    # `app()` analogue of the suppression `Args._parser_` performs for a static
-    # `_subcommands_` tree.
+    # Keep the root's optional dests from being clobbered by a child's inherited
+    # default (an option given before the subcommand, or from config/env).
     root_builders = {b.name: b for b in root_cls._getargs_()}  # type: ignore[attr-defined]
     root_dests = set(root_builders)
-    # Pass each root field's EFFECTIVE default so `_suppress_inherited_defaults`
-    # keeps a child's DELIBERATELY redeclared default instead of suppressing
-    # it back to the root's -- `Args._parser_` already does this for the static
-    # `_subcommands_` tree; app()'s own call site had not.
+    # Effective defaults let a child's redeclared default survive suppression.
     root_defaults = {n: b._effective_default_() for n, b in root_builders.items()}
-    # A required global given AFTER the subcommand is otherwise rejected --
-    # `parents=[base_parser]` copies the root's option ACTIONS onto every child
-    # (shared objects, not copies), so un-requiring only the child's copy below
-    # leaves the ROOT's own separate action (built when `parser` itself was
-    # constructed) still `required=True`; that one is never "seen" when the flag
-    # arrives in the subcommand's argv slice, so argparse reports it missing.
-    # Un-require the root's own copies here and enforce presence AFTER the real
-    # parse instead (root value, child value, or a config/env layer all count).
+    # `parents=[base_parser]` shares the root's Action objects with every child,
+    # so the root keeps its own `required=True` copy, which a flag given after
+    # the subcommand never satisfies. Un-require it and enforce after parsing.
     required_root_actions = [
         a
         for a in parser._actions
@@ -265,12 +211,7 @@ def _finalize_command_tree(
     ]
     for action in required_root_actions:
         action.required = False
-        # Un-requiring the action for enforcement's sake also made argparse's
-        # own usage renderer show it as `[--opt]` (optional) -- flag it so
-        # `formatters._install_required_usage_formatter` (installed on
-        # `parser` below) still renders it as required in `--help`/usage
-        # text without re-enabling argparse's own (now redundant, and
-        # differently timed) rejection.
+        # Keeps usage and `--help` rendering it as required despite the above.
         action._duho_display_required_ = True  # type: ignore[attr-defined]
     _formatters._install_required_usage_formatter(parser)
     for sub_parser in (subparsers.choices or {}).values():
@@ -285,14 +226,9 @@ def _finalize_command_tree(
                     if value != root_defaults[b.name]:
                         _set_private_default(sub_parser, b.name, value)
         _suppress_inherited_defaults(sub_parser, root_dests, root_defaults)
-        # `parents=[base_parser]` copies EVERY root option onto each subparser,
-        # including *required* globals. `_suppress_inherited_defaults` skips
-        # required actions (correct for the static tree, whose children don't
-        # inherit root options as their own actions). Here the root parser owns
-        # and enforces the required global; a child must not independently
-        # re-require it (which would error even when it was given before the
-        # subcommand or supplied by a config/env layer). Suppress + un-require
-        # the child's inherited copy so the root's value flows through.
+        # The inherited copy of a required global must not be re-required by the
+        # child (`_suppress_inherited_defaults` skips required actions): the
+        # root enforces it, so its value flows through.
         for action in sub_parser._actions:
             if (
                 action.dest in root_dests
@@ -303,29 +239,10 @@ def _finalize_command_tree(
                 action.default = _argparse.SUPPRESS
                 action._duho_display_required_ = True  # type: ignore[attr-defined]
         _formatters._install_required_usage_formatter(sub_parser)
-        # A root-inherited option's default may be `_argparse.SUPPRESS`
-        # (set just above for a required global, or by
-        # `_suppress_inherited_defaults` for an optional one) so the child's
-        # absence of the flag defers to whatever the root/parent actually
-        # parsed. But argparse's OWN raw `%(default)s` expansion
-        # (`HelpFormatter._expand_help`) reads `action.default` DIRECTLY and
-        # deletes the `default` key from its format params whenever it is
-        # SUPPRESS -- so a root global's help text that spells the
-        # placeholder literally (e.g. `"root %(default)s"`) raised
-        # `KeyError('default')` rendering ANY subcommand's `-h` under
-        # `app()`, even with no env/config involved (this is real argparse
-        # `parents=` inheritance, unlike the static `_subcommands_` tree,
-        # which never copies a parent's Actions at all -- see this
-        # function's own docstring). Stash the ROOT's own class default
-        # directly on the action so `duho.agenthelp`'s
-        # `_redact_action_defaults` -- already installed on every class
-        # command's `-h` via `_AgentHelpAction`, and on every module
-        # command's via `_install_help_redaction` in
-        # `_apply_app_config_layers` -- substitutes a real value back onto
-        # `action.default` for the duration of the render. This dest is
-        # never in the CHILD class's own `_getargs_()` (it belongs to the
-        # root), so `_stash_default_provenance`'s own builder-keyed stash
-        # never reaches it and never overwrites what's set here.
+        # A SUPPRESS default makes argparse drop `default` from its help format
+        # params, so a root help text with `%(default)s` raised `KeyError` in any
+        # subcommand's `-h`. Stash the root's class default for the help
+        # redaction (`_redact_action_defaults`) to substitute back while rendering.
         for action in sub_parser._actions:
             if action.dest in root_dests and action.default is _argparse.SUPPRESS:
                 action._duho_class_default_ = root_defaults.get(  # type: ignore[attr-defined]
@@ -333,12 +250,8 @@ def _finalize_command_tree(
                 )
                 action._duho_default_source_ = None  # type: ignore[attr-defined]
 
-    # Thread env/config-file defaults down the app's command tree (a Cli root's
-    # `_config_`, or an explicit `config`, plus each command's NS(env=...)
-    # fields). This is app()'s analogue of the `args._apply_layers` call that
-    # `duho.main`/`duho.parse` make; app() resolves commands from sources that
-    # aren't reachable via `root._subcommands_`, so it layers against the
-    # parsers actually built here. See `_apply_app_config_layers`.
+    # app() resolves commands outside `root._subcommands_`, so env/config
+    # defaults are layered against the parsers built here.
     _apply_app_config_layers(root_cls, subparsers, registry, raw_config)
 
     return required_root_actions

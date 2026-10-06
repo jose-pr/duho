@@ -83,7 +83,8 @@ def test_command_built_root_with_auto_version_resolves_its_own_distribution(
 def test_module_command_synthesized_args_class_does_not_ast_parse_duho(tmp_path):
     """A module command declaring its own `Args` (mixed with the app's
     shared root at registration time) must not trigger an AST scan of
-    `runtime.py`/`args.py` looking for a ClassDef that was never there."""
+    the `duho.runtime`/`duho.args` sources looking for a ClassDef that was
+    never there."""
     import functools
     import unittest.mock as mock
 
@@ -122,7 +123,6 @@ def test_module_command_synthesized_args_class_does_not_ast_parse_duho(tmp_path)
         duho.app(Root, source=cmds, argv=["hello", "--loud"], setup_logging=False)
 
     for path in calls:
-        assert "duho" + "\\args.py" not in path
-        assert "duho" + "/args.py" not in path
-        assert "duho" + "\\runtime.py" not in path
-        assert "duho" + "/runtime.py" not in path
+        for package in ("args", "runtime"):
+            assert "duho" + "\\" + package + "\\" not in path
+            assert "duho" + "/" + package + "/" not in path

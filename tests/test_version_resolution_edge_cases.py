@@ -33,7 +33,7 @@ class _AutoDist(Args):
 
 @pytest.fixture(autouse=True)
 def _reset_auto_version_cache(monkeypatch):
-    monkeypatch.setattr(duho.args, "_AUTO_VERSION_CACHE", {})
+    monkeypatch.setattr(duho.args._naming, "_AUTO_VERSION_CACHE", {})
 
 
 def test_auto_version_under_python_dash_m_recovers_the_real_package(monkeypatch):

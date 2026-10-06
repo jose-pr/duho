@@ -23,7 +23,7 @@ def _reset_auto_version_cache(monkeypatch):
     object afterward, same as the provider-state reset pattern used
     elsewhere in this suite.
     """
-    monkeypatch.setattr(duho.args, "_AUTO_VERSION_CACHE", {})
+    monkeypatch.setattr(duho.args._naming, "_AUTO_VERSION_CACHE", {})
 
 
 # --- Literal & Enum -> choices -----------------------------------------

@@ -113,22 +113,14 @@ def agent_help_requested(
 def _render_type(tp) -> str:
     """One canonical, version-independent spelling for a type, recursively.
 
-    Used by :func:`_render_annotation` (never called with ``tp`` being
-    ``None``/``NOT_DEFINED`` -- that's handled by the caller). Plain classes
-    render by ``__name__`` even nested inside a generic (``Color``, never
-    ``list[__main__.Color]``); a union always renders as ``X | Y`` (never
-    ``Optional[X]``/``Union[X, Y]``) so the same field renders identically on
-    every supported interpreter, unlike ``isinstance(tp, type)`` +
-    ``str(tp)`` (3.9/3.10 render a bare ``list[str]`` as `list`, since a
-    parameterized generic alias there passes ``isinstance(tp, type)``; 3.9
-    spells a union ``Optional[int]``/``Union[int, str]``, 3.14 spells it
-    ``int | None``/``int | str``).
+    Plain classes render by ``__name__`` (``Color``, not
+    ``list[__main__.Color]``) and a union always as ``X | Y``, so a field reads
+    the same on every interpreter (3.9 spells a union ``Optional[int]``, 3.14
+    ``int | None``; 3.9/3.10 render a bare ``list[str]`` as ``list``).
     """
     if tp is Ellipsis:
-        # The variadic marker inside `tuple[int, ...]` -- `_ty.get_args`
-        # hands it back as the literal `Ellipsis` singleton, not a type, so
-        # without this it recurses into the generic branch below and
-        # stringifies as `Ellipsis` (`str(Ellipsis)`) instead of `...`.
+        # The variadic marker in `tuple[int, ...]` is the `Ellipsis` singleton, not
+        # a type; without this it would stringify as `Ellipsis`.
         return "..."
     origin = _ty.get_origin(tp)
     if origin is None and isinstance(tp, type):
@@ -145,12 +137,8 @@ def _render_type(tp) -> str:
             rendered += " | None"
         return rendered
     if origin is _ty.Literal:
-        # A `Literal` arg is a VALUE (a str/int/bool/None/Enum member), not a
-        # type -- recursing into this same function treated a string value as
-        # an annotation and stringified it bare (`str("x, y")` drops the
-        # quotes and is ambiguous with a literal comma-separated MEMBER
-        # list); `repr()` keeps each member unambiguous and quoted (matching
-        # Python's own literal syntax) regardless of interpreter version.
+        # A Literal arg is a VALUE, not a type: `repr()` keeps a string member
+        # quoted and unambiguous on every interpreter.
         return f"Literal[{', '.join(repr(a) for a in args)}]"
     origin_name = getattr(origin, "__name__", None) or str(origin).replace(
         "typing.", ""
@@ -257,32 +245,14 @@ def _choices(action, decl, enum_by="name"):
 
 
 def _expand_action_help(action, prog: str, *, default=_NOT_DEFINED) -> str:
-    """Expand ``%(default)s``-style placeholders in ``action.help``,
-    matching what argparse itself shows in ``--help``.
+    """Expand ``%(default)s``-style placeholders in ``action.help`` as argparse
+    does in ``--help``, with the ``%%``-unescaped text as the fallback if
+    expansion fails (best-effort output; it never raises).
 
-    ``action.help`` is stored as an argparse HELP TEMPLATE (``%(default)s``,
-    ``%(prog)s``, ...), `%`-expanded by ``HelpFormatter._expand_help`` only at
-    RENDER time -- copying it verbatim (as this document otherwise would)
-    leaked the raw placeholder text (``"API token (default: %(default)s)"``)
-    into the agent document instead of the actual value. A literal ``%`` in
-    help text is ALSO escaped to ``%%`` at the source (``Args._escape_help``)
-    specifically so it survives this same expansion unharmed;
-    mirror argparse's own ``_expand_help`` (params from ``vars(action)`` plus
-    ``prog``, SUPPRESS values dropped, callables reduced to ``__name__``,
-    ``choices`` joined) with a raw (``%%``-unescaped) fallback if expansion
-    fails for any reason -- this is best-effort documentation output, never
-    something that should raise.
-
-    ``default`` -- when given (the caller's already-REDACTED value from
-    :func:`_default_and_source`) -- overrides ``params["default"]`` before
-    expansion. Without this, ``vars(action)["default"]`` is ``action.default``
-    ITSELF, which may already be the CURRENT, live env/config-layered value
-    for this invocation (staged by ``_stage_layers``/
-    ``_apply_default_layers_one`` before this ever runs) -- a secret in the
-    documented ``NS(env=...)`` example, leaking into help TEXT even though
-    the sibling ``default``/``default_source`` JSON fields were already
-    correctly redacted. ``_NOT_DEFINED`` (never a real field value) is the
-    sentinel meaning "no override" so a caller can legitimately pass ``None``.
+    ``default``, when given, is the already-redacted value from
+    :func:`_default_and_source` and overrides ``params["default"]``: otherwise
+    ``action.default`` may hold the live env/config value, a secret that would
+    leak into help text. ``_NOT_DEFINED`` means "no override".
     """
     text = action.help
     if not text:
@@ -307,31 +277,12 @@ def _expand_action_help(action, prog: str, *, default=_NOT_DEFINED) -> str:
 def _default_and_source(dest, builder, action, sources):
     """``(default, default_source)`` for one field.
 
-    ``action.default`` may already have been overwritten by
-    ``_stage_layers``/``_apply_default_layers_one`` with the CURRENT env var
-    or config-file value -- a secret, in the flagship documented
-    ``NS(env=...)`` example -- before ``--help``/``--help-agents`` renders.
-    Report the CLASS-declared default instead (``builder._effective_default_()``,
-    the same source ``duho.mcp`` already uses) -- ALWAYS, regardless of
-    source: the class default is a fixed, code-level constant, never a live
-    secret, so it is never itself redacted -- and -- when the field's value
-    actually came from env or config -- ALSO a value-free provenance note
-    alongside it, per the documented no-secrets-in-agent-help contract (that
-    note is what says the value shown may not be the one actually in
-    effect). Redacting the class default TOO (returning ``None`` instead of
-    it) was the actual defect here: it lost the one piece of information
-    that was always safe to show, showing JSON ``null``/human ``None``
-    instead of a real, useful value. An ``instance=`` override is a
-    caller-constructed Python value, not env/filesystem-sourced, so it keeps
-    showing its class default with no note, same as an untouched field.
-
-    A builder-less action (no duho class behind this parser at all, e.g. a
-    ``duho.app`` module command) falls back to whatever
-    :func:`_stash_default_provenance` already stashed directly on the ACTION
-    (``_duho_class_default_``/``_duho_default_source_``) -- that caller
-    resolves its own builder/source data independently (it has no
-    ``parser._duho_cls_`` to hand `describe_parser` either), so this is the
-    only place its redaction can still reach the JSON document.
+    ``action.default`` may hold the live env or config value (a secret), so this
+    reports the class-declared default (``builder._effective_default_()``), a
+    code-level constant that is never redacted, plus a value-free provenance
+    note when the value came from env or config; an ``instance=`` override gets
+    no note. A builder-less action (a ``duho.app`` module command) uses what
+    :func:`_stash_default_provenance` stashed on it.
     """
     if builder is None:
         if hasattr(action, "_duho_class_default_"):
@@ -424,15 +375,9 @@ def _conflict_groups(builders):
 def _synthesized_example(spec):
     """A minimal invocation line built from a command's required arguments.
 
-    Appends ``<command>`` whenever the spec has subcommands: duho's own
-    subparsers are always built ``required=True``, so whether a command needs
-    a subcommand has nothing to do with whether some OTHER option is also
-    required -- the old ``and not any(required options)`` condition dropped
-    ``<command>`` from the example the moment a root also had a required
-    option, advertising an invocation that argparse itself rejects. Prefers
-    the first ``--long`` option string for the flag (the previous
-    ``names[-1]`` picked whichever spelling was declared last, often a terse
-    short flag like ``-t``).
+    Appends ``<command>`` whenever the spec has subcommands (duho's subparsers
+    are always ``required=True``, whatever other options are required), and uses
+    the first ``--long`` option string rather than the last-declared one.
     """
     parts = [spec["prog"]]
     for option in spec["options"]:
@@ -506,14 +451,9 @@ def _cls_metadata(parser):
 def _muted_color(parser):
     """Temporarily force ``parser.color = False`` while formatting.
 
-    Argparse's own native color (3.14+, ``ArgumentParser(color=True)`` by
-    default) still colors ``parser.format_usage()`` even when the caller
-    never asked for colored HELP TEXT -- a machine-readable agent-help
-    ``usage`` field must be plain regardless of the process's own
-    TTY/``FORCE_COLOR`` state, since it is parsed by a tool, not displayed in
-    a terminal. A no-op pre-3.14, where ``ArgumentParser`` has no ``color``
-    attribute at all (mirrors ``duho.mcp``'s own ``_muted_color``, which does
-    the same for a captured tool-call usage/error string).
+    Argparse's native color (3.14+) would otherwise color
+    ``parser.format_usage()``, and the agent-help ``usage`` field is parsed by a
+    tool. A no-op before 3.14, where ``ArgumentParser`` has no ``color``.
     """
     has_color = hasattr(parser, "color")
     old = parser.color if has_color else None
@@ -527,34 +467,16 @@ def _muted_color(parser):
 
 
 def _stash_default_provenance(parser, cls=None) -> None:
-    """Snapshot each of ``parser``'s actions' CLASS default (and env/config
-    provenance) onto the action itself, for :class:`duho.formatters.DefaultsFormatter`
-    and :func:`describe_parser`'s own builder-less fallback to read.
+    """Snapshot each action's CLASS default (and env/config provenance) onto the
+    action, for :class:`duho.formatters.DefaultsFormatter` and
+    :func:`describe_parser`'s builder-less fallback.
 
-    ``DefaultsFormatter._get_help_string`` only ever receives ``action``, never
-    ``parser`` -- argparse's own ``HelpFormatter`` API has no seam for it --
-    so it cannot itself consult ``parser._duho_value_sources_``/``cls._getargs_()``
-    the way :func:`describe_parser` does for the JSON document. Called from
-    ``duho.args``'s ``_AgentHelpAction`` right before it renders human help (the
-    one place in the print path that still has both ``parser`` and the
-    about-to-render actions), so ``--help`` never shows a live env/config
-    value either, matching the JSON document's own redaction.
-
-    ``cls`` defaults to ``parser._duho_cls_`` (the normal class-command case);
-    an explicit ``cls`` lets a caller redact a parser that intentionally has
-    NO ``_duho_cls_`` of its own -- a ``duho.app`` module command's subparser
-    is a deliberately bare stdlib one (see ``duho.runtime``'s own module
-    docstring), so it is never routed through ``_AgentHelpAction``/described
-    with duho field metadata either; ``duho.runtime`` calls this directly,
-    right after applying that command's own env/config layer, WITHOUT ever
-    setting ``parser._duho_cls_`` itself (that attribute is also read by
-    ``duho.mcp`` to decide whether a node is callable, a decision this
-    redaction has no business changing).
-
-    A no-op when no ``cls`` is available (explicit or via ``_duho_cls_``), or
-    the parser was never layered (no ``_duho_value_sources_`` -- every
-    field's ``action.default`` is already just its class default there,
-    nothing to redact).
+    ``DefaultsFormatter._get_help_string`` receives only ``action``, so
+    ``_AgentHelpAction`` calls this before rendering human help, and ``--help``
+    never shows a live env/config value. ``cls`` defaults to
+    ``parser._duho_cls_``; ``duho.runtime`` passes it for a module command's bare
+    subparser, which must not get ``_duho_cls_`` (``duho.mcp`` reads it). A
+    no-op without a ``cls`` or when the parser was never layered.
     """
     cls = cls if cls is not None else getattr(parser, "_duho_cls_", None)
     if cls is None:
@@ -575,27 +497,14 @@ def _stash_default_provenance(parser, cls=None) -> None:
 
 @_contextlib.contextmanager
 def _redact_action_defaults(parser, cls=None):
-    """Temporarily replace each REDACTED action's ``.default`` with its class
-    default for the duration of ``parser.format_help()``/``format_usage()``,
-    restoring the original (possibly still env/config-layered) value on exit.
+    """Temporarily replace each redacted action's ``.default`` with its class
+    default while formatting help, restoring the original on exit.
 
-    argparse's OWN ``%(default)s`` expansion (``HelpFormatter._expand_help``,
-    which runs for both the plain formatter and a ``DefaultsFormatter``-
-    decorated one whenever help text already contains a literal
-    ``%(default)s``) reads ``action.default`` DIRECTLY -- bypassing
-    ``_get_help_string``/:func:`_expand_action_help` entirely -- so it is the
-    one seam none of duho's other redaction (the ``default``/
-    ``default_source`` JSON fields, ``DefaultsFormatter``'s own appended
-    suffix) ever reaches. Swapping the attribute itself for the render is the
-    only way to keep that expansion from reading the live value; restoring it
-    unconditionally afterward means an actual parse (or a later ``--help``
-    once a value changes) still starts from the true, layered default.
-
-    Calls :func:`_stash_default_provenance` first (idempotent -- a no-op if
-    ``cls``/``parser._duho_cls_`` is unavailable or the parser was never
-    layered), then only touches actions it actually stashed onto
-    (``hasattr(action, "_duho_class_default_")``) -- a plain argparse action
-    with no duho field behind it (``-h``, ``--version``) is left alone.
+    argparse's ``%(default)s`` expansion reads ``action.default`` directly,
+    bypassing ``_get_help_string`` and every other redaction, so swapping the
+    attribute is the only way to keep it from reading the live value. Calls
+    :func:`_stash_default_provenance` first (idempotent) and touches only
+    actions it stashed onto; ``-h`` and ``--version`` are left alone.
     """
     _stash_default_provenance(parser, cls=cls)
     originals = []
@@ -612,18 +521,13 @@ def _redact_action_defaults(parser, cls=None):
 
 
 class _RedactedHelpAction(_argparse._HelpAction):
-    """Plain ``-h``/``--help``, with the redaction :func:`_redact_action_defaults`
-    performs applied around the render.
+    """Plain ``-h``/``--help`` with :func:`_redact_action_defaults` applied
+    around the render.
 
-    Installed on a MODULE COMMAND's subparser (:func:`_install_help_redaction`)
-    -- a bare stdlib ``add_parser()`` instance that never goes through
-    ``duho.args``'s ``_install_agent_help``/``_AgentHelpAction`` (see this
-    module's own docstring on why a module command's subparser deliberately
-    has no ``_duho_cls_``), so it never got this protection any other way.
-    Unlike :class:`_AgentHelpAction`, this never emits the agent-help JSON
-    document -- module commands don't opt into that trigger -- it only keeps
-    a live env/config value staged onto ``action.default`` for this run out
-    of a literal ``%(default)s`` in plain human help text.
+    Installed on a module command's bare stdlib subparser
+    (:func:`_install_help_redaction`), which has no ``_AgentHelpAction``. Unlike
+    :class:`_AgentHelpAction` it never emits the agent-help JSON; it only keeps a
+    live env/config value out of a literal ``%(default)s`` in plain help text.
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -635,13 +539,9 @@ class _RedactedHelpAction(_argparse._HelpAction):
 def _install_help_redaction(parser) -> None:
     """Swap every ``_HelpAction`` on ``parser`` to :class:`_RedactedHelpAction`.
 
-    For a module command's subparser (the only caller today, from
-    ``duho.runtime``'s ``_apply_app_config_layers``, right after it stashes
-    that command's own provenance) -- its plain, argparse-added ``-h``/
-    ``--help`` action would otherwise render a literal ``%(default)s`` in its
-    help text straight from the live ``action.default``, same as any other
-    unprotected parser (see :func:`_redact_action_defaults`). A no-op for an
-    action already swapped (idempotent, safe to call more than once).
+    For a module command's subparser (called by ``duho.runtime``'s
+    ``_apply_app_config_layers``), whose plain ``-h`` would render a literal
+    ``%(default)s`` from the live ``action.default``. Idempotent.
     """
     for action in parser._actions:
         if isinstance(action, _argparse._HelpAction) and not isinstance(
@@ -681,12 +581,9 @@ def _describe_parser(
     subparser reached under several (alias) names."""
     builders, clsargs = _cls_metadata(parser)
     cls = getattr(parser, "_duho_cls_", None)
-    # Which of THIS parser's fields are currently showing a live
-    # env/config value on `action.default` -- populated by
-    # `_stage_layers`/`_apply_default_layers_one` only once an actual parse
-    # is underway (e.g. via `duho.main`/`duho.parse`/`duho.app`); absent
-    # (``None``) for a freshly built, never-parsed parser, in which case
-    # every field's `action.default` is already just its class default.
+    # A field showing a live env/config value on `action.default` is known only
+    # once a parse is underway; ``None`` for a never-parsed parser, whose
+    # defaults are already the class defaults.
     sources = getattr(parser, "_duho_value_sources_", None)
 
     spec = {}
@@ -696,21 +593,14 @@ def _describe_parser(
         spec["name"] = name
         spec["aliases"] = list(aliases or [])
     spec["prog"] = parser.prog
-    # `parser.description` holds the RAW (pre-expansion) text -- it is
-    # only ``%%``-escaped at the source when it literally contains a
-    # `%(prog)` placeholder (`Args._escape_description`), matching argparse's
-    # own rule that a description is `%`-formatted only in that same case.
-    # Un-escaping it UNCONDITIONALLY here would corrupt a
-    # description that genuinely contains a literal `%%`; read it as stored.
+    # `parser.description` is the raw text, ``%%``-escaped only when it contains
+    # a `%(prog)` placeholder (`Args._escape_description`); read it as stored, as
+    # unescaping would corrupt a genuine literal `%%`.
     spec["description"] = (parser.description or "").strip()
     if root:
-        # Version comes from the APP'S ROOT class, not this node's own
-        # `cls` -- a subcommand-scoped document (``AGENT_HELP=1 app sub
-        # --help``) would otherwise report `version: null` for a subcommand
-        # that (like almost every subcommand) declares no `_version_` of its
-        # own. `root_cls` is `None` only when `describe_parser` was called
-        # directly on a raw/never-rooted parser, in which case `cls` is the
-        # best available fallback.
+        # Version comes from the app's ROOT class: a subcommand-scoped document
+        # would otherwise report `version: null`. `root_cls` is None only for a
+        # raw, never-rooted parser, where `cls` is the fallback.
         version = None
         version_cls = root_cls if root_cls is not None else cls
         if version_cls is not None:
@@ -744,10 +634,9 @@ def _describe_parser(
 
     subcommands = []
     if subparsers_action is not None:
-        # argparse registers alias names as extra keys pointing at the SAME
-        # subparser object; `unique_subcommands` groups by identity so each
-        # command is described once, under one canonical name (`duho.mcp`
-        # shares this grouping).
+        # argparse registers aliases as extra keys for the same subparser;
+        # `unique_subcommands` groups by identity so each command is described
+        # once (`duho.mcp` shares this grouping).
         for canonical, alias_names, subparser in _parsers.unique_subcommands(
             parser, seen=seen
         ):
@@ -764,13 +653,9 @@ def _describe_parser(
     spec["subcommands"] = subcommands
 
     if root:
-        # Exit codes, like version, come from the APP'S ROOT class --
-        # a subcommand can still return one of the app's documented codes
-        # even though it declares no `_exit_codes_` of its own. Examples stay
-        # scoped to the CURRENT command (`cls`, not `root_cls`): an app's
-        # root-level `_examples_` is not necessarily meaningful help for
-        # "just this subcommand", so a subcommand with no `_examples_` of its
-        # own keeps getting one synthesized from ITS OWN spec, as before.
+        # Exit codes come from the app's ROOT class, as a subcommand can return
+        # them without declaring any; examples stay scoped to `cls`, with a
+        # synthesized line when it has no `_examples_`.
         exit_cls = root_cls if root_cls is not None else cls
         spec["exit_codes"] = _exit_codes(exit_cls)
         spec["examples"] = _examples(cls, spec)

@@ -41,8 +41,8 @@ regardless of which internal module implements it:
   `value_sources`.
 - `_introspect.py` — AST-based class-body introspection (docstrings, flag literals);
   exposes `NOT_DEFINED`, a sentinel meaning "no declared default" (distinct from `None`).
-- `_compat.py` — cross-version shims, incl. `BOOL_TRUE`/`BOOL_FALSE` (see
-  "Environment variables" below).
+- `_compat.py` — cross-version shims (the truthy/falsy token tables are
+  `duho.text.BOOL_TRUE`/`BOOL_FALSE`).
 
 ## Declaring commands (`duho`, `duho.args`)
 
@@ -613,6 +613,11 @@ runtime dependency and zero per-invocation overhead.
   `duho.text.range`/`duho.text.unicode_range` are real module functions but are
   deliberately excluded from `duho.text.__all__`, so `from duho.text import *` cannot
   shadow a caller's own `range` builtin — access them as `duho.text.range(...)`.
+- **`parse_bool(text) -> bool`** (also `duho.parse_bool`) — a strict boolean from
+  text: a member of **`BOOL_TRUE`** is `True`, a member of **`BOOL_FALSE`** (the
+  empty string included) is `False`, case-insensitively after `.strip()`. Anything
+  else, and any non-string, raises `ValueError` naming the accepted tokens. The
+  tables are listed under "Environment variables".
 
 ## Qualified names (`duho.qualname`)
 
@@ -829,7 +834,7 @@ manipulating a parser tree directly:
   `duho.app(env=Env("myapp"))`). See `app()` above for precedence — it always merges on
   top of the base command source, and a `CMDS_PATH` command wins a name clash (logged,
   never silent).
-- **`BOOL_TRUE` / `BOOL_FALSE`** (`duho._compat`, internal but shared) — the canonical
+- **`BOOL_TRUE` / `BOOL_FALSE`** (`duho.text`; `parse_bool` reads them) — the canonical
   truthy/falsy text tokens: truthy = `1`, `true`, `yes`, `on`, `y`, `t`; falsy = `0`,
   `false`, `no`, `off`, `n`, `f`, `""` — matched case-insensitively after stripping
   whitespace. `Env.bool`, the layered env/config bool converter, and the strict CLI

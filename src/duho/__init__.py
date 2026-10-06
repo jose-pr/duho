@@ -62,7 +62,15 @@ from .parsers import command_name
 from .presets import LoggingArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run_command
-from .text import camelcase, expand, gettext, kebabcase, pysafe, snakecase
+from .text import (
+    camelcase,
+    expand,
+    gettext,
+    kebabcase,
+    parse_bool,
+    pysafe,
+    snakecase,
+)
 
 if _ty.TYPE_CHECKING:
     from .args import _Parser as _Parser
@@ -142,6 +150,7 @@ __all__ = [
     "ModuleCommand",
     "NS",
     "parse",
+    "parse_bool",
     "parse_globals",
     "parser",
     "print_agent_help",

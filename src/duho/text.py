@@ -23,6 +23,9 @@ __all__ = [
     "pysafe",
     "expand",
     "PYREPLACE",
+    "parse_bool",
+    "BOOL_TRUE",
+    "BOOL_FALSE",
 ]
 
 try:
@@ -34,6 +37,33 @@ except ImportError:  # pragma: no cover - gettext is always present in CPython
 
     def ngettext(singular: str, plural: str, n: int) -> str:
         return singular if n == 1 else plural
+
+
+#: The truthy/falsy text tokens every bool-ish text parser in duho matches
+#: against (CLI, env and config values, ``Env.bool``), case-insensitively after
+#: ``.strip()``. ``""`` is falsy.
+BOOL_TRUE: "_ty.FrozenSet[str]" = frozenset({"1", "true", "yes", "on", "y", "t"})
+BOOL_FALSE: "_ty.FrozenSet[str]" = frozenset({"0", "false", "no", "off", "n", "f", ""})
+
+
+def parse_bool(text: str) -> bool:
+    """Parse ``text`` as a strict boolean.
+
+    Case-insensitive after stripping whitespace: a member of :data:`BOOL_TRUE`
+    gives ``True``, a member of :data:`BOOL_FALSE` (including the empty string)
+    gives ``False``. Anything else, and any non-string, raises
+    :class:`ValueError` naming the accepted tokens.
+    """
+    if isinstance(text, str):
+        low = text.strip().lower()
+        if low in BOOL_TRUE:
+            return True
+        if low in BOOL_FALSE:
+            return False
+    raise ValueError(
+        f"{text!r} is not a valid boolean "
+        f"(expected one of {sorted(BOOL_TRUE | BOOL_FALSE - {''})})"
+    )
 
 
 def snakecase(name: str) -> str:

@@ -11,6 +11,8 @@ import sys as _sys
 import types as _types
 import typing as _ty
 
+from .text import BOOL_FALSE, BOOL_TRUE
+
 # Union type origins: Union on all versions, UnionType only 3.10+
 UNION_ORIGINS: tuple = (
     _ty.Union,
@@ -32,17 +34,9 @@ _MCP_CONTEXT: "_contextvars.ContextVar" = _contextvars.ContextVar(
     "duho_mcp_context", default=None
 )
 
-#: The one true set of truthy/falsy text tokens: every
-#: bool-ish text parser in duho (the layered CLI/env/config converter, the
-#: strict CLI text factory, ``Env.bool``, ``logging.traceback_enabled``)
-#: matches against these, case-insensitively after ``.strip()``, instead of
-#: keeping its own hand-copied set. They had already drifted (logging's
-#: falsey set lacked "n"/"f", so ``DUHO_TRACEBACK=n`` turned tracebacks ON
-#: while every declared bool field and ``AGENT_HELP`` treated "n" as off).
-BOOL_TRUE: frozenset = frozenset({"1", "true", "yes", "on", "y", "t"})
-BOOL_FALSE: frozenset = frozenset({"0", "false", "no", "off", "n", "f", ""})
 
-
+# The one truthy/falsy token table lives in ``duho.text``; re-bound here for the
+# internal readers.
 def get_level_names_mapping() -> dict[str, int]:
     """Get mapping of level names to level integers.
 

@@ -7,7 +7,7 @@ import pytest
 from duho.discovery import discover_commands
 from duho.runtime import app
 
-_CANARY = '''\
+_CANARY = """\
 import pathlib
 
 pathlib.Path(__file__).resolve().parent.parent.joinpath("MARKER").write_text("x")
@@ -15,7 +15,7 @@ pathlib.Path(__file__).resolve().parent.parent.joinpath("MARKER").write_text("x"
 
 def main(args=None):
     return "evil"
-'''
+"""
 
 
 @pytest.fixture

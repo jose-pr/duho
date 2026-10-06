@@ -12,15 +12,12 @@ def _make_cmds(root, name):
     cmds.mkdir()
     (cmds / "_helpers.py").write_text("def greeting():\n    return 'hi'\n")
     (cmds / "hello.py").write_text(
-        "from _helpers import greeting\n"
-        "def main(args):\n    return greeting()\n"
+        "from _helpers import greeting\n" "def main(args):\n    return greeting()\n"
     )
     return cmds
 
 
-def test_namespace_directory_on_sys_path_discovers_loose_files(
-    tmp_path, monkeypatch
-):
+def test_namespace_directory_on_sys_path_discovers_loose_files(tmp_path, monkeypatch):
     name = "nsdir_cmds_a"
     _make_cmds(tmp_path, name)
     elsewhere = tmp_path / "elsewhere"

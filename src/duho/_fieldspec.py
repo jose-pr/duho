@@ -490,7 +490,7 @@ def _union_spec(members: "list", name: str) -> "_FieldSpec":
     bare type conversion happens not to raise -- a union field never
     gets argparse's own ``choices=`` kwarg, so this is the only enforcement.
     """
-    member_specs = [_factory_for(m, name) for m in members]
+    member_specs = [_member_spec(m, name) for m in members]
     resolved_factories = [
         spec.factory if spec.factory is not None else member
         for member, spec in zip(members, member_specs)
@@ -631,6 +631,27 @@ def _unwrap_type_alias(tp):
         return tp
 
 
+def _member_spec(member, name: str) -> "_FieldSpec":
+    """:func:`_factory_for` for a Union member or a collection element, except
+    that a type with its own ``_argbuilder_`` (the ``Argument`` protocol)
+    supplies its factory, choices and metavar through that builder.
+    """
+    builder_hook = getattr(member, "_argbuilder_", None)
+    if not (isinstance(member, type) and callable(builder_hook)):
+        return _factory_for(member, name)
+    from ._introspect import ClsArgDeclaration
+
+    built = builder_hook(
+        name,
+        ClsArgDeclaration(
+            default=NOT_DEFINED, type=member, annotations=[], docstring="", exprs=[]
+        ),
+    )
+    return _FieldSpec(
+        built.type, built.choices, built.metavar, None, None, NOT_DEFINED, None
+    )
+
+
 def _element_spec(elem_ty, name: str, what: str) -> "tuple":
     """Resolve a collection ELEMENT or dict VALUE type through the same
     ladder a top-level field uses, so an enum element matches by
@@ -646,7 +667,7 @@ def _element_spec(elem_ty, name: str, what: str) -> "tuple":
     argparse's own ``choices=`` kwarg (it validates the whole collection's
     converted value, not each element).
     """
-    spec = _factory_for(elem_ty, name)
+    spec = _member_spec(elem_ty, name)
     if spec.action is not None or spec.collection is not None:
         raise ValueError(
             f"argument {name!r}: {what} element type {elem_ty!r} is itself "

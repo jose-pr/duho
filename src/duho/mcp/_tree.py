@@ -420,8 +420,9 @@ def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
         required = action.nargs not in ("?", "*")
     else:
         required = bool(getattr(action, "required", False))
-    if not required:
-        schema.setdefault("default", _agenthelp._jsonable(action.default))
+    # No `default` is published: a bare action's default is whatever its
+    # author's code computed (possibly an environment value), with no
+    # declaration to say it is safe to show.
     help_text = action.help
     if help_text and help_text is not _argparse.SUPPRESS:
         schema["description"] = str(help_text).replace("%%", "%")

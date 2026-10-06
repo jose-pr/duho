@@ -328,10 +328,14 @@ def _default_and_source(dest, builder, action, sources):
     only place its redaction can still reach the JSON document.
     """
     if builder is None:
-        stashed_source = getattr(action, "_duho_default_source_", None)
-        if stashed_source is not None:
-            return getattr(action, "_duho_class_default_", None), stashed_source
-        return _jsonable(action.default), None
+        if hasattr(action, "_duho_class_default_"):
+            return (
+                action._duho_class_default_,
+                getattr(action, "_duho_default_source_", None),
+            )
+        # No declaration behind this action: its default may have been
+        # computed from the environment, so none is published.
+        return None, None
     class_default = _jsonable(builder._effective_default_())
     source = (sources or {}).get(dest)
     if source == "env":

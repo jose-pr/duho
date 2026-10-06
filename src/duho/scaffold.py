@@ -43,21 +43,14 @@ from .args import AUTO as _AUTO, Cli as _Cli, main as _main
 
 __all__ = ["generate_launchers", "ScaffoldCmd", "main"]
 
-#: Default interpreter tokens per launcher flavor when ``python`` is not pinned.
-#: The POSIX launcher defaults to ``python3``; the Windows ``.cmd`` defaults to
-#: ``python`` (the usual Windows launcher name). Both honor a ``PYTHON`` env
-#: override at runtime.
+#: Default interpreter per launcher: ``python3`` for POSIX, ``python`` for the
+#: Windows ``.cmd``; both honor a ``PYTHON`` env override at runtime.
 _DEFAULT_POSIX_PYTHON = "python3"
 _DEFAULT_WINDOWS_PYTHON = "python"
 
-#: Characters that could let ``libdir``/``python`` break out of the double
-#: quotes they are interpolated into (a stray quote), run a nested command (a
-#: backtick or ``$(...)`` in POSIX ``sh``), expand an unintended variable
-#: (``%...%`` in ``cmd.exe``, still expanded inside double quotes), split the
-#: generated file into more than one line, or -- a backslash -- get parsed as
-#: an escape by the POSIX launcher's ``sh`` (e.g. a trailing ``\`` swallowing
-#: the closing quote it is baked right before) or misread as a Windows path
-#: separator inside the POSIX text.
+#: Characters that could break a launcher's double quotes (a quote), run a nested
+#: command (backtick, ``$(...)``), expand a variable (``%...%``), split the file
+#: into lines, or be read as an escape or path separator (a backslash).
 _FORBIDDEN_INTERPOLATION_CHARS = frozenset("\"'`$%\\\n\r")
 
 
@@ -84,14 +77,10 @@ def _validate_app(app: str) -> None:
 def _validate_interpolated(value: str, what: str, *, path_like: bool = False) -> None:
     """Raise :class:`ValueError` unless ``value`` is safe to bake into a launcher.
 
-    Applies to ``libdir`` and ``python``, both of which are written verbatim
-    inside double quotes in the generated POSIX/``.cmd`` text:
-    non-ASCII is rejected outright (cmd.exe decodes a batch file with the
-    console's OEM code page, not UTF-8, so a non-ASCII byte baked into the
-    ``.cmd`` is mis-decoded there), as are quotes, backticks, ``$``,
-    ``%``, backslashes and newlines. ``path_like`` additionally rejects an
-    absolute path or one containing ``..`` (``libdir`` is joined under the
-    app root).
+    ``libdir`` and ``python`` are written inside double quotes in the POSIX and
+    ``.cmd`` text. Non-ASCII is rejected (cmd.exe reads a batch file in the OEM
+    code page), as are quotes, backticks, ``$``, ``%``, backslashes and newlines.
+    ``path_like`` also rejects an absolute path or ``..``.
     """
     if not value.isascii():
         raise ValueError(
@@ -117,18 +106,11 @@ def _validate_interpolated(value: str, what: str, *, path_like: bool = False) ->
 def _posix_launcher(app: str, libdir: str, python: str) -> str:
     """Return the POSIX ``sh`` launcher text for ``app``.
 
-    Resolves the script's own directory (following symlinks via a small
-    ``readlink`` loop so a launcher symlinked onto ``PATH`` still finds its app
-    root), derives the app root as the parent of ``bin/``, prepends
-    ``<root>/<libdir>`` to ``PYTHONPATH``, and ``exec``s the app module. The
-    interpreter is ``${PYTHON:-<python>}`` so a ``PYTHON`` env var overrides the
-    baked-in default. Generic -- no project-specific names are emitted.
-
-    Both ``cd`` calls run with ``CDPATH=`` cleared: bash's ``cd`` PRINTS the
-    resolved directory to stdout when ``CDPATH`` is exported and the target is
-    relative, which would make the surrounding ``$(...)`` capture two lines
-    instead of one and fail the next ``cd`` under ``set -e`` -- this
-    breaks a developer's own shell rc, not just a hostile environment.
+    It resolves its own directory through a ``readlink`` loop (so a symlink on
+    ``PATH`` finds the app root), prepends ``<root>/<libdir>`` to ``PYTHONPATH``
+    and ``exec``s the app module with ``${PYTHON:-<python>}``. Both ``cd`` calls
+    clear ``CDPATH``: with it exported, bash's ``cd`` prints the directory, so
+    ``$(...)`` captures two lines and the next ``cd`` fails under ``set -e``.
     """
     return (
         "#!/bin/sh\n"
@@ -275,11 +257,9 @@ def generate_launchers(
     posix_python = python if python is not None else _DEFAULT_POSIX_PYTHON
     windows_python = python if python is not None else _DEFAULT_WINDOWS_PYTHON
 
-    # POSIX launcher: written with "\n" newlines regardless of host (newline=""
-    # disables translation, and the text embeds only "\n") so a shell script
-    # generated on Windows still runs on a POSIX host. NOTE: use open() rather
-    # than Path.write_text(newline=...) -- the latter's newline kwarg is 3.10+,
-    # and duho's floor is 3.9.
+    # Write "\n" newlines regardless of host (``newline=""`` disables
+    # translation) so a script generated on Windows runs on POSIX. Use ``open``:
+    # ``Path.write_text(newline=...)`` needs 3.10+.
     with posix_path.open("w", encoding="utf-8", newline="") as fh:
         fh.write(_posix_launcher(app, libdir, posix_python))
     _make_executable(posix_path)
@@ -337,16 +317,9 @@ class ScaffoldCmd(_Cli):
             # An invalid app, libdir or python value is a usage error (exit 2).
             type(self)._parser_().error(str(exc))
         except FileExistsError as exc:
-            # generate_launchers documents this as the refusal-to-overwrite
-            # signal; the CLI reports it as a one-line error, not a traceback
-            # for an expected, documented condition. The library function
-            # itself keeps raising -- only this CLI wrapper catches it. The
-            # exception message already names the conflict and tells the
-            # caller to pass --force, so printing it once is the whole error
-            # (a second, separate "pass --force" line duplicated that).
-            # `write_human`, not a raw `print(..., file=sys.stderr)`: `exc`'s
-            # message can embed a user-supplied path, which can't raise even
-            # on a stderr this module cannot assume is UTF-8.
+            # Report the documented refusal-to-overwrite as one line (the message
+            # already says to pass --force). `write_human`: the message can embed
+            # a user path, and stderr may not be UTF-8.
             _compat.write_human(str(exc) + "\n", _sys.stderr)
             return 1
         except OSError as exc:
@@ -356,13 +329,9 @@ class ScaffoldCmd(_Cli):
             _compat.write_human("duho.scaffold: %s\n" % (exc,), _sys.stderr)
             return 1
         for path in written:
-            # Both launchers are already written by this point --
-            # a `print(path)` that then raises `UnicodeEncodeError` (a
-            # non-cp1252 path piped on Windows) reported a successful run as
-            # a crash (exit 1), and the "obvious" re-run was then refused by
-            # `generate_launchers`' own no-clobber check. `write_human` shows
-            # each path using the stream's own encoding, escaping only a
-            # character genuinely outside it instead of raising.
+            # The launchers are already written, so a `print` raising
+            # UnicodeEncodeError (a non-cp1252 path on Windows) would report
+            # success as a crash; `write_human` escapes instead of raising.
             _compat.write_human(str(path) + "\n", _sys.stdout)
         return 0
 

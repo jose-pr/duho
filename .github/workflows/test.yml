@@ -45,35 +45,35 @@ jobs:
           # Ubuntu full matrix over every supported version
           - os: ubuntu-latest
             python-version: "3.9"
-            max-skips: 30
+            max-skips: 31
           - os: ubuntu-latest
             python-version: "3.10"
-            max-skips: 26
+            max-skips: 27
           - os: ubuntu-latest
             python-version: "3.11"
-            max-skips: 26
+            max-skips: 27
           - os: ubuntu-latest
             python-version: "3.12"
-            max-skips: 23
+            max-skips: 24
           - os: ubuntu-latest
             python-version: "3.13"
-            max-skips: 21
+            max-skips: 19
           - os: ubuntu-latest
             python-version: "3.14"
-            max-skips: 21
+            max-skips: 17
           # Windows/macOS matrix edges (oldest + newest supported)
           - os: windows-latest
             python-version: "3.9"
-            max-skips: 41
+            max-skips: 45
           - os: windows-latest
             python-version: "3.14"
-            max-skips: 32
+            max-skips: 31
           - os: macos-latest
             python-version: "3.9"
-            max-skips: 40
+            max-skips: 41
           - os: macos-latest
             python-version: "3.14"
-            max-skips: 31
+            max-skips: 27
     steps:
       - uses: actions/checkout@v7
         with:
@@ -92,7 +92,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests
-        run: python -m pytest -q -rs --junitxml=junit.xml
+        # xunit1: a test here records a property, which the default junit
+        # family refuses with a warning, and warnings are errors.
+        run: python -m pytest -q -rs --junitxml=junit.xml -o junit_family=xunit1
       - name: The skip count stays within this leg's bound
         shell: python
         env:

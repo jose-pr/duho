@@ -408,7 +408,7 @@ def _run_skip_check(tmp_path, skipped, limit):
 
 def test_test_workflow_lists_skips_and_writes_the_junit_file_the_check_reads():
     text = _read(_WORKFLOWS / "test.yml")
-    assert "python -m pytest -q -rs --junitxml=junit.xml" in text
+    assert "python -m pytest -q -rs --junitxml=junit.xml -o junit_family=xunit1" in text
 
 
 def test_every_test_matrix_leg_bounds_its_skips():

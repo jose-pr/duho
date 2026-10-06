@@ -34,6 +34,9 @@ at each release tag, not inferred from the two versions tested locally.
   test workflow, which covers Python 3.9 to 3.14, ran at the release commit
   before tagging.
 - The new tests fail on Python 3.9 with the fix removed.
+- Correction (2026-10-07): the leak check was not clean at this release. It
+  reported the same four known hits (the docs badge label in `README.md`, one
+  README line, and two lines of `examples/dotagents.py`) and exited 1.
 
 No performance claim is made.
 
@@ -136,6 +139,9 @@ in downstream projects.
   test workflow ran at the release commit before tagging.
 - Encoding probes: piped output on Windows, and captured output in Windows
   PowerShell 5.1 and pwsh 7, no longer crash.
+- Correction (2026-10-07): the leak check was not clean at this release. It
+  reported the same four known hits (the docs badge label in `README.md`, one
+  README line, and two lines of `examples/dotagents.py`) and exited 1.
 
 ---
 
@@ -163,6 +169,9 @@ their version pin, and the three regressions that run found were fixed.
 - Test suite: Windows Python 3.9 and 3.14, and Linux (WSL) Python 3.14, all
   green; the CI test workflow is run at the release commit before tagging.
 - `black --check`, `mkdocs build --strict` and the leak check are clean.
+- Correction (2026-10-07): the leak check was not clean at this release. It
+  reported the same four known hits (the docs badge label in `README.md`, one
+  README line, and two lines of `examples/dotagents.py`) and exited 1.
 - Downstream: twelve consumer projects' own test suites passed against the
   release tree, with results identical to 0.5.4 for every project except
   the regressions above, which are fixed.

@@ -660,9 +660,10 @@ manipulating a parser tree directly:
 ## Opt-in submodules (`duho.fanout`, `duho.runpath`, `duho.scaffold`, `duho.mcp`)
 
 - **`duho.fanout`** — **`run_targets(func, targets, *, max_workers=None,
-  aggregate=<worst-by-magnitude>, logger=None) -> int`** (ThreadPool per-target,
-  exit-code reduced by `aggregate`; default logger is this module's own,
-  `"duho.fanout"`), **`fan_out_command(command, make_instance, targets, *, context=None, max_workers=None, aggregate=<worst-by-magnitude>, logger=None) -> int`** (sugar over `run_targets`: `make_instance(target)` builds
+  aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (ThreadPool
+  per-target, exit-code reduced by `aggregate`; default logger is this module's own,
+  `"duho.fanout"`; `label(target)` gives the text of that target's log prefix in
+  place of `str(target)`, and `func` still receives the target), **`fan_out_command(command, make_instance, targets, *, context=None, max_workers=None, aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (sugar over `run_targets`: `make_instance(target)` builds
   the parsed instance for each target and the resolved duho `Command` is dispatched via
   `run_command`), **`target_logging(logger=None)`** (a
   context manager installing/removing a per-target log prefix for the duration of a

@@ -89,6 +89,13 @@ current_target: "_contextvars.ContextVar[object]" = _contextvars.ContextVar(
 )
 
 
+#: The log-prefix text for the current target when a ``label`` was given;
+#: ``None`` means the prefix is the target itself.
+_current_label: "_contextvars.ContextVar[_ty.Optional[str]]" = _contextvars.ContextVar(
+    "duho_fanout_current_label", default=None
+)
+
+
 class _TargetRecord(_logging.LogRecord):
     """A :class:`logging.LogRecord` whose message renders as ``[<target>] <message>``.
 
@@ -160,7 +167,8 @@ class TargetPrefixFilter(_logging.Filter):
         if _sys.version_info >= (3, 12):
             record = _copy.copy(record)
         record._duho_target_tagged_ = True  # type: ignore[attr-defined]
-        record._duho_target_ = target  # type: ignore[attr-defined]
+        label = _current_label.get()
+        record._duho_target_ = target if label is None else label  # type: ignore[attr-defined]
         record._duho_tagged_args_ = record.args  # type: ignore[attr-defined]
         record.__class__ = _TargetRecord
         return record if _sys.version_info >= (3, 12) else True
@@ -217,6 +225,7 @@ def _run_one(
     func: "_ty.Callable[[object], object]",
     target: object,
     logger: "_logging.Logger",
+    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
 ) -> int:
     """Run ``func(target)`` in a target-tagged context and normalise to an exit code.
 
@@ -238,8 +247,11 @@ def _run_one(
     thread.
     """
     token = current_target.set(target)
+    label_token = _current_label.set(None)
     try:
         try:
+            if label is not None:
+                _current_label.set(str(label(target)))
             result = _maybe_await(func(target))
         except SystemExit as exc:
             code = exc.code
@@ -261,6 +273,7 @@ def _run_one(
             logger.error("target %r returned non-int %r", target, result)
             return 1
     finally:
+        _current_label.reset(label_token)
         current_target.reset(token)
 
 
@@ -285,6 +298,7 @@ def run_targets(
     max_workers: "int | None" = None,
     aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
     logger: "_logging.Logger | None" = None,
+    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
 ) -> int:
     """Run ``func(target)`` for each target concurrently; return an aggregate code.
 
@@ -314,6 +328,10 @@ def run_targets(
       the ``[<target>]`` prefix filter for the duration; defaults to this
       module's own logger, ``"duho.fanout"`` (a child of ``"duho"``, so a handler
       configured on ``"duho"`` or the root still sees it via propagation).
+    * ``label`` -- ``label(target) -> str`` is the text of the ``[...]`` log prefix
+      for that target; default ``None`` prefixes with ``str(target)``. ``func``
+      still receives the target itself. A ``label`` that raises fails only that
+      target (logged, code ``1``).
 
     An ``async def`` ``func`` is supported: its coroutine result is driven to
     completion the same way :func:`duho.run_command` drives one
@@ -348,7 +366,7 @@ def run_targets(
         with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             try:
                 futures = [
-                    pool.submit(_run_one, func, target, active_logger)
+                    pool.submit(_run_one, func, target, active_logger, label)
                     for target in target_list
                 ]
                 codes = [future.result() for future in futures]
@@ -372,6 +390,7 @@ def fan_out_command(
     max_workers: "int | None" = None,
     aggregate: "_ty.Callable[[_ty.Sequence[int]], int]" = _worst,
     logger: "_logging.Logger | None" = None,
+    label: "_ty.Optional[_ty.Callable[[object], str]]" = None,
 ) -> int:
     """Fan a single duho ``command`` out over targets, one parsed instance each.
 
@@ -386,7 +405,8 @@ def fan_out_command(
 
     ``command`` is a resolved :class:`~duho.discovery.Command` (a ``Cmd`` subclass
     or a :class:`~duho.discovery.ModuleCommand`) -- the same object ``app`` would
-    hand a ``dispatch`` callback. Returns the aggregated exit code.
+    hand a ``dispatch`` callback. ``label`` is :func:`run_targets`' (the text of
+    the log prefix). Returns the aggregated exit code.
     """
 
     def _run_for(target: object) -> int:
@@ -399,4 +419,5 @@ def fan_out_command(
         max_workers=max_workers,
         aggregate=aggregate,
         logger=logger,
+        label=label,
     )

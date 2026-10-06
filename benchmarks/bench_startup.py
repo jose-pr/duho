@@ -23,7 +23,9 @@ the comparison meaningful, not the delta itself.
 ``python -c``), because ``-c`` source has no ``__file__`` -- duho's class-body
 introspection (``inspect.getsource``) then raises OSError and silently skips
 the AST scan, so a ``-c``-based e2e number never exercises the per-invocation
-AST/getsource path it claims to measure. ``e2e_no_source`` keeps the old
+AST/getsource path it claims to measure. ``e2e_build_parse_large`` is the same
+snippet in a probe file of about 1,000 lines with the class last, so the cost
+of reading the defining file shows. ``e2e_no_source`` keeps the old
 ``-c``-based variant as a separate, informational (not gated) metric, for
 comparison.
 
@@ -62,6 +64,21 @@ E2E_CODE = (
     "    ('--count',)\n"
     "duho.parse(A, ['--name', 'x'])\n"
 )
+
+#: The same invocation, but the probe file is about 1,000 lines long with the
+#: class at the end: a first build's cost grows with the length of the file
+#: that defines the class unless only that class's source is read.
+E2E_LARGE_LINES = 1000
+
+
+def large_probe_code():
+    padding = "".join(
+        "def helper_%d(x):\n    y = x + %d\n    return [y, str(y), {'k': y}]\n\n\n"
+        % (i, i)
+        for i in range(E2E_LARGE_LINES // 5)
+    )
+    head, _, body = E2E_CODE.partition("\n")
+    return head + "\n\n\n" + padding + body
 
 
 def _run_ms(args, n, env):
@@ -108,13 +125,20 @@ def measure(n):
     e2e_no_source = subprocess_ms(E2E_CODE, n, env)
 
     tmpdir = tempfile.mkdtemp(prefix="duho_bench_startup_")
+    e2e_path = Path(tmpdir) / "e2e_probe.py"
+    large_path = Path(tmpdir) / "e2e_probe_large.py"
     try:
-        e2e_path = Path(tmpdir) / "e2e_probe.py"
         e2e_path.write_text(E2E_CODE)
         e2e = source_ms(e2e_path, n, env)
+        large_path.write_text(large_probe_code())
+        e2e_large = source_ms(large_path, n, env)
     finally:
+        for path in (e2e_path, large_path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
         try:
-            e2e_path.unlink()
             os.rmdir(tmpdir)
         except OSError:
             pass
@@ -125,6 +149,7 @@ def measure(n):
             "import_argparse": _stats(*argp),
             "import_duho": _stats(*duho_),
             "e2e_build_parse": _stats(*e2e),
+            "e2e_build_parse_large": _stats(*e2e_large),
             "e2e_no_source": _stats(*e2e_no_source),
         },
         # The gated deltas: duho's added cost over bare python (min-vs-min).
@@ -133,6 +158,7 @@ def measure(n):
         "deltas": {
             "import_duho_delta": round(duho_[0] - base[0], 2),
             "e2e_delta": round(e2e[0] - base[0], 2),
+            "e2e_large_delta": round(e2e_large[0] - base[0], 2),
         },
     }
 
@@ -160,12 +186,14 @@ def main(argv=None):
         ("import_argparse", "import argparse"),
         ("import_duho", "import duho"),
         ("e2e_build_parse", "import+build+parse"),
+        ("e2e_build_parse_large", "  (same, ~1000-line file)"),
         ("e2e_no_source", "  (same, via -c; informational)"),
     ):
         print(f"{label:22s} {a[key]['min_ms']:9.2f} {a[key]['median_ms']:9.2f}")
     print()
     print(f"duho tax: import duho over bare python : {d['import_duho_delta']:7.2f} ms")
     print(f"duho tax: end-to-end over bare python  : {d['e2e_delta']:7.2f} ms")
+    print(f"duho tax: same, ~1000-line file        : {d['e2e_large_delta']:7.2f} ms")
 
     pyver = "py%d%d" % (sys.version_info.major, sys.version_info.minor)
     name = args.name or f"startup-{duho.__version__}-{pyver}"

@@ -144,13 +144,38 @@ def test_measure_times_gated_e2e_from_a_real_file(monkeypatch):
 
     result = bench_startup.measure(1)
 
-    assert len(source_calls) == 1
-    assert source_calls[0].suffix == ".py"
+    assert len(source_calls) == 2
+    assert all(path.suffix == ".py" for path in source_calls)
     # The `-c` path survives only as the separately-named, informational
     # e2e_no_source metric (plus python_pass/import_argparse/import_duho).
     assert code_calls.count(bench_startup.E2E_CODE) == 1
     assert "e2e_no_source" in result["abs"]
     assert "e2e_build_parse" in result["abs"]
+    assert "e2e_build_parse_large" in result["abs"]
+    assert "e2e_large_delta" in result["deltas"]
+
+
+def test_large_probe_is_about_a_thousand_lines_with_the_class_last():
+    """The padded probe is a runnable file of about 1,000 lines whose class
+    comes after the padding, so a first build has the whole file to skip."""
+    code = bench_startup.large_probe_code()
+    assert 1000 <= len(code.splitlines()) <= 1100
+    assert code.index("class A(duho.Args)") > code.index("def helper_199")
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "e2e_large.py"
+        path.write_text(code)
+        result = subprocess.run(
+            [sys.executable, str(path)], env=_child_env(), capture_output=True
+        )
+    assert result.returncode == 0, result.stderr.decode()
+
+
+def test_startup_gate_ignores_a_delta_the_baseline_lacks():
+    """check_baseline compares only the keys the committed baseline carries, so
+    the new large-file delta cannot fail the gate before a baseline has it."""
+    current = {"import_duho_delta": 10.0, "e2e_large_delta": 500.0}
+    baseline = {"import_duho_delta": 10.0}
+    assert check_baseline._check_group(current, baseline, 1.3, 1.0, floor=5.0) == []
 
 
 # ---------------------------------------------------------------------------

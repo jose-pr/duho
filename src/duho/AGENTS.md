@@ -29,7 +29,7 @@ regardless of which internal module implements it:
 - `_compat.py` — cross-version shims, incl. `BOOL_TRUE`/`BOOL_FALSE` (see
   "Environment variables" below).
 
-## Declaring commands
+## Declaring commands (`duho`, `duho.args`)
 
 - **`Args`** — base declarative data class. Annotated non-`_` class attrs become CLI
   fields; an adjacent string literal is help text, an adjacent tuple literal is the flag
@@ -185,7 +185,7 @@ just its annotation.
   a single `_` if the verbatim distribution name doesn't resolve, since Python 3.9's
   `importlib.metadata` (unlike 3.10+) does not treat `.` as a name separator.
 
-## Type conversion & collections
+## Type conversion & collections (`duho.args`)
 
 - `list[T]`/`set[T]`/`tuple[T, ...]`/`dict[str, V]` element/value types go through the
   SAME full type ladder as a scalar field — an `Enum` element matches by member NAME,
@@ -207,7 +207,7 @@ just its annotation.
   a declared `env=`, OR the owning class having any `_config_` set at all (not
   necessarily that specific field appearing in the config file).
 
-## Output encoding
+## Output encoding (`duho.utf8_stdio`)
 
 - **`utf8_stdio(streams=None) -> list[str]`** (`duho._compat`, re-exported at
   the top level) — reconfigure text streams to UTF-8 in place. `streams`
@@ -248,7 +248,7 @@ just its annotation.
   `duho.mcp`/`duho.scaffold` CLI error) are written the same way, not via a
   raw `print(..., file=sys.stderr)`.
 
-## Build / parse / run
+## Build / parse / run (`duho`)
 
 - **`parser(cls, *args, **kwargs) -> ArgumentParser`** — delegates to `cls._parser_`. Generic: under
   a type checker, `duho.parser(MyApp)`/`duho.parse(MyApp)`/`duho.parse_globals(MyApp)`/
@@ -345,7 +345,7 @@ just its annotation.
 `_passthrough_`: on a parsed instance, argv after the first literal `--` (a `list[str]`,
 empty when absent).
 
-## Discovery
+## Discovery (`duho.discovery`)
 
 - **`Command`** — `runtime_checkable` protocol: `_parsername_` + a runnable body. Two
   kinds: a class command (strict `Cmd` subclass) and a `ModuleCommand`. A discovered
@@ -395,7 +395,7 @@ empty when absent).
 - **`discover_entry_points(group) -> list[Command]`** — enumerate installed entry points (imports
   `importlib.metadata` lazily).
 
-## Env / config
+## Env / config (`duho.env`)
 
 - **`Env(prefix, autoload=True, **env)`** — prefixed, typed `os.environ` accessor. Normalizes `prefix`
   (upper, `-`→`_`, trailing `_`), autoloads an optional `<prefix.lower()>env` companion
@@ -426,39 +426,7 @@ empty when absent).
   sibling command and a run that passes the field on the command line — a CLI value
   cannot rescue it.
 
-## Environment variables
-
-- **`AGENT_HELP`** / **`AGENTS_HELP`** — either truthy switches `--help`/agent-help
-  output into machine-readable JSON (see "Agent help" below). Falsy tokens: `""`, `0`,
-  `false`, `no`, `off`, `n`, `f` (case-insensitive); anything else counts as on. An
-  explicit `_agent_help_env_` on the CLI root replaces both defaults with exactly one
-  variable name (no aliasing).
-- **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
-  duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
-  command source, a non-strict RunPath step failure, `app`'s advisory `register`
-  prepass, `mcp.call_tool` converting an exception to a client-facing string); off by
-  default and re-read on every call (never cached). Falsy/truthy tokens match `BOOL_FALSE`/
-  `BOOL_TRUE` below.
-- **`NO_COLOR`** / **`FORCE_COLOR`** — the standard convention: `NO_COLOR` set to
-  anything forces color off; `FORCE_COLOR` set to a truthy value forces color on;
-  otherwise color follows whether the output stream is a TTY. Gates ANSI in both the
-  argparse help formatters (`ColorHelpFormatter`/`ColorDefaultsFormatter`) and
-  `init_stderr_logging`'s default log formatter.
-- **`<PREFIX>PATHSEP`** (e.g. `MYAPP_PATHSEP`; scoped to this app's own prefix, never
-  a bare/global `PATHSEP`) — overrides `os.pathsep` as the separator `Env.paths(...)`
-  (and the `CMDS_PATH` convention below) splits on.
-- **`CMDS_PATH` convention** — not a literal single env var: a per-prefix
-  `Env(prefix).paths("CMDS_PATH", ty=Path)` lookup (e.g. `MYAPP_CMDS_PATH` for
-  `duho.app(env=Env("myapp"))`). See `app()` above for precedence — it always merges on
-  top of the base command source, and a `CMDS_PATH` command wins a name clash (logged,
-  never silent).
-- **`BOOL_TRUE` / `BOOL_FALSE`** (`duho._compat`, internal but shared) — the canonical
-  truthy/falsy text tokens: truthy = `1`, `true`, `yes`, `on`, `y`, `t`; falsy = `0`,
-  `false`, `no`, `off`, `n`, `f`, `""` — matched case-insensitively after stripping
-  whitespace. `Env.bool`, the layered env/config bool converter, and the strict CLI
-  bool-field text factory all match against this same table.
-
-## Logging
+## Logging (`duho.logging`)
 
 `duho.logging` is a superset of stdlib `logging`: every public (non-underscore) stdlib
 name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
@@ -507,7 +475,7 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   `ColorHelpFormatter` is a no-op on Python 3.14+, which has its own native argparse
   color support.
 
-## Agent help
+## Agent help (`duho.agenthelp`)
 
 - **`print_agent_help(cls, file=None)`** — write `cls`'s machine-readable JSON help
   document to `file` (default stdout); also triggered automatically by the
@@ -555,7 +523,7 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   `list[str]` as bare `list`, spelling unions as `Optional[int]`/`Union[int, str]`
   instead of `int | None`/`int | str`).
 
-## Completion
+## Completion (`duho.completion`)
 
 Static completion-SCRIPT generation (bash, zsh, fish, PowerShell — four shells) — the
 user installs a self-contained generated script once; this is not a dynamic
@@ -584,7 +552,7 @@ runtime dependency and zero per-invocation overhead.
   True` — see "Build / parse / run" above for its `prog=` behavior and the flag's
   invoked-name default.
 
-## Text / names
+## Text / names (`duho.text`)
 
 - **`expand(text)`** — brace-range expansion (non-zero-padded, e.g. `"a[1-3]"` → `"a1"`,
   `"a2"`, `"a3"`). **`pysafe(text, separator=".")`** — coerce each `separator`-delimited
@@ -609,7 +577,7 @@ runtime dependency and zero per-invocation overhead.
   deliberately excluded from `duho.text.__all__`, so `from duho.text import *` cannot
   shadow a caller's own `range` builtin — access them as `duho.text.range(...)`.
 
-## Qualified names
+## Qualified names (`duho.qualname`)
 
 - **`QualName`** — abstract dotted-name algebra: `parts`, `name`, `parent`,
   join/split, path mapping.
@@ -647,7 +615,7 @@ manipulating a parser tree directly:
 - **`command_name(command) -> str`** — the effective subcommand name for a resolved
   `Command`.
 
-## Opt-in submodules (import explicitly; off `duho.*`)
+## Opt-in submodules (`duho.fanout`, `duho.runpath`, `duho.scaffold`, `duho.mcp`)
 
 - **`duho.fanout`** — **`run_targets(func, targets, *, max_workers=None,
   aggregate=<worst-by-magnitude>, logger=None) -> int`** (ThreadPool per-target,
@@ -755,3 +723,35 @@ manipulating a parser tree directly:
     and message text either entry point goes through). A node whose class is
     (or subclasses) `McpCmd` is never itself listed as (or callable as) an
     MCP tool.
+
+## Environment variables
+
+- **`AGENT_HELP`** / **`AGENTS_HELP`** — either truthy switches `--help`/agent-help
+  output into machine-readable JSON (see "Agent help" below). Falsy tokens: `""`, `0`,
+  `false`, `no`, `off`, `n`, `f` (case-insensitive); anything else counts as on. An
+  explicit `_agent_help_env_` on the CLI root replaces both defaults with exactly one
+  variable name (no aliasing).
+- **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
+  duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
+  command source, a non-strict RunPath step failure, `app`'s advisory `register`
+  prepass, `mcp.call_tool` converting an exception to a client-facing string); off by
+  default and re-read on every call (never cached). Falsy/truthy tokens match `BOOL_FALSE`/
+  `BOOL_TRUE` below.
+- **`NO_COLOR`** / **`FORCE_COLOR`** — the standard convention: `NO_COLOR` set to
+  anything forces color off; `FORCE_COLOR` set to a truthy value forces color on;
+  otherwise color follows whether the output stream is a TTY. Gates ANSI in both the
+  argparse help formatters (`ColorHelpFormatter`/`ColorDefaultsFormatter`) and
+  `init_stderr_logging`'s default log formatter.
+- **`<PREFIX>PATHSEP`** (e.g. `MYAPP_PATHSEP`; scoped to this app's own prefix, never
+  a bare/global `PATHSEP`) — overrides `os.pathsep` as the separator `Env.paths(...)`
+  (and the `CMDS_PATH` convention below) splits on.
+- **`CMDS_PATH` convention** — not a literal single env var: a per-prefix
+  `Env(prefix).paths("CMDS_PATH", ty=Path)` lookup (e.g. `MYAPP_CMDS_PATH` for
+  `duho.app(env=Env("myapp"))`). See `app()` above for precedence — it always merges on
+  top of the base command source, and a `CMDS_PATH` command wins a name clash (logged,
+  never silent).
+- **`BOOL_TRUE` / `BOOL_FALSE`** (`duho._compat`, internal but shared) — the canonical
+  truthy/falsy text tokens: truthy = `1`, `true`, `yes`, `on`, `y`, `t`; falsy = `0`,
+  `false`, `no`, `off`, `n`, `f`, `""` — matched case-insensitively after stripping
+  whitespace. `Env.bool`, the layered env/config bool converter, and the strict CLI
+  bool-field text factory all match against this same table.

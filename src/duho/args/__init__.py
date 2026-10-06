@@ -15,6 +15,7 @@ from .. import _compat as _compat
 from .. import _introspect as _introspect
 from .. import logging as _duho_logging
 from .._fieldspec import Factory as Factory
+from .._introspect import ClsArgDeclaration as ClsArgDeclaration
 from .._fieldspec import UpdateAction as UpdateAction
 from .._fieldspec import _AppendAction as _AppendAction
 from .._fieldspec import _bool_from_text as _bool_from_text
@@ -141,6 +142,7 @@ __all__ = [
     "Arg",
     "AUTO",
     "Choice",
+    "ClsArgDeclaration",
     "Cli",
     "Cmd",
     "command",

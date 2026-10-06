@@ -101,6 +101,17 @@ def _module_index(filename: str) -> "dict[str, list[_ast.ClassDef]]":
     return index
 
 
+# A block read costs a fixed amount per class; the whole-file index costs per
+# line once and then serves every class of the file. A file gets one block read
+# per this many bytes, so a large file whose classes are all commands pays the
+# index plus at most ``size // _BYTES_PER_BLOCK_READ`` block reads.
+_BYTES_PER_BLOCK_READ = 12_000
+
+#: file -> (mtime and size, block-read budget, first lines already read by
+#: block); the file is stat-ed once, not per class.
+_BLOCK_READS: "dict[str, tuple[tuple, int, set[int]]]" = {}
+
+
 @_functools.lru_cache(maxsize=None)
 def _classdef_from_block(
     filename: str, firstlineno: int, name: str, nested: bool, stamp: "tuple" = ()
@@ -154,14 +165,25 @@ def _classdef_by_firstlineno(
     firstlineno = vars(cls).get("__firstlineno__")
     if not isinstance(firstlineno, int):
         return None
-    try:
-        stat = _os.stat(file)
-    except OSError:
-        return None
+    entry = _BLOCK_READS.get(file)
+    if entry is None:
+        try:
+            stat = _os.stat(file)
+        except OSError:
+            return None
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        entry = _BLOCK_READS[file] = (
+            stamp,
+            stat.st_size // _BYTES_PER_BLOCK_READ,
+            set(),
+        )
+    stamp, budget, reads = entry
+    if firstlineno not in reads:
+        if len(reads) >= budget:
+            return None
+        reads.add(firstlineno)
     name = qualname.rpartition(".")[2]
-    return _classdef_from_block(
-        file, firstlineno, name, "." in qualname, (stat.st_mtime_ns, stat.st_size)
-    )
+    return _classdef_from_block(file, firstlineno, name, "." in qualname, stamp)
 
 
 def _own_annotations(cls: type) -> "dict[str, object]":

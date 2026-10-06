@@ -19,6 +19,20 @@ import test_introspect as _existing
 
 _HAS_FIRSTLINENO = sys.version_info >= (3, 13)
 
+
+@pytest.fixture(autouse=True)
+def _every_class_may_use_the_block_reader(monkeypatch):
+    """The fixture files are small; with the default budget they would all use
+    the whole-file index. One byte per read gives every file ample budget."""
+    monkeypatch.setattr(_introspect, "_BYTES_PER_BLOCK_READ", 1)
+    reader = _introspect._classdef_from_block
+    _introspect._BLOCK_READS.clear()
+    reader.cache_clear()
+    yield
+    _introspect._BLOCK_READS.clear()
+    reader.cache_clear()
+
+
 _SHAPES = '''\
 """Module docstring."""
 import functools
@@ -439,3 +453,88 @@ def test_single_class_reader_is_not_taken_without_firstlineno(shapes, monkeypatc
     for label, cls in _all_classes(shapes).items():
         _introspect._module_index.cache_clear()
         assert _introspect.getclsdef(cls) is not None, label
+
+
+# --- the per-file budget of block reads -------------------------------------
+
+_MANY = "from duho import Args\n\n\n" + "".join(
+    "class C%d(Args):\n"
+    '    """Command %d."""\n'
+    "\n"
+    "    field_%d: int = %d\n"
+    '    "Help %d."\n'
+    '    ("--field-%d",)\n'
+    "\n\n" % ((i,) * 6)
+    for i in range(8)
+)
+
+
+def _counting(monkeypatch):
+    calls = []
+    original = _introspect._classdef_from_block
+
+    def spy(*args, **kwargs):
+        calls.append(args[1])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_introspect, "_classdef_from_block", spy)
+    return calls
+
+
+def test_small_file_never_uses_the_block_reader(tmp_path, monkeypatch):
+    monkeypatch.setattr(_introspect, "_BYTES_PER_BLOCK_READ", 12_000)
+    module = _load(tmp_path, "introspect_small", _MANY)
+    try:
+        calls = _counting(monkeypatch)
+        for i in range(8):
+            assert _introspect.getclsdef(getattr(module, "C%d" % i)) is not None
+        assert calls == []
+    finally:
+        sys.modules.pop("introspect_small", None)
+        _introspect._module_index.cache_clear()
+
+
+@pytest.mark.skipif(not _HAS_FIRSTLINENO, reason="needs __firstlineno__ (3.13+)")
+def test_a_file_gets_a_block_read_per_budget_then_the_index(tmp_path, monkeypatch):
+    size = len(_MANY.encode("utf-8"))
+    per_read = size // 3 + 1  # a budget of two reads
+    assert size // per_read == 2
+    monkeypatch.setattr(_introspect, "_BYTES_PER_BLOCK_READ", per_read)
+    module = _load(tmp_path, "introspect_budget", _MANY)
+    try:
+        calls = _counting(monkeypatch)
+        classes = [getattr(module, "C%d" % i) for i in range(8)]
+        dumps = [
+            ast.dump(_introspect.getclsdef(cls), include_attributes=True)
+            for cls in classes
+        ]
+        assert calls == [vars(cls)["__firstlineno__"] for cls in classes[:2]]
+        monkeypatch.setattr(
+            _introspect, "_classdef_from_block", _no_single_class_reader
+        )
+        _introspect._module_index.cache_clear()
+        whole = [
+            ast.dump(_introspect.getclsdef(cls), include_attributes=True)
+            for cls in classes
+        ]
+        assert dumps == whole
+    finally:
+        sys.modules.pop("introspect_budget", None)
+        _introspect._module_index.cache_clear()
+
+
+@pytest.mark.skipif(not _HAS_FIRSTLINENO, reason="needs __firstlineno__ (3.13+)")
+def test_asking_for_the_same_class_again_uses_no_budget(tmp_path, monkeypatch):
+    size = len(_MANY.encode("utf-8"))
+    monkeypatch.setattr(_introspect, "_BYTES_PER_BLOCK_READ", size // 2 + 1)
+    module = _load(tmp_path, "introspect_repeat", _MANY)
+    try:
+        calls = _counting(monkeypatch)
+        for _ in range(3):
+            assert _introspect.getclsdef(module.C0) is not None
+        assert len(calls) == 3  # a budget of one, spent on the same class
+        assert _introspect.getclsdef(module.C1) is not None
+        assert len(calls) == 3  # spent: the index serves the next class
+    finally:
+        sys.modules.pop("introspect_repeat", None)
+        _introspect._module_index.cache_clear()

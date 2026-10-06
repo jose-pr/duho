@@ -193,6 +193,7 @@ def drop_caches(cls) -> None:
     _drop(cls)
     _introspect._module_index.cache_clear()
     _introspect._classdef_from_block.cache_clear()
+    _introspect._BLOCK_READS.clear()
 
 
 # ---------------------------------------------------------------------------

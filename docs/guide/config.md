@@ -38,14 +38,13 @@ argparse would give.
 ## Config files
 
 Set `_config_` on the class, or pass `config=` to `duho.parse` / `duho.main`
-(the keyword argument wins):
+(the keyword argument wins; `duho.main` takes it too):
 
 ```python
 class Deploy(Args):
     _config_ = "~/.config/myapp/config.toml"
 
 result = duho.parse(Deploy, config="./deploy.toml")
-result = duho.main(Deploy, config="./deploy.toml")
 ```
 
 Top-level keys map to the root command's fields. A table named after a
@@ -128,7 +127,8 @@ config format you like.
 
 ## Where did this value come from?
 
-`duho.value_sources(parsed)` reports which layer won for each field:
+`duho.value_sources(parsed)` reports which layer won for each field of a parsed
+instance — what `duho.parse` returns, or `self` inside a command's `__call__`:
 
 ```python
 result = duho.parse(Deploy, [], config="./deploy.toml")

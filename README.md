@@ -618,7 +618,6 @@ class Deploy(Args):
     ...
 
 result = duho.parse(Deploy, config="./deploy.toml")
-result = duho.main(Deploy, config="./deploy.toml")
 ```
 
 Top-level TOML keys map to the root command's fields; a table named after a
@@ -669,8 +668,9 @@ occurrence), while a TOML **array** converts element-wise. Non-string TOML scala
 are coerced to the field type (`timeout = 30` for a `float` field → `30.0`).
 
 **Debugging where a value came from**: `duho.value_sources(parsed)` returns
-`{field_name: "cli" | "env" | "config" | "default"}` for the instance
-returned by `duho.parse`/`duho.main`.
+`{field_name: "cli" | "env" | "config" | "default"}` for a parsed
+instance — the one `duho.parse` returns, or `self` inside a command's `__call__`.
+(`duho.main` returns the command's exit code, not an instance.)
 
 ```python
 result = duho.parse(Deploy, [], config="./deploy.toml")

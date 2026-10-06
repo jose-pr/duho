@@ -426,11 +426,11 @@ def call_tool(
                             err.getvalue().strip(), hidden
                         ) or ("argument error (exit code %r)" % (exc.code,))
                         return _text_result(message, is_error=True)
-                    actual_path = getattr(instance, "_duho_mcp_path_", None)
-                    # Popped (not merely peeked), mirroring `runtime._run_app`'s
-                    # own contract: framework bookkeeping never lingers in
-                    # `vars(instance)` where a module command's own `main`
-                    # would otherwise see it.
+                    # Both markers are popped (not merely peeked), mirroring
+                    # `runtime._run_app`'s own contract: framework bookkeeping
+                    # never lingers in `vars(instance)` where a command or a
+                    # module command's own `main` would otherwise see it.
+                    actual_path = vars(instance).pop("_duho_mcp_path_", None)
                     dispatched_module_command = vars(instance).pop(
                         "_duho_module_command_", None
                     )

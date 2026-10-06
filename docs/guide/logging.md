@@ -4,9 +4,9 @@ Mix in `LoggingArgs` to get verbosity flags and a configured logger for free.
 
 ```python
 import duho
-from duho import LoggingArgs
+from duho import Cmd, LoggingArgs
 
-class App(LoggingArgs):
+class App(LoggingArgs, Cmd):
     """Do the thing."""
 
     target: str

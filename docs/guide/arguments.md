@@ -209,7 +209,7 @@ Use this for internal state you want on the instance but not on the command line
 
 Framework members are sandwich-named (`_parser_`, `_version_`, `_subcommands_`,
 `_config_`…) and the dispatch hook is the `__call__` dunder — implement it (on a
-`duho.Cmd` subclass, or on plain `Args`) to make a class runnable, and
+`duho.Cmd` subclass) to make a class runnable, and
 `duho.main`/`duho.run_command` call `instance()` to run it — so a field called
 `main` or `parse` will not collide with anything.
 

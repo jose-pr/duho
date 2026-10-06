@@ -5,8 +5,7 @@
 `duho.main(cls, argv=None, *, setup_logging=True, config=None)` is the one-call
 entry point. It builds the parser, parses `argv` (defaulting to `sys.argv`), sets
 up logging if the class mixes in [`LoggingArgs`](logging.md), and calls the parsed
-instance's `__call__()`. Subclass `duho.Cmd` (or plain `Args` with your own
-`__call__`, as below) to make a class runnable this way.
+instance's `__call__()`. Subclass `duho.Cmd` to make a class runnable this way.
 
 <!-- runnable -->
 ```python
@@ -123,28 +122,28 @@ files, which slot into the same ladder.
 
 ## Subcommands
 
-Set `_subcommands_` to a sequence of `Args` subclasses. duho wires up
+Set `_subcommands_` to a sequence of `Cmd` subclasses. duho wires up
 `add_subparsers()` for you and dispatches to the selected one's `__call__`:
 
 ```python
 import duho
-from duho import Args
+from duho import Cmd
 
-class Serve(Args):
+class Serve(Cmd):
     """Start the development server."""
     port: int = 8000
 
     def __call__(self):
         print(f"serving on {self.port}")
 
-class Build(Args):
+class Build(Cmd):
     """Build the project."""
     output: str = "dist"
 
     def __call__(self):
         print(f"building to {self.output}")
 
-class App(Args):
+class App(Cmd):
     """Example multi-command app."""
     _subcommands_ = [Serve, Build]
 

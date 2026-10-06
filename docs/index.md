@@ -43,9 +43,9 @@ pip install duho[config]     # TOML config files on Python 3.9/3.10
 <!-- runnable -->
 ```python
 import duho
-from duho import Args
+from duho import Cmd
 
-class Greet(Args):
+class Greet(Cmd):
     """Print a greeting."""
 
     name: str = "world"

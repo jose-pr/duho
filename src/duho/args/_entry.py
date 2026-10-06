@@ -371,6 +371,10 @@ def parse(
     defaults. Note this means a required field (no class default) that is
     supplied by *any* layer becomes effectively optional for this call.
     `duho.value_sources` reports such a field as ``"instance"``.
+
+    With subcommands the instance returned is the SELECTED LEAF command's, not
+    an instance of `spec`'s own class: it is typed as `spec`'s class, but a
+    chosen subcommand's class need not derive from it.
     """
     parser_kwargs = parser_kwargs or {}
     if config is None:

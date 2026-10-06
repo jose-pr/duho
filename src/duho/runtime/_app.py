@@ -34,8 +34,8 @@ def _run_app(
     required_root_actions: list[_argparse.Action],
     cmds_path_overridden: set[str],
     notices: list[tuple[int, str]],
-    run: _ty.Callable[[_Command, object], int],
-) -> int:
+    run: _ty.Callable[[_Command, object], _ty.Any],
+) -> _ty.Any:
     """Parse ``argv``, finish per-invocation setup, and dispatch one command.
 
     The real ``parse_args`` call, the required-global re-check,
@@ -125,9 +125,9 @@ def _run_app(
 
 
 def _default_run(
-    dispatch: _ty.Optional[_ty.Callable[[_Command, object], int]],
+    dispatch: _ty.Optional[_ty.Callable[[_Command, object], _ty.Any]],
     adapter: _ty.Optional[_ty.Callable[..., object]],
-) -> _ty.Callable[[_Command, object], int]:
+) -> _ty.Callable[[_Command, object], _ty.Any]:
     """The final run step: ``dispatch``, else :func:`run_command` bound to ``adapter``."""
     if dispatch is not None:
         if adapter is not None:
@@ -153,7 +153,7 @@ def app(
     env: _ty.Optional[_Env] = None,
     config: _ty.Optional[_ty.Union[str, _Path]] = None,
     setup_logging: bool = True,
-    dispatch: _ty.Optional[_ty.Callable[[_Command, object], int]] = None,
+    dispatch: _ty.Optional[_ty.Callable[[_Command, object], _ty.Any]] = None,
     mcp: _ty.Optional[bool] = None,
     mcp_command: _ty.Optional[_ty.Union[str, bool]] = None,
     utf8_stdio: _ty.Optional[bool] = None,
@@ -471,7 +471,7 @@ def _build_app_core(
     description: str | None = None,
     env: _Env | None = None,
     config: str | _Path | None = None,
-    dispatch: _ty.Callable[[_Command, object], int] | None = None,
+    dispatch: _ty.Callable[[_Command, object], _ty.Any] | None = None,
     on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
     adapter: _ty.Optional[
         _ty.Callable[

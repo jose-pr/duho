@@ -84,7 +84,10 @@ def parser(cls: type[_A], *args: object, **kwargs: object) -> _ParserOf[_A]:
 
     Public module-level entry point (delegates to ``cls._parser_``, matching
     its own ``_Parser[Self]`` return typing so ``duho.parser(MyApp)`` keeps
-    ``MyApp``'s type instead of widening to ``Any``).
+    ``MyApp``'s type instead of widening to ``Any``). With subcommands, the
+    instance ``parse_args`` returns is the SELECTED LEAF command's, not a
+    ``MyApp``: it is typed as ``MyApp``, but a chosen subcommand's class need
+    not derive from it.
     """
     return cls._parser_(*args, **kwargs)
 

@@ -56,7 +56,7 @@ def run_command(
             [_ty.Callable[..., object]], _ty.Optional[_ty.Callable[..., object]]
         ]
     ] = None,
-) -> int:
+) -> _ty.Any:
     """Dispatch one already-resolved command against a parsed ``instance``.
 
     ``instance`` is the parsed args/command instance produced by parsing (for a

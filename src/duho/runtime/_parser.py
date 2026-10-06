@@ -1,4 +1,5 @@
 import argparse as _argparse
+import contextlib as _contextlib
 import logging as _logging
 import typing as _ty
 from pathlib import Path as _Path
@@ -216,6 +217,28 @@ def _apply_app_config_layers(
         _agenthelp.install_help_redaction(sub_parser)
 
 
+@_contextlib.contextmanager
+def _unrequired_options(parser: "_argparse.ArgumentParser", root_cls: type):
+    """Treat the root's required options as optional for the duration.
+
+    Lets the advisory prepass parse (and so hand a ``register`` hook an
+    instance) when a required global is missing; the real parse reports it.
+    """
+    root_dests = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+    saved = [
+        a
+        for a in parser._actions
+        if a.dest in root_dests and a.option_strings and getattr(a, "required", False)
+    ]
+    for action in saved:
+        action.required = False
+    try:
+        yield
+    finally:
+        for action in saved:
+            action.required = True
+
+
 def _prepare_app_parser(
     root: "type | None",
     name: "str | None",
@@ -266,12 +289,16 @@ def _prepare_app_parser(
         try:
             from ..parsers import prerun_parse as _prerun_parse
 
-            prepass_args = _prerun_parse(parser, argv, quiet=True)
+            with _unrequired_options(parser, root_cls):
+                prepass_args = _prerun_parse(parser, argv, quiet=True)
         except SystemExit:
             # A required- or unknown-arg error (raised silently, since
-            # quiet=True) must not abort the whole app: degrade to no prepass
-            # and let the real parse below report it authoritatively.
-            prepass_args = None
+            # quiet=True) must not abort the whole app: hand hooks the root's
+            # defaults and let the real parse below report it authoritatively.
+            try:
+                prepass_args = root_cls()
+            except Exception:
+                prepass_args = None
         except Exception:
             # Fully swallowed by design, which also hides a genuinely broken
             # parser from the author; DUHO_TRACEBACK=1 surfaces it at DEBUG.

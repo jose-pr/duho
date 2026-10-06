@@ -23,7 +23,7 @@ class _Lifecycle:
     does not exist).
 
     Each of ``init``/``success``/``finally_`` is an optional callable read off
-    the ``__main__.py`` module (see ``discovery._own_callable``); a missing hook
+    the ``__main__.py`` module (``getattr(module, name, None)``); a missing hook
     no-ops (mirrors ``ModuleCommand``'s existing default-hook precedent).
     """
 
@@ -51,9 +51,7 @@ def _load_lifecycle(
     to before this lifecycle existed (no ``ctx``, steps called with ``self``
     only). When present, imports it the same way steps are imported (the
     public ``discovery.import_from_path``, ending in ``.__main__`` rather than
-    the stale ``._init``) and reads the three optional hooks off it. A hook
-    counts only when it is defined in that file or listed in its ``__all__``,
-    so ``from colorama import init`` is never the ``init`` hook.
+    the stale ``._init``) and reads the three optional hooks off it.
 
     Called BEFORE :func:`_load_steps`: a ``__main__.py`` doing
     module-level setup (e.g. adding a sibling ``lib/`` to ``sys.path`` for
@@ -68,7 +66,7 @@ def _load_lifecycle(
         "duho._runpath." + qualname.replace(".", "_") + ".__main__", path
     )
     return _Lifecycle(
-        init=_discovery._own_callable(module, "init"),
-        success=_discovery._own_callable(module, "success"),
-        finally_=_discovery._own_callable(module, "finally_"),
+        init=getattr(module, "init", None),
+        success=getattr(module, "success", None),
+        finally_=getattr(module, "finally_", None),
     )

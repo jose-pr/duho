@@ -382,9 +382,11 @@ empty when absent).
   instance passed to `duho.parse`), or `"default"`.
 - A bad env or config value is reported the SAME way a bad CLI value is — argparse
   usage text on stderr plus `SystemExit(2)` — for a normal `main`/`parse`/`parse_globals`
-  class-command build. (A module command's own declaratively-bound fields under `app()`
-  are a narrower case: a bad value there still raises a plain `ValueError` immediately,
-  since that path has no parser-deferred conversion seam to route through.)
+  class-command build. A module command's own declaratively-bound fields under `app()`
+  are reported the same way (usage plus exit 2, no traceback), but eagerly: the
+  conversion runs while the parser is built, so one bad value also stops `--help`, every
+  sibling command and a run that passes the field on the command line — a CLI value
+  cannot rescue it.
 
 ## Environment variables
 
@@ -461,9 +463,14 @@ empty when absent).
 
 - **`print_agent_help(cls, file=None)`** — write `cls`'s machine-readable JSON help
   document to `file` (default stdout); also triggered automatically by the
-  `AGENT_HELP` env var or a `--help-agents` flag (added whenever `_completion_` or
-  `_version_` machinery has already touched the parser — practically, always available)
-  in place of human `--help`.
+  `AGENT_HELP` env var or a `--help-agents` flag in place of human `--help`. The flag is
+  opt-in: it exists only on a root that sets `_agent_help_ = True` (`bool`, default
+  `False`); `_completion_` and `_version_` do not add it, and without the attribute
+  `--help-agents` is an unrecognized argument (exit 2). The env-var trigger needs no
+  opt-in. Two more root attributes shape the document: `_examples_` (`Sequence` of
+  command strings or `(command, description)` pairs; default `None` → one synthesized
+  invocation line) and `_exit_codes_` (`Mapping[code, meaning]` merged over the default
+  0/1/2 table; default `None`).
 - **`describe(cls, argv=None) -> dict`** — build the agent-help document for `cls`
   (the dict `render()`/`print_agent_help` serialize).
 - **`describe_parser(parser, *, root=False, root_cls=None, name=None, aliases=None) -> dict`** —

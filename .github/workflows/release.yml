@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install build tooling
-        run: python -m pip install --upgrade build packaging
+        run: python -m pip install --upgrade build twine packaging
       - name: Build sdist and wheel
         run: python -m build
       # A tag on the wrong commit would otherwise publish a release named for
@@ -57,6 +57,8 @@ jobs:
           if built != {str(want)}:
               sys.exit("tag %s is version %s, but dist/ holds %s" % (tag, want, sorted(built)))
           print("tag %s matches the built version %s" % (tag, want))
+      - name: Verify sdist and wheel
+        run: python -m twine check dist/*
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -115,12 +117,17 @@ jobs:
           path: dist/
       - name: Extract CHANGELOG.md section for this tag
         shell: python
+        # The tag reaches the script as data (an environment variable), never
+        # spliced into its source.
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
+          import os
           import pathlib
           import re
           import sys
 
-          tag = "${{ github.ref_name }}"
+          tag = os.environ["TAG"]
           version = tag[1:] if tag.startswith("v") else tag  # v1.0.0-rc.1 -> 1.0.0-rc.1
 
           changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
@@ -137,7 +144,8 @@ jobs:
               sys.exit(f"No CHANGELOG.md section found for version {version!r}")
           pathlib.Path("release_notes.md").write_text(match.group(1).strip() + "\n", encoding="utf-8")
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        # Pinned to a commit: this action runs with contents: write.
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: dist/*
           # Pin the release object to the exact commit the tag pointed at.
@@ -157,6 +165,9 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: github-release
+    # A pre-release tag (v1.0.0-rc.1) gets a GitHub release and no PyPI upload:
+    # a PyPI version can never be reused.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     environment:
       name: pypi

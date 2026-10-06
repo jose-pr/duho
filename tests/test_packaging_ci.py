@@ -10,6 +10,7 @@ just to assert on a few keys.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -305,3 +306,50 @@ def test_release_build_rejects_artifacts_of_two_versions(tmp_path):
         tmp_path, "v0.6.5", ["duho-0.6.5-py3-none-any.whl", "duho-0.6.4.tar.gz"]
     )
     assert done.returncode != 0
+
+
+# -- release.yml hardening ----------------------------------------------------
+
+
+def _run_scripts(text: str) -> "list[str]":
+    """Every ``run:`` value in a workflow, inline or block."""
+    lines = text.splitlines()
+    scripts = []
+    for i, line in enumerate(lines):
+        stripped = line.strip().removeprefix("- ")
+        if not stripped.startswith("run:"):
+            continue
+        inline = stripped[len("run:") :].strip()
+        if inline != "|":
+            scripts.append(inline)
+            continue
+        indent = len(line) - len(line.lstrip())
+        body = []
+        for ln in lines[i + 1 :]:
+            if ln.strip() and len(ln) - len(ln.lstrip()) <= indent:
+                break
+            body.append(ln)
+        scripts.append("\n".join(body))
+    return scripts
+
+
+def test_release_workflow_never_splices_github_context_into_a_script():
+    for workflow in _WORKFLOWS.glob("*.yml"):
+        for script in _run_scripts(_read(workflow)):
+            assert "${{ github." not in script, (workflow.name, script)
+
+
+def test_release_workflow_pins_the_write_scoped_release_action_by_commit():
+    text = _read(_WORKFLOWS / "release.yml")
+    assert re.search(r"uses: softprops/action-gh-release@[0-9a-f]{40}\b", text)
+
+
+def test_release_workflow_runs_twine_check_on_the_built_files():
+    assert "twine check dist/*" in _read(_WORKFLOWS / "release.yml")
+
+
+def test_release_workflow_publishes_to_pypi_only_for_final_tags():
+    text = _read(_WORKFLOWS / "release.yml")
+    job = text[text.index("  publish-pypi:") :]
+    job = job[: job.index("    steps:")]
+    assert "if: ${{ !contains(github.ref_name, '-') }}" in job

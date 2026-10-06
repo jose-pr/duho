@@ -388,19 +388,14 @@ def _looks_like_a_resolved_type(value: object) -> bool:
     """True if ``value`` is a plausible resolved type-hint (a type, or a
     typing construct), False if it's some OTHER kind of object entirely.
 
-    Guards against a specific, unfixable-at-the-annotation-level Python
-    footgun: a field whose NAME is identical to its own annotation (e.g.
-    ``bool: bool = False``) executes the annotated assignment's VALUE-store
-    BEFORE the annotation expression is evaluated (confirmed via bytecode:
-    ``STORE_NAME bool`` precedes ``LOAD_NAME bool`` for that one statement),
-    so the name immediately shadows itself WITHIN THE SAME STATEMENT and the
-    class's own raw ``__annotations__`` entry is already wrong -- ``False``,
-    not the builtin ``bool`` -- before ``typing.get_type_hints`` (or any
-    other introspection) ever sees it. There is no way to recover the
-    intended type from here; the best we can do is detect the symptom (a
-    "type" that plainly isn't one) and raise a CLEAR, actionable error
-    instead of the confusing `argparse` internals crash this used to produce
-    when it later chose an action based on this bogus, non-type "type".
+    Detects a field whose NAME is identical to its own annotation (e.g.
+    ``bool: bool = False``): the annotated assignment stores the VALUE before
+    the annotation expression is evaluated, so the class's own raw
+    ``__annotations__`` entry is the value (``False``), not the builtin
+    ``bool``. :func:`_resolve_public_type_hints` recovers the intended type
+    from the class's source text; without readable source the symptom (a
+    "type" that plainly isn't one) is reported as a clear error naming the
+    field, instead of an ``argparse`` internals crash.
     """
     if isinstance(value, type):
         return True
@@ -516,7 +511,20 @@ def _resolve_public_type_hints(cls: type) -> "dict[str, object]":
         hints = _ty.get_type_hints(cls, include_extras=True)
     except Exception:
         return _resolve_public_type_hints_isolated(cls)
-    return {name: hint for name, hint in hints.items() if not name.startswith("_")}
+    public = {name: hint for name, hint in hints.items() if not name.startswith("_")}
+    if all(_looks_like_a_resolved_type(hint) for hint in public.values()):
+        return public
+    # A field named like its own annotation: the source text still says what
+    # it was meant to be. Without readable source the caller reports the error.
+    try:
+        isolated = _resolve_public_type_hints_isolated(cls)
+    except Exception:
+        return public
+    if set(isolated) == set(public) and all(
+        _looks_like_a_resolved_type(hint) for hint in isolated.values()
+    ):
+        return isolated
+    return public
 
 
 def _resolve_public_type_hints_isolated(cls: type) -> "dict[str, object]":

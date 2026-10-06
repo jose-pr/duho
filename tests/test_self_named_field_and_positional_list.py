@@ -1,6 +1,5 @@
-"""Two pinned behaviours: a field named like its own builtin annotation fails
-with an error naming the field, and a list made positional through
-`NS(flags=("files",))` alone takes several values."""
+"""Fields named like their own builtin annotation, and a list made positional
+through `NS(flags=("files",))` alone."""
 
 from typing import List
 
@@ -10,12 +9,27 @@ import duho
 from duho import Arg, Args, NS
 
 
-def test_field_named_like_its_own_type_raises_naming_the_field():
-    class Shadowed(Args):
+def test_field_named_like_its_own_type_builds_from_source():
+    class OneBool(Args):
         bool: bool = False
 
+    class OneInt(Args):
+        int: int = 0
+
+    assert duho.parse(OneBool, ["--bool"]).bool is True
+    assert duho.parse(OneInt, ["--int", "3"]).int == 3
+
+
+def test_field_named_like_its_own_type_without_source():
+    namespace = {"__name__": "duho_t_no_source_module"}
+    exec(
+        "import duho\nclass Shadowed(duho.Args):\n    bool: bool = False\n",
+        namespace,
+    )
+    # There is no source to recover the intended type from: a clear error
+    # naming the field.
     with pytest.raises(TypeError, match=r"argument 'bool'.*Shadowed"):
-        duho.parser(Shadowed)
+        duho.parser(namespace["Shadowed"])
 
 
 def test_list_positional_from_ns_flags_alone_takes_every_token():

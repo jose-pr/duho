@@ -172,6 +172,11 @@ so a counting option such as `-v` does not add up: `-v serve -v` is 1, `-vv` is 
 [Customizing a subcommand parser](https://github.com/jose-pr/duho/#customizing-a-subcommand-parser)
 in the README.
 
+A required root option follows the same rule: its value goes before the subcommand
+name (`myapp --token X build`). After the name the root still reports it missing, and
+a subcommand that inherits the root's option is satisfied by the value given before
+the name.
+
 Options
 declared on a parent (say `-v` from `LoggingArgs`) remain available.
 
@@ -185,6 +190,92 @@ Serve._parser_(subparsers, name="run-server")
 
 The application itself is named differently: see
 [The application's name](https://github.com/jose-pr/duho/#the-applications-name).
+
+### Registering a subcommand from its own file
+
+`@duho.subcommand(parent)` attaches the decorated class to any `Cmd` group, so a
+command can live in its own file instead of the group listing it in `_subcommands_`.
+The class is returned unchanged, registering twice is a no-op, and `parent` need not
+be a `Cli` (`@Root.subcommand` is the same thing for a `Cli`):
+
+<!-- runnable -->
+```python
+import duho
+from duho import Cmd
+
+class Tools(Cmd):
+    """A group of tools."""
+
+@duho.subcommand(Tools)
+class Build(Cmd):
+    """Build the project."""
+
+    def __call__(self):
+        return 7
+
+assert duho.parse(Tools, ["build"])() == 7
+```
+
+### A default subcommand
+
+Set `_default_subcommand_` on a group to the name (or alias) of the subcommand to use
+when the user leaves it out:
+
+<!-- runnable -->
+```python
+import duho
+from duho import Cli, Cmd
+
+class Resolve(Cmd):
+    """Resolve a user."""
+
+    user: str
+    ("user",)
+
+    def __call__(self):
+        print("resolving", self.user)
+
+class Tool(Cli):
+    """Tool with a default subcommand."""
+
+    verbose: bool = False
+    ("-v",)
+
+    _default_subcommand_ = "resolve"
+    _subcommands_ = [Resolve]
+
+assert duho.parse(Tool, ["-v", "bob"]).user == "bob"   # runs as: tool -v resolve bob
+```
+
+duho skips the group's own options, their attached values and exactly one separate
+value for an option that takes one; if the first other token is not a registered
+subcommand name or alias, the default name is inserted before it. Nothing changes,
+so the subcommand stays required, when there is no such token, or when a `--`, an
+unregistered option, a variable-arity option or a missing value comes first
+(`tool --unknown bob` is still an error). An unknown name, or the attribute on a
+class with no subcommands, raises `ValueError` naming the class when the parser is
+built. It works on a nested group too.
+
+### Refusing a passthrough tail
+
+Everything after the first `--` is captured as `_passthrough_`. A command with no use
+for a tail can refuse one with `_allow_passthrough_ = False`: a non-empty tail is then
+a usage error naming the command (exit 2), while no tail, or a bare `--`, still
+parses. A subcommand sets its own.
+
+<!-- runnable -->
+```python
+import duho
+from duho import Cmd
+
+class Strict(Cmd):
+    _allow_passthrough_ = False
+
+try:
+    duho.parse(Strict, ["--", "x"])
+except SystemExit as exc:
+    assert exc.code == 2
+```
 
 ### Mode flags instead of positional commands
 
@@ -233,6 +324,26 @@ rest — see `examples/discovery_app.py` and `examples/discovery_cmds/` for a
 complete, runnable version of this pattern (a module command with
 `register`/`main`, one with a full `init`/`success`/`finally_` lifecycle, and
 a class command, all in one loose directory with no `__init__.py`).
+
+What gets scanned:
+
+- A bare string source that names a directory without an `__init__.py` is scanned
+  like a path: its files are loose command files that may import one another. A bare
+  string that names a package is imported as one.
+- The directory is appended to `sys.path` only while it is scanned, so a command file
+  named like an installed module (`json.py`, `export.py` importing `colorsys`) does
+  not shadow that module for its siblings; the installed module wins.
+- A launcher script that lives in the scanned directory is not registered as a
+  command, so a script can scan its own directory.
+- A file with an upper-case `.PY` suffix is ignored on every platform.
+- A module whose `main`, `run` or `call` is a decorator-wrapped function defined
+  elsewhere is not a command. Discovery logs a warning on `duho.discovery` naming
+  the module and the function; list the name in the module's `__all__` to accept it.
+  A plain imported callable is skipped silently.
+
+When `duho.app` resolves no commands at all (no `commands=`, `source=`,
+`entry_points=`, `CMDS_PATH` or root `_subcommands_`), it runs the root if the root is
+a `Cmd`, and otherwise exits with status 2 and a "no commands are available" message.
 
 A directory with **no** `__init__.py` whose files are instead named
 `NN-name.py` (numbered steps) is a different, opt-in shape entirely — see

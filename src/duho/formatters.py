@@ -34,11 +34,9 @@ __all__ = [
     "ColorDefaultsFormatter",
 ]
 
-#: The attribute :func:`_install_required_usage_formatter`'s formatter reads;
-#: set by ``duho.runtime`` on a root-declared required global it had to
-#: un-require on an ``app()``-built subparser (so the value can be supplied
-#: after the subcommand, or by a config/env layer) -- see
-#: :class:`_RequiredForUsageFormatter`.
+#: Set by ``duho.runtime`` on a root-declared required global it un-required on
+#: an ``app()`` subparser, so :class:`_RequiredForUsageFormatter` still shows it
+#: as required in usage.
 _DISPLAY_REQUIRED_ATTR = "_duho_display_required_"
 
 _RESET = _asicode(0)
@@ -92,11 +90,9 @@ class DefaultsFormatter(_argparse.HelpFormatter):
             _argparse.OPTIONAL,
             _argparse.ZERO_OR_MORE,
         ):
-            # The default is spliced in literally (not via argparse's own
-            # `%(default)s` re-expansion, which would read the CURRENT,
-            # possibly-still-layered `action.default` again) -- a literal `%`
-            # in the value must survive `_expand_help`'s own `% params`
-            # re-formatting of this string, hence the doubling.
+            # Spliced in literally, not via argparse's `%(default)s` re-expansion
+            # (which would read the live layered default); `%` is doubled so it
+            # survives `_expand_help`'s `% params`.
             return f"{help_text} (default: {str(default).replace('%', '%%')})"
         return help_text
 
@@ -104,14 +100,10 @@ class DefaultsFormatter(_argparse.HelpFormatter):
 def _color_enabled(stream=None) -> bool:
     """Whether to emit ANSI for help output.
 
-    ``NO_COLOR`` (set to anything) forces color OFF; ``FORCE_COLOR`` forces it
-    ON regardless of TTY when its value is one of the shared truthy tokens
-    (``duho.text.BOOL_TRUE`` -- "1", "true", "yes", "on", "y", "t",
-    case-insensitive) -- the convention the test-suite relies on. An
-    unrecognized value (``FORCE_COLOR=0``/``false``/``no``, or plain
-    garbage) is treated as UNSET, never as an explicit "off". Otherwise
-    ``TERM=dumb`` means OFF, and color follows ``stream.isatty()`` (default
-    ``sys.stdout``). Mirrors the discipline duho's logging color machinery uses.
+    ``NO_COLOR`` set to anything forces OFF; ``FORCE_COLOR`` forces ON when its
+    value is a shared truthy token (``duho.text.BOOL_TRUE``), and any other
+    value counts as unset. Otherwise ``TERM=dumb`` means OFF, and color follows
+    ``stream.isatty()`` (default ``sys.stdout``).
     """
     if _os.environ.get("NO_COLOR") is not None:
         return False
@@ -127,11 +119,9 @@ def _color_enabled(stream=None) -> bool:
         return False
 
 
-#: 3.14+ colors help itself (``ArgumentParser(color=True)`` is that version's
-#: own default, honoring ``NO_COLOR``/``FORCE_COLOR``/``PYTHON_COLORS`` on its
-#: own) -- duho's own coloring is skipped there entirely rather than
-#: nesting ANSI codes around argparse's own theme (a duho reset cancelling an
-#: argparse color code before the colon it was meant to color, etc).
+#: 3.14+ colors help itself (honoring ``NO_COLOR``/``FORCE_COLOR``/
+#: ``PYTHON_COLORS``), so duho's coloring is skipped there rather than nesting
+#: ANSI codes inside argparse's theme.
 _NATIVE_HELP_COLOR = _sys.version_info >= (3, 14)
 
 
@@ -193,23 +183,14 @@ class ColorDefaultsFormatter(ColorHelpFormatter, DefaultsFormatter):
 
 class _RequiredForUsageFormatter(_argparse.HelpFormatter):
     """Show an action flagged :data:`_DISPLAY_REQUIRED_ATTR` as REQUIRED in
-    USAGE text, even though ``action.required`` is ``False``.
+    USAGE text, though ``action.required`` is ``False``.
 
-    ``duho.runtime``'s ``app()`` un-requires a root-declared required global
-    on every subparser it builds so the value can be supplied AFTER the
-    subcommand (or via a config/env layer) instead of only before it --
-    enforcement moves to a post-parse check instead of argparse's own. argparse
-    derives BOTH parse-time enforcement and the ``[--opt]``-vs-``--opt`` USAGE
-    bracket from that one ``required`` flag, so un-requiring it for
-    enforcement's sake also (misleadingly) made ``--help`` show a genuinely
-    mandatory option as optional.
-
-    Flipping ``action.required`` back on only for the duration of usage
-    FORMATTING -- never touching real parsing, and restored immediately after
-    -- closes that display gap without re-enabling argparse's own (now
-    redundant, and differently timed) rejection. Composed onto whatever
-    formatter a parser already uses (see :func:`_install_required_usage_formatter`),
-    so an author's own ``_help_formatter_`` keeps working unchanged.
+    ``app()`` un-requires a root-declared required global on its subparsers so
+    the value can follow the subcommand, with enforcement moved to a post-parse
+    check. argparse draws the ``[--opt]``-vs-``--opt`` usage bracket from the
+    same flag, so ``--help`` would show it as optional. This sets
+    ``action.required`` only while formatting usage, and is composed onto the
+    parser's existing formatter, so an author's ``_help_formatter_`` still works.
     """
 
     def _format_usage(self, usage, actions, groups, prefix):
@@ -232,14 +213,9 @@ def _install_required_usage_formatter(parser) -> None:
     ``formatter_class``, so any action flagged :data:`_DISPLAY_REQUIRED_ATTR`
     renders as required in USAGE text.
 
-    ``formatter_class`` is a plain attribute argparse only consults lazily
-    (``ArgumentParser._get_formatter()``), so it can be replaced after the
-    parser is already built -- with a dynamically created subclass combining
-    the mixin with whatever formatter is already in effect (argparse's own
-    default, or an author's ``_help_formatter_``), rather than discarding it.
-    A no-op if ``parser`` already has one composed in (idempotent, safe to
-    call more than once, e.g. once for the root parser and once per
-    ``app()``-built subparser sharing the same un-required action).
+    ``formatter_class`` is read lazily, so a dynamic subclass mixing the
+    formatter in with whatever is already in effect (including an author's
+    ``_help_formatter_``) can replace it after the parser is built. Idempotent.
     """
     current = getattr(parser, "formatter_class", _argparse.HelpFormatter)
     if issubclass(current, _RequiredForUsageFormatter):

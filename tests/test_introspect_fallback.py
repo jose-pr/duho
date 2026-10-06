@@ -101,15 +101,14 @@ class Greet(Args):
 def test_getclsdef_falls_back_when_module_index_hits_oserror(tmp_path):
     """A module.__file__ that doesn't exist on disk still resolves (GH #1).
 
-    Reproduces the zipapp shape: ``module.__file__`` points somewhere
+    Models the zipapp shape: ``module.__file__`` points somewhere
     ``Path(...).read_text()`` can't reach (a zip-internal path in the real
     bug; here, simply repointed after import), so ``_module_index`` raises
-    ``OSError``. Before the fix this made ``getclsdef`` return ``None``
-    without ever trying the ``inspect.getsource`` fallback -- which DOES
-    still work here, because Python caches the source (linecache) from the
-    original, real import. That silently dropped the ``("target",)``
-    positional declaration and the docstring, degrading `target` to a
-    `--target` option.
+    ``OSError``. ``getclsdef`` must still try the ``inspect.getsource``
+    fallback -- which DOES work here, because Python caches the source
+    (linecache) from the original, real import; returning ``None`` would
+    silently drop the ``("target",)`` positional declaration and the
+    docstring, degrading `target` to a `--target` option.
     """
     mod_path = tmp_path / "greet_mod.py"
     mod_path.write_text(_ZIPAPP_SHAPED_SOURCE, encoding="utf-8")
@@ -119,7 +118,7 @@ def test_getclsdef_falls_back_when_module_index_hits_oserror(tmp_path):
     sys.modules["greet_mod"] = module
     try:
         spec.loader.exec_module(module)
-        # Simulate the zipapp condition: __file__ no longer resolves on disk.
+        # Simulate the zipapp condition: __file__ does not resolve on disk.
         module.__file__ = str(tmp_path / "zipapp.pyz" / "greet_mod.py")
 
         node = _introspect.getclsdef(module.Greet)
@@ -275,10 +274,10 @@ class BomApp(Args):
 
 def test_module_index_bom_source_keeps_flags_and_docstring(tmp_path):
     """A UTF-8-with-BOM source file (Notepad, PowerShell 5.1 -Encoding UTF8,
-    "UTF-8 with signature") used to raise SyntaxError on U+FEFF from a plain
-    `read_text(encoding="utf-8")`, which is not an OSError -- getclsdef gave
-    up before ever trying the inspect.getsource fallback, silently dropping
-    every flag/docstring."""
+    "UTF-8 with signature") raises SyntaxError on U+FEFF from a plain
+    `read_text(encoding="utf-8")`, which is not an OSError -- getclsdef must
+    not give up before trying the inspect.getsource fallback, silently
+    dropping every flag/docstring."""
     mod_path = tmp_path / "bom_mod.py"
     mod_path.write_bytes(b"\xef\xbb\xbf" + _BOM_SOURCE.encode("utf-8"))
 
@@ -319,8 +318,8 @@ _LATIN1_SOURCE = (
 
 def test_module_index_latin1_cookie_source_keeps_flags_and_docstring(tmp_path):
     """A PEP 263 `# -*- coding: latin-1 -*-` source with real non-ASCII bytes
-    used to raise UnicodeDecodeError from a plain `read_text(encoding="utf-8")`
-    -- also not an OSError, also skipping the getsource fallback."""
+    raises UnicodeDecodeError from a plain `read_text(encoding="utf-8")`
+    -- also not an OSError, so it must not skip the getsource fallback either."""
     mod_path = tmp_path / "latin1_mod.py"
     mod_path.write_bytes(_LATIN1_SOURCE.encode("latin-1"))
 

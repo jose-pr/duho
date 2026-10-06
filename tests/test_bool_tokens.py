@@ -1,10 +1,9 @@
-"""Regression tests for the single shared bool-token table.
+"""Tests for the single shared bool-token table.
 
-Four places used to define the truthy/falsy word sets independently, and had
-already drifted: ``logging._FALSEY`` lacked "n"/"f" so ``DUHO_TRACEBACK=n``
-turned tracebacks ON while ``AGENT_HELP=n`` was OFF, and ``Env.bool`` did not
-strip whitespace while the layered (env/config) converter did. All four now
-read from ``duho._compat.BOOL_TRUE``/``BOOL_FALSE``.
+Every reader of the truthy/falsy word sets must agree: ``logging``'s falsy
+set needs "n"/"f" so ``DUHO_TRACEBACK=n`` is OFF like ``AGENT_HELP=n``, and
+``Env.bool`` strips whitespace like the layered (env/config) converter. All
+read from ``duho.text.BOOL_TRUE``/``BOOL_FALSE``.
 
 All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags/env resolve normally.
@@ -26,8 +25,8 @@ def test_args_bool_tables_are_compat_tables():
 
 @pytest.mark.parametrize("false_token", sorted(_compat.BOOL_FALSE - {""}))
 def test_traceback_enabled_respects_shared_falsey_set(monkeypatch, false_token):
-    # Previously logging._FALSEY == {"", "0", "false", "no", "off"} (no
-    # "n"/"f"): DUHO_TRACEBACK=n turned tracebacks ON instead of OFF.
+    # logging's falsy set must include "n"/"f": DUHO_TRACEBACK=n must turn
+    # tracebacks OFF, not ON.
     monkeypatch.setenv("DUHO_TRACEBACK", false_token)
     assert traceback_enabled() is False
 

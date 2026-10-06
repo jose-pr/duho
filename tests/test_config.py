@@ -363,8 +363,8 @@ class _EnumLayered(Args):
 def test_config_value_rejects_bad_enum_names_the_enum_not_a_bare_factory(
     tmp_path, capsys
 ):
-    # Previously this showed the internal factory function's own generic
-    # name ("expected _factory") instead of the enum's.
+    # This shows the enum's name, not the internal factory function's
+    # generic name ("expected _factory").
     cfg = tmp_path / "duho.toml"
     cfg.write_text("level = true\n")
     with pytest.raises(SystemExit) as exc:
@@ -386,8 +386,8 @@ class _UnionLayered(Args):
 def test_config_value_rejects_bad_union_names_its_members_not_a_bare_factory(
     tmp_path, capsys
 ):
-    # Previously this showed the internal composed-factory function's own
-    # generic name ("expected factory") instead of naming its members.
+    # This names the members, not the internal composed-factory function's
+    # generic name ("expected factory").
     cfg = tmp_path / "duho.toml"
     cfg.write_text("amount = true\n")
     with pytest.raises(SystemExit) as exc:

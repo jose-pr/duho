@@ -1,15 +1,13 @@
-"""Regression tests: a class's subcommand name must never be persisted onto
+"""Tests: a class's subcommand name must never be persisted onto
 the class itself, only ever resolved fresh from that class's OWN declaration
 (or its class name).
 
-Before this fix, ``Args._parser_`` wrote its derived name back onto the class
-with ``setattr(cls, "_parsername_", name)``. Every reader used plain
-``getattr``, which follows the MRO -- so once a base class's parser had been
-built once, EVERY SUBCLASS built afterwards (a sibling subcommand, or a
-subclass registered alongside its own base) inherited the base's derived
-name and collapsed onto it (a real user-facing bug, not just a test
-artifact -- a natural way to share global options between sibling
-subcommands is exactly "subclass a shared base").
+Writing the derived name back with ``setattr(cls, "_parsername_", name)``
+would be read by plain ``getattr``, which follows the MRO -- so once a base
+class's parser had been built, EVERY SUBCLASS built afterwards (a sibling
+subcommand, or a subclass registered alongside its own base) would inherit
+the base's derived name and collapse onto it (a natural way to share global
+options between sibling subcommands is exactly "subclass a shared base").
 """
 
 import argparse
@@ -78,8 +76,8 @@ def test_building_base_first_does_not_rename_subclasses():
 
 def test_siblings_in_static_subcommands_tree_keep_their_own_names():
     """A base command and a subclass of it registered as sibling subcommands
-    must each keep their own name (previously: 3.11+ raised "conflicting
-    subparser"; 3.9/3.10 silently misrouted dispatch)."""
+    must each keep their own name (otherwise 3.11+ raises "conflicting
+    subparser" and 3.9/3.10 silently misroute dispatch)."""
 
     class App(Cli):
         _subcommands_ = [_Base, _Push]
@@ -216,8 +214,8 @@ def test_logger_name_is_the_application_name_not_the_built_parents(caplog):
 
 def test_directly_constructed_logging_args_command_has_a_working_logger():
     """A LoggingArgs command constructed directly (never parsed) must not
-    raise in `_logger_` -- it used to require `self._parsername_`, which only
-    existed once SOME parser for the class had been built."""
+    raise in `_logger_` -- it must not require `self._parsername_`, which only
+    exists once SOME parser for the class has been built."""
 
     class Named(LoggingArgs, Cmd):
         _logger_name_ = "myapp"

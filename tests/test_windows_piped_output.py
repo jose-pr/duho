@@ -1,4 +1,4 @@
-"""Regression tests for piped-stdout encoding crashes on Windows.
+"""Tests for piped-stdout encoding crashes on Windows.
 
 Windows redirects/pipes ``sys.stdout`` through the console's ANSI code page
 (``cp1252`` on this machine and on GitHub's ``windows-latest``) with STRICT
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(
 def _default_env():
     """The child environment with PYTHONUTF8/PYTHONIOENCODING removed -- the
     actual default a user gets unless they deliberately set one, which is
-    exactly the case that used to crash."""
+    exactly the case that can crash."""
     return subprocess_env(remove=("PYTHONUTF8", "PYTHONIOENCODING"))
 
 

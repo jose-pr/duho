@@ -1,10 +1,10 @@
-"""Regression test for duho's public typing surface (py.typed).
+"""Test for duho's public typing surface (py.typed).
 
 The package ships ``py.typed`` and the ``Typing :: Typed`` classifier, so its
 documented patterns (``Arg[...]``, ``Meta(...)``, ``@Cli.subcommand``,
 ``duho.parse``/``duho.parser``/``duho.main``, ``app(commands=[...])``,
 ``CmdBuilder.command``) must type-check cleanly under a consumer's own mypy
-run -- previously several of them either failed outright or silently widened
+run -- none may fail outright or silently widen
 to ``Any``/``type[Cmd]``.
 
 mypy is a ``dev`` extra, not a runtime dependency, and the test skips when
@@ -51,7 +51,7 @@ def test_main_and_app_return_any_for_sys_exit_compat():
 
     A command's return value passes straight through unchanged when it is
     not ``None`` (see their docstrings), so ``int`` is inaccurate. ``object``
-    was tried and broke a strict-mypy consumer doing the documented
+    would break a strict-mypy consumer doing the documented
     ``sys.exit(duho.main(App))`` -- ``sys.exit`` doesn't accept ``object``.
     ``Any`` is honest about the pass-through AND keeps ``sys.exit(...)`` clean.
     """

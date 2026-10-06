@@ -1,4 +1,4 @@
-"""Regression tests for BooleanOptionalAction compatibility across Python
+"""Tests for BooleanOptionalAction compatibility across Python
 versions.
 
 A `bool` field that defaults to `True` becomes `argparse.BooleanOptionalAction`
@@ -8,11 +8,11 @@ action needed handling:
 * Python 3.14 removed the (already-deprecated) `type`/`choices`/`metavar`
   parameters outright, and rejects any option string starting with `--no-`
   -- a bare `bool = True` field whose auto-derived flag already starts
-  with `--no-` (or one given an explicit `metavar=`) crashed parser
+  with `--no-` (or one given an explicit `metavar=`) would crash parser
   construction on 3.14+, on every invocation including `--help`.
 * Python 3.9/3.10's `BooleanOptionalAction.__init__` unconditionally appends
   " (default: %(default)s)" to any non-None help (removed in 3.11) -- this
-  broke `NS(help=argparse.SUPPRESS)` (the option became visible again, since
+  breaks `NS(help=argparse.SUPPRESS)` (the option becomes visible again, since
   argparse hides a help string only by IDENTITY with SUPPRESS) and would leak
   a raw "%(default)s" placeholder into agent-help JSON.
 
@@ -149,7 +149,7 @@ def test_no_prefixed_layered_false_default_bool_env_still_applies(monkeypatch):
 def test_no_prefixed_layered_false_default_bool_cli_can_clear_a_layered_true(
     monkeypatch,
 ):
-    """A layered (env/config) True previously had NO way back to False from
+    """A layered (env/config) True needs a way back to False from
     the CLI: `store_true` alone (the only action `--no-verify` could use
     without crashing) can only ever SET True, never re-assert False. The
     stripped, positive-sense counterpart (`--verify`) gives it exactly one."""
@@ -180,8 +180,8 @@ class PlainBoolNoConfigAttr(Args):
 def test_explicit_parse_config_kwarg_makes_a_plain_bool_reversible(tmp_path):
     """`duho.parse(cls, config=path)` supplies a config table at the CALL
     site, which the class itself has no static way to see when its parser is
-    BUILT -- previously only `cls._config_` (a class attribute) was checked,
-    so this field stayed a plain `store_true` with no way to turn a
+    BUILT -- checking only `cls._config_` (a class attribute) would leave
+    this field a plain `store_true` with no way to turn a
     config-supplied `True` back off from the command line."""
     cfg = tmp_path / "c.json"
     cfg.write_text('{"flag": true}')

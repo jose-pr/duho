@@ -130,7 +130,7 @@ class TestPaths:
     )
     def test_windows_drive_letter_not_split(self, monkeypatch):
         # A single absolute path with a drive-letter colon must come back as
-        # ONE entry, never split into a bogus "C" -- only reproduces on
+        # ONE entry, never split into a bogus "C" -- only arises on
         # Windows, where os.pathsep is ";" (on POSIX the colon IS the real
         # separator, so this scenario doesn't arise there).
         monkeypatch.delenv("PATHSEP", raising=False)
@@ -141,7 +141,7 @@ class TestPaths:
 
     def test_pathsep_override(self, monkeypatch):
         # This app's OWN prefixed <PREFIX>PATHSEP forces the separator
-        # regardless of platform -- a bare, global PATHSEP no longer does
+        # regardless of platform -- a bare, global PATHSEP does not
         # (see test_bare_unprefixed_pathsep_does_not_override below: a
         # security fix, since an unprefixed PATHSEP is set for every duho
         # app on the machine, not just this one).
@@ -182,7 +182,7 @@ class TestPaths:
 
     def test_empty_segments_are_dropped_leading_trailing_doubled(self, monkeypatch):
         """Security: a leading, trailing, or doubled separator must NOT
-        produce an empty path segment. An empty segment used to become
+        produce an empty path segment. An empty segment would become
         ``ty("")`` -- ``Path("")`` is ``Path(".")`` -- silently meaning the
         current directory (unlike here; unlike POSIX ``$PATH`` too). On this
         box ``os.pathsep`` is ``;``; the assertions don't hard-code it.
@@ -226,10 +226,10 @@ class TestPaths:
         (``"C:"``, no trailing separator) -- Windows resolves that to "the
         current directory on drive C", an ambient lookup that must be
         rejected outright rather than silently importing whatever that
-        happens to be (a security-relevant fix). (A ``PATHSEP`` value that
+        happens to be. (A ``PATHSEP`` value that
         would itself split an absolute Windows path into this same shape --
         e.g. ``\\`` splitting ``C:\\...\\cmds`` on its own drive-letter colon
-        -- can no longer reach this at all: ``\\`` is itself an invalid
+        -- cannot reach this at all: ``\\`` is itself an invalid
         separator, see ``TestPaths`` PATHSEP-validation tests above.)"""
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.delenv("MA_PATHSEP", raising=False)
@@ -265,10 +265,10 @@ class TestPaths:
         a bare, unprefixed ``PATHSEP`` (set for some wholly unrelated program)
         must not override the separator for it either, exactly like the
         prefixed case in ``test_bare_unprefixed_pathsep_does_not_override``
-        above. Before the fix, ``Env("")``'s own ``self.get("PATHSEP")``
-        resolved to the SAME bare, unscoped key (``envkey = f"{prefix}
+        above. ``Env("")``'s own ``self.get("PATHSEP")``
+        would resolve to the SAME bare, unscoped key (``envkey = f"{prefix}
         {key}"`` with an empty ``prefix`` is just ``"PATHSEP"``), so any
-        process-wide ``PATHSEP`` DID leak in here -- a security-relevant fix.
+        process-wide ``PATHSEP`` would leak in here.
         """
         monkeypatch.setenv("PATHSEP", "|")
         monkeypatch.setenv("CMDS_PATH", "x|y|z")
@@ -383,7 +383,7 @@ class TestPaths:
         self, monkeypatch, tmp_path
     ):
         """The override still accepts every segment shaped either way: an
-        explicit relative ``"./x"``, and a genuinely absolute path -- the fix
+        explicit relative ``"./x"``, and a genuinely absolute path -- the validation
         only rejects the ambiguous, IMPLICITLY relative shape."""
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.setenv("MA_PATHSEP", "|")
@@ -392,10 +392,10 @@ class TestPaths:
         assert Env("ma").paths("CMDS_PATH") == ["./explicit", abs_dir]
 
     def test_relative_segment_not_rejected_under_default_pathsep(self, monkeypatch):
-        """The fix must not overreach: with the ORDINARY, default separator
+        """The validation must not overreach: with the ORDINARY, default separator
         (no ``<PREFIX>PATHSEP`` override in effect), a plain relative
         segment a caller wrote by hand is not the product of any mis-split
-        and stays valid, exactly as before."""
+        and stays valid."""
         monkeypatch.delenv("PATHSEP", raising=False)
         monkeypatch.delenv("MA_PATHSEP", raising=False)
         monkeypatch.setenv(
@@ -463,7 +463,7 @@ class TestMappingProtocol:
         """``pop()`` on an environ-backed key succeeds via an in-object tombstone.
 
         The real process environment is never mutated: ``os.environ`` still has
-        the key afterward, but THIS ``Env`` no longer reports it -- until a fresh
+        the key afterward, but THIS ``Env`` does not report it -- until a fresh
         explicit write clears the tombstone again.
         """
         monkeypatch.setenv("MA_HOST", "example.com")
@@ -543,10 +543,10 @@ class TestCompanionModuleAutoload:
         assert e._env == {}
 
     def test_real_environ_wins_over_companion_module(self, monkeypatch, tmp_path):
-        # Regression: the companion module seeds DEFAULTS -- lowest
+        # The companion module seeds DEFAULTS -- lowest
         # precedence. A real exported PRECA_CMDS_PATH must win over a module
         # that ships CMDS_PATH = "from-module", not be silently shadowed by
-        # it (the bug: __getitem__ checked the module-seeded value first).
+        # it (not __getitem__ checking the module-seeded value first).
         # Unique prefix/module name per test -- a companion module is cached
         # in sys.modules once imported, so a shared name across tests would
         # silently reuse an earlier test's module content.

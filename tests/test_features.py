@@ -459,7 +459,7 @@ def test_main_setup_logging_false_leaves_handlers_unchanged():
 
     Comparing root.handlers alone can't fail under pytest: pytest's own
     logging plugin already keeps a fixed set of handlers on root regardless
-    of what duho does, so a regression that ignores setup_logging entirely
+    of what duho does, so a change that ignores setup_logging entirely
     would still show the same handler count. Also check the OTHER effect the
     flag gates -- the parsed instance's own logger level -- which pytest does
     not otherwise touch.

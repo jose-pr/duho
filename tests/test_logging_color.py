@@ -51,8 +51,8 @@ def test_getcolor_named_single_resolves_with_colorama():
 def test_getcolor_compound_fore_back_resolves():
     colorama = pytest.importorskip("colorama")
     ansi = _getcolor("red+white")
-    # Both the fore and back parts resolve (the '+' form used to be returned
-    # verbatim because color.isalpha() rejected it).
+    # Both the fore and back parts resolve (the '+' form must not be returned
+    # verbatim just because color.isalpha() rejects it).
     assert ansi == colorama.Fore.RED + colorama.Back.WHITE
 
 

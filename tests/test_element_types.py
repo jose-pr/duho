@@ -1,8 +1,8 @@
-"""Regression tests for a collection ELEMENT type (or dict VALUE type)
-bypassed `_factory_for` entirely and used the raw declared type as the CLI
-text factory. `list[Color]` looked enum members up by VALUE (breaking the
-documented by-name rule) instead of by name, `list[date]` never reached
-`fromisoformat`, and `list[Literal[...]]` always failed. All classes are
+"""Tests that a collection ELEMENT type (or dict VALUE type) goes through
+`_factory_for` instead of being used as the raw CLI text factory.
+`list[Color]` looks enum members up by name (the documented rule), not by
+VALUE, `list[date]` reaches `fromisoformat`, and `list[Literal[...]]`
+does not always fail. All classes are
 declared at module level in this real ``.py`` file so their AST-derived
 flags resolve normally.
 """

@@ -247,8 +247,8 @@ def test_formatter_does_not_leak_across_handlers():
 
 
 def test_default_formatter_has_no_dead_levelsize_override_hook():
-    """`_levelsize` was always None (no setter); the dead indirection
-    was removed, so a formatter instance no longer carries the attribute."""
+    """A formatter instance carries no `_levelsize` attribute (it had no
+    setter and was always None)."""
     formatter = DefaultFormatter()
     assert not hasattr(formatter, "_levelsize")
 
@@ -539,8 +539,8 @@ def test_custom_level_and_log_exception_attribute_records_to_the_caller(caplog):
 # --------------------------------------------------------------------------
 # add_logging_level must refresh the -v/-q table itself, so a custom
 # level participates in it regardless of whether logging was already
-# configured (previously that refresh only happened inside
-# init_stderr_logging, which main/app skipped once any handler existed).
+# configured (a refresh only inside init_stderr_logging would be skipped
+# by main/app once any handler existed).
 # --------------------------------------------------------------------------
 
 
@@ -569,9 +569,9 @@ def test_add_logging_level_refuses_to_clobber_an_unrelated_stdlib_name():
 def test_add_logging_level_refuses_to_clobber_an_unrelated_upper_case_attribute():
     """A name colliding with an unrelated UPPER-CASE stdlib attribute (never
     installed by ``add_logging_level`` itself) must raise, not silently
-    no-op -- previously any ``hasattr(logging, NAME)`` hit short-circuited
-    to a bare ``return``, so e.g. ``add_logging_level("BASIC_FORMAT", 44)``
-    silently registered nothing at all."""
+    no-op -- a ``hasattr(logging, NAME)`` hit must not short-circuit to a bare
+    ``return``, which would leave e.g. ``add_logging_level("BASIC_FORMAT",
+    44)`` silently registering nothing at all."""
     original = logging.BASIC_FORMAT
     with pytest.raises(ValueError):
         add_logging_level("BASIC_FORMAT", 44)
@@ -722,9 +722,9 @@ def test_named_loglevel_reaches_a_child_logger_with_its_own_explicit_level():
 # The subtree walk above must fire ONLY for a name the user explicitly
 # named with `--loglevel`, never for the -v/-q-derived (or bare
 # `--loglevel LEVEL`) entry for the app's own default logger -- that entry
-# is applied on EVERY ordinary dispatch, and 0.5.4 never touched descendants
+# is applied on EVERY ordinary dispatch, and must not touch descendants
 # at all. A `NOTSET` child already inherits for free; pinning it breaks
-# hierarchical control (`logging.getLogger("app").setLevel(...)` no longer
+# hierarchical control (`logging.getLogger("app").setLevel(...)` would stop
 # governing `app.child`). The walk must also never promote a `PlaceHolder`
 # registry entry into a real `Logger` as a side effect.
 # --------------------------------------------------------------------------

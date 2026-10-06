@@ -172,13 +172,13 @@ def test_app_mcp_command_colliding_name_raises():
 
 
 # --------------------------------------------------------------------------
-# Defect regression tests -- in-process.
+# In-process tests.
 # --------------------------------------------------------------------------
 
 
 def test_mcp_command_help_row_is_not_blank(capsys):
     # The dynamically-built `_McpCmd` subclass has no source of its own
-    # for AST docstring introspection, so its --help row used to come up
+    # for AST docstring introspection, so its --help row must not come up
     # blank.
     class Show(Cmd):
         """Show something."""

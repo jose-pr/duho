@@ -1,4 +1,4 @@
-"""Regression tests for `_version_ = duho.AUTO` edge cases and the unsupported
+"""Tests for `_version_ = duho.AUTO` edge cases and the unsupported
 `parse_intermixed_args` path.
 
 * Running as `python -m pkg` (`cls.__module__ == "__main__"`) must not

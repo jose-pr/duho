@@ -396,7 +396,7 @@ def test_bash_choices_neutralize_command_substitution():
     like zsh's `_arguments` -- every character outside the same conservative
     safe set `_zsh_word`/`_fish_word` use is backslash-escaped, not just
     `$`/backtick/quotes, so the parens and the embedded space are covered
-    too (bare parens/space previously rode through unescaped)."""
+    too (bare parens/space must not ride through unescaped)."""
     script = _danger_script("bash")
     assert "\\$\\(touch\\ pwned\\)" in script
     # The raw, unescaped command substitution must NOT appear in a word list.
@@ -471,10 +471,9 @@ def test_bash_completion_does_not_execute_hostile_choice(tmp_path):
     """Driving the bash completion with a hostile choice must NOT run it.
 
     Calls the REAL registered function name (`completion._bash_func_name`),
-    not a guessed one -- an earlier version of this test called a name the
-    emitter never defines, so it always exited 127 ("command not found")
-    and the assertion passed vacuously no matter what the emitter did. Also
-    runs with cwd=tmp_path and a relative marker name so a regression can't
+    not a guessed one -- a name the emitter never defines would exit 127
+    ("command not found") and the assertion would pass vacuously. Also
+    runs with cwd=tmp_path and a relative marker name so a failure can't
     write a stray file into the repo root.
     """
     if not _BASH:
@@ -643,10 +642,10 @@ def test_print_completion_standalone_function():
     assert "completion-app" in out
 
 
-# --- stale-docs regression --------------------------------------------------
+# --- docs match the emitters --------------------------------------------------
 
 
 def test_walk_docstring_mentions_all_four_emitters():
-    """The internal walk's docstring used to say 'three emitters',
-    stale since the PowerShell emitter was added."""
+    """The internal walk's docstring must not carry the stale count
+    'three emitters' (there is a PowerShell emitter too)."""
     assert "three emitters" not in (completion._walk.__doc__ or "")

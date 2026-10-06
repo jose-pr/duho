@@ -1,4 +1,4 @@
-"""Regression tests: shell completion scripts must bind to a name the user
+"""Tests: shell completion scripts must bind to a name the user
 would actually type, `print_completion`/`--print-completion` must accept a
 `prog=` override, an unknown shell must fail clearly, and the emitted script
 must be written as raw UTF-8 bytes (not through the text layer, which

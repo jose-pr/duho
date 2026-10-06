@@ -1,4 +1,4 @@
-"""Regression tests: nothing under a duho app's current working directory is
+"""Tests: nothing under a duho app's current working directory is
 ever imported/executed as a side effect of a misconfigured ``PATHSEP``, an
 empty discovery source, or a bare-drive-letter segment.
 
@@ -144,8 +144,8 @@ def test_pathsep_backslash_bare_drive_segment_never_imports_cwd(evil_cwd, monkey
     """End-to-end (through ``app()``) coverage of the entry-level validation
     for an app that legitimately sets its OWN ``MYAPP_PATHSEP`` -- a
     different case from ``test_bare_unprefixed_pathsep_no_longer_bypasses_
-    the_fix`` below, which reproduces the actual historical exploit (a bare,
-    global ``PATHSEP`` with no app prefix at all)."""
+    the_fix`` below, which covers a bare,
+    global ``PATHSEP`` with no app prefix at all."""
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("MYAPP_PATHSEP", "\\")
     monkeypatch.setenv("MYAPP_CMDS_PATH", str(cmds))
@@ -161,14 +161,14 @@ def test_pathsep_backslash_bare_drive_segment_never_imports_cwd(evil_cwd, monkey
 
 
 def test_pathsep_backslash_rejected_as_invalid_separator(evil_cwd, monkeypatch, caplog):
-    """``PATHSEP`` is now validated BEFORE it is ever used to split anything:
+    """``PATHSEP`` is validated BEFORE it is ever used to split anything:
     ``\\`` is one of the three values (with ``/`` and ``.``) rejected
     outright, closing the backslash-splits-a-Windows-path-on-its-own-
     drive-letter attack at its root, rather than downstream once it has
     already produced a bare ``"C:"`` segment (see
     ``test_pathsep_backslash_bare_drive_segment_never_imports_cwd`` above,
     and ``test_bare_drive_segment_via_default_separator_rejected`` below for
-    the segment-shaped rejection that survives this fix). The rejected
+    the segment-shaped rejection that applies regardless). The rejected
     ``\\`` itself is never trusted as the separator either way -- what the
     REAL fallback (``os.pathsep``) then does with this literal value is
     platform-dependent (on POSIX, ``os.pathsep`` is ``":"``, which this
@@ -276,8 +276,8 @@ def test_cwd_segment_via_default_separator_rejected(evil_cwd, monkeypatch):
 def test_one_bad_cmds_path_entry_does_not_drop_the_good_one(evil_cwd, monkeypatch):
     """Through ``app()`` (which resolves ``CMDS_PATH`` with ``strict=False``,
     see ``duho.runtime._cmds_path_commands``): a bare-drive entry mixed with
-    a real, valid one must not drop the valid one -- the whole point of the
-    fix is that ONE bad entry is skipped and logged, not that the whole
+    a real, valid one must not drop the valid one -- the point is
+    that ONE bad entry is skipped and logged, not that the whole
     ``CMDS_PATH`` layer goes best-effort-unusable."""
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.delenv("MYAPP_PATHSEP", raising=False)
@@ -289,10 +289,10 @@ def test_one_bad_cmds_path_entry_does_not_drop_the_good_one(evil_cwd, monkeypatc
 
 
 def test_bare_unprefixed_pathsep_no_longer_bypasses_the_fix(evil_cwd, monkeypatch):
-    """A security fix: a bare, GLOBAL, unprefixed ``PATHSEP`` (set for some
+    """A bare, GLOBAL, unprefixed ``PATHSEP`` (set for some
     wholly unrelated program on the same machine) must not affect this app's
     separator at all -- only this app's OWN ``MYAPP_PATHSEP`` does (see the
-    tests above). Before the fix, this alone was enough to reach the CWD."""
+    tests above)."""
     tmp_path, cwd, cmds = evil_cwd
     monkeypatch.setenv("PATHSEP", "\\")
     monkeypatch.delenv("MYAPP_PATHSEP", raising=False)
@@ -309,7 +309,7 @@ def test_bare_unprefixed_pathsep_no_longer_bypasses_the_fix(evil_cwd, monkeypatc
 
 # --------------------------------------------------------------------------
 # Positive cases: CMDS_PATH still works for a real directory, and for an
-# explicit "." segment -- the fix must not overreach.
+# explicit "." segment -- the validation must not overreach.
 # --------------------------------------------------------------------------
 
 
@@ -365,7 +365,7 @@ def test_pathsep_colon_splits_drive_letter_never_imports_cwd(tmp_path, monkeypat
     ``C:\\...\\cmds`` on its own drive-letter colon into ``"C"`` (relative --
     NOT ``"C:"``, so the bare-drive-segment rejection above does not match
     it) and ``"\\...\\cmds"`` (drive-relative, not absolute either). The
-    first piece used to resolve against the CWD as ``<cwd>\\C`` and get
+    first piece would resolve against the CWD as ``<cwd>\\C`` and be
     scanned for commands; a canary planted at exactly that path must never
     be imported."""
     cwd = tmp_path / "cwd"
@@ -401,8 +401,8 @@ def test_pathsep_hyphen_splits_real_directory_never_imports_cwd(tmp_path, monkey
     """POSIX equivalent: a custom separator that happens to occur INSIDE the
     real path (``"-"`` in ``/opt/my-tools``) splits it into ``/opt/my``
     (absolute, allowed on its own) and ``tools`` (relative, not explicitly
-    so) -- the second piece used to resolve against the CWD as
-    ``<cwd>/tools`` and get scanned; a canary planted there must never be
+    so) -- the second piece would resolve against the CWD as
+    ``<cwd>/tools`` and be scanned; a canary planted there must never be
     imported."""
     cwd = tmp_path / "cwd"
     cwd.mkdir()

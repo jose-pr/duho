@@ -1,4 +1,4 @@
-"""Regression tests for the deferred env/config/instance layering pipeline:
+"""Tests for the deferred env/config/instance layering pipeline:
 provenance correctness across sibling/nested subcommands, conflicts= groups,
 non-idempotent type= factories, and duho.parse(instance) semantics.
 
@@ -87,7 +87,7 @@ class _EnvOverridable(Args):
 
 def test_parse_instance_placeholder_lets_env_through(monkeypatch):
     # The sharper version of the above: the placeholder field itself is
-    # backed by env, so the pre-fix bug (seeded False outranking env) is
+    # backed by env, so a seeded False outranking env is
     # directly observable.
     monkeypatch.setenv("DUHO_TEST_A31_FLAG", "1")
     instance = _EnvOverridable()  # flag NOT explicitly passed -> seeded False
@@ -112,8 +112,8 @@ class _Auth(Args):
 
 def test_env_value_satisfies_required_conflicts_group(monkeypatch):
     monkeypatch.setenv("DUHO_TEST_AUTH_TOKEN", "secret")
-    # Pre-fix this raised SystemExit("one of the arguments --token
-    # --token-file is required") even though env supplied a group member.
+    # This must not raise SystemExit("one of the arguments --token
+    # --token-file is required") when env supplies a group member.
     result = duho.parse(_Auth, [])
     monkeypatch.delenv("DUHO_TEST_AUTH_TOKEN", raising=False)
     assert result.token == "secret"
@@ -373,8 +373,8 @@ def test_layered_append_field_cli_replaces_it_on_the_first_occurrence(monkeypatc
     # "CLI wins" applies to Append() exactly like every other collection
     # option (Extend(), a plain list/set/tuple field): the first CLI
     # occurrence REPLACES a layered (env/config) value, it does not merge
-    # onto it -- previously it accumulated onto the env value the same way
-    # stdlib's own "append" action accumulates onto a class default.
+    # onto it -- unlike stdlib's own "append" action, which accumulates onto
+    # a class default.
     monkeypatch.setenv("DUHO_TEST_APPEND_TAGS", "fromenv")
     result = duho.parse(LayeredAppend, ["--tags", "a", "--tags", "b"])
     monkeypatch.delenv("DUHO_TEST_APPEND_TAGS", raising=False)

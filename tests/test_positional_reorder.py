@@ -1,11 +1,11 @@
-"""Tests for the flag-between-positionals reorder fix.
+"""Tests for the flag-between-positionals reorder.
 
 argparse's own greedy positional-run matching (bpo-15112) breaks when an
 optional flag sits BETWEEN a fixed positional and a variable-arity
 (``nargs`` in ``"*"``/``"+"``/``"?"``) one in the same parser: the run gets
 settled against the argv slice before the next optional, so the variadic
-positional closes out empty/short and never reopens. Verified bare-stdlib
-(no duho) before this fix existed. duho now reorders recognized flags to the
+positional closes out empty/short and never reopens. This happens with bare
+stdlib argparse (no duho). duho reorders recognized flags to the
 front of the argv slice a risky parser will see, so all four argument orderings
 (flag-before/-after/-between the positionals, or no flag at all) parse
 identically -- while a genuine typo'd flag still surfaces argparse's own
@@ -128,7 +128,7 @@ def test_flag_after_positionals():
 
 
 def test_flag_between_positionals_the_original_bug():
-    """The exact shape that broke before this fix: `<ns> -f <val> <targets>`."""
+    """The exact shape that argparse alone mishandles: `<ns> -f <val> <targets>`."""
     result = duho.parse(QueryArgs, ["user", "-f", "username=root", "nas1"])
     assert result.ns == "user"
     assert result.targets == ["nas1"]
@@ -226,11 +226,10 @@ class VariadicFlagArgs(Args):
 
 
 def test_variadic_nargs_flag_bails_unreordered_not_worse_than_baseline():
-    """Confirmed: this exact shape misparses identically whether or not
-    duho's reorder pass touches it (verified against bare argparse with
-    correctly-pre-ordered argv, same misparse) -- the fix must not make an
-    already-ambiguous shape WORSE by guessing where the flag's variadic
-    consumption ends."""
+    """This exact shape misparses identically whether or not duho's reorder
+    pass touches it (the same misparse with bare argparse and correctly
+    pre-ordered argv) -- the reorder must not make an already-ambiguous
+    shape WORSE by guessing where the flag's variadic consumption ends."""
     parser = VariadicFlagArgs._parser_()
     argv = ["user", "-f", "username=root", "nas1"]
     reordered = _reorder_argv_for_variadic_positional(parser, list(argv))
@@ -244,10 +243,9 @@ def test_variadic_nargs_flag_bails_unreordered_not_worse_than_baseline():
 
 def test_lone_variadic_positional_with_flag_inside():
     """The exact shape: a flag placed touching a LONE variadic
-    positional's own run, with no sibling positional at all. This used to be
-    swallowed as "unrecognized arguments" (bpo-14191) even though a previous
-    version of the gate's docstring claimed a lone variadic positional was
-    unaffected."""
+    positional's own run, with no sibling positional at all. argparse alone
+    swallows it as "unrecognized arguments" (bpo-14191), so a lone variadic
+    positional is not unaffected."""
     result = duho.parse(SinglePositionalArgs, ["a.txt", "-v", "b.txt"])
     assert result.targets == ["a.txt", "b.txt"]
     assert result.verbose is True
@@ -274,8 +272,8 @@ class ShortFlagArgs(Args):
 
 def test_attached_short_option_value_between_positionals():
     """`-fVALUE` (the value glued directly onto a short flag) between two
-    positionals -- one of argparse's own accepted spellings, previously
-    missed by the reorder pass's exact-key/`--flag=value` recognition."""
+    positionals -- one of argparse's own accepted spellings, which the reorder
+    pass must recognize beyond exact-key/`--flag=value`."""
     result = duho.parse(ShortFlagArgs, ["user", "-fusername=root", "nas1"])
     assert result.ns == "user"
     assert result.targets == ["nas1"]
@@ -293,11 +291,11 @@ def test_unambiguous_long_prefix_between_positionals():
 
 def test_unambiguous_long_prefix_with_attached_value_between_positionals():
     """`--filt=value` (an unambiguous prefix of `--filter`, WITH the value
-    attached via `=`) between two positionals -- previously missed: the
+    attached via `=`) between two positionals -- the
     reorder pass's exact-key `--flag=value` split never matches an
-    abbreviated key, and the abbreviation branch itself explicitly excluded
-    any token containing `=`, so this fell through as unrecognized and the
-    whole reorder bailed."""
+    abbreviated key, so the abbreviation branch must accept a token
+    containing `=` too, or this falls through as unrecognized and the
+    whole reorder bails."""
     result = duho.parse(ShortFlagArgs, ["user", "--filt=username=root", "nas1"])
     assert result.ns == "user"
     assert result.targets == ["nas1"]

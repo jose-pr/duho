@@ -245,8 +245,8 @@ class _DictArgs(Args):
 
 
 def test_dict_missing_equals_message_reaches_the_user(capsys):
-    # Previously argparse printed a bare `_KVFactory` object repr and address
-    # instead of the crafted "expected KEY=VALUE" message.
+    # argparse must print the crafted "expected KEY=VALUE" message, not a bare
+    # `_KVFactory` object repr and address.
     with pytest.raises(SystemExit):
         duho.parse(_DictArgs, ["-D", "noequals"])
     err = capsys.readouterr().err
@@ -265,10 +265,10 @@ class _DictIntValueArgs(Args):
 
 def test_dict_bad_value_message_names_the_field_and_type_not_a_factory_repr(capsys):
     # The KEY=VALUE split succeeds ("k=x"), but converting the VALUE half
-    # ("x") to int fails -- previously this bubbled up as argparse's own
-    # generic wrapping, showing the internal `_KVFactory` object's repr
-    # (`invalid <duho._fieldspec._KVFactory object at 0x...> value`) instead
-    # of naming the field and the expected value type.
+    # ("x") to int fails -- the error must name the field and the expected
+    # value type, not argparse's own generic wrapping with the internal
+    # `_KVFactory` object's repr
+    # (`invalid <duho._fieldspec._KVFactory object at 0x...> value`).
     with pytest.raises(SystemExit):
         duho.parse(_DictIntValueArgs, ["--counts", "k=x"])
     err = capsys.readouterr().err
@@ -386,9 +386,9 @@ class _BareEnumArgs(Args):
 
 
 def test_bare_enum_invalid_choice_message(capsys):
-    # Pre-fix this printed argparse's generic "invalid _factory value: ...";
-    # fixed to a crafted "invalid choice" message naming the valid member
-    # names, matching Literal/Choice.
+    # A crafted "invalid choice" message naming the valid member names,
+    # matching Literal/Choice, not argparse's generic "invalid _factory
+    # value: ...".
     with pytest.raises(SystemExit):
         duho.parse(_BareEnumArgs, ["--color", "GREEN2"])
     err = capsys.readouterr().err

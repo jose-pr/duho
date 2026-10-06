@@ -724,10 +724,10 @@ def main(args):
 
 
 def test_module_args_class_supports_mutually_exclusive_conflicts(tmp_path):
-    """A module command's own declared fields now honor ``NS(conflicts=...)``
-    the same as a class command's -- this used to need ``_initparser_``'s
-    fuller machinery (only available to a class command) and silently had no
-    support for it at all."""
+    """A module command's own declared fields honor ``NS(conflicts=...)``
+    the same as a class command's -- ``_initparser_``'s fuller machinery is
+    only available to a class command, so a module command would otherwise
+    silently have no support for it at all."""
     _write(tmp_path, "modeflag.py", _MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS)
     rc = app(
         Root,
@@ -766,13 +766,13 @@ def test_module_declared_fields_share_the_same_field_wiring_as_a_class_command()
 def test_register_hook_wrapper_on_module_with_no_own_register_is_called(tmp_path):
     """Wrapping `command.register` on a module with NO register of its own still fires.
 
-    Regression: the gating/arity check used to re-derive from
-    `getattr(module, "register", ...)` instead of the SAME object being
-    called (`command.register`). A module defining no `register` hook has
-    `module.register` -> None -> not callable, so a caller's wrapper
-    assigned directly to `command.register` was silently skipped for
-    exactly this shape (a real consumer scenario: wrapping `command.register`
-    app-wide to add a shared positional every command needs).
+    The gating/arity check must read the SAME object being called
+    (`command.register`), not re-derive from `getattr(module, "register",
+    ...)`: a module defining no `register` hook has `module.register` ->
+    None -> not callable, so a caller's wrapper assigned directly to
+    `command.register` would be silently skipped for exactly this shape
+    (e.g. wrapping `command.register` app-wide to add a shared positional
+    every command needs).
     """
     from duho.discovery import discover_commands
 
@@ -906,10 +906,10 @@ def test_dynamic_commands_bool_field_gets_reversible_no_flag(tmp_path):
     """A class command reached via ``commands=`` (never ``root._subcommands_``)
     must ALSO get the reversible ``--no-*`` spelling for a bool field once a
     config file is in play -- otherwise a config table that sets the field
-    True has no CLI-side way back to False. Before the fix this only worked
-    for a STATIC ``_subcommands_`` tree; a dynamically resolved command
-    lacked the config hint entirely and ``--no-reload`` was simply an
-    unrecognized argument.
+    True has no CLI-side way back to False. This must hold for a
+    dynamically resolved command, not only for a STATIC ``_subcommands_``
+    tree; without the config hint ``--no-reload`` would be an unrecognized
+    argument.
     """
     cfg = tmp_path / "app.json"
     cfg.write_text('{"serve-bool-cmd": {"reload": true}}')
@@ -981,9 +981,9 @@ def test_rootless_app_help_does_not_leak_args_docstring(capsys):
     """``duho.app(commands=[...])`` with no ``root`` builds its top-level
     parser from duho's OWN bare ``Args`` class (a synthesized, root-less
     fallback -- see ``runtime._build_parser``), never something the caller
-    wrote. Before the fix, ``Args.__doc__`` (the framework's internal
-    field-declaration contract, meant for someone reading duho's own source)
-    leaked straight into this app's ``--help`` description."""
+    wrote. ``Args.__doc__`` (the framework's internal field-declaration
+    contract, meant for someone reading duho's own source) must not leak
+    into this app's ``--help`` description."""
     with pytest.raises(SystemExit):
         app(commands=[_Deployish], argv=["--help"], setup_logging=False)
     out = capsys.readouterr().out
@@ -992,7 +992,7 @@ def test_rootless_app_help_does_not_leak_args_docstring(capsys):
 
 
 def test_rootless_app_help_still_honors_an_explicit_description(capsys):
-    """The fix must not swallow a caller-supplied ``description=`` -- only
+    """The suppression must not swallow a caller-supplied ``description=`` -- only
     duho's OWN unrequested class docstring is suppressed."""
     with pytest.raises(SystemExit):
         app(
@@ -1006,8 +1006,8 @@ def test_rootless_app_help_still_honors_an_explicit_description(capsys):
 
 
 def test_app_with_real_root_still_shows_its_own_docstring(capsys):
-    """A REAL user-supplied root's docstring must keep showing up -- the fix
-    only suppresses duho's own synthesized ``Args`` fallback, never an
+    """A REAL user-supplied root's docstring must keep showing up -- only
+    duho's own synthesized ``Args`` fallback is suppressed, never an
     app's actual root class."""
     with pytest.raises(SystemExit):
         app(Root, commands=[_Deployish], argv=["--help"], setup_logging=False)
@@ -1388,7 +1388,7 @@ def test_cmds_path_extends_builtin_subcommands(tmp_path, monkeypatch):
     assert (
         app(RootWithBuiltins, env=env, argv=["greet"], setup_logging=False) == "greeted"
     )
-    # The built-in still works -- this is the half that regressed before.
+    # The built-in still works.
     assert (
         app(RootWithBuiltins, env=env, argv=["hello"], setup_logging=False)
         == "built-in"
@@ -1415,10 +1415,9 @@ def test_builtin_subcommands_survive_without_cmds_path():
 
 
 def test_cmds_path_layers_on_top_of_explicit_commands(tmp_path, monkeypatch):
-    """Regression: an explicit `commands=` list used to silently DISABLE
-    CMDS_PATH entirely (an early-return branch, not a layer), even with
-    `env=` also passed -- the operator's exported variable did nothing, with
-    no warning. CMDS_PATH must now merge on top of `commands=` too."""
+    """An explicit `commands=` list must not silently DISABLE CMDS_PATH (it
+    is a layer, not an early-return branch), even with `env=` also passed.
+    CMDS_PATH merges on top of `commands=` too."""
     _write(tmp_path, "greet.py", _MODULE_CMD_GREET)
     monkeypatch.setenv("DUHO_CMDS_PATH", str(tmp_path))
     env = duho.env.Env("DUHO")
@@ -1443,7 +1442,7 @@ def test_cmds_path_layers_on_top_of_explicit_commands(tmp_path, monkeypatch):
 
 
 def test_cmds_path_layers_on_top_of_source(tmp_path, monkeypatch):
-    """Same regression, for `source=` instead of `commands=`."""
+    """Same, for `source=` instead of `commands=`."""
     builtins_dir = tmp_path / "builtins"
     extra_dir = tmp_path / "extra"
     builtins_dir.mkdir()
@@ -1509,11 +1508,11 @@ def test_cmds_path_override_deregisters_the_shadowed_commands_aliases(
 ):
     """Overriding a built-in via CMDS_PATH also drops its stale aliases.
 
-    Before the fix, `_deregister_subparser` popped only the primary name from
-    argparse's `_name_parser_map`; the shadowed command's alias (`d`) stayed
-    registered and kept SILENTLY dispatching to the OLD command even though
-    `deploy` itself now ran the override. The module override declares
-    no alias of its own, so the correct post-fix outcome for `d` is an
+    `_deregister_subparser` must pop more than the primary name from
+    argparse's `_name_parser_map`: the shadowed command's alias (`d`) left
+    registered would keep SILENTLY dispatching to the OLD command even though
+    `deploy` itself runs the override. The module override declares
+    no alias of its own, so the correct outcome for `d` is an
     ordinary "invalid choice" (the alias is gone, not secretly re-pointed) --
     never a silent run of the shadowed built-in.
     """
@@ -1724,7 +1723,7 @@ def test_register_hook_keyword_only_logger_is_called_by_keyword(tmp_path):
 
 # --------------------------------------------------------------------------
 # register()'s arity detection reads its OWN signature, not a wrapped
-# function's (functools.wraps guidance, mirrors the fix in runpath)
+# function's (functools.wraps guidance, as in runpath)
 # --------------------------------------------------------------------------
 
 _MODULE_CMD_REGISTER_WRAPPED = '''\
@@ -1814,13 +1813,12 @@ def test_async_module_command_init_raises_type_error(tmp_path):
 # Module command subparsers get the positional-reorder fix too
 # --------------------------------------------------------------------------
 
-# A module command shaped like the downstream-consumer repro this regression
-# test guards: a fixed positional (`ns`) declared via `Args`, plus a `register()`
-# hook that adds a `-f`/`--filter` flag AND a trailing variadic `targets`
-# positional. Placing `-f` BETWEEN `ns` and `targets` on argv used to break
-# because module command subparsers are a plain `subparsers.add_parser(...)`
-# instance, never patched with the reorder fix declarative `Args`/`Cmd`
-# subcommands get.
+# A module command shaped like a typical app's: a fixed positional (`ns`)
+# declared via `Args`, plus a `register()` hook that adds a `-f`/`--filter`
+# flag AND a trailing variadic `targets` positional. Placing `-f` BETWEEN
+# `ns` and `targets` on argv would break unless the subparser, a plain
+# `subparsers.add_parser(...)` instance, gets the reorder that declarative
+# `Args`/`Cmd` subcommands get.
 _MODULE_CMD_QUERY_SHAPED = '''\
 """A module command with a positional, a flag, then a variadic positional."""
 
@@ -1848,10 +1846,10 @@ def main(args):
 def test_module_command_reorders_flag_between_positionals(tmp_path):
     """A flag between a module command's own positional and a variadic one parses.
 
-    Regression test: `_register_module_command` used to build an
-    unpatched subparser, so this exact shape (`query <ns> -f <val> <targets...>`)
-    raised `unrecognized arguments` even though the same shape on a declarative
-    `Cmd` subcommand already worked via the positional-reorder fix.
+    `_register_module_command` must patch its subparser with the positional
+    reorder, or this exact shape (`query <ns> -f <val> <targets...>`) raises
+    `unrecognized arguments`, though the same shape on a declarative `Cmd`
+    subcommand works via the reorder.
     """
     _write(tmp_path, "query.py", _MODULE_CMD_QUERY_SHAPED)
     rc = app(
@@ -1981,7 +1979,7 @@ def test_app_threads_config_to_module_declared_args_class(tmp_path):
 # default is then suppressed there (see _finalize_command_tree) so the
 # child's absence of the flag defers to the root/env/config value. argparse's
 # own raw %(default)s expansion reads action.default DIRECTLY and deletes
-# the 'default' format key whenever it is SUPPRESS -- this used to raise
+# the 'default' format key whenever it is SUPPRESS -- which would raise
 # KeyError('default') rendering -h, for EVERY subcommand kind, even with no
 # env/config involved.
 # --------------------------------------------------------------------------
@@ -2030,9 +2028,9 @@ class _ClassCmdWithPercentDefault(duho.Cmd):
 def test_module_command_without_declared_args_help_survives_percent_default(
     tmp_path, capsys
 ):
-    """A module command that declares NO ``Args`` of its own used to never
-    get ``_install_help_redaction`` at all (only a module WITH declared
-    fields did) -- its ``-h`` stayed the plain, unprotected stdlib
+    """A module command that declares NO ``Args`` of its own must still
+    get ``_install_help_redaction`` (not only a module WITH declared
+    fields), or its ``-h`` stays the plain, unprotected stdlib
     ``_HelpAction``."""
     _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
     with pytest.raises(SystemExit) as excinfo:
@@ -2394,12 +2392,12 @@ def test_cmds_path_empty_segment_never_imports_cwd(tmp_path, monkeypatch):
     """A leading, trailing, doubled, or separator-only CMDS_PATH value must
     never import (let alone execute) anything from the current directory.
 
-    An empty CMDS_PATH segment used to become ``Path("")`` (== ``Path(".")``),
-    which glob-imported and EXECUTED every top-level ``.py`` file in the CWD
+    An empty CMDS_PATH segment would become ``Path("")`` (== ``Path(".")``),
+    which would glob-import and EXECUTE every top-level ``.py`` file in the CWD
     at import time -- the marker file below is written as an IMPORT-TIME side
     effect, not by calling the command, so even a bare resolution (no
     dispatch) must not trigger it. ``os.pathsep`` on this box is ``;``
-    (Windows); the fix does not hard-code it.
+    (Windows); this does not hard-code it.
     """
     real_cmds = tmp_path / "cmds"
     real_cmds.mkdir()
@@ -2655,10 +2653,10 @@ class RootWithRegionAndBuiltins(duho.Cmd):
 
 
 def test_register_hook_sees_real_globals_when_root_has_builtin_subcommands(tmp_path):
-    """The advisory prepass used to always fail with `KeyError('#cls')` when
-    the root already has `_subcommands_` -- silently swallowed at DEBUG, so
-    every module `register` hook got `args=None` instead of the parsed
-    globals."""
+    """The advisory prepass must not fail with `KeyError('#cls')` when the
+    root already has `_subcommands_` (that would be silently swallowed at
+    DEBUG, and every module `register` hook would get `args=None` instead of
+    the parsed globals)."""
     _write(tmp_path, "region_probe.py", _MODULE_REG_READS_GLOBAL)
     rc = app(
         RootWithRegionAndBuiltins,
@@ -2702,10 +2700,10 @@ class VersionedRoot(duho.Cli):
 
 
 def test_version_prints_once_with_a_module_command_present(tmp_path, capsys):
-    """`--version` used to print twice through `duho.app` whenever a module
-    command triggers the advisory prepass -- the prepass's OWN
-    `_VersionAction` printed for real (only `-h`/`--help` was silenced), then
-    the real parse printed again."""
+    """`--version` must print once through `duho.app` even when a module
+    command triggers the advisory prepass: the prepass's OWN
+    `_VersionAction` must be silenced too (not only `-h`/`--help`), or the
+    real parse prints again."""
     _write(tmp_path, "hello.py", _MODULE_MAIN)
     with pytest.raises(SystemExit) as excinfo:
         app(
@@ -2720,9 +2718,9 @@ def test_version_prints_once_with_a_module_command_present(tmp_path, capsys):
 
 
 def test_print_completion_emits_exactly_one_script(tmp_path, capsys):
-    """`--print-completion` used to run for real during the advisory prepass
-    too (before any subcommand was registered), then again on the real
-    parse -- writing two concatenated scripts, the first incomplete."""
+    """`--print-completion` must not run for real during the advisory prepass
+    (before any subcommand is registered) and again on the real parse, which
+    would write two concatenated scripts, the first incomplete."""
     _write(tmp_path, "hello.py", _MODULE_MAIN)
     with pytest.raises(SystemExit) as excinfo:
         app(
@@ -2794,7 +2792,7 @@ def test_prepass_systemexit_is_swallowed_real_parse_reports(tmp_path, capsys):
 def test_prepass_does_not_preempt_subcommand_help(tmp_path, capsys):
     """`<module-cmd> --help` with a required root global must show the
     SUBCOMMAND's help, not a spurious "arguments are required" error from the
-    advisory prepass (which used to run for real, print its own error, and
+    advisory prepass (which must not run for real, print its own error, and
     only THEN let the real parse show help)."""
     _write(tmp_path, "backup.py", _MODULE_MAIN)
     with pytest.raises(SystemExit) as excinfo:

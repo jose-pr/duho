@@ -1,4 +1,4 @@
-"""Regression tests:
+"""Tests:
 
 * `duho.command(args_cls, func)` must set `__module__`/`__qualname__`
   on the class it builds to the CALLER's module, not `duho.args` (the module
@@ -57,9 +57,10 @@ def test_command_built_class_is_discovered_from_a_command_file(tmp_path):
 def test_command_built_root_with_auto_version_resolves_its_own_distribution(
     monkeypatch,
 ):
-    """Before the fix: `_version_ = duho.AUTO`'s distribution lookup used
-    `cls.__module__.split('.')[0]`, which was `duho` for a command()-built
-    class -- reporting duho's OWN version instead of PackageNotFoundError."""
+    """`_version_ = duho.AUTO`'s distribution lookup must not use
+    `cls.__module__.split('.')[0]` when that is `duho` (a command()-built
+    class): that would report duho's OWN version instead of
+    PackageNotFoundError."""
     calls = []
 
     def fake_version(dist):

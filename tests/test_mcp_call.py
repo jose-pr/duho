@@ -195,9 +195,8 @@ def test_non_zero_return_is_error_with_exit_code_line():
 
 
 def test_non_zero_return_includes_captured_stderr_too():
-    # A plain non-zero RETURN (not `sys.exit`) used to drop captured stderr
-    # entirely, unlike the SystemExit path (`_systemexit_result`), which
-    # always included it.
+    # A plain non-zero RETURN (not `sys.exit`) must include captured stderr,
+    # like the SystemExit path (`_systemexit_result`).
     result = _call("FailWithStderr")
     assert result["isError"] is True
     text = result["content"][0]["text"]
@@ -456,7 +455,7 @@ def test_logging_handler_is_rebound_to_each_calls_own_capture():
     assert tagged, "expected duho's own stderr handler to be installed"
     # Once every call returns, the handler must be pointed at the SERVER's
     # real (idle) stderr again -- never left on a dead StringIO from a call
-    # that already finished, which used to swallow later server-side errors.
+    # that already finished, which would swallow later server-side errors.
     import io
 
     for handler in tagged:
@@ -491,8 +490,8 @@ def test_negative_count_raises_invalid_arguments_error():
 
 # --------------------------------------------------------------------------
 # Passthrough over MCP: a dedicated "--" array property, appended as a
-# literal `--` token at the very end of the synthesized argv, restores what
-# a positional value embedding a literal "--" used to do before that became
+# literal `--` token at the very end of the synthesized argv, provides what
+# a positional value embedding a literal "--" cannot, since that is
 # unsafe to allow (see the module docstring's "Documented v1 limitations").
 # --------------------------------------------------------------------------
 

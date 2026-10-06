@@ -1,10 +1,10 @@
-"""Regression tests for annotations `_factory_for` doesn't recognize, which used
-to fall through to calling the raw annotation itself on CLI text. `frozenset[str]`
-silently split text into characters, `Sequence[str]`/`Iterable[str]` failed
+"""Tests for annotations `_factory_for` doesn't recognize, which must not fall
+through to calling the raw annotation itself on CLI text: `frozenset[str]`
+would split text into characters, `Sequence[str]`/`Iterable[str]` would fail
 per-value at PARSE time instead of once at build, a PEP 695 `type X = ...`
-alias (3.12+) crashed every parser build (`TypeAliasType` isn't callable),
-and a `typing.NewType` silently parsed to `str` (it's the identity function
-at runtime) on every version.
+alias (3.12+) would crash every parser build (`TypeAliasType` isn't
+callable), and a `typing.NewType` would parse to `str` (it's the identity
+function at runtime) on every version.
 
 All classes are declared at module level in this real ``.py`` file so their
 AST-derived flags resolve normally.
@@ -30,7 +30,7 @@ class _FrozenSetArgs(Args):
 
 
 def test_frozenset_element_is_one_token_not_characters():
-    # Previously the raw `frozenset` builtin was called on each token, and
+    # The raw `frozenset` builtin must not be called on each token:
     # frozenset("py") == frozenset({'p', 'y'}).
     inst = duho.parse(_FrozenSetArgs, ["--exts", "py"])
     assert inst.exts == frozenset({"py"})

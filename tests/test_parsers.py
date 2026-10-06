@@ -110,9 +110,9 @@ class _RequiredEnvRoot(Cli):
 
 
 def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
-    # Pre-fix, parse_globals never applied env/config layers at all, so
-    # a required global suppliable only by env raised SystemExit(2) here even
-    # though the full duho.parse of the same class succeeds.
+    # parse_globals must apply env/config layers: a required global
+    # suppliable only by env must not raise SystemExit(2) here when the full
+    # duho.parse of the same class succeeds.
     monkeypatch.setenv("DUHO_TEST_GLOBALS_TOKEN", "tok")
     parsed = duho.parse_globals(_RequiredEnvRoot, ["_Child"])
     monkeypatch.delenv("DUHO_TEST_GLOBALS_TOKEN", raising=False)
@@ -122,7 +122,7 @@ def test_parse_globals_env_layer_satisfies_a_required_global(monkeypatch):
 # --------------------------------------------------------------------------
 # the EXPORTED duho.parsers.prerun_parse must be safe to call directly
 # on a duho root that still has its own subparsers action -- not just
-# through parse_globals (which used to work around this itself).
+# through parse_globals.
 # --------------------------------------------------------------------------
 
 from duho.parsers import prerun_parse  # noqa: E402
@@ -130,10 +130,10 @@ from duho.parsers import prerun_parse  # noqa: E402
 
 def test_exported_prerun_parse_on_a_duho_root_with_subcommands():
     parser = _Root._parser_()
-    # A trailing subcommand name (with the child's own flag after it) used to
-    # raise KeyError('#cls'): the relaxed subparsers action re-entered this
-    # SAME parser's own patched parse_known_args, double-popping the
-    # selection marker. It must now just parse the globals and ignore the
+    # A trailing subcommand name (with the child's own flag after it) must not
+    # raise KeyError('#cls') (the relaxed subparsers action re-entering this
+    # SAME parser's own patched parse_known_args would double-pop the
+    # selection marker). It must just parse the globals and ignore the
     # rest, exactly like duho.parse_globals does.
     parsed = prerun_parse(parser, ["--flag", "x", "_Child", "--target", "here"])
     assert parsed.flag == "x"

@@ -1,4 +1,4 @@
-"""Regression tests for three independent subcommand/parser-build edge cases:
+"""Tests for three independent subcommand/parser-build edge cases:
 
 * A subcommand that subclasses its own root (to share global options)
   must not recurse forever building itself as its own child.
@@ -31,8 +31,8 @@ def test_subcommand_subclassing_its_root_does_not_recurse_forever():
         def __call__(self):
             return 1
 
-    # Previously: RecursionError (Build inherits App._subcommands_, which
-    # contains Build itself, so building it recurses without end).
+    # Must not raise RecursionError (Build inherits App._subcommands_, which
+    # contains Build itself, so building it would recurse without end).
     rc = duho.main(App, ["build"], setup_logging=False)
     assert rc == 1
 

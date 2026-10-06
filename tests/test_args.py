@@ -857,8 +857,8 @@ class OptionalNoDefaultOptionNoAssignArgs(Args):
 
 
 def test_effective_default_is_none_for_non_required_option_without_default():
-    """`_effective_default_()` used to return NOT_DEFINED here, so a direct
-    instance had no attribute at all, although a parsed one gets None."""
+    """`_effective_default_()` returns None here, not NOT_DEFINED, so a direct
+    instance has the attribute, as a parsed one does."""
     [builder] = [
         b
         for b in OptionalNoDefaultOptionNoAssignArgs._getargs_()
@@ -1023,11 +1023,10 @@ class ExtendArgs(Args):
 
 
 def test_extend_helper_splits_and_flattens_single_occurrence():
-    # Regression: nargs="*" (the list[str] default) plus a type that SPLITS
-    # one token into several used to double-collect -- a single occurrence's
-    # split result (itself a list) was appended as ONE nested element instead
-    # of being flattened. Extend() now overrides nargs=None so a single
-    # occurrence's split result becomes the flat list directly.
+    # nargs="*" (the list[str] default) plus a type that SPLITS one token into
+    # several must not double-collect: a single occurrence's split result
+    # (itself a list) is flattened, not appended as ONE nested element.
+    # Extend() overrides nargs=None so it becomes the flat list directly.
     parser = ExtendArgs._parser_()
     args = parser.parse_args(["--opts", "a,b"])
     assert args.opts == ["a", "b"]
@@ -1188,10 +1187,10 @@ class DirectListDefaultArgs(Args):
 
 
 def test_direct_instance_does_not_share_class_level_mutable_default():
-    """Mutating a directly-built instance's list field used to mutate the
+    """Mutating a directly-built instance's list field must not mutate the
     CLASS ATTRIBUTE itself: `hasattr(self, name)` is already True for
-    a field with a class-level default, so `Args.__init__` skipped seeding a
-    fresh copy onto the instance, and the instance just read the class
+    a field with a class-level default, so `Args.__init__` must seed a
+    fresh copy onto the instance rather than let it read the class
     attribute by inheritance."""
     a = DirectListDefaultArgs()
     assert "files" in vars(a)

@@ -275,7 +275,7 @@ class _PercentApp(Cli):
 
 
 def test_docstring_percent_does_not_crash_parser_build():
-    # A literal "%" in a Cmd docstring used to raise ValueError("badly formed
+    # A literal "%" in a Cmd docstring must not raise ValueError("badly formed
     # help string") from argparse's own _check_help at add_parser time.
     parser = _PercentApp._parser_()
     text = parser.format_help()

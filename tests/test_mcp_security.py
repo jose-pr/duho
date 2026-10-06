@@ -1,4 +1,4 @@
-"""Regression tests for duho's MCP security hardening.
+"""Tests for duho's MCP security hardening.
 
 Covers argv-injection safety, env/config layering, dispatch through the root
 parser (root globals reachable from a nested tool), JSON-RPC envelope
@@ -92,7 +92,7 @@ class InjectRoot(Cli):
 
 def test_positional_value_that_looks_like_a_flag_is_refused():
     # The value is schema-valid (a list of strings) -- the danger is purely
-    # in how argv synthesis would encode it, so this is discovered while
+    # in how argv synthesis would encode it, so this is detected while
     # building argv, not by `_validate_arguments` alone. It is still a
     # malformed-REQUEST problem (a value that cannot be safely encoded at
     # all), so `call_tool` raises `InvalidArgumentsError` rather than
@@ -295,7 +295,7 @@ class HijackCollisionRoot(Cli):
 
 def test_optional_ancestor_positional_cannot_hijack_dispatch_to_a_sibling():
     # An omitted optional positional
-    # ("path") used to absorb the "HijackLeaf" separator token, shifting
+    # ("path") would absorb the "HijackLeaf" separator token, shifting
     # "HijackDanger" (the client's OWN "name" value) into the root's
     # subparsers slot and actually running HijackDanger instead. Caught here
     # by the ancestor-sibling-name value guard, which raises
@@ -332,7 +332,7 @@ def test_ancestor_positional_explicitly_set_to_a_sibling_name_is_refused():
 
 
 def test_normal_dispatch_through_an_optional_ancestor_positional_still_works():
-    # The fix must not break the ordinary, non-adversarial case: supplying a
+    # The guard must not break the ordinary, non-adversarial case: supplying a
     # harmless value for the ancestor's own optional positional still
     # dispatches the requested leaf correctly.
     result = call_tool(
@@ -423,7 +423,7 @@ def test_optional_positional_default_is_pinned_so_the_right_nesting_runs():
 
 
 def test_shared_class_reached_via_the_right_nesting_still_works():
-    # The fix must not break the legitimate path to the SAME shared class.
+    # The guard must not break the legitimate path to the SAME shared class.
     result = call_tool(
         SharedClassRoot,
         "shared-class-root.shared-group.shared-leaf",
@@ -831,10 +831,9 @@ class ArgumentTypeErrorFactoryTool(Cmd):
 
 
 def test_mcp_result_never_leaks_a_secret_from_a_keyerror_factory(monkeypatch):
-    # Before the fix, the
-    # deferred KeyError propagated uncaught out of `root_parser.parse_args`,
-    # was caught only by `call_tool`'s own generic `except Exception`, and
-    # THAT handler formatted the raw exception (secret included) straight
+    # A deferred KeyError must not propagate out of `root_parser.parse_args`
+    # to be caught only by `call_tool`'s own generic `except Exception`,
+    # whose handler would format the raw exception (secret included) straight
     # into the `isError` text.
     monkeypatch.setenv("DUHO_MCP_TEST_KEYERROR_REGION", "hunter2-PASSWORD")
     result = call_tool(KeyErrorFactoryTool, "key-error-factory-tool", {})
@@ -1010,7 +1009,7 @@ def test_empty_batch_array_gets_a_single_invalid_request():
 def test_batch_of_malformed_items_returns_one_batch_of_errors():
     # Every element (a bare int) is itself an invalid request -- the whole
     # line still comes back as ONE combined array of error responses (JSON-
-    # RPC 2.0's own batch convention), not a single flat -32600 that used to
+    # RPC 2.0's own batch convention), not a single flat -32600 that would
     # swallow the fact this was a batch at all.
     rc, responses = _serve_lines("[1, 2]")
     assert rc == 0
@@ -1316,7 +1315,7 @@ def test_subprocess_import_time_output_does_not_corrupt_the_protocol_stream(tmp_
     # Distinct from `test_subprocess_child_output_does_not_corrupt_the_protocol_stream`
     # above: THIS write happens at MODULE IMPORT time, before `serve()` ever
     # runs -- `main()` resolves (imports) `<app>` before it takes over the
-    # real stdio fds, so a stray module-level `print` used to land straight
+    # real stdio fds, so a stray module-level `print` must not land straight
     # on the client-facing pipe as a non-JSON first line.
     app_file = tmp_path / "import_noise_app.py"
     app_file.write_text(
@@ -1365,19 +1364,19 @@ def test_subprocess_thread_still_running_after_import_does_not_corrupt_the_proto
     # protocol_stream` above: that write happens DURING import and is caught
     # by redirecting fd 1 for the duration of resolution. THIS write comes
     # from a background thread STARTED at import time that keeps running
-    # AFTER import returns -- an earlier fix resolved `<app>` behind a
-    # temporary redirect that was restored right after import finished,
-    # before `main()` handed off to `serve()`, which only THEN took real
-    # stdio over for the protocol channel. A thread still running in that
-    # gap could write straight into the client-facing pipe ahead of the
-    # first protocol response.
+    # AFTER import returns -- resolving `<app>` behind a temporary redirect
+    # that is restored right after import finishes, before `main()` hands
+    # off to `serve()` (which only THEN takes real stdio over for the
+    # protocol channel), would leave a gap: a thread still running in it
+    # could write straight into the client-facing pipe ahead of the first
+    # protocol response.
     # The daemon thread runs for well under the time the command itself
     # takes to return, so it has always finished on its own by the time the
     # process starts shutting down -- CPython's interpreter finalization
     # racing an ACTIVELY WRITING daemon thread is its own (unrelated, and on
     # Windows sometimes fatal) hazard that would otherwise make this test
-    # flaky for a reason that has nothing to do with the regression it is
-    # checking for.
+    # flaky for a reason that has nothing to do with what it is
+    # checking.
     app_file = tmp_path / "racy_import_app.py"
     app_file.write_text(
         "import threading, time\n"
@@ -1468,11 +1467,11 @@ def test_subprocess_invalid_utf8_line_gets_parse_error_and_server_keeps_serving(
 
 
 def test_subprocess_deeply_nested_json_line_never_kills_the_server(tmp_path):
-    # A line whose JSON nesting is pathologically deep used to raise an
-    # uncaught RecursionError out of json.loads (not a ValueError, so the
-    # old `except ValueError` around it never caught it), ending the whole
+    # A line whose JSON nesting is pathologically deep must not raise an
+    # uncaught RecursionError out of json.loads (not a ValueError, so an
+    # `except ValueError` around it would never catch it), ending the whole
     # `serve` loop -- every request after it, including this same client's
-    # own next ping, went unanswered. Depth chosen well past the rejection
+    # own next ping, would go unanswered. Depth chosen well past the rejection
     # threshold but still small/fast to encode and send.
     app_file = tmp_path / "ping_app.py"
     app_file.write_text(

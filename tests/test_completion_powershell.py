@@ -128,10 +128,10 @@ def test_powershell_script_is_pure_ascii_for_a_non_ascii_choice():
 
 
 def test_powershell_quotes_every_candidate_unconditionally():
-    """Every candidate is now always single-quoted (never conditionally, on
+    """Every candidate is always single-quoted (never conditionally, on
     a character-class match): a candidate containing a Unicode
-    "smart quote" (never in the old ASCII metacharacter class) used to be
-    inserted completely unquoted, letting it close out of the argument."""
+    "smart quote" (outside an ASCII metacharacter class) must not be
+    inserted unquoted, which would let it close out of the argument."""
     script = completion.powershell(PShellApp._parser_())
     assert "CompletionResult" in script
     # The doubled-character class covers the ASCII quote and PowerShell's

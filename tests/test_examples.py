@@ -158,10 +158,10 @@ def test_runpath_app_rcopts_selects_one_step(capsys):
 
 
 def test_runpath_app_logger_and_shared_root_label_work(caplog):
-    # Regression: a bare provider-built RunPathCmd used to have no real
-    # _logger_/_set_loglevels_ (see duho.runpath.register(base=...)) -- -v
-    # never activated logging and every logger.info() in __main__.py/steps
-    # silently vanished. RunpathAppArgs (LoggingArgs-based) is passed as
+    # A bare provider-built RunPathCmd needs a real
+    # _logger_/_set_loglevels_ (see duho.runpath.register(base=...)); without
+    # them -v never activates logging and every logger.info() in
+    # __main__.py/steps silently vanishes. RunpathAppArgs (LoggingArgs-based) is passed as
     # root here, and __main__.py logs via format_tag_line(cmd, ...), which
     # reads cmd.label -- both the logging AND the shared-root-field wiring
     # are exercised by this one assertion.

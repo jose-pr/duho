@@ -216,7 +216,7 @@ def test_test_workflow_runs_python_3_14():
 
 
 def test_release_workflow_gate_covers_python_3_14():
-    # release.yml no longer keeps its own matrix -- it reuses test.yml
+    # release.yml keeps no matrix of its own -- it reuses test.yml
     # -- so the 3.14 gate is exercised by asserting that reuse, not a second
     # copy of the version list.
     text = _read(_WORKFLOWS / "release.yml")

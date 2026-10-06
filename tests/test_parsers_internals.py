@@ -41,7 +41,7 @@ def test_pop_action_removes_from_parsing_and_optionmap():
     assert popped is action
     assert popped not in parser._actions
     assert "--gone" not in parser._option_string_actions
-    # Parsing no longer recognizes the removed flag.
+    # Parsing does not recognize the removed flag.
     with pytest.raises(SystemExit):
         parser.parse_args(["--gone", "x"])
 
@@ -87,9 +87,9 @@ def test_insert_action_default_appends_and_restores_help_visibility():
 def test_pop_then_insert_action_keeps_a_titled_group_membership():
     """An action originally added through a TITLED
     ``add_argument_group(...)`` must go back to that SAME group on
-    reinsertion, not the parser's default "options" section -- previously
-    ``insert_action`` always re-added to ``_optionals``/``_positionals``
-    unconditionally, so a reordered action visibly moved sections in
+    reinsertion, not the parser's default "options" section --
+    ``insert_action`` must not always re-add to ``_optionals``/``_positionals``,
+    which would visibly move a reordered action between sections in
     ``--help``."""
     parser = argparse.ArgumentParser()
     custom = parser.add_argument_group("Custom")
@@ -109,9 +109,9 @@ def test_pop_then_insert_action_keeps_a_titled_group_membership():
 
 
 def test_pop_action_removes_from_mutually_exclusive_group():
-    """Popping a member of a REQUIRED mutex group left it in
-    ``_mutually_exclusive_groups``, so the group's own error kept naming a
-    flag that no longer existed."""
+    """Popping a member of a REQUIRED mutex group must not leave it in
+    ``_mutually_exclusive_groups``, or the group's own error would keep naming
+    a flag that is gone."""
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--x")
@@ -169,10 +169,11 @@ def test_disable_enable_subparser_check_round_trip():
 
 
 def test_disable_subparser_check_is_reentrant():
-    """A NESTED disable used to save the already-relaxed state, so the
-    inner ``enable`` restored THAT (still relaxed) and the outer ``enable``
-    found nothing left to restore -- the action stayed permanently relaxed. A
-    depth counter now means only the OUTERMOST pair actually saves/restores.
+    """A NESTED disable must not save the already-relaxed state, or the
+    inner ``enable`` would restore THAT (still relaxed) and the outer
+    ``enable`` would find nothing left to restore -- the action would stay
+    permanently relaxed. A depth counter means only the OUTERMOST pair
+    actually saves/restores.
     """
     parser = argparse.ArgumentParser()
     subs = parser.add_subparsers(dest="command")
@@ -210,7 +211,7 @@ def test_relaxed_subparsers_action_skips_suppressed_dest():
     """A plain ``add_subparsers()`` with no explicit ``dest=`` defaults to
     ``argparse.SUPPRESS``. argparse's own ``_SubParsersAction.__call__``
     guards ``setattr`` with ``self.dest is not SUPPRESS``; the relaxed
-    replacement used to skip that guard, leaving a literal ``"==SUPPRESS=="``
+    replacement must keep that guard, or it leaves a literal ``"==SUPPRESS=="``
     key on the returned namespace."""
     parser = argparse.ArgumentParser()
     subs = parser.add_subparsers()  # no dest= -> SUPPRESS
@@ -288,11 +289,10 @@ def test_exception_mid_parse_restores_all_surgery(monkeypatch):
 
 
 def test_strip_and_restore_subparsers_removes_from_the_actual_group_list():
-    """A naive removal (matching what ``parse_globals`` used to do by
-    hand) tried ``parser._subparsers._actions.remove(action)`` -- but that IS
-    the SAME list object as ``parser._actions`` (already emptied by the first
-    removal), so the second removal was always a dead branch and the action
-    stayed in its OWN group's ``_group_actions`` (what ``format_help`` walks).
+    """A naive ``parser._subparsers._actions.remove(action)`` would be a dead
+    branch: that IS the SAME list object as ``parser._actions`` (already
+    emptied by the first removal), so the action would stay in its OWN
+    group's ``_group_actions`` (what ``format_help`` walks).
     ``strip_subparsers`` removes it from the real owning group instead, and
     ``_restore_subparsers`` puts it back in the exact same spot."""
     parser = argparse.ArgumentParser()
@@ -466,9 +466,8 @@ def test_unique_subcommands_seen_set_prevents_double_yield_across_calls():
 
 
 def test_unique_subcommands_is_the_one_shared_walk_used_by_agenthelp_and_mcp():
-    """Both modules used to carry their own hand-written copy
-    of this exact alias-grouping walk, free to silently drift apart. Both now
-    call through this one function instead."""
+    """Both modules call through this one alias-grouping function instead of
+    carrying hand-written copies that could silently drift apart."""
     import duho.agenthelp as agenthelp_mod
     import duho.mcp as mcp_mod
     import duho.parsers as parsers_mod

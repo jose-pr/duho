@@ -1,9 +1,9 @@
-"""Regression tests: a literal ``%`` anywhere duho hands text to argparse as a
+"""Tests: a literal ``%`` anywhere duho hands text to argparse as a
 ``help=``/``version=`` string must never crash parser build or ``--help`` --
 argparse ``%``-formats every one of those unconditionally.
 
-The class-docstring case (a % in a Cmd's own docstring) was already fixed and
-is covered by ``tests/test_review_findings.py``; these cover the remaining
+The class-docstring case (a % in a Cmd's own docstring) is
+covered by ``tests/test_review_findings.py``; these cover the remaining
 sites: a field docstring, a `_version_`/`__version__` string, a module
 command's docstring, and the raw `%(default)s`-style placeholders duho's own
 agent-help JSON document must EXPAND (not just avoid crashing on).

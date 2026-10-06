@@ -314,7 +314,7 @@ def test_snakecase_lowercases_all_letters(name):
 @given(text=st.text(alphabet=string.ascii_letters + string.digits + ":,", max_size=30))
 def test_parse_loglevels_shapes_or_raises_cleanly(text):
     """An entry that doesn't resolve to a known level name (matched
-    case-insensitively) or an integer now raises
+    case-insensitively) or an integer raises
     ``argparse.ArgumentTypeError`` -- so argparse reports it as a normal
     "invalid value" usage error -- instead of silently vanishing from the
     result. Every input therefore either produces a well-shaped dict or

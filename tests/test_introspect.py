@@ -138,8 +138,8 @@ def test_deeply_nested_class_resolves():
 
 
 def _reference_index(filename):
-    """The exhaustive walk (iter_child_nodes on every node), predating the
-    statement-only one `_module_index` now uses."""
+    """The exhaustive walk (iter_child_nodes on every node), the alternative to
+    the statement-only one `_module_index` uses."""
     index = {}
     with open(filename, encoding="utf-8") as f:
         src = f.read()
@@ -189,11 +189,9 @@ def test_framework_bases_have_seeded_constants():
 
 
 def test_logging_args_preset_is_source_independent():
-    # LoggingArgs used to be deliberately left UNSEEDED so its class
-    # body would be AST-scanned for a trailing docstring + flags-tuple after
-    # each field. It now declares every field's flags/help directly as
-    # NS(...) metadata instead (read from the live Annotated object, not
-    # source), and is seeded like every other framework base -- so its own
+    # LoggingArgs is seeded like every other framework base: it declares every
+    # field's flags/help directly as NS(...) metadata (read from the live
+    # Annotated object, not source), so its own
     # -v/-q/--loglevel/--verbose/--quiet keep working even when duho's own
     # source can't be found (a PyInstaller/.pyc-only/Nuitka build).
     constants = _introspect.get_clsargs_constants(duho.LoggingArgs)
@@ -289,7 +287,7 @@ except ImportError:  # pragma: no cover - never taken; source only
 def test_duplicate_qualname_if_else_picks_the_live_branch(tmp_path):
     """`Cond` is declared once under `if` (the branch that actually runs) and
     again under `else` (dead code, later in the file). Indexing both under
-    the same qualname used to let the LATER (dead) ClassDef silently
+    the same qualname must not let the LATER (dead) ClassDef silently
     overwrite the live one; `getclsdef` must pick the one whose `lineno`
     matches `inspect.getsourcelines(cls)` -- the branch Python actually
     executed."""
@@ -321,7 +319,7 @@ def test_duplicate_qualname_if_else_picks_the_live_branch(tmp_path):
 def test_duplicate_qualname_try_except_picks_the_live_branch(tmp_path):
     """Same as above for a `try`/`except ImportError` fallback shape -- the
     `except` branch never runs (the import always succeeds), but its
-    ClassDef comes LAST in the file and used to win."""
+    ClassDef comes LAST in the file and must not win."""
     mod_path = tmp_path / "dupmod2.py"
     mod_path.write_text(_DUP_QUALNAME_SOURCE, encoding="utf-8")
 

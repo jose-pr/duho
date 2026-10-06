@@ -137,8 +137,7 @@ def test_module_command_agent_help_never_shows_env_secret(
     dep = next(s for s in doc["subcommands"] if s["name"] == "deploy")
     token = next(o for o in dep["options"] if o["dest"] == "token")
     # The class default (never itself a secret) is still shown; only the
-    # LIVE env value is redacted. Previously this over-redacted to a bare
-    # `null` even for a module command's own field.
+    # LIVE env value is redacted, not the whole field to a bare `null`.
     assert token["default"] == ""
     assert token["default_source"] == "env DUHO_TEST_MODULE_CMD_SECRET"
 
@@ -180,9 +179,8 @@ def test_module_command_placeholder_still_shows_the_class_default(
 ):
     # The other half of the same guarantee: redacting the LIVE env value
     # must not also blank out the class default -- a literal `%(default)s`
-    # in a module command's help text previously rendered the Python
-    # literal `None` once an env var was set, instead of the declared
-    # class default ("cls").
+    # in a module command's help text renders the declared class default
+    # ("cls"), not the Python literal `None`, once an env var is set.
     monkeypatch.setenv("DUHO_TEST_MODULE_CMD_NONEMPTY_SECRET", "live-value")
     _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_NONEMPTY_DEFAULT)
     with pytest.raises(SystemExit):
@@ -204,11 +202,11 @@ def test_module_command_placeholder_still_shows_the_class_default(
 def test_module_command_keyerror_factory_env_value_never_leaks_and_never_tracebacks(
     tmp_path, monkeypatch, capsys
 ):
-    # Reproduces a mapping-lookup `type=` factory (`REGIONS.__getitem__`)
-    # that raises `KeyError`, not `ValueError` --
-    # before the fix this propagated as an UNCAUGHT KeyError with the raw
-    # env value both in its own message and printed in the traceback,
-    # crashing every invocation of the module command (including `-h`).
+    # A mapping-lookup `type=` factory (`REGIONS.__getitem__`) raises
+    # `KeyError`, not `ValueError`; it must not propagate as an UNCAUGHT
+    # KeyError carrying the raw env value in its message and traceback,
+    # which would crash every invocation of the module command (including
+    # `-h`).
     monkeypatch.setenv("DUHO_TEST_MODULE_CMD_KEYERROR_REGION", "hunter2-PASSWORD")
     _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_KEYERROR_FACTORY)
     with pytest.raises(SystemExit) as excinfo:

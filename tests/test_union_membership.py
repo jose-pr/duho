@@ -1,7 +1,7 @@
-"""Regression tests for a Literal composed into a multi-member Union
-losing its membership check. `_union_spec` resolves each member through
-`_factory_for` but previously dropped every member's `choices`, so
-`Union[Literal["auto"], int]` accepted ANY text for the Literal member (and,
+"""Tests that a Literal composed into a multi-member Union keeps its
+membership check. `_union_spec` resolves each member through
+`_factory_for` and must keep every member's `choices`, or
+`Union[Literal["auto"], int]` accepts ANY text for the Literal member (and,
 because `str`-like conversions rarely raise, could silently shadow a later
 member). All classes are declared at module level in this real ``.py`` file
 so their AST-derived flags resolve normally.
@@ -33,9 +33,9 @@ def test_union_literal_first_declared_choice_is_accepted():
 
 
 def test_union_literal_first_rejects_undeclared_text():
-    # Previously the Literal member's factory was the bare `str` (no
-    # membership check), so `str("banana")` never raised and the union
-    # try-loop accepted it without ever trying `int`.
+    # A bare `str` factory for the Literal member (no membership check)
+    # would never raise on `str("banana")`, and the union try-loop would
+    # accept it without ever trying `int`.
     with pytest.raises(SystemExit):
         duho.parse(_WorkersArgs, ["--workers", "banana"])
 

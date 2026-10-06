@@ -222,11 +222,11 @@ def test_rcopts_disable_all_enable_one(tmp_path):
 
 
 def test_rcopts_real_cli_comma_joined_flattens(tmp_path):
-    # Regression: a single --rcopts '!*,two' from the REAL argparse parser
-    # (not the _run() bypass helper, which sets .rcopts directly as a plain
-    # list) used to produce a nested [['!*', 'two']] instead of a flat
-    # ['!*', 'two'] -- Extend()'s nargs="*" + a comma-splitting type
-    # double-collected. Parse through the actual built parser here.
+    # A single --rcopts '!*,two' from the REAL argparse parser (not the
+    # _run() bypass helper, which sets .rcopts directly as a plain list) must
+    # give a flat ['!*', 'two'], not a nested [['!*', 'two']] -- Extend()'s
+    # nargs="*" + a comma-splitting type could double-collect. Parse through
+    # the actual built parser here.
     register()
     steps = tmp_path / "steps"
     results = tmp_path / "results.txt"
@@ -428,7 +428,7 @@ def test_unregister_removes_only_our_provider(tmp_path):
     assert len(_discovery._PROVIDERS) == before + 1
 
     unregister()
-    # Only the RunPath pair was removed; the foreign one remains.
+    # Only the RunPath pair is removed; the foreign one remains.
     assert len(_discovery._PROVIDERS) == before
     steps = tmp_path / "steps"
     _write_step(steps, "10-a.py", "def main(args): pass\n")
@@ -670,9 +670,8 @@ def test_init_success_and_finally_fire_exactly_once_on_clean_run(tmp_path):
     lines = calls.read_text(encoding="utf-8").splitlines()
     # success() runs INSIDE the try, before finally_ -- matching
     # discovery.run_command's own main-then-success-then-finally_ order
-    # ([minor] behavior change: this used to be finally_-then-success, which
-    # left success() seeing a ctx that finally_ had already torn down). Each
-    # fires exactly once.
+    # (after finally_, success() would see a ctx that finally_ had already
+    # torn down). Each fires exactly once.
     assert lines == ["success:ctx", "finally:ctx"]
 
 
@@ -1037,11 +1036,11 @@ def test_mixed_before_required_cycle_broken_deterministically(tmp_path, caplog):
 
 
 def test_default_base_is_loggingargs_gives_real_logger_and_set_loglevels(tmp_path):
-    # Regression: a bare RunPathCmd built via the provider used to have NO
-    # _logger_/_set_loglevels_ as real inherited methods (only data fields
-    # propagate via app()'s parents= namespace-copying, not class
-    # inheritance) -- so -v/stderr logging setup never activated for any
-    # RunPath command. The default base is now LoggingArgs.
+    # A bare RunPathCmd built via the provider needs _logger_/_set_loglevels_
+    # as real inherited methods (only data fields propagate via app()'s
+    # parents= namespace-copying, not class inheritance), or -v/stderr
+    # logging setup never activates for any RunPath command. The default
+    # base is LoggingArgs.
     register()
     steps = tmp_path / "steps"
     _write_step(steps, "10-a.py", "def main(cmd): pass\n")
@@ -1074,7 +1073,7 @@ def test_register_base_lets_a_custom_root_class_be_inherited(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Ordering stability (Kahn's algorithm): a regression that only shows up
+# Ordering stability (Kahn's algorithm): a failure that only shows up
 # with 3+ steps, where a naive "whole pass" sort lets a reordered step jump
 # past every unrelated LATER step, not just its own dependency.
 # --------------------------------------------------------------------------
@@ -1314,7 +1313,7 @@ def test_dependent_is_skipped_when_required_step_import_fails(tmp_path, caplog):
 
 
 # --------------------------------------------------------------------------
-# --rcopts token parsing no longer forces strict from an unrelated token.
+# --rcopts token parsing does not force strict from an unrelated token.
 # --------------------------------------------------------------------------
 
 

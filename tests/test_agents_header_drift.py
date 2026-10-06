@@ -4,10 +4,9 @@
 reference: every public export, across `duho`'s top-level `__all__` and every
 public submodule's own `__all__`, is supposed to be documented there. This
 test does not check the *prose* is accurate (that's a human/review job) -- it
-only guards the cheap, mechanical regression: a name silently added to (or
+only guards the cheap, mechanical drift: a name silently added to (or
 still present in) an `__all__` list but never mentioned anywhere in the header
-at all, which is exactly how the header rotted out of sync with the code
-before.
+at all.
 
 The header is located via `duho.__file__` (the installed package directory),
 not a hardcoded repo-relative path, so this test also passes against an

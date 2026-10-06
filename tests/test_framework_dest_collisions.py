@@ -1,16 +1,16 @@
-"""Regression tests: a user field must never be silently dropped because its
+"""Tests: a user field must never be silently dropped because its
 name happens to match a dest the framework itself uses internally.
 
-Before this fix, ``-h``/``--help``, ``--version``, and ``--print-completion``
-all install argparse actions whose ``dest`` equals a plain english word
+``-h``/``--help``, ``--version``, and ``--print-completion`` all install
+argparse actions whose ``dest`` equals a plain english word
 (``help``/``version``/``print_completion``) BEFORE the declarative field
-loop runs; that loop skipped ANY field whose name already had an action
-(a check meant only for a ``parents=[...]`` merge), so a user field named
-``help``/``version``/``print_completion`` vanished from the CLI with no
-error at all -- not even a warning. Separately, ``duho.app()``'s dynamic
-subcommand dispatch and a static ``_subcommands_`` tree both used the same
-plain ``command`` dest, which a nested subcommand tree OR a root field named
-``command`` could silently clobber.
+loop runs; that loop's skip of a field whose name already has an action is
+meant only for a ``parents=[...]`` merge, so a user field named
+``help``/``version``/``print_completion`` must not vanish from the CLI with
+no error at all. Separately, ``duho.app()``'s dynamic subcommand dispatch
+and a static ``_subcommands_`` tree must not share a plain ``command``
+dest, which a nested subcommand tree OR a root field named ``command``
+could silently clobber.
 """
 
 import pytest

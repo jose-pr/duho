@@ -301,7 +301,7 @@ def test_non_ascii_python_is_rejected(tmp_path):
 
 
 def test_libdir_with_backslash_is_rejected(tmp_path):
-    """A trailing (or any) backslash used to be accepted and baked verbatim
+    """A trailing (or any) backslash must not be accepted and baked verbatim
     into the POSIX launcher's `libdir="$root/{libdir}"` line, where it either
     escapes the closing quote or is misread as a path separator -- either way
     the emitted `sh` script does not parse."""
@@ -354,9 +354,9 @@ def test_cli_reports_overwrite_refusal_without_a_traceback(tmp_path, capsys):
 
 
 def test_cli_reports_overwrite_refusal_exactly_once(tmp_path, capsys):
-    """The refusal used to be printed twice: the exception message (which
-    already says to pass --force) followed by a second, separate
-    "pass --force" line."""
+    """The refusal is printed once: the exception message (which already says
+    to pass --force), not followed by a second, separate "pass --force"
+    line."""
     scaffold.main(["demo", "--root", str(tmp_path)])
     capsys.readouterr()
 

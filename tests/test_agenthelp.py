@@ -164,8 +164,8 @@ def test_agent_help_flag_redacts_root_env_secret(monkeypatch, capsys):
     #
     # The LIVE env value must never appear; the CLASS-declared default
     # (never a secret -- a fixed, code-level constant) always does, so a
-    # consumer still learns the field's declared shape/default. Previously
-    # this over-redacted to a bare `null`, losing that safe information too.
+    # consumer still learns the field's declared shape/default (redacting to a
+    # bare `null` would lose that safe information too).
     monkeypatch.setenv("DUHO_TEST_AGENTHELP_ROOT_SECRET", "root-s3cr3t-api-key")
     with pytest.raises(SystemExit):
         duho.main(SecretApp, ["--help-agents"])
@@ -607,16 +607,14 @@ class TypeStrings(Cmd):
 
 
 def test_type_strings_are_version_independent():
-    # Pinned to one canonical spelling regardless of interpreter: 3.9/3.10
-    # used to render a bare `list[str]` as `list` (losing the element type)
-    # and `Optional[int]`; 3.14 renders unions as `int | None`. A qualified
-    # Enum used to appear only inside a generic (`list[__main__.Color]`).
-    # `labels`/`mixed` pin a SEPARATE regression: rendering a `Literal`'s own
-    # ARGS (values, not types) by recursing into the same type-string logic
-    # dropped their quoting entirely (`Literal["x, y", "z"]` -> `Literal[x, y,
-    # z]`, indistinguishable from a 3-member literal) and collapsed a string
-    # member onto an int of the same spelling (`Literal["1", 1]` ->
-    # `Literal[1, 1]`) -- `repr()` on each member fixes both, identically on
+    # Pinned to one canonical spelling regardless of interpreter: a bare
+    # `list[str]` keeps its element type (not `list`), `Optional[int]` and
+    # 3.14's `int | None` agree, and a qualified Enum appears outside a
+    # generic too. `labels`/`mixed` pin that a `Literal`'s own ARGS (values,
+    # not types) keep their quoting (`Literal["x, y", "z"]` is not
+    # `Literal[x, y, z]`, a 3-member literal) and that a string member stays
+    # distinct from an int of the same spelling (`Literal["1", 1]` is not
+    # `Literal[1, 1]`): `repr()` on each member does both, identically on
     # every interpreter.
     doc = describe(TypeStrings)
     opts = {o["dest"]: o for o in doc["options"]}

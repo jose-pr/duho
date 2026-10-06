@@ -71,8 +71,8 @@ class TestExpand:
         assert list(expand(text_with_many_ranges)) == ["1" * 1500]
 
     def test_reversed_digit_range_raises(self):
-        # A reversed range used to silently yield nothing -- a typo then reads
-        # as "no targets, and run_targets([]) returns 0", i.e. success.
+        # A reversed range must not silently yield nothing -- a typo would then
+        # read as "no targets, and run_targets([]) returns 0", i.e. success.
         with pytest.raises(ValueError):
             list(expand("web[10-01]"))
         with pytest.raises(ValueError):
@@ -89,12 +89,12 @@ class TestExpand:
             list(expand("h[1-a]"))
 
     def test_multi_character_letter_endpoint_raises(self):
-        # Used to raise a raw TypeError from ord() on a 2-char string.
+        # Must not raise a raw TypeError from ord() on a 2-char string.
         with pytest.raises(ValueError):
             list(expand("h[AB-CD]"))
 
     def test_mixed_case_letter_range_raises(self):
-        # Used to silently walk the ASCII punctuation between 'Z' and 'a'.
+        # Must not silently walk the ASCII punctuation between 'Z' and 'a'.
         with pytest.raises(ValueError):
             list(expand("n[B-a]"))
 
@@ -119,12 +119,10 @@ class TestPysafe:
         assert pysafe("a.class.b") == "a.class_.b"
 
     def test_trailing_symbol_is_spelled_out_twice(self):
-        # Matches duho 0.5.4 exactly, quirk included: a trailing symbol is
-        # consumed by the startswith/endswith handling AND by the interior
-        # `replace` that follows it, so it is spelled out twice
-        # ("a+" -> "aplus_plus", not the more obvious "a_plus"). A later
-        # branch "fixed" this to "a_plus"/"x_not", which was itself the
-        # regression -- 0.5.4 never produced that.
+        # Quirk included: a trailing symbol is consumed by the
+        # startswith/endswith handling AND by the interior `replace` that
+        # follows it, so it is spelled out twice ("a+" -> "aplus_plus", not the
+        # more obvious "a_plus" or "x_not").
         assert pysafe("a+") == "aplus_plus"
         assert pysafe("x!") == "xnot_not"
 
@@ -133,10 +131,8 @@ class TestPysafe:
 
     def test_symbol_substitution_runs_on_the_whole_dotted_string(self):
         # The symbol substitution operates on the joined string, not on each
-        # separator-split part in isolation -- matching 0.5.4, where a symbol
-        # at a part boundary can affect its neighbor ("a.+" -> "a.plus_plus",
-        # not "a.plus"). A later branch scoped this to one part at a time,
-        # which was itself the regression.
+        # separator-split part in isolation, so a symbol at a part boundary can
+        # affect its neighbor ("a.+" -> "a.plus_plus", not "a.plus").
         assert pysafe("a.+") == "a.plus_plus"
         assert pysafe("x+") == "xplus_plus"
 
@@ -249,7 +245,7 @@ class TestSnakeCase:
         assert camelcase(snakecase("CamelCaseName")) == "CamelCaseName"
 
     def test_title_case_does_not_double_underscore(self):
-        # An uppercase letter right after a separator used to get a SECOND
+        # An uppercase letter right after a separator must not get a SECOND
         # underscore inserted ("My-App" -> "my__app").
         assert snakecase("My-App") == "my_app"
         assert snakecase("Some Name") == "some_name"
@@ -348,7 +344,7 @@ class TestKebabCase:
 class TestModuleAll:
     def test_range_not_exported_on_star_import(self):
         # `range`/`unicode_range` shadow the builtin *inside this module by
-        # design*, but listing them in __all__ used to export that shadowing
+        # design*, but listing them in __all__ would export that shadowing
         # to `from duho.text import *`, breaking every later `range(n)` for a
         # star-importer.
         assert "range" not in text.__all__

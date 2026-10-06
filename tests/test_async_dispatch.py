@@ -1,4 +1,4 @@
-"""Regression tests: `_maybe_await` must drive ANY awaitable to
+"""Tests: `_maybe_await` must drive ANY awaitable to
 completion (not just a native coroutine object), reject an async-generator
 result outright instead of silently returning it as the exit code, and fail
 loud -- with a fix pointed at -- instead of a bare `asyncio` internals error

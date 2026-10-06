@@ -398,8 +398,8 @@ class _GlobalOptionApp(_GlobalOptionRoot, Cli):
 
 def test_global_option_before_subcommand_survives():
     parser = _GlobalOptionApp._parser_()
-    # Given BEFORE the subcommand -- previously clobbered to None by the
-    # child's inherited --db default. Now preserved.
+    # Given BEFORE the subcommand -- must not be clobbered to None by the
+    # child's inherited --db default.
     assert parser.parse_args(["--db", "X", "global-option-sub"]).db == "X"
 
 

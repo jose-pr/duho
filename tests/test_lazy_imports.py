@@ -1,7 +1,7 @@
 """Tests for ``import duho``'s zero-eager-import contract on its own submodules.
 
 ``json``/``importlib.metadata`` are already covered elsewhere (their own
-regression tests live next to the features that use them, e.g.
+tests live next to the features that use them, e.g.
 ``tests/test_config_json.py``, ``tests/test_entry_points.py``). This file
 covers the rest of ``import duho``'s avoidable cost: ``duho.completion`` (and
 the ``shlex`` it pulls in) and ``duho.discovery``'s ``importlib.util``/
@@ -59,10 +59,10 @@ def test_duho_completion_importable_via_submodule_import():
 def test_plain_import_duho_does_not_load_discovery_import_helpers():
     """``import importlib.util``/``pkgutil`` are only paid for by discovery calls.
 
-    ``discovery.py`` used to import both at module top, so a plain ``import
+    ``duho.discovery`` must not import both at module top, or a plain ``import
     duho`` (which imports ``duho.discovery`` for its top-level re-exports)
-    paid for them even when the app never discovers commands from a package/
-    directory/import path.
+    would pay for them even when the app never discovers commands from a
+    package/directory/import path.
     """
     code = (
         "import sys, duho\n"

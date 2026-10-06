@@ -389,7 +389,7 @@ def test_empty_module_contributes_nothing(tmp_path):
 def test_reexported_class_is_deduped(tmp_path, caplog):
     # deploy.py defines Deploy; reexport.py imports it unchanged. The
     # __module__ boundary filter must yield Deploy only once (from deploy.py).
-    # Sibling imports now work (the directory is on sys.path for the
+    # Sibling imports work (the directory is on sys.path for the
     # duration of each file's import), so reexport.py's `from deploy import
     # Deploy` SUCCEEDS; Deploy is filtered out by the module-boundary dedup,
     # not by a failed import, so no warning is logged for it either.
@@ -558,7 +558,7 @@ def test_unregister_command_provider_removes_the_exact_pair(tmp_path):
 
 
 def test_unregister_command_provider_is_idempotent():
-    """Removing a pair that isn't (or is no longer) registered is a no-op,
+    """Removing a pair that isn't registered is a no-op,
     not an error -- mirroring list.remove's failure mode being swallowed."""
     from duho.discovery import unregister_command_provider
 
@@ -1005,15 +1005,15 @@ class UsesFractions(Cmd):
 
 def test_directory_discovery_does_not_evict_stdlib_modules(tmp_path):
     """A command file's own ``import fractions`` must survive discovery's
-    post-import ``sys.modules`` sweep. Before the fix, EVERY module newly
-    present in ``sys.modules`` after importing the command file was popped,
-    stdlib/third-party included -- not just the sibling-helper convention this
-    cleanup exists for -- so a stdlib module was silently evicted every run.
+    post-import ``sys.modules`` sweep. Popping EVERY module newly
+    present in ``sys.modules`` after importing the command file would evict
+    stdlib/third-party modules too -- not just the sibling-helper convention
+    this cleanup exists for.
 
     ``fractions`` is removed from ``sys.modules`` first (it may already be
     cached from an unrelated earlier import in this process, in which case it
-    would never appear as a "new" module during discovery and the eviction bug
-    could never trigger for it)."""
+    would never appear as a "new" module during discovery and eviction
+    could never be observed for it)."""
     _write(tmp_path, "usesfractions.py", _USES_STDLIB)
     import fractions as _preexisting
 
@@ -1247,8 +1247,8 @@ def test_entry_point_underscore_prefixed_class_is_skipped_with_warning(
     `_iter_class_commands` already enforces for filesystem/package
     discovery (see `test_reexported_class_is_deduped` above, and the leading
     `_` skip there). An entry point is just another way to reach the SAME
-    class object and must not bypass that rule: before the fix, a plugin
-    advertising a private base class via an entry point was still
+    class object and must not bypass that rule: a plugin
+    advertising a private base class via an entry point must not be
     discovered and registered as a real subcommand."""
 
     class _PrivateBase(Cmd):
@@ -1269,8 +1269,8 @@ def test_entry_point_underscore_prefixed_class_is_skipped_with_warning(
 
 
 def test_cli_name_alias_no_longer_honored(tmp_path):
-    """`_cli_name` was dropped -- only `_parsername_` names a
-    module command now. A module declaring only `_cli_name` falls back to its
+    """`_cli_name` is not read -- only `_parsername_` names a
+    module command. A module declaring only `_cli_name` falls back to its
     file-stem-derived name instead."""
     path = _write(
         tmp_path,

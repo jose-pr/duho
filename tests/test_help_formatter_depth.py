@@ -1,11 +1,10 @@
-"""Regression test: `_help_formatter_` must style the WHOLE
+"""Test: `_help_formatter_` must style the WHOLE
 subcommand tree, not just the root's direct children.
 
-Before this fix, `_parser_` only assigned the root's formatter to each
-direct child, AFTER that child had already built its own (grandchild)
-subtree using its own (unset) `_help_formatter_` -- so a depth-2+ nested
-command kept argparse's plain formatter regardless of what the app root
-declared.
+Assigning the root's formatter only to each direct child, AFTER that child
+has built its own (grandchild) subtree using its own (unset)
+`_help_formatter_`, would leave a depth-2+ nested command with argparse's
+plain formatter regardless of what the app root declares.
 """
 
 from duho import Cli, Cmd, DefaultsFormatter

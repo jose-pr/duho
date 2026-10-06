@@ -386,10 +386,10 @@ def test_bash_completes_flags_after_all_positionals_consumed():
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_bash_hidden_positional_still_occupies_its_slot():
-    """A positional hidden via `help=argparse.SUPPRESS` used to be
-    dropped from the walk entirely, which shifted every LATER positional's
-    completion one slot early -- so the choice-bearing positional right
-    after a hidden one never got offered at all."""
+    """A positional hidden via `help=argparse.SUPPRESS` must not be
+    dropped from the walk: that would shift every LATER positional's
+    completion one slot early, so the choice-bearing positional right
+    after a hidden one would never be offered."""
 
     parser = argparse.ArgumentParser(prog="hiddenposapp")
     parser.add_argument("secretpos", help=argparse.SUPPRESS)
@@ -494,19 +494,19 @@ def test_bash_positional_value_matching_a_subcommand_name_is_not_mistaken_for_it
     """argparse always consumes a node's OWN positional(s) before ever
     treating a word as its subparsers dispatch value, so a word equal to a
     real subcommand's name must still count as the pending positional's
-    value until that positional is satisfied. The walker used to match
+    value until that positional is satisfied. The walker must not match
     `is_sub` on the WORD alone, ignoring how many of the node's own
-    positionals were already consumed -- so `pos go<TAB>` (the FIRST `go`,
-    which is `target`'s value) wrongly descended straight into the `go`
+    positionals were already consumed: `pos go<TAB>` (the FIRST `go`,
+    which is `target`'s value) must not descend straight into the `go`
     subcommand, one word early.
 
     `postool pos go<TAB>`: `pos` has one own positional (`target`, whose
     choices include `go`) THEN a subcommand table containing `go`. The
     first `go` must be read as `target`'s value, leaving `pos` still
     awaiting its subcommand-dispatch word -- so the only candidate here is
-    the subcommand name `go` itself. Under the bug, the walker had already
-    (wrongly) descended into the `go` node on that first word, which has
-    no positionals or subcommands of its own, so nothing was offered.
+    the subcommand name `go` itself. Descending into the `go` node on that
+    first word would offer nothing, as it has no positionals or
+    subcommands of its own.
     """
     parser = PosRoot._parser_()
     parser.prog = "postool"
@@ -586,11 +586,10 @@ def test_hostile_choice_bash_does_not_execute(tmp_path):
     """The injected `$(...)` must NOT run when the completion is driven.
 
     Runs the bash subprocess with cwd=tmp_path and a RELATIVE marker name:
-    an earlier version of this test spliced a Windows tmp_path (with `\\`)
-    into the payload, which on Windows meant the marker check never fired
+    splicing a Windows tmp_path (with `\\`)
+    into the payload would mean the marker check never fires
     because bash strips the backslashes and `touch` creates a mangled
-    filename in the process's cwd instead -- which, since that cwd was the
-    repo root, left a stray untracked file there. Both fixed here.
+    filename in the process's cwd instead.
     """
     marker = tmp_path / "pwned"
     parser = _hostile_parser("it's $(touch pwned)")
@@ -611,14 +610,11 @@ def test_hostile_choice_bash_does_not_execute(tmp_path):
 
 @pytest.mark.skipif(_BASH is None, reason="bash not available")
 def test_hostile_choice_bash_round_trips_as_one_candidate(tmp_path):
-    """A choice value containing whitespace/quotes now round-trips as ONE
+    """A choice value containing whitespace/quotes round-trips as ONE
     candidate through bash's `compgen -W`: escaping every character outside
     a conservative safe set (not just backslash/``$``/backtick/quotes)
-    backslash-protects the internal space too, so IFS no longer splits
-    `it's $(uh oh)` into the separate tokens `its`, `\\$(uh`, `oh)` it used
-    to. This used to be an accepted, documented limitation (bash's static
-    word-splitting is otherwise inherent to `compgen -W`); the wider escape
-    set removes it."""
+    backslash-protects the internal space too, so IFS does not split
+    `it's $(uh oh)` into the separate tokens `its`, `\\$(uh`, `oh)`."""
     parser = _hostile_parser("it's $(uh oh)")
     script = completion.bash(parser)
     reply = _complete_bash(
@@ -637,9 +633,8 @@ def test_bash_choices_cannot_run_process_or_command_substitution(tmp_path):
     """Security: `compgen -W`'s word list gets a SECOND, dynamic
     (re-)evaluation at Tab-press, exactly as if the joined candidate string
     had been freshly typed -- process substitution (`<(...)`/`>(...)`) needs
-    no leading `$` and used to run at Tab-time even though `$`/backtick/
-    quotes were already escaped, because those characters were never in the
-    old escape set. Drive a real completion carrying every classic
+    no leading `$`, so it would run at Tab-time unless escaped even though
+    `$`/backtick/quotes already are. Drive a real completion carrying every classic
     injection vector (process substitution, command substitution,
     backticks, brace expansion, globbing) and confirm none of them execute
     or expand -- each still comes back as its own literal candidate."""
@@ -692,9 +687,9 @@ def test_bash_quote_in_one_choice_does_not_merge_later_choices():
 def test_bash_opt_equals_with_nothing_typed_yet_offers_choices():
     """`--opt=` with NOTHING typed after the `=` arrives as only the two
     words `--opt`, `=` (no fourth, empty word) -- `cur` IS the literal `=`
-    character, which used to be handed straight to `compgen -W ... -- "="`,
-    matching nothing and falling back to bash's default filename
-    completion."""
+    character, which must not be handed straight to `compgen -W ... -- "="` (it
+    matches nothing and falls back to bash's default filename
+    completion)."""
     parser = _tool_parser()
     script = completion.bash(parser)
     reply = _complete_bash(
@@ -855,7 +850,7 @@ def test_zsh_completes_root_subcommands_and_does_not_leak_siblings(tmp_path):
 
 @pytest.mark.skipif(_ZSH is None, reason="zsh not available")
 def test_zsh_positional_completion_does_not_error(tmp_path):
-    """A Path positional used to make EVERY Tab in that command
+    """A Path positional must not make EVERY Tab in that command
     error (`invalid argument: src:src:_files`)."""
     parser = Tool._parser_()
     parser.prog = "Tool"
@@ -1157,8 +1152,8 @@ def test_powershell_positional_matching_a_subcommand_name_is_not_mistaken_for_it
     treating a word as its subparsers dispatch value, so on the PowerShell
     side too a word equal to a real subcommand's name must still count as
     the pending positional's value until that positional is satisfied --
-    the walk used to descend into `go` on the FIRST `go` (`target`'s own
-    value), regardless of whether `target` had been consumed yet."""
+    the walk must not descend into `go` on the FIRST `go` (`target`'s own
+    value) before `target` has been consumed."""
     parser = PosRoot._parser_()
     parser.prog = "postool"
     script = completion.powershell(parser)
@@ -1270,10 +1265,10 @@ def test_powershell_does_not_skip_an_earlier_word_equal_to_current():
     script = completion.powershell(parser)
     # `repeatapp go go<TAB>`: the FIRST `go` is the subcommand; the word
     # being completed is the second `go`, whose TEXT equals the first `go`'s
-    # too. The old code skipped any element whose text equalled
-    # `$wordToComplete`, so it also skipped the first (subcommand-
-    # identifying) `go`, leaving `$cmdPath` at the root and offering the
-    # root's own subcommand names instead of `where`'s choices.
+    # too. Skipping any element whose text equals `$wordToComplete` would
+    # also skip the first (subcommand-identifying) `go`, leaving `$cmdPath`
+    # at the root and offering the root's own subcommand names instead of
+    # `where`'s choices.
     reply = _pwsh_complete(script, "repeatapp go go", None)
     assert set(reply) == {"'go'", "'gone'"}
 

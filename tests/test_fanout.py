@@ -227,14 +227,14 @@ def test_ctrl_c_cancels_queued_targets():
 def test_filter_does_not_raise_immediately_on_malformed_record():
     """The filter must never render the record itself: it defers to whatever
     formats the record later, instead of calling getMessage() eagerly and
-    raising straight out of the log call (which used to escape into the
+    raising straight out of the log call (which would escape into the
     target and mark it failed).
 
-    (A true end-to-end reproduction -- a mismatched-args log call inside a
+    (A true end-to-end test -- a mismatched-args log call inside a
     target -- can't be asserted under pytest's own log capture: pytest's
     LogCaptureHandler deliberately overrides handleError to re-raise a bad
     log call so it fails the *test*, which defeats the very handleError
-    protection this fix relies on. Testing the filter directly avoids that.)
+    protection this relies on. Testing the filter directly avoids that.)
     """
     record = logging.LogRecord(
         "x", logging.WARNING, __file__, 1, "no placeholder here", ("a",), None
@@ -368,8 +368,8 @@ def test_tagged_record_attribute_follows_duho_naming_convention():
 
 # --------------------------------------------------------------------------
 # A tagged record must survive `pickle.dumps` -- a closure over the record's
-# own bound `getMessage` (an earlier version of this filter) is a local
-# object `pickle` always rejects, which broke every handler that pickles a
+# own bound `getMessage` is a local
+# object `pickle` always rejects, which would break every handler that pickles a
 # record: `logging.handlers.SocketHandler`, and `QueueHandler` feeding a
 # cross-process `multiprocessing.Queue`.
 # --------------------------------------------------------------------------
@@ -396,9 +396,9 @@ def test_tagged_record_survives_pickle_dumps_directly():
 def test_tagged_record_survives_socket_handler_style_pickling():
     """Mirrors `logging.handlers.SocketHandler.makePickle`: a dict COPY of
     the record's own `__dict__`, with `msg` pre-rendered and `args` cleared,
-    is what actually gets pickled and sent -- this used to fail because the
-    (unpicklable) closure was still sitting in that copied dict under
-    `getMessage`, even though `msg` itself had already been rendered."""
+    is what actually gets pickled and sent -- the (unpicklable) closure must
+    not still be sitting in that copied dict under `getMessage` once `msg`
+    has been rendered."""
     record = _tagged_record()
     payload = dict(record.__dict__)
     payload["msg"] = record.getMessage()
@@ -533,9 +533,9 @@ def test_each_target_line_carries_its_prefix(capture_handler):
 def test_unfiltered_handler_never_sees_the_prefix_on_3_12_plus():
     """A handler on the same logger that never had TargetPrefixFilter added
     must see the record exactly as emitted -- not a target it never asked
-    about. Before this fix the filter tagged the record IN PLACE, and
-    `logging` shares one record object across every handler of a logger, so
-    an unfiltered sibling handler saw the `[target]` prefix too."""
+    about. `logging` shares one record object across every handler of a
+    logger, so tagging the record IN PLACE would show an unfiltered sibling
+    handler the `[target]` prefix too."""
     log = logging.getLogger("duho.fanout_isolation")
     log.propagate = False
     log.setLevel(logging.INFO)

@@ -1,11 +1,10 @@
-"""Regression tests for config/JSON layer value coercion being lossy and
-inconsistent with the CLI. ``_convert_single`` ran the CLI text factory on
-already-typed values too, so ``int(1.5)`` truncated instead of rejecting,
-``str(["a", "b"])`` stringified a list instead of rejecting it, and a native
-``bool`` passed through into a non-bool field (``bool`` subclasses ``int``).
-The ``dict[str, V]`` table path skipped this rule entirely for non-string
-values, disagreeing with what the same value would do through a scalar ``V``
-field. A JSON config file is used throughout (no ``tomli``/``tomllib``
+"""Tests that config/JSON layer value coercion is lossless and consistent
+with the CLI. ``_convert_single`` must not run the CLI text factory on
+already-typed values blindly: ``int(1.5)`` would truncate instead of
+rejecting, ``str(["a", "b"])`` would stringify a list, and a native
+``bool`` would pass through into a non-bool field (``bool`` subclasses
+``int``). The ``dict[str, V]`` table path applies the same rule to
+non-string values as a scalar ``V`` field does. A JSON config file is used throughout (no ``tomli``/``tomllib``
 dependency, and it preserves the same native int/float/bool/list/dict
 distinctions TOML does).
 
@@ -200,9 +199,8 @@ def test_config_native_toml_date_does_not_crash(tmp_path):
 # A trailing RFC 3339 UTC designator ("Z") must be accepted the SAME way
 # regardless of case, on every supported Python version -- 3.11+'s own
 # `fromisoformat` natively accepts an uppercase "Z" but rejects a lowercase
-# "z"; the <3.11 shim (which rewrites the suffix itself) previously only
-# normalized case on THAT floor, so "--at ...z" behaved differently
-# depending on which Python duho happened to run on.
+# "z"; the <3.11 shim (which rewrites the suffix itself) must normalize case
+# too, so "--at ...z" behaves the same on every Python.
 # --------------------------------------------------------------------------
 
 

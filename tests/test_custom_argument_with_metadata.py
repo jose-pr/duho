@@ -1,13 +1,13 @@
-"""Regression test: a custom `Argument` type's own `_argbuilder_` must
+"""Test: a custom `Argument` type's own `_argbuilder_` must
 still run when the field is wrapped in `Arg[CustomType, NS(...)]`/
 `Meta(...)`.
 
-Before this fix, ANY field with Annotated metadata was routed through
+A field with Annotated metadata must not be routed through
 `Argument.from_type(decl.type, **options)`, whose `super()._argbuilder_` is
 the plain `Argument` protocol default -- not the custom type's own override.
-The custom type then became a bare, unresolved `type=` factory instead of
+The custom type would become a bare, unresolved `type=` factory instead of
 using its own parsing logic, and adding `help=`/`env=`/... to a custom type
-silently broke it.
+would silently break it.
 """
 
 import duho
@@ -42,8 +42,8 @@ def test_bare_custom_argument_type_uses_its_own_builder():
 
 
 def test_custom_argument_type_wrapped_in_ns_help_still_uses_its_own_builder():
-    """The bug: wrapping in Arg[..., NS(help=...)] used to bypass Reversed's
-    own `_argbuilder_` entirely and use `str(text)` instead."""
+    """Wrapping in Arg[..., NS(help=...)] must not bypass Reversed's
+    own `_argbuilder_` and use `str(text)` instead."""
 
     class WithHelp(Args):
         token: "Arg[Reversed, NS(help='the token')]" = "unused"

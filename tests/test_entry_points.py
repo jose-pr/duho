@@ -161,10 +161,10 @@ def test_missing_group_yields_no_commands():
 
 def test_duplicated_distribution_dedupes_entry_points(tmp_path, monkeypatch):
     """A distribution visible TWICE on sys.path (user site + venv, a
-    stray checkout's ``.egg-info``/``.dist-info`` on ``PYTHONPATH``) used to
-    return every entry point twice on Python 3.9 only -- 3.10+'s own
-    ``entry_points()`` already de-duplicates by distribution name. Doubled
-    entry points also made ``duho.app`` log a spurious "registered by more
+    stray checkout's ``.egg-info``/``.dist-info`` on ``PYTHONPATH``) must not
+    return every entry point twice on Python 3.9 (3.10+'s own
+    ``entry_points()`` already de-duplicates by distribution name). Doubled
+    entry points would make ``duho.app`` log a spurious "registered by more
     than one source" WARNING on every invocation, help included."""
     module_name = "duho_test_plugin_dup_mod"
     site_a = tmp_path / "site_a"

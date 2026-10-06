@@ -1617,10 +1617,14 @@ resolved via the stdlib `pkgutil.resolve_name`. The process then speaks
 newline-delimited JSON-RPC 2.0 over stdin/stdout — wire it into any MCP client as a
 stdio server.
 
-Every `Cmd` reachable from your root — the root itself, and every `_subcommands_`
-node, recursively — becomes one tool, named by its command path under the
+Every `Cmd` reachable through your root's `_subcommands_` tree, recursively,
+becomes one tool, named by its command path under the
 [application's name](#the-applications-name) (`app.parent.child`; e.g. a root
-named `my-app` with a `Deploy` child → `my-app.deploy`). A tool's
+named `my-app` with a `Deploy` child → `my-app.deploy`). A node whose own
+subcommand is mandatory — a root or group that only holds subcommands — is never
+listed as a tool: its fields are merged into the input schema of each descendant
+instead, and `call_tool` on its own name raises `UnknownToolError` (`serve`
+answers JSON-RPC error `-32602`). A tool's
 `inputSchema` is a real JSON Schema built from the same field declarations that
 already drive your `--help`:
 

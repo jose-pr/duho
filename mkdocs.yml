@@ -36,6 +36,7 @@ nav:
       - Logging: guide/logging.md
       - Shell completion: guide/completion.md
       - Plugins via entry points: guide/plugins.md
+      - Testing a command line: guide/testing.md
       - RunPath step directories: guide/runpath.md
   - API Reference:
       - Overview: api/reference.md
@@ -53,6 +54,7 @@ nav:
       - Fanout: api/fanout.md
       - RunPath: api/runpath.md
       - Scaffold: api/scaffold.md
+      - Testing: api/testing.md
       - MCP: api/mcp.md
       - Parsers: api/parsers.md
   - Changelog: changelog.md

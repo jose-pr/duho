@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -66,6 +67,33 @@ def test_pyproject_sdist_excludes_local_files():
     assert '"*.local.*"' in text
 
 
+def _files_to_build() -> "list[str]":
+    """The checkout's tracked files, so a copy carries neither virtual
+    environments nor private notes; the packaging inputs when git is absent."""
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=_ROOT,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        ).stdout.decode("utf-8")
+        names = [n for n in listed.split("\0") if n]
+    except (OSError, subprocess.SubprocessError):
+        names = []
+        for entry in ("pyproject.toml", "README.md", "LICENSE", ".gitignore", "src"):
+            path = _ROOT / entry
+            if path.is_dir():
+                names += [
+                    p.relative_to(_ROOT).as_posix()
+                    for p in path.rglob("*")
+                    if p.is_file() and "__pycache__" not in p.parts
+                ]
+            elif path.is_file():
+                names.append(entry)
+    return [n for n in names if (_ROOT / n).is_file()]
+
+
 # hatchling drops every .gitignore pattern when the checkout's own path matches
 # one (any parent directory named like an ignored one, such as `build`), so the
 # private files must be excluded by the build targets themselves.
@@ -80,14 +108,11 @@ def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path, parent):
     if not (_ROOT / "src" / "duho").is_dir():
         pytest.skip("no local checkout to copy (running against an installed package)")
 
-    import shutil
-
     copy_root = tmp_path / parent / "duho"
-    shutil.copytree(
-        _ROOT,
-        copy_root,
-        ignore=shutil.ignore_patterns(".git", "dist", "build", "*.egg-info"),
-    )
+    for rel in _files_to_build():
+        target = copy_root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_ROOT / rel, target)
     (copy_root / "config.local.toml").write_text("x = 1\n", encoding="utf-8")
     (copy_root / "src" / "duho" / "settings.local.json").write_text(
         "{}\n", encoding="utf-8"

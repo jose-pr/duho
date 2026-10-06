@@ -194,11 +194,19 @@ def test_resolve_app_rejects_non_cmd_target():
         _resolve_app(__name__ + ":_lines")
 
 
-def test_main_reports_unresolvable_app(capsys):
-    rc = main(["no.such.module:Nope"])
-    assert rc == 1
-    captured = capsys.readouterr()
-    assert "could not resolve app" in captured.err
+def test_main_reports_unresolvable_app():
+    # `main` repoints the process's fds 0 and 1 before resolving the app, so
+    # it runs in a child process rather than in the test session.
+    proc = subprocess.run(
+        [sys.executable, "-m", "duho.mcp", "no.such.module:Nope"],
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+        timeout=60,
+    )
+    assert proc.returncode == 1
+    assert "could not resolve app" in proc.stderr
+    assert proc.stdout == ""
 
 
 def test_main_with_no_args_reports_usage(capsys):

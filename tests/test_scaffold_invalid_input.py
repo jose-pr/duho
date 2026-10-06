@@ -10,7 +10,7 @@ from duho import scaffold
     [
         ["my-app"],
         ["demo", "--libdir", "../lib"],
-        ["demo", "--python", "C:\Python314\python.exe"],
+        ["demo", "--python", r"C:\Python314\python.exe"],
     ],
 )
 def test_invalid_value_is_a_usage_error_not_a_traceback(tmp_path, capsys, extra):

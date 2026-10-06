@@ -212,7 +212,7 @@ def test_module_command_keyerror_factory_env_value_never_leaks_and_never_traceba
     monkeypatch.setenv("DUHO_TEST_MODULE_CMD_KEYERROR_REGION", "hunter2-PASSWORD")
     _write(tmp_path, "deploy.py", _MODULE_CMD_WITH_KEYERROR_FACTORY)
     with pytest.raises(SystemExit) as excinfo:
-        app(Root, source=tmp_path, argv=["-h"], setup_logging=False)
+        app(Root, source=tmp_path, argv=["deploy"], setup_logging=False)
     assert excinfo.value.code == 2
     err = capsys.readouterr().err
     assert "hunter2-PASSWORD" not in err

@@ -2141,17 +2141,15 @@ def test_bad_env_value_for_module_command_field_reports_via_parser_error(
 def test_bad_env_value_for_module_command_field_does_not_break_other_commands(
     tmp_path, monkeypatch, capsys
 ):
-    """A bad value belonging to ONE module command must not itself become an
-    uncaught exception that takes the whole process down with exit 1 --
-    every registered command still gets a normal, exit-2 usage error instead
-    of a raw traceback."""
+    """A bad value belonging to ONE module command must not break `-h` of the
+    app: it only fails the command that declares it."""
     _write(tmp_path, "intmod.py", _MODULE_CMD_WITH_INT_ENV_FIELD)
     monkeypatch.setenv("DUHO_TEST_BAD_MOD_PORT", "not-an-int-secret")
     with pytest.raises(SystemExit) as excinfo:
         app(Root, source=tmp_path, argv=["-h"], setup_logging=False)
-    assert excinfo.value.code == 2
-    err = capsys.readouterr().err
-    assert "not-an-int-secret" not in err
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "not-an-int-secret" not in captured.out + captured.err
 
 
 # --------------------------------------------------------------------------

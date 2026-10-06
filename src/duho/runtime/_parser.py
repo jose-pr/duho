@@ -110,6 +110,36 @@ def _deregister_subparser(subparsers: "_argparse._SubParsersAction", name: str) 
     ]
 
 
+def _defer_module_layers(
+    sub_parser: "_argparse.ArgumentParser",
+    args_cls: type,
+    table: dict,
+    agenthelp,
+) -> None:
+    """Apply a module command's env/config layers when its own parser parses.
+
+    A bad value then fails only the command that declares it (usage error,
+    exit 2), not every invocation, ``--help`` included. A first, forgiving
+    pass at registration keeps root-level help/agent-help provenance notes.
+    """
+    try:
+        _apply_default_layers_one(sub_parser, args_cls, table)
+    except ValueError:
+        pass
+    agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+    original = sub_parser.parse_known_args
+
+    def parse_known_args(args=None, namespace=None):
+        try:
+            _apply_default_layers_one(sub_parser, args_cls, table)
+        except ValueError as exc:
+            sub_parser.error(str(exc))
+        agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+        return original(args, namespace)
+
+    sub_parser.parse_known_args = parse_known_args  # type: ignore[method-assign]
+
+
 def _apply_app_config_layers(
     root_cls: type,
     subparsers: "_argparse._SubParsersAction",
@@ -135,36 +165,23 @@ def _apply_app_config_layers(
     * a **module command** with a declared ``args_cls`` (since 0.4.1 a
       module command may declare a module-level ``Args`` class) has NO
       ``_initparser_`` hook at all (its subparser is a deliberately bare
-      stdlib one -- see this module's own docstring), so its table is applied
-      EAGERLY, immediately, rather than deferred.
+      stdlib one -- see this module's own docstring), so its table is applied by
+      a wrapper on that subparser's own ``parse_known_args``, i.e. only when
+      that command is the one parsing (see :func:`_defer_module_layers`).
 
-    A module command's own env/config-bound field, once laid on eagerly
-    above, gets the SAME "never show the live value" redaction a class
-    command's does: right after ``_apply_default_layers_one`` installs it,
+    A module command's own env/config-bound field gets the SAME "never show
+    the live value" redaction a class command's does:
     ``duho.agenthelp.stash_default_provenance`` snapshots the class default
     (and, when applicable, a value-free provenance note) onto each action,
-    for its own ``--help``/agent-help description to read later -- BEFORE
-    ``app()``'s own ``parser.parse_args(argv)`` runs (this whole function is
-    called from command-tree assembly, always before that), so it is in
-    place no matter which trigger fires. Passed this command's OWN
-    ``args_cls`` explicitly rather than relying on ``parser._duho_cls_``: a
-    module command's subparser deliberately has none (``duho.mcp`` also reads
-    that same attribute, to decide whether a node is callable -- a decision
-    this redaction has no business changing). ``duho.agenthelp`` is imported
-    lazily so a plain ``duho.app()`` call with no module command declaring
-    fields never pays for it.
+    passed this command's OWN ``args_cls`` explicitly because the subparser
+    deliberately has no ``_duho_cls_`` (``duho.mcp`` reads that to decide
+    whether a node is callable). ``duho.agenthelp`` is imported lazily.
 
     **A bad env/config value never raises a raw traceback.**
-    ``_apply_default_layers_one`` raises ``ValueError`` `from None` (the
-    original conversion exception -- which may itself echo the raw,
-    possibly-secret value, e.g. ``int()``'s own error message -- is never
-    chained, so it can never surface via an uncaught exception's printed
-    cause). Left uncaught here, that ``ValueError`` would still propagate out
-    of ``app()`` itself and crash EVERY invocation (including `-h`) with exit
-    1 the moment any registered module command declares a bad env/config
-    value -- reported instead through this subcommand's own ``parser.error()``
-    (usage text + exit 2), the same contract the deferred, class-command path
-    already gets from `_finalize_layers`.
+    ``_apply_default_layers_one`` raises ``ValueError`` `from None` (never
+    chaining the conversion error, which may echo a secret); the wrapper
+    reports it through this subcommand's own ``parser.error()`` (usage text,
+    exit 2), so it fails only the command that declares the value.
 
     ``raw_config`` is the already-loaded TOML table (``app`` loads it once so
     the root layering can also run before the advisory prepass).
@@ -183,13 +200,7 @@ def _apply_app_config_layers(
             continue
         args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
         if args_cls is not None:
-            try:
-                _apply_default_layers_one(sub_parser, args_cls, sub_table)
-            except ValueError as exc:
-                sub_parser.error(str(exc))
-                continue  # pragma: no cover - parser.error always raises SystemExit
-
-            _agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+            _defer_module_layers(sub_parser, args_cls, sub_table, _agenthelp)
         # Every module command's `-h` -- whether or not it declares its own
         # `Args` -- gets this protection, not only one whose own field was
         # just laid on above: a module command's subparser is a plain

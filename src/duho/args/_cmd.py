@@ -73,23 +73,17 @@ class Cmd(Args):
     def _register_subcmd_(cls, child: _C) -> _C:
         """Attach ``child`` to THIS class's own ``_subcommands_`` tree.
 
-        Appends ``child`` to a per-class list, materialized copy-on-write on
-        first use: if ``_subcommands_`` is not set directly in ``vars(cls)``
-        (i.e. it is unset or inherited from a parent ``Cli``), a fresh list
-        is created -- never mutating a parent class's inherited list, so two
-        ``Cli`` subclasses never cross-contaminate. An inherited
-        ``_subcommands_`` seeds the fresh list (its children are kept, then
-        ``child`` is added). Idempotent: if ``child`` is already present it
-        is a no-op, so a child registered both statically (in a declared
-        ``_subcommands_``) and via this API appears exactly once. Returns
+        Copy-on-write: a ``_subcommands_`` unset or inherited from a parent is
+        copied into a fresh per-class list (seeded with the inherited children),
+        never mutated, so sibling ``Cli`` classes stay independent. Idempotent:
+        a child declared statically and registered here appears once. Returns
         ``child`` so it can be used as a decorator.
         """
         if "_subcommands_" in vars(cls):
             current = cls._subcommands_
             existing = list(current) if current else []
         else:
-            # Copy-on-write: seed from an inherited/unset value WITHOUT
-            # mutating the parent's list.
+            # Seed from an inherited/unset value without mutating the parent's.
             inherited = getattr(cls, "_subcommands_", None)
             existing = list(inherited) if inherited else []
         if child not in existing:
@@ -138,21 +132,17 @@ class Cli(Cmd):
     avoid that one field name on a ``Cli`` subclass.
     """
 
-    #: Own empty class-body-constants cache: every field ``Cli`` declares
-    #: is sandwich-named (``_version_``, ``_completion_``, ...) and gets filtered
-    #: out by ``get_clsargs`` anyway, so seeding this skips AST-parsing
-    #: this module for ``Cli``. See ``Args._duho_constants_``.
+    #: Own empty cache: every field ``Cli`` declares is sandwich-named and
+    #: filtered out by ``get_clsargs`` anyway. See ``Args._duho_constants_``.
     _duho_constants_: dict = {}
 
     #: ``--version`` string, the ``AUTO`` sentinel (resolve via
     #: ``importlib.metadata``), or ``None`` for no ``--version`` flag. Read by
     #: ``_resolve_version``.
     #:
-    #: NOTE: every annotation on this class is written with ``typing.Union`` /
-    #: ``typing.Optional`` and quoted, NEVER PEP-604 ``X | Y`` -- even sandwich-
-    #: named fields are evaluated by ``typing.get_type_hints`` in
-    #: ``_introspect.get_clsargs`` (before the ``_``-prefix filter drops them),
-    #: so a ``|`` union would raise ``TypeError`` at parser-build time on 3.9.
+    #: NOTE: annotations here are quoted ``typing.Union``/``Optional``, never
+    #: ``X | Y``: ``typing.get_type_hints`` evaluates them all, so a ``|`` raises
+    #: ``TypeError`` at parser build on 3.9.
     _version_: _ty.Optional[_ty.Union[str, _AutoVersion]] = None
 
     #: Distribution name override for ``_version_ = duho.AUTO`` when the import
@@ -234,55 +224,33 @@ class Cli(Cmd):
     _exit_codes_: _ty.Optional[_ty.Mapping[_ty.Any, str]] = None
 
     #: When ``True`` (the default), ``duho.main``/``duho.app`` call
-    #: :func:`duho.utf8_stdio` FIRST thing -- before the MCP launch trigger,
-    #: before ``argv`` is parsed, before anything else -- so piped/redirected
-    #: stdout/stderr on a non-UTF-8 host locale (``cp1252`` on Windows) become
-    #: UTF-8 and stop being able to crash on a non-ASCII character at all.
-    #: ``False`` opts the app out entirely: duho leaves stdio completely
-    #: alone, and the app may call :func:`duho.utf8_stdio` itself (with its
-    #: own choice of streams/policy) or do nothing. Read via ``getattr``, so
-    #: any class works, not just a ``Cli``. ``duho.main(..., utf8_stdio=...)``/
-    #: ``duho.app(..., utf8_stdio=...)`` accept the same tri-state as
-    #: ``mcp=``: an explicit ``True``/``False`` wins over this class
-    #: attribute; ``None`` (the default kwarg value) defers to it.
+    #: :func:`duho.utf8_stdio` first, before the MCP trigger and argv parsing, so
+    #: piped stdout/stderr on a non-UTF-8 locale (``cp1252`` on Windows) become
+    #: UTF-8 and cannot crash on a non-ASCII character. ``False`` leaves stdio
+    #: alone (the app may call :func:`duho.utf8_stdio` itself). Read via
+    #: ``getattr``, so any class works. The ``utf8_stdio=`` kwarg of ``main``/
+    #: ``app`` wins when it is not ``None``.
     _utf8_stdio_: bool = True
 
-    #: On the ROOT class of the tree being served, ``False`` disables the
-    #: ``<PREFIX>MCP``/``<NAME>_MCP`` environment trigger (see
-    #: ``duho.main``/``duho.app``'s own docs) for this app entirely -- the
-    #: variable, if set, is left in ``os.environ`` untouched and a normal
-    #: CLI run proceeds. Default ``True`` (the trigger is on by default).
-    #: ``duho.app(..., mcp=False)`` does the same for one ``app()`` call,
-    #: and wins over this class attribute when given. Independent of
-    #: ``_mcp_command_`` below.
+    #: On the ROOT class, ``False`` disables the ``<PREFIX>MCP``/``<NAME>_MCP``
+    #: environment trigger for this app: the variable stays in ``os.environ`` and
+    #: a normal CLI run proceeds. Default ``True``. ``duho.app(..., mcp=False)``
+    #: does the same for one call and wins. Independent of ``_mcp_command_``.
     #:
-    #: On any OTHER (non-root) node in the tree -- a nested ``Cmd``/``Cli``
-    #: reached as a subcommand -- ``_mcp_ = False`` means something
-    #: different: it (and its whole subtree, if it has one) is left out of
-    #: ``tools/list`` entirely, and ``tools/call`` on it (or on anything
-    #: below it) raises the same "unknown tool" error as a nonexistent
-    #: name, disclosing nothing. Read via plain ``getattr``, so a subclass
-    #: of an excluded command is excluded too without redeclaring it. A
-    #: module command supports the same opt-out via a module-level
-    #: ``_mcp_ = False`` (see ``discovery.ModuleCommand``). The command
-    #: registered under ``_mcp_command_``/``mcp_command=`` (an ``McpCmd``
-    #: subclass) is excluded unconditionally regardless of this attribute.
+    #: On any other node reached as a subcommand, ``_mcp_ = False`` leaves it and
+    #: its subtree out of ``tools/list``, and ``tools/call`` on it raises the
+    #: "unknown tool" error. Subclasses inherit it; a module command uses a
+    #: module-level ``_mcp_ = False``. The ``_mcp_command_`` command is always
+    #: excluded.
     _mcp_: bool = True
 
-    #: Opt-in built-in subcommand that serves this CLI as an MCP server,
-    #: read by both ``duho.main`` and ``duho.app``. ``False`` (default): no
-    #: subcommand. ``True``:
-    #: registers ``duho.mcp.McpCmd`` under the name ``"mcp"``. A non-empty
-    #: ``str``: registers it under that exact name instead (validated at
-    #: build time: non-empty, no whitespace, not starting with ``"-"``; a
-    #: name colliding with an existing command/alias, or no other
-    #: subcommand existing at all, is a build-time ``ValueError``).
-    #: ``duho.app(..., mcp_command=...)`` wins over this class attribute
-    #: when given (including passing ``False`` to override a ``True``/
-    #: ``str`` class default) -- ``duho.main`` has no such kwarg, so it
-    #: always reads this attribute directly. Quoted ``Union`` (not PEP 604
-    #: ``|``) per the module's 3.9-quoting rule for declared class attrs
-    #: (see ``_version_`` above).
+    #: Opt-in built-in subcommand that serves this CLI as an MCP server, read by
+    #: ``duho.main`` and ``duho.app``. ``False`` (default): none. ``True``:
+    #: ``duho.mcp.McpCmd`` under the name ``"mcp"``. A non-empty ``str``: under
+    #: that name (non-empty, no whitespace, not starting with ``"-"``; a name
+    #: colliding with a command or alias, or no other subcommand at all, is a
+    #: build-time ``ValueError``). ``duho.app(..., mcp_command=...)`` wins when
+    #: given, ``False`` included; ``duho.main`` has no such kwarg.
     _mcp_command_: _ty.Union[str, bool] = False
 
     #: Opt-in built-in subcommand that prints a shell completion script,

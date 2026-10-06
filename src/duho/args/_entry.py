@@ -44,32 +44,16 @@ def _logger_name_for(instance, root_cls: type | None = None) -> str:
 def _setup_instance_logging(
     instance, setup_logging: bool, root_cls: type | None = None
 ) -> None:
-    """Initialize stderr logging + apply verbosity for a parsed instance:
-    the block shared by ``duho.main`` and ``duho.app``.
+    """Initialize stderr logging and apply verbosity for a parsed instance.
 
-    A no-op unless `setup_logging` is true. Prefers the parsed instance's own
-    ``_set_loglevels_`` (present when it mixes in ``LoggingArgs``). When the
-    DEEPEST selected class is a plain ``Cmd`` with no such method, but
-    `root_cls` -- the class `duho.main`/`duho.app` were actually called with
-    -- IS a ``LoggingArgs``, the verbosity fields are still on `instance`
-    (argparse copies the parent parser's parsed values onto the shared
-    instance regardless of which class gets constructed); apply them under
-    the application's logger (see :func:`_logger_name_for`) via the module-level
-    :func:`duho.presets._apply_loglevels` instead of the missing bound method.
-    This is the documented ``class MyApp(LoggingArgs, Cli)`` +
-    plain ``Cmd`` leaves shape from the README; without this, ``-v``/``-q``/
-    ``--loglevel`` would do nothing.
-
-    ``init_stderr_logging()`` is only called when the root logger has no
-    handlers OTHER than duho's own already-installed one (the
-    ``_STDERR_HANDLER_TAG``-marked handler `init_stderr_logging` itself
-    tracks), so duho never adds a stderr handler to an app/harness that
-    already owns logging (``basicConfig``, pytest's capture handler,
-    etc.). A root with only duho's own handler (a second
-    dispatch in the same process, or a repeat call) still calls it, since
-    `init_stderr_logging` is itself idempotent against its own handler; the
-    guard here is what keeps duho from ever adding a SECOND handler
-    alongside a foreign one.
+    Shared by ``duho.main`` and ``duho.app``; a no-op unless `setup_logging`.
+    Uses the instance's ``_set_loglevels_`` (from ``LoggingArgs``); when the
+    deepest selected class is a plain ``Cmd`` but `root_cls` is a
+    ``LoggingArgs``, the verbosity fields are still on `instance`, so they are
+    applied under the app's logger via ``duho.presets._apply_loglevels``.
+    ``init_stderr_logging()`` is called only when the root logger has no
+    handler besides duho's own, so an app that owns logging (``basicConfig``,
+    pytest's capture) never gets a second stderr handler.
     """
     if not setup_logging:
         return
@@ -93,28 +77,13 @@ def _setup_instance_logging(
 def _maybe_await(result):
     """Drive a coroutine result to completion, returning its value.
 
-    A ``Cmd.__call__`` (or a ``duho.main`` target) may be ``async def``; its
-    invocation returns a coroutine. This runs it with ``asyncio.run`` at the
-    call site so the awaited value becomes the command's result/exit code, and
-    passes any non-coroutine result through unchanged.
-
-    ``asyncio`` is imported lazily here (not at module top) so a plain
-    ``import duho`` never pays its import cost -- only a command that actually
-    returns a coroutine triggers the load (startup budget).
-
-    Gates on ``inspect.isawaitable`` (not the narrower
-    ``inspect.iscoroutine``, which only recognizes NATIVE coroutine objects)
-    so a Cython-/mypyc-compiled ``async def`` -- whose result registers under
-    ``collections.abc.Coroutine`` without being a ``types.CoroutineType`` --
-    is still driven to completion instead of silently returned as-is (and
-    then, e.g., used as a process exit code). An ``async def`` written as an
-    async GENERATOR (``yield`` instead of ``return``) is rejected outright:
-    it is not awaitable at all, so it would otherwise pass through unchanged
-    and be returned as the command's result. Also refuses to nest
-    ``asyncio.run`` inside an event loop that is already running (e.g. inside
-    Jupyter, or an async host such as an MCP server) with a message naming
-    the fix, instead of a bare ``asyncio`` internals error plus a leaked
-    "coroutine was never awaited" warning.
+    Non-awaitable results pass through unchanged. ``asyncio`` is imported
+    lazily so a plain ``import duho`` never pays for it. The gate is
+    ``inspect.isawaitable``, not ``iscoroutine``, so a Cython/mypyc-compiled
+    ``async def`` is still driven. An async generator raises ``TypeError``
+    (it is not awaitable and would be returned as the result); a running event
+    loop raises ``RuntimeError`` naming the fix, since nesting ``asyncio.run``
+    would fail with an internals error and leak a "never awaited" warning.
     """
     import inspect as _inspect
 
@@ -267,13 +236,9 @@ def main(
         getattr(cls, "_mcp_command_", False) is not False
         or getattr(cls, "_completion_command_", False) is not False
     ):
-        # Lazy: `duho.runtime` (and, transitively, `duho.mcp`/`duho.completion`)
-        # is imported only when a class attribute is anything other than the
-        # literal `False` default -- an explicit empty string must still reach
-        # the builders' validation and raise, exactly like `app()`'s own
-        # unconditional call does, so this is `is not False`, not a truthiness
-        # check (`""` is falsy but NOT a valid opt-out). A `main` call with the
-        # defaults never pays for either import.
+        # Lazy: `runtime` (and `mcp`/`completion` through it) is imported only
+        # for a value other than the literal `False`; `is not False`, not
+        # truthiness, so an empty string still reaches the builders' validation.
         from .. import runtime as _runtime
 
         has_other = bool(getattr(cls, "_subcommands_", None))
@@ -294,13 +259,9 @@ def main(
         if completion_cls is not None:
             extra_cmds.append(completion_cls)
     if extra_cmds:
-        # A fresh subclass of `cls` carrying the extra subcommands, built
-        # fresh per call (never mutating `cls` itself, which would leak across
-        # calls/threads) -- mirrors `duho.app`'s own per-call synthesis.
-        # `_MCP_CONTEXT` below is set to `("class", cls)` -- the ORIGINAL
-        # class, not this subclass -- so a nested `serve_running_app()` call
-        # re-serves `cls`'s own tree, which never included the injected
-        # subcommands to begin with (no separate exclusion logic needed).
+        # A fresh per-call subclass carrying the extra subcommands, never
+        # mutating `cls` (it would leak across calls/threads). `_MCP_CONTEXT`
+        # below holds the ORIGINAL `cls`, whose tree has no injected commands.
         extra_attrs: dict[str, object] = {
             "__module__": cls.__module__,
             "__qualname__": cls.__qualname__,
@@ -331,11 +292,8 @@ def main(
             f"build one with duho.command(...)) to run it"
         )
 
-    # Recorded so `duho.mcp.serve_running_app` (called from within a
-    # dispatched command, e.g. a `duho.mcp.McpCmd` an app registered under
-    # its own name) can serve THIS SAME already-built class tree -- reusing
-    # `cls` costs nothing here; `duho.mcp._core_for_class(cls)` reuses its
-    # own tree cache when it's actually asked for.
+    # Recorded so `duho.mcp.serve_running_app` can serve THIS class tree from
+    # within a dispatched command.
     token = _compat._MCP_CONTEXT.set(("class", cls))
     try:
         result = _maybe_await(run())
@@ -472,12 +430,9 @@ def finish_parse(namespace: _argparse.Namespace) -> Args:
             "attached to a plain argparse parser."
         )
     cls = ns.pop("#cls")
-    # Drop the `_CollectionAction`/`UpdateAction` sidecars
-    # (`_duho_items_<dest>`/`_duho_dict_seen_<dest>`) the same way the
-    # internal `parse_known_args` patch does before constructing an instance
-    # -- this manual-recipe path builds the instance itself, so it must strip
-    # them itself too, or this bookkeeping leaks into vars(instance) and the
-    # documented `type(self)(**self._get_kwargs())` clone pattern.
+    # Strip the collection-action sidecars here too: this path builds the
+    # instance itself, and they would leak into vars(instance) and the clone
+    # pattern.
     for sidecar in [
         k
         for k in ns

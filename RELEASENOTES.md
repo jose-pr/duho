@@ -10,6 +10,35 @@ user-facing; this file is the durable record.
 
 ---
 
+## [0.6.4] — 2026-10-06
+
+One bug, reported by a downstream project, fixed in both places it showed.
+
+- An option value that is exactly `--` (`--flag=--`, `-f--`) now reaches the
+  field on every supported Python. argparse dropped it on Python 3.9 through
+  3.12.6 and on 3.13.0, so the field silently received an empty list. duho
+  now keeps the value itself on every parser it builds, so a field's
+  `type=` converter and `choices` see the real string.
+- An MCP tool call may pass `"--"` as an option value. The server used to
+  refuse it outright as a guard against the loss above. It is still refused
+  as a positional value and for a field with only a short flag, where `--`
+  really is the end-of-options marker.
+
+The affected Python versions were read from CPython's own `Lib/argparse.py`
+at each release tag, not inferred from the two versions tested locally.
+
+### Validation
+
+- Test suite green on Windows Python 3.9 and 3.14 and Linux (WSL) Python
+  3.14. `black`, `mkdocs build --strict` and the leak check are clean. The CI
+  test workflow, which covers Python 3.9 to 3.14, ran at the release commit
+  before tagging.
+- The new tests fail on Python 3.9 with the fix removed.
+
+No performance claim is made.
+
+---
+
 ## [0.6.3] — 2026-10-03
 
 Three small fixes, plus CI benchmark baselines and an MCP conformance test.

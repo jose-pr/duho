@@ -61,7 +61,7 @@ from .text import camelcase, expand, gettext, kebabcase, pysafe, snakecase
 if _ty.TYPE_CHECKING:
     from .args import _Parser as _Parser
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
 
 def parser(cls: "type[_A]", *args: object, **kwargs: object) -> "_Parser[_A]":

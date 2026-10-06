@@ -63,12 +63,9 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         ``Meta(...)`` metadata is applied by the CALLER afterward (see
         :func:`_apply_argument_options`), not here.
         """
-        # Escape a literal `%` in the field's docstring -- argparse
-        # `%`-expands every action's `help=` unconditionally (crashing parser
-        # BUILD on 3.14, `--help` on 3.9). An explicit `NS(help=...)`/
-        # `Meta(help=...)` overrides this via the builder-options setattr
-        # loop (see `Argument.from_type`/`_apply_argument_options`), applied
-        # AFTER this, so it is never double-escaped.
+        # `%` must be escaped: argparse %-expands every `help=` (crashing parser
+        # build on 3.14, `--help` on 3.9). An explicit `help=` override is applied
+        # after this, so it is never double-escaped.
         help = _escape_help(decl.docstring or "")
         flags_expr = next(
             filter(lambda x: isinstance(x, (list, tuple, set)), decl.exprs),
@@ -117,23 +114,10 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
                 action = spec.action
             implicit_nargs = False
             if spec.nargs is not None:
-                # `_factory_for`'s `list`/`set`/`tuple` branch hardcodes
-                # `nargs="*"`, correct for a POSITIONAL (a trailing variadic
-                # positional is exactly the point of that shape) but not for
-                # an OPTION, which defaults to ONE value per occurrence
-                # (`-f a -f b`) rather than space-separated multi-value in one
-                # occurrence (`-f a b`). Deciding that here -- before an
-                # explicit `NS(nargs=...)`/`NS(flags=...)` override has even
-                # been applied (`Argument.from_type`'s `setattr` loop runs
-                # AFTER this method returns) -- baked in the type-derived
-                # shape too early: the documented `NS(nargs="*")` opt-back and
-                # a `NS(flags=...)` that makes the field positional were both
-                # unable to change it. The downgrade itself now lives
-                # in `ArgumentBuilder._kwargs`, computed from the FINAL flags
-                # and nargs once every override is known; here we only record
-                # that this `nargs` came from the type ladder (not a user
-                # override) via `implicit_nargs`, so `_kwargs` can tell the
-                # two cases apart.
+                # `_factory_for` gives list/set/tuple nargs="*", wrong for an
+                # OPTION (one value per occurrence). `_kwargs` downgrades it once
+                # the flags/nargs overrides are final; here we only record that
+                # it came from the type ladder.
                 nargs = spec.nargs
                 implicit_nargs = True
             if spec.collection is not None:
@@ -261,18 +245,10 @@ def _keep_message(func: _ty.Callable[[str], _ty.Any]):
 
 
 def _apply_argument_options(builder: ArgumentBuilder, options: dict) -> None:
-    """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built
-    ``ArgumentBuilder``.
+    """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built builder.
 
-    The post-processing :meth:`Argument.from_type`'s wrapper applies to a
-    plain-type field's builder, factored out so it can ALSO be applied to a
-    CUSTOM :class:`Argument` type's own builder (built by that type's own
-    ``_argbuilder_``, not through ``from_type`` at all) when it is used
-    inside ``Arg[CustomType, NS(...)]`` -- see ``Args._getargs_``. Without
-    this, wrapping a custom type in ``Arg[...]``/``Meta(...)`` (the
-    documented way to attach ``help=``/``env=`` to ANY field, custom types
-    included) silently discarded the type's own ``_argbuilder_`` override and
-    replaced it with the type used as a bare, uncustomized `type=` factory.
+    Shared by :meth:`Argument.from_type` and by a custom :class:`Argument` type
+    used as ``Arg[Custom, NS(...)]``, whose own ``_argbuilder_`` must keep running.
     """
     for k, v in options.items():
         setattr(builder, k, v)
@@ -283,17 +259,13 @@ def _apply_argument_options(builder: ArgumentBuilder, options: dict) -> None:
             builder.name, options["flags"], _default_long_flag(builder.name)
         )
     if "nargs" in options:
-        # An explicit NS(nargs=...)/Meta(nargs=...) override wins outright --
-        # clear the "came from the type ladder" marker so `_kwargs` never
-        # downgrades it back.
+        # An explicit nargs override wins: clear the type-ladder marker so
+        # `_kwargs` never downgrades it.
         builder._implicit_nargs_ = False
     if builder.split is not None:
-        # duho.Extend(): compose the split function with the field's OWN
-        # element factory (already resolved onto `builder.type` by the
-        # type's own `_argbuilder_` above) rather than replacing it outright,
-        # so a typed collection (e.g. `list[int]`) still converts each split
-        # part, and the natural collection action (list/set/tuple) still runs
-        # unmodified.
+        # duho.Extend(): compose the split with the field's element factory, so
+        # a typed collection (`list[int]`) still converts each part and its
+        # collection action runs unmodified.
         splitter = builder.split
         base = builder.type
 
@@ -372,9 +344,7 @@ class ArgumentBuilder(_argparse.Namespace):
     version: _ty.Optional[str] = None
     env: _ty.Optional[str] = None
     #: ``NS(conflicts=...)``/``Meta(conflicts=...)``'s mutually-exclusive-group
-    #: key; ``None`` for a field in no group. Declared here (rather than read
-    #: via ``getattr(..., "conflicts", None)``) so every consumed metadata key
-    #: has ONE declaration, matching ``Meta``'s own field list.
+    #: key; ``None`` for a field in no group.
     conflicts: _ty.Optional[str] = None
     #: Whether THIS member's group must be satisfied (``NS(conflicts_required=True)``);
     #: a group is required if ANY of its members sets this.
@@ -386,21 +356,17 @@ class ArgumentBuilder(_argparse.Namespace):
     #: ``Meta(kwargs={...})``), applied LAST in :meth:`_kwargs` so it wins over
     #: every field-derived kwarg, including duho's own ``dest``.
     kwargs: _ty.Optional[_ty.Mapping[str, object]] = None
-    #: For a collection field (``list``/``set``/``tuple``) the target collection
-    #: type; ``None`` for a scalar field. Recorded at build time so a layered
-    #: (env/config) value converts to the SAME collection a CLI occurrence would
-    #: produce (see :meth:`convert_layered`). ``self.type`` is then the *element*
-    #: factory, not the collection factory.
+    #: For a ``list``/``set``/``tuple`` field the target collection type, else
+    #: ``None``; a layered value converts to it as a CLI occurrence would (see
+    #: :meth:`convert_layered`). ``self.type`` is then the element factory.
     collection: _ty.Optional[_type] = None
     #: ``duho.Extend()``'s split callable, or ``None``. Consumed by
     #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
     #: the field's own element type; never read afterwards.
     split: _ty.Optional[_ty.Callable] = None
-    #: True when `nargs` came from the type ladder (a `list`/`set`/`tuple`
-    #: field) rather than an explicit `NS(nargs=...)` override. Lets
-    #: `_kwargs` downgrade a repeatable OPTION to one value per occurrence
-    #: without also clobbering a deliberate opt-back into space-separated
-    #: multi-value.
+    #: True when `nargs` came from the type ladder, not `NS(nargs=...)`: lets
+    #: `_kwargs` make a repeatable option take one value per occurrence without
+    #: clobbering an explicit opt-back into multi-value.
     _implicit_nargs_: bool = False
     #: True when `type` came from a user's ``NS(type=...)``/``Meta(type=...)``
     #: and is neither a builtin type nor one of duho's own factories; the
@@ -428,13 +394,9 @@ class ArgumentBuilder(_argparse.Namespace):
         """
         return self.type is bool and not self.action and self.choices is None
 
-    #: Truthy/falsy strings a layered bool value maps to True/False
-    #: (case-insensitive, whitespace-stripped). The one shared table
-    #: (``_compat.BOOL_TRUE``/``BOOL_FALSE``) aliased here so
-    #: existing readers of ``ArgumentBuilder._BOOL_TRUE``/``_BOOL_FALSE`` keep
-    #: working. Unlike ``Env.bool`` (which treats an unrecognized string as
-    #: False) the layered converter is STRICT -- an explicit config/env value
-    #: that parses to neither is a user error, not a silent False.
+    #: Strings a layered bool maps to True/False (case-insensitive, stripped),
+    #: aliasing ``_compat.BOOL_TRUE``/``BOOL_FALSE``. Unlike ``Env.bool`` it is
+    #: STRICT: any other string is an error, not False.
     _BOOL_TRUE = _compat.BOOL_TRUE
     _BOOL_FALSE = _compat.BOOL_FALSE
 
@@ -452,52 +414,16 @@ class ArgumentBuilder(_argparse.Namespace):
         return self._convert_non_str(raw, factory)
 
     def _convert_non_str(self, raw, factory):
-        """Shared lossless-widening rule for a non-string raw value.
+        """Lossless-widening rule for a non-string raw value (TOML/JSON).
 
-        Used by both :meth:`_convert_single` (``self.type``) and
-        :meth:`convert_layered`'s dict-table branch (the per-value factory,
-        which is NOT ``self.type`` there -- ``self.type`` is the
-        ``_KVFactory`` wrapper) -- so a ``dict[str, V]`` table value widens
-        exactly like a scalar ``V`` field would, instead of skipping this
-        rule entirely.
-
-        A raw value already an instance of the factory's type is kept as-is
-        (``timeout: float`` receiving TOML int ``30`` widens to ``30.0``
-        below, not here, since ``30`` is not already a ``float``). Otherwise:
-
-        * ``bool`` is rejected for any factory except an actual bool
-          factory -- ``bool`` subclasses ``int``, so ``isinstance(True, int)``
-          is ``True``; without this check a TOML ``port = true`` silently
-          stayed ``True`` in an ``int`` field.
-        * ``list``/``tuple``/``dict``/``set``/``frozenset`` is rejected for a
-          scalar field -- ``str(["a", "b"])`` would silently stringify a list
-          (the factory call itself never raises for ``str``).
-        * ``float`` -> ``int`` is rejected when it has a fractional part
-          (``int(1.5)`` truncates instead of erroring); the reverse (``int``
-          widening to ``float``) is always lossless and stays allowed via the
-          final factory-call fallback.
-        * a plain ``int``/``float`` that reaches neither rule above (a
-          composite ``Union``/``Literal`` factory, or a type whose
-          constructor rejects a bare number outright, e.g. ``Path(5)``) is
-          routed through its own TEXT form instead of the raw number: every
-          duho factory is fundamentally a CLI text factory, and calling it
-          with the raw Python number only "worked" for ``int``/``str`` by
-          accident of what those two builtins happen to accept. Handing a
-          ``Union[int, str]`` factory the float ``1.5`` directly let
-          ``int(1.5)`` truncate to ``1`` without ever raising; handing it
-          ``"1.5"`` instead makes ``int("1.5")`` correctly reject it so the
-          union falls through to its lossless ``str`` member. An integral
-          float widens via its plain digits (``"1"``, not ``"1.0"``) so an
-          ``int``-typed member still recognizes it. Excluded: any
-          bool-flavoured factory (``bool``, ``_bool_from_text``, or a
-          Union/Literal that also accepts a native bool) -- those keep their
-          existing raw-number handling unchanged, since stringifying would
-          make a falsy ``0`` a truthy non-empty string ``"0"``.
-        * anything else: the factory itself decides, and a ``TypeError`` (a
-          factory that flatly cannot accept a non-string, e.g.
-          ``date.fromisoformat``) keeps the raw value unchanged -- documented,
-          deliberate behavior, not a bug (a native TOML/JSON date in a date
-          field, for example).
+        Shared by :meth:`_convert_single` and :meth:`convert_layered`'s dict-table
+        branch. Rejects a ``bool`` for a non-bool factory (``bool`` subclasses
+        ``int``), a list/dict/set for a scalar, and a float with a fractional
+        part for ``int``. Any other ``int``/``float`` goes through its text form,
+        so a ``Union[int, str]`` factory sees ``"1.5"`` rather than a truncating
+        ``1.5`` (an integral float is ``"1"``); bool-flavoured factories keep the
+        raw number. Otherwise the factory decides, and a ``TypeError`` keeps the
+        raw value (a native TOML date).
         """
         if isinstance(raw, bool):
             if (
@@ -505,13 +431,8 @@ class ArgumentBuilder(_argparse.Namespace):
                 or factory is _bool_from_text
                 or getattr(factory, "_duho_union_bool_ok_", False)
             ):
-                # The last check covers a Union/Literal factory that ALSO
-                # accepts bool as one of its members (`Union[bool, int]`,
-                # `Literal[True, "auto"]`) -- that composite callable is
-                # neither `bool` nor `_bool_from_text` by identity, but a raw
-                # bool is still one of its declared shapes, so it must not be
-                # rejected here as "a boolean but the field expects
-                # 'factory'".
+                # Also a Union/Literal factory accepting bool (`Union[bool, int]`):
+                # not `bool` by identity, but a raw bool is one of its shapes.
                 return raw
             raise ValueError(
                 f"{raw!r} is a boolean but the field expects "
@@ -618,10 +539,9 @@ class ArgumentBuilder(_argparse.Namespace):
             raise ValueError(f"cannot interpret {raw!r} ({source}) as a boolean")
 
         if self.collection is dict:
-            # A dict field: a *string* raw ("k=v") runs the KV factory (one-pair
-            # dict); a TOML *table* (Mapping) converts each value through the
-            # value factory (strings only; already-typed TOML values pass
-            # through, matching :meth:`_convert_single`).
+            # A *string* raw ("k=v") runs the KV factory; a TOML table converts
+            # each value through the value factory (typed values widen via
+            # `_convert_non_str`).
             if isinstance(raw, _ty.Mapping):
                 value_factory = getattr(self.type, "value_factory", str)
                 result: dict = {}
@@ -639,14 +559,10 @@ class ArgumentBuilder(_argparse.Namespace):
         if self.collection is not None:
             extend_base = getattr(self.type, "_duho_extend_base_", None)
             if extend_base is not None:
-                # duho.Extend(): `self.type` SPLITS one string into several
-                # elements rather than converting a single one, so it must
-                # NOT be run once per array element like a plain per-element
-                # factory would -- a *string* raw is the whole thing
-                # to split; a *list/tuple/set* raw (a TOML array) splits each
-                # STRING element and flattens the parts together, widening a
-                # non-string element (already fully typed) via the base
-                # (per-element) factory instead.
+                # duho.Extend(): `self.type` SPLITS a string, so it must not run
+                # per array element. A string raw is split whole; in an array each
+                # string element is split and flattened, and a non-string element
+                # widens via the base element factory.
                 if isinstance(raw, str):
                     value = self.collection(self.type(raw))
                 elif isinstance(raw, (list, tuple, set)):
@@ -671,25 +587,17 @@ class ArgumentBuilder(_argparse.Namespace):
         return value
 
     def _kwargs(self, *, layered: bool = False):
-        # NS(kwargs={...}) is the raw escape-hatch override: it must win over
-        # every field-derived kwarg (explicit NS(field=...) loses to it), so
-        # field derivation writes into `kwargs` first and the raw overrides
-        # are applied last, on top.
+        # NS(kwargs={...}) is the raw escape hatch and wins over every derived
+        # kwarg, so it is applied last.
         overrides = dict(self.kwargs or {})
         kwargs: dict = {}
 
         positional = self.is_positional
         nargs = self.nargs
-        # A repeatable OPTION's collection nargs="*" (from the type ladder,
-        # not a user override -- `_implicit_nargs_`) defaults to ONE value
-        # per occurrence (`-f a -f b`), not space-separated multi-value in
-        # one occurrence (`-f a b`). Computed here, from the FINAL flags and
-        # nargs once every NS(nargs=...)/NS(flags=...) override is already
-        # applied (both land on `self` before `_kwargs` ever runs), so the
-        # documented `NS(nargs="*")` opt-back and a `NS(flags=...)` override
-        # that makes the field positional both work. `_CollectionAction`
-        # (bound to list/set/tuple/frozenset alike) already has its
-        # own single-value-per-occurrence branch, so no action swap is needed.
+        # A repeatable OPTION's type-ladder nargs="*" (`_implicit_nargs_`) means
+        # one value per occurrence; decided here from the FINAL flags/nargs, so
+        # an explicit `NS(nargs="*")` or a `NS(flags=...)` making it positional
+        # both work.
         if self._implicit_nargs_ and nargs == "*" and not positional:
             nargs = None
         if nargs is not None:
@@ -705,44 +613,26 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["default"] = self.default
 
         if self.is_bare_bool_flag:
-            # A bare bool becomes a store_true/BooleanOptionalAction flag. A
-            # `Literal[True, False]` (carries choices) or an explicit
-            # action= override is excluded by `is_bare_bool_flag` -- those go
-            # through type=+choices= like any other Literal, since argparse
-            # forbids choices= on a store_true action.
+            # A bare bool is a store_true/BooleanOptionalAction flag; a
+            # `Literal[True, False]` or an explicit `action=` is excluded and uses
+            # type=+choices= (argparse forbids choices= on store_true).
             no_flag = any(
                 f.startswith("--no-") for f in self.flags if f.startswith("--")
             )
             if self.default is True:
                 if no_flag:
-                    # BooleanOptionalAction tries to synthesize a --no-<flag>
-                    # pair for a flag that ALREADY starts with --no- -- 3.14+
-                    # rejects that outright, and 3.9-3.13 built the confusing
-                    # --no-verify/--no-no-verify pair. A plain
-                    # store_false under the SAME flag means what a
-                    # True-default --no-* flag always meant: presence sets
-                    # False, absence keeps the True default.
+                    # BooleanOptionalAction would build `--no-no-x` for a flag
+                    # already starting `--no-` (rejected outright on 3.14+). A plain
+                    # store_false keeps the meaning: presence sets False.
                     kwargs["action"] = "store_false"
                 else:
                     kwargs["action"] = _argparse.BooleanOptionalAction
             elif layered and not no_flag:
-                # A field that can receive True from a layer OTHER than the
-                # CLI (env=, or the owning class has a config source) needs a
-                # way to turn it back off from the command line -- store_true
-                # can only ever SET True, never re-assert False. Excluded
-                # when `no_flag`: a FALSE-default field whose own flag
-                # already reads as a negation (e.g. a field literally named
-                # `no_verify`, auto-deriving `--no-verify`) means the OPPOSITE
-                # of the True-default case above -- presence of that flag is
-                # the field's own plain, honest "on" spelling, not a reversal
-                # of a default. BooleanOptionalAction would try to double the
-                # negation (crashing outright on 3.14, see above); falling
-                # through to plain store_true instead keeps that meaning
-                # (env/config still supply the value when the CLI doesn't
-                # mention the flag at all -- only overriding a layered True
-                # back to False through THIS specific flag has no natural
-                # spelling, an inherent limit of a field name that begins
-                # with "no_").
+                # A field a non-CLI layer (env=, config) can set True needs a way
+                # back off from the CLI; store_true can only set it. Not for
+                # `no_flag`: there the flag is the field's plain "on" spelling and
+                # BooleanOptionalAction would double the negation (a crash on
+                # 3.14), so it falls through to store_true.
                 kwargs["action"] = _argparse.BooleanOptionalAction
             else:
                 kwargs["action"] = "store_true"
@@ -755,11 +645,8 @@ class ArgumentBuilder(_argparse.Namespace):
         action = overrides.get("action", kwargs.get("action"))
 
         if action is _argparse.BooleanOptionalAction:
-            # Python 3.14 removed the (already-deprecated) type/choices/
-            # metavar parameters outright -- drop them here, not only
-            # when duho itself picked the action, so an explicit
-            # NS(action=argparse.BooleanOptionalAction) override is covered
-            # too.
+            # 3.14 removed type/choices/metavar from BooleanOptionalAction; drop
+            # them whoever chose the action, an explicit override included.
             kwargs.pop("metavar", None)
             kwargs.pop("choices", None)
 
@@ -774,10 +661,9 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["default"] = False
 
         if action == "append" and self.collection not in (None, list):
-            # duho.Append() forces argparse's stdlib "append" action, which
-            # always produces a *list* -- it doesn't compose with a set/tuple
-            # field's own collection action. Fail loud at build time
-            # instead of silently returning the wrong collection type.
+            # duho.Append() forces argparse's "append", which always yields a
+            # list and does not compose with a set/tuple collection action; fail
+            # at build time.
             raise ValueError(
                 f"argument {self.name!r}: duho.Append() does not support a "
                 f"{self.collection.__name__} field (it always produces a "
@@ -815,20 +701,11 @@ class ArgumentBuilder(_argparse.Namespace):
 
         if positional:
             if self.choices is not None and kwargs.get("nargs") == "*":
-                # A variadic (nargs="*") positional with `choices=` -- e.g. a
-                # `list[T]` positional through `Choice()`/`NS(choices=...)`,
-                # or a `list[Literal[...]]` positional (whose element choices
-                # bubble up to the field spec too). argparse itself (through
-                # 3.13, bpo-9625) validates the DEFAULT against `choices` too
-                # whenever the positional is omitted -- and does so with the
-                # raw default object, so even `default=SUPPRESS` gets checked
-                # against `choices` and fails (worse than the plain empty
-                # list). Move the membership check into the element factory
-                # instead (mirrors the enforcement a Union/Literal member
-                # already gets, see `_choice_checked`) and drop `choices=`
-                # from `add_argument` for this shape entirely -- so argparse
-                # never validates anything itself here, on any version.
-                # `metavar` still shows the allowed values.
+                # A variadic positional with `choices=`: argparse (through 3.13,
+                # bpo-9625) validates the omitted DEFAULT against `choices` too,
+                # even `default=SUPPRESS`. So check membership in the element
+                # factory (as for Union/Literal members, see `_choice_checked`),
+                # drop `choices=`, and show the values through `metavar`.
                 if "type" in kwargs:
                     kwargs["type"] = _choice_checked(kwargs["type"], self.choices)
                 kwargs.pop("choices", None)
@@ -851,18 +728,12 @@ class ArgumentBuilder(_argparse.Namespace):
             kwargs["required"] = self.required
         elif dest is not None:
             if self.conflicts:
-                # A mutually-exclusive member with no explicit required= and
-                # no default: argparse forbids a required member inside a
-                # mutex group ("mutually exclusive arguments must be
-                # optional"), so this can never become `required=True` here
-                # -- group-level requiredness is exactly what
-                # `conflicts_required=` expresses instead.
+                # argparse forbids a required member in a mutex group; group
+                # requiredness is `conflicts_required=`.
                 kwargs["required"] = False
             elif action in _ZERO_ARG_ACTION_DEFAULTS and "default" not in kwargs:
-                # A flag-style zero-argument action (count/store_const/
-                # append_const/store_false) with no declared default gets
-                # argparse's own natural resting value instead of becoming a
-                # mandatory flag.
+                # A zero-arg flag action with no default gets argparse's resting
+                # value instead of becoming a mandatory flag.
                 kwargs["required"] = False
                 kwargs["default"] = _ZERO_ARG_ACTION_DEFAULTS[action]
             else:
@@ -870,27 +741,18 @@ class ArgumentBuilder(_argparse.Namespace):
 
         kwargs.update(overrides)
 
-        # Copy a mutable default so each parser build gets its OWN list/set/
-        # dict (the builder is cached on the class, so without this every
-        # build would share the same object). A second, per-PARSE copy (for
-        # a parser reused across multiple parse_args() calls) happens
-        # in `_initparser_`'s wrapped `parse_known_args`. Covers both the
-        # collection-branch default ([]/set()) and an override default (e.g.
-        # an explicit Extend(sep, default=[...])). Tuples are immutable.
+        # Copy a mutable default so each parser build owns it (the builder is
+        # cached on the class); `_initparser_`'s `parse_known_args` copies again
+        # per parse. Tuples are immutable.
         default_value = kwargs.get("default")
         if isinstance(default_value, (list, set, dict)):
             kwargs["default"] = _copy.copy(default_value)
 
         if kwargs.get("action") == "append":
-            # argparse's stdlib "append" action starts from whatever is
-            # already on the namespace, so the first CLI occurrence would
-            # merge onto a class/env/config/instance default instead of
-            # replacing it. `_AppendAction` gives `duho.Append()` the same
-            # "first occurrence replaces" rule every other collection action
-            # already has. Swapped in here (not earlier): every check above
-            # this point (`action == "append"`'s own const/collection
-            # guards) keys off the plain string, matching what a raw
-            # `NS(action="append")`/`Append()` declares.
+            # argparse's "append" extends what is already on the namespace;
+            # `_AppendAction` makes the first occurrence replace a class/env/
+            # config default like every other collection action. Swapped in last:
+            # the guards above test the plain string.
             kwargs["action"] = _AppendAction
 
         return kwargs
@@ -911,20 +773,11 @@ class ArgumentBuilder(_argparse.Namespace):
         kwargs = self._kwargs(layered=layered)
         flags = self.flags
         if kwargs.get("action") == "store_true" and layered and self.is_bare_bool_flag:
-            # `_kwargs` falls through to plain `store_true` for a
-            # FALSE-default bool whose own flag already reads as a negation
-            # (`no_verify` -> `--no-verify`): `BooleanOptionalAction` rejects
-            # any `--no-`-prefixed option string outright (it cannot tell
-            # "already negative" from "would double-negate"), so that branch
-            # is deliberately never reached for this shape. store_true alone
-            # then has no way to turn a LAYERED (env/config) True back off
-            # from the CLI, since it can only ever SET True.
-            # `_NegatedBoolAction` gives it one: the stripped, positive-sense
-            # counterpart (`--verify`) is added as an EXTRA option string on
-            # this SAME action/dest (never a second action -- the layering
-            # pipeline keys everything off ONE action per dest) that sets
-            # False, while every declared flag keeps setting True
-            # exactly as `store_true` did.
+            # `_kwargs` gives a False-default `no_*` bool plain store_true, which
+            # cannot turn a LAYERED True back off. Add the positive counterpart
+            # (`--verify`) as an EXTRA option string on this SAME action (layering
+            # keys off one action per dest) that sets False; declared flags still
+            # set True.
             positive_flags = tuple(
                 "--" + f[len("--no-") :]
                 for f in self.flags
@@ -944,12 +797,9 @@ class ArgumentBuilder(_argparse.Namespace):
                 )
             action._duho_literal_value_ = True  # type: ignore[attr-defined]
         if isinstance(action, _argparse.BooleanOptionalAction):
-            # 3.9/3.10's BooleanOptionalAction.__init__ unconditionally
-            # appends " (default: %(default)s)" to any non-None help
-            # (removed in 3.11) -- reset to the exact help duho passed in so
-            # an NS(help=argparse.SUPPRESS) flag stays hidden (the identity
-            # check argparse itself uses to hide it) and no literal
-            # "%(default)s" leaks into agent-help JSON on the floor versions.
+            # 3.9/3.10 append " (default: %(default)s)" to any non-None help;
+            # reset it so NS(help=SUPPRESS) stays hidden and no literal
+            # `%(default)s` reaches agent-help JSON.
             action.help = help
         return action
 

@@ -45,8 +45,7 @@ def _setup_instance_logging(
     instance, setup_logging: bool, root_cls: type | None = None
 ) -> None:
     """Initialize stderr logging + apply verbosity for a parsed instance:
-    the identical block ``duho.main`` and ``duho.app`` each ran
-    inline, now shared by both entry points.
+    the block shared by ``duho.main`` and ``duho.app``.
 
     A no-op unless `setup_logging` is true. Prefers the parsed instance's own
     ``_set_loglevels_`` (present when it mixes in ``LoggingArgs``). When the
@@ -58,15 +57,15 @@ def _setup_instance_logging(
     the application's logger (see :func:`_logger_name_for`) via the module-level
     :func:`duho.presets._apply_loglevels` instead of the missing bound method.
     This is the documented ``class MyApp(LoggingArgs, Cli)`` +
-    plain ``Cmd`` leaves shape from the README, which previously left
-    ``-v``/``-q``/``--loglevel`` silently doing nothing.
+    plain ``Cmd`` leaves shape from the README; without this, ``-v``/``-q``/
+    ``--loglevel`` would do nothing.
 
     ``init_stderr_logging()`` is only called when the root logger has no
-    handlers OTHER than duho's own previously-installed one (the
+    handlers OTHER than duho's own already-installed one (the
     ``_STDERR_HANDLER_TAG``-marked handler `init_stderr_logging` itself
-    tracks) -- matching 0.5.4's guard, which never added a stderr handler to
-    an app/harness that already owns logging (``basicConfig``, pytest's
-    capture handler, etc.). A root with only duho's own handler (a second
+    tracks), so duho never adds a stderr handler to an app/harness that
+    already owns logging (``basicConfig``, pytest's capture handler,
+    etc.). A root with only duho's own handler (a second
     dispatch in the same process, or a repeat call) still calls it, since
     `init_stderr_logging` is itself idempotent against its own handler; the
     guard here is what keeps duho from ever adding a SECOND handler
@@ -416,9 +415,7 @@ def parse_globals(
     prepass ``duho.app`` already runs -- it wraps
     :func:`duho.parsers.prerun_parse` verbatim rather than reimplementing the
     subparser-detach/terminal-action patching it performs and restores in a
-    ``finally`` (this used to duplicate a buggy, dead-branch version of
-    that same detach here; ``prerun_parse`` now does it once, correctly, for
-    every caller).
+    ``finally``.
 
     Returns the parsed root instance with globals set. Subcommand arguments are
     NOT validated in this pass: a missing subcommand does not error, and an
@@ -455,7 +452,7 @@ def finish_parse(namespace: _argparse.Namespace) -> Args:
     A duho root (``Args._parser_``'s own patched ``parse_known_args``) does
     this automatically as part of normal dispatch: the internal ``"#cls"``
     marker (recording which subcommand class argparse selected) is popped and
-    used to construct the real instance. A PLAIN argparse root has no such
+    turned into the real instance. A PLAIN argparse root has no such
     hook, so ``root.parse_args(...)`` returns a raw ``Namespace`` still
     carrying ``"#cls"`` -- not a ``Serve`` instance, with no ``_passthrough_``
     and no methods, and a stray ``"#cls"`` key that breaks

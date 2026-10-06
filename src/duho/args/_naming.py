@@ -137,10 +137,9 @@ def _command_name(command) -> str:
     class declares its own ``_parsername_``" from "this class merely
     inherited one from a base it subclasses". A framework-DERIVED name must
     never leak to a subclass this
-    way (a subcommand and a subclass of it, registered as siblings, used to
-    collapse onto one name the moment the base's own parser had been built
-    once) -- and since duho no longer persists a derived name anywhere
-    (`_parser_` computes it fresh every build, never writing it back), a
+    way (a subcommand and a subclass of it, registered as siblings, would
+    collapse onto one name) -- so duho persists a derived name nowhere
+    (`_parser_` computes it fresh every build, never writing it back), and a
     subclass that wants to deliberately SHARE its base's name has to declare
     ``_parsername_`` on itself too; a bare, undecorated subclass always gets
     its own class name.
@@ -154,8 +153,7 @@ def _command_name(command) -> str:
     A CLASS-derived name (the ``__name__`` fallback -- never an explicit
     ``_parsername_``, which is a user's own literal choice and passes through
     verbatim) is kebab-cased (:func:`duho.text.kebabcase`): ``BuildPyz`` ->
-    ``build-pyz``. This was always the intended behaviour -- the class-name
-    fallback previously returned the exact class name, mixed-case included.
+    ``build-pyz``.
     """
     explicit = vars(command).get("_parsername_")
     if explicit:

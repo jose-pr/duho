@@ -38,7 +38,7 @@ class Cmd(Args):
 
     #: Own empty class-body-constants cache: ``Cmd``'s body declares no
     #: real CLI fields (only ``_passthrough_`` and ``__call__``), so seeding
-    #: this skips AST-parsing ``args.py`` for it. See ``Args._duho_constants_``.
+    #: this skips AST-parsing this module for it. See ``Args._duho_constants_``.
     _duho_constants_: dict = {}
 
     #: argv captured after the first literal ``--`` separator (parse-time);
@@ -118,7 +118,7 @@ class Cli(Cmd):
 
     1. **Typed, documented app-root class attrs.** Every one of these is
        already read elsewhere via ``getattr(cls, "_x_", default)``
-       (``args.py``/``runtime.py``), so declaring them here changes no
+       (``duho.args``/``duho.runtime``), so declaring them here changes no
        reader -- it only gives them a typed home and a class-level default
        where one exists. A plain ``Cmd`` leaves them undeclared; a ``Cli``
        root is where they belong.
@@ -141,12 +141,12 @@ class Cli(Cmd):
     #: Own empty class-body-constants cache: every field ``Cli`` declares
     #: is sandwich-named (``_version_``, ``_completion_``, ...) and gets filtered
     #: out by ``get_clsargs`` anyway, so seeding this skips AST-parsing
-    #: ``args.py`` for ``Cli``. See ``Args._duho_constants_``.
+    #: this module for ``Cli``. See ``Args._duho_constants_``.
     _duho_constants_: dict = {}
 
     #: ``--version`` string, the ``AUTO`` sentinel (resolve via
     #: ``importlib.metadata``), or ``None`` for no ``--version`` flag. Read by
-    #: ``_resolve_version`` (``args.py``).
+    #: ``_resolve_version``.
     #:
     #: NOTE: every annotation on this class is written with ``typing.Union`` /
     #: ``typing.Optional`` and quoted, NEVER PEP-604 ``X | Y`` -- even sandwich-
@@ -161,7 +161,7 @@ class Cli(Cmd):
     _distribution_: _ty.Optional[str] = None
 
     #: When ``True``, inject ``--print-completion {bash,zsh,fish,powershell}``
-    #: on the top-level parser. Read by ``_initparser_`` (``args.py``);
+    #: on the top-level parser. Read by ``_initparser_``;
     #: defaults off.
     _completion_: bool = False
 
@@ -171,7 +171,7 @@ class Cli(Cmd):
     #: path that does not exist YET is treated as no config at all (skipped,
     #: logged at debug) rather than raising -- an explicit ``config=`` kwarg to
     #: ``duho.main``/``duho.parse``/``duho.app`` stays strict. Read by
-    #: ``_resolve_config_dict`` (``args.py``) via ``_apply_layers``.
+    #: ``_resolve_config_dict`` via ``_apply_layers``.
     _config_: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None
 
     #: Name of an environment variable holding the config file's path. A
@@ -190,7 +190,7 @@ class Cli(Cmd):
     #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
     #: format duho does not ship (e.g. YAML via their own ``yaml.safe_load``)
     #: WITHOUT duho depending on it -- keeping the zero-runtime-deps contract.
-    #: Read by ``_load_config`` (``args.py``) via ``_resolve_config_dict`` /
+    #: Read by ``_load_config`` via ``_resolve_config_dict`` /
     #: ``duho.app``.
     _config_loader_: _ty.Optional[_ty.Callable[[_pathlib.Path], dict]] = None
 
@@ -203,13 +203,13 @@ class Cli(Cmd):
 
     #: The static subcommand tree. ``None`` (the default) means "no declared
     #: subcommands"; self-registration lazily materializes a per-class list.
-    #: Read via ``getattr(cls, "_subcommands_", None)`` (``args.py`` +
-    #: ``runtime.py``) -- declaring it here does NOT change that contract.
+    #: Read via ``getattr(cls, "_subcommands_", None)`` (``duho.args`` +
+    #: ``duho.runtime``) -- declaring it here does NOT change that contract.
     _subcommands_: _ty.Optional[_ty.Sequence[_ty.Type[Cmd]]] = None
 
     #: When ``True``, add the opt-in ``--help-agents`` flag (a detailed,
     #: machine-readable description of the whole CLI for AI agents). Read by
-    #: ``_install_agent_help`` (``args.py``); defaults off. Independent of the
+    #: ``_install_agent_help``; defaults off. Independent of the
     #: always-on ``AGENT_HELP``/``AGENTS_HELP`` env-var trigger, which needs
     #: no opt-in.
     _agent_help_: bool = False
@@ -219,7 +219,7 @@ class Cli(Cmd):
     #: :data:`duho.agenthelp.DEFAULT_ENVS` (``AGENT_HELP`` and ``AGENTS_HELP``;
     #: either truthy triggers). Set explicitly to check exactly that one
     #: variable instead -- replaces both defaults, no aliasing. Read by
-    #: ``_AgentHelpAction`` (``args.py``) via ``agent_help_requested``.
+    #: ``_AgentHelpAction`` via ``agent_help_requested``.
     _agent_help_env_: _ty.Optional[str] = None
 
     #: Optional examples surfaced in the agent-help document. A sequence of
@@ -270,8 +270,8 @@ class Cli(Cmd):
     _mcp_: bool = True
 
     #: Opt-in built-in subcommand that serves this CLI as an MCP server,
-    #: read by both ``duho.main`` (this module) and ``duho.app``
-    #: (``runtime.py``). ``False`` (default): no subcommand. ``True``:
+    #: read by both ``duho.main`` and ``duho.app``. ``False`` (default): no
+    #: subcommand. ``True``:
     #: registers ``duho.mcp.McpCmd`` under the name ``"mcp"``. A non-empty
     #: ``str``: registers it under that exact name instead (validated at
     #: build time: non-empty, no whitespace, not starting with ``"-"``; a

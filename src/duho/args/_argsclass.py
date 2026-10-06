@@ -124,9 +124,8 @@ def _add_fields(
 
     The one field/group wiring routine shared by :meth:`Args._initparser_`
     (class commands) and ``duho.runtime._add_module_declared_fields`` (module
-    commands) -- previously duplicated by hand, which is why a module command
-    could not use ``NS(conflicts=...)``/``NS(group=...)``: that support lived
-    only in ``_initparser_``'s own copy. Iterates ``cls._getargs_()``,
+    commands), so both support ``NS(conflicts=...)``/``NS(group=...)``.
+    Iterates ``cls._getargs_()``,
     resolves each field's titled group (``NS(group=...)``) and
     mutually-exclusive group (``NS(conflicts=...)``, precomputing group
     requiredness first so argparse -- which fixes ``required`` at
@@ -205,15 +204,12 @@ def _add_fields(
                     # A genuine `parents=[...]` merge: the CALLER deliberately
                     # shares this global option with the parent (e.g. a
                     # subcommand inheriting `-v`/`-q`) -- reuse it silently,
-                    # same as before.
                     continue
                 # Anything else sharing this dest was added by duho ITSELF,
                 # moments ago, for this same class (`-h`/`--help`,
                 # `--version`, `--print-completion`) -- silently dropping the
-                # user's field here (the previous behavior) lost both its
-                # value and its declared flags with no error at all,
-                # contradicting the documented "no reserved field names"
-                # policy. Fail loud at build time instead.
+                # user's field would lose both its value and its declared
+                # flags, so fail loud at build time.
                 raise ValueError(
                     f"field {arg.name!r} on {cls.__name__} collides with a "
                     f"dest that {cls.__name__}'s own parser already uses "
@@ -276,8 +272,10 @@ class Args(_argparse.Namespace):
     """Base class for a duho command's declared fields.
 
     Subclass this and declare CLI fields as annotated, non-underscore class
-    attributes (see the "Naming & Collision Policy" -- every OTHER member is
-    sandwich-named or a dunder, so the field namespace stays user-owned); an
+    attributes. Everything duho reads or sets is sandwich-named (``_x_``) or a
+    dunder, so the field namespace stays user-owned; only ``help``,
+    ``version`` and ``print_completion``, which would clash with a flag duho
+    adds, are rejected as field names (see ``docs/guide/arguments.md``). An
     optional flags tuple and a trailing docstring string customize each
     field's ``add_argument`` call. ``Args`` itself is data-only -- it defines
     no ``__call__`` (:func:`duho.main`/:func:`duho.run_command` raise a clear
@@ -299,15 +297,15 @@ class Args(_argparse.Namespace):
     #: checker considers ANY ``Cmd`` subclass a structural match for
     #: ``duho.discovery.Command`` (whose ``Protocol`` requires this member) --
     #: without it, the documented ``app(commands=[SomeCmd])``/
-    #: ``run_command(SomeCmd, ...)`` failed type-checking even though they run
-    #: correctly. Already excluded from CLI-field discovery like every
+    #: ``run_command(SomeCmd, ...)`` would fail type-checking. Already
+    #: excluded from CLI-field discovery like every
     #: other leading-underscore name, ``ClassVar`` or not.
     _parsername_: _ty.ClassVar[str]
 
     #: Pre-seeded empty class-body-constants cache. ``_class_constants``
     #: (``_introspect``) short-circuits on ``"_duho_constants_" in vars(cls)``,
     #: so seeding it here means building ANY user parser never AST-parses
-    #: duho's own ``args.py`` to scan these framework base classes for
+    #: duho's own source to scan these framework base classes for
     #: class-body flag/env/docstring metadata -- they declare none. This is
     #: safe ONLY because ``Args``/``Cmd``/``Cli`` carry no real CLI-field
     #: declarations in their bodies. A subclass that DOES declare fields gets
@@ -329,10 +327,10 @@ class Args(_argparse.Namespace):
         #
         # `name not in vars(self)` (rather than `hasattr`) is deliberate: a
         # field with an explicit CLASS-level default (`files: list = []`) is
-        # already `hasattr`-true via inheritance, which used to skip seeding
-        # entirely -- so a direct instance read the CLASS ATTRIBUTE itself,
-        # and mutating a mutable one (`instance.files.append(...)`) mutated
-        # every other instance and every later parse's default too.
+        # already `hasattr`-true via inheritance, so `hasattr` would skip
+        # seeding and the instance would share the CLASS ATTRIBUTE, and
+        # mutating a mutable one (`instance.files.append(...)`) would leak
+        # into every other instance and later parse default.
         # `vars(self)` only sees THIS instance's own attributes, so the gap
         # still gets filled with `_effective_default_()`'s fresh copy.
         # Not `super().__init__(**kwargs)`: Namespace's receiver is not
@@ -355,8 +353,7 @@ class Args(_argparse.Namespace):
         # vars(self) -- see `_duho_explicit_instance_fields`. A subclass that
         # isn't weak-referenceable (e.g. declares `__slots__` without
         # `__weakref__`) simply isn't tracked; `duho.parse(instance)` then
-        # falls back to treating every attribute as explicit (today's
-        # behavior), same as before this fix.
+        # falls back to treating every attribute as explicit.
         try:
             _key = id(self)
             _duho_explicit_instance_fields[_key] = frozenset(kwargs)
@@ -411,12 +408,10 @@ class Args(_argparse.Namespace):
                             ns_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
                     # A CUSTOM Argument type wrapped in Arg[...]/NS(...)
-                    # (e.g. `Arg[Port, NS(env="PORT")]`) previously routed
-                    # through `Argument.from_type(decl.type, **options)`,
-                    # whose `super()._argbuilder_` is the PLAIN protocol
-                    # default -- `decl.type`'s own `_argbuilder_` override
-                    # never ran, so the custom type became a bare, unresolved
-                    # `type=` factory instead of using its own parsing logic.
+                    # (e.g. `Arg[Port, NS(env="PORT")]`) must not go through
+                    # `Argument.from_type(decl.type, **options)`: its
+                    # `super()._argbuilder_` is the PLAIN protocol default, so
+                    # `decl.type`'s own `_argbuilder_` override would never run.
                     # Build via the type's own override, then apply the same
                     # NS(...)/Meta(...) post-processing `from_type` gives a
                     # plain type (help=/env=/Extend()/... all still work).
@@ -468,17 +463,13 @@ class Args(_argparse.Namespace):
         else:
             method = _argparse.ArgumentParser
 
-        # Resolve the name WITHOUT ever writing it back onto
-        # the class. A derived name used to be persisted here (`setattr(cls,
-        # "_parsername_", name)`) so a later `getattr` could reuse it -- but
-        # `getattr` also follows the MRO, so the derived name leaked to every
-        # SUBCLASS built afterwards (a subcommand and a subclass of it,
-        # registered as siblings, collapsed onto one name; on 3.11+ the build
-        # itself raised "conflicting subparser"). `_command_name` resolves
-        # only a `_parsername_` declared ON `cls` ITSELF (`vars(cls)`, not
-        # `getattr`) -- a subclass that wants to deliberately share its
-        # base's declared name has to say so itself; a bare subclass always
-        # gets its own class name, never one inherited from a base's build.
+        # Resolve the name WITHOUT writing it back onto the class: `getattr`
+        # follows the MRO, so a persisted derived name would leak to every
+        # SUBCLASS (siblings would collapse onto one name, and 3.11+ raises
+        # "conflicting subparser"). `_command_name` reads only a
+        # `_parsername_` declared ON `cls` ITSELF (`vars(cls)`); a subclass
+        # that wants its base's name must declare it, else it gets its own
+        # class name.
         name_given = name is not None
         name: str = name or (_command_name(cls) if subparser else _app_name(cls))
         # Passed on to `_initparser_`, which accepts it for compatibility with
@@ -632,9 +623,8 @@ class Args(_argparse.Namespace):
                 # `metavar` is set -- only the usage SYNOPSIS defaults to a
                 # `{...}` built from `choices`. Set it explicitly so the
                 # private `_duho_command_` dest never leaks into either
-                # message (it used to show "the following arguments are
-                # required: _duho_command_"); `instance.command` stays gone
-                # regardless (a documented [minor] break).
+                # message ("the following arguments are required:
+                # _duho_command_"); `instance.command` does not exist.
                 subparsers.metavar = "{" + ",".join(sibling_names) + "}"
                 default_subcommand = getattr(cls, "_default_subcommand_", None)
                 if (

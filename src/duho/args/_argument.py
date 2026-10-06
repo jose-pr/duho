@@ -338,8 +338,7 @@ def _is_positional(flags: _ty.Sequence[str]) -> bool:
     The one place this decision is made -- ``ArgumentBuilder._kwargs``
     and the ``is_positional`` property below both call this, instead of each
     re-deriving ``len(flags) == 1 and not flags[0].startswith("-")``
-    independently (and, before this fix, disagreeing with a THIRD copy in
-    ``duho.mcp``).
+    independently (``duho.mcp`` calls it too).
     """
     return len(flags) == 1 and not flags[0].startswith("-")
 
@@ -471,9 +470,8 @@ class ArgumentBuilder(_argparse.Namespace):
           is ``True``; without this check a TOML ``port = true`` silently
           stayed ``True`` in an ``int`` field.
         * ``list``/``tuple``/``dict``/``set``/``frozenset`` is rejected for a
-          scalar field -- previously ``str(["a", "b"])`` silently stringified
-          a list instead of rejecting it (the factory call itself never
-          raises for ``str``).
+          scalar field -- ``str(["a", "b"])`` would silently stringify a list
+          (the factory call itself never raises for ``str``).
         * ``float`` -> ``int`` is rejected when it has a fractional part
           (``int(1.5)`` truncates instead of erroring); the reverse (``int``
           widening to ``float``) is always lossless and stays allowed via the
@@ -513,7 +511,7 @@ class ArgumentBuilder(_argparse.Namespace):
                 # neither `bool` nor `_bool_from_text` by identity, but a raw
                 # bool is still one of its declared shapes, so it must not be
                 # rejected here as "a boolean but the field expects
-                # 'factory'" (a regression: this used to be accepted).
+                # 'factory'".
                 return raw
             raise ValueError(
                 f"{raw!r} is a boolean but the field expects "
@@ -925,7 +923,7 @@ class ArgumentBuilder(_argparse.Namespace):
             # counterpart (`--verify`) is added as an EXTRA option string on
             # this SAME action/dest (never a second action -- the layering
             # pipeline keys everything off ONE action per dest) that sets
-            # False, while every originally-declared flag keeps setting True
+            # False, while every declared flag keeps setting True
             # exactly as `store_true` did.
             positive_flags = tuple(
                 "--" + f[len("--no-") :]

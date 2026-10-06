@@ -127,7 +127,7 @@ def _defer_module_layers(
         _apply_default_layers_one(sub_parser, args_cls, table)
     except ValueError:
         pass
-    agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+    agenthelp._stash_default_provenance(sub_parser, cls=args_cls)
     original = sub_parser.parse_known_args
 
     def parse_known_args(args=None, namespace=None):
@@ -135,7 +135,7 @@ def _defer_module_layers(
             _apply_default_layers_one(sub_parser, args_cls, table)
         except ValueError as exc:
             sub_parser.error(str(exc))
-        agenthelp.stash_default_provenance(sub_parser, cls=args_cls)
+        agenthelp._stash_default_provenance(sub_parser, cls=args_cls)
         return original(args, namespace)
 
     sub_parser.parse_known_args = parse_known_args  # type: ignore[method-assign]
@@ -172,7 +172,7 @@ def _apply_app_config_layers(
 
     A module command's own env/config-bound field gets the SAME "never show
     the live value" redaction a class command's does:
-    ``duho.agenthelp.stash_default_provenance`` snapshots the class default
+    ``duho.agenthelp._stash_default_provenance`` snapshots the class default
     (and, when applicable, a value-free provenance note) onto each action,
     passed this command's OWN ``args_cls`` explicitly because the subparser
     deliberately has no ``_duho_cls_`` (``duho.mcp`` reads that to decide
@@ -214,7 +214,7 @@ def _apply_app_config_layers(
         # above, OR raise `KeyError` for a root-inherited option whose class
         # default `_finalize_command_tree` already stashed onto it (see
         # there), exactly like an unprotected class command's `-h` would.
-        _agenthelp.install_help_redaction(sub_parser)
+        _agenthelp._install_help_redaction(sub_parser)
 
 
 @_contextlib.contextmanager

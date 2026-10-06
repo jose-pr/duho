@@ -449,4 +449,4 @@ def test_not_on_core_public_surface():
 
 def test_module_all_lists_public_symbols():
     """The module's own ``__all__`` lists its public API."""
-    assert set(scaffold.__all__) == {"generate_launchers", "ScaffoldCmd"}
+    assert set(scaffold.__all__) == {"generate_launchers", "ScaffoldCmd", "main"}

@@ -322,9 +322,9 @@ def _suppress_inherited_defaults(child_parser, root_dests, root_defaults=None):
             action.required = False
             action.default = _argparse.SUPPRESS
             action._duho_display_required_ = True  # type: ignore[attr-defined]
-            from ..formatters import install_required_usage_formatter
+            from ..formatters import _install_required_usage_formatter
 
-            install_required_usage_formatter(child_parser)
+            _install_required_usage_formatter(child_parser)
             continue
         if (
             action.dest in root_defaults

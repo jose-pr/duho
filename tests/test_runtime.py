@@ -2031,7 +2031,7 @@ def test_module_command_without_declared_args_help_survives_percent_default(
     tmp_path, capsys
 ):
     """A module command that declares NO ``Args`` of its own used to never
-    get ``install_help_redaction`` at all (only a module WITH declared
+    get ``_install_help_redaction`` at all (only a module WITH declared
     fields did) -- its ``-h`` stayed the plain, unprotected stdlib
     ``_HelpAction``."""
     _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
@@ -2051,7 +2051,7 @@ def test_module_command_with_register_hook_help_survives_percent_default(
 ):
     """Same fix for a module command whose fields come from a ``register``
     hook rather than a declared ``Args`` class -- also never got
-    ``install_help_redaction`` before."""
+    ``_install_help_redaction`` before."""
     _write(tmp_path, "regh.py", _MODULE_CMD_WITH_REGISTER_HOOK_FIELD)
     with pytest.raises(SystemExit) as excinfo:
         app(

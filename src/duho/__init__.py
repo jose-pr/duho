@@ -40,7 +40,11 @@ from .discovery import (
     ModuleCommand,
     discover_commands,
     discover_entry_points,
+    import_from_path,
+    is_class_command,
+    is_module_command,
     register_command_provider,
+    unregister_command_provider,
 )
 from .env import Env
 from .formatters import (
@@ -128,6 +132,9 @@ __all__ = [
     "Extend",
     "finish_parse",
     "gettext",
+    "import_from_path",
+    "is_class_command",
+    "is_module_command",
     "kebabcase",
     "LoggingArgs",
     "main",
@@ -146,6 +153,7 @@ __all__ = [
     "run_command",
     "snakecase",
     "subcommand",
+    "unregister_command_provider",
     "utf8_stdio",
     "UpdateAction",
     "value_sources",

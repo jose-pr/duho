@@ -328,7 +328,7 @@ def _default_and_source(dest, builder, action, sources):
 
     A builder-less action (no duho class behind this parser at all, e.g. a
     ``duho.app`` module command) falls back to whatever
-    :func:`stash_default_provenance` already stashed directly on the ACTION
+    :func:`_stash_default_provenance` already stashed directly on the ACTION
     (``_duho_class_default_``/``_duho_default_source_``) -- that caller
     resolves its own builder/source data independently (it has no
     ``parser._duho_cls_`` to hand `describe_parser` either), so this is the
@@ -527,7 +527,7 @@ def _muted_color(parser):
             parser.color = old
 
 
-def stash_default_provenance(parser, cls=None) -> None:
+def _stash_default_provenance(parser, cls=None) -> None:
     """Snapshot each of ``parser``'s actions' CLASS default (and env/config
     provenance) onto the action itself, for :class:`duho.formatters.DefaultsFormatter`
     and :func:`describe_parser`'s own builder-less fallback to read.
@@ -575,7 +575,7 @@ def stash_default_provenance(parser, cls=None) -> None:
 
 
 @_contextlib.contextmanager
-def redact_action_defaults(parser, cls=None):
+def _redact_action_defaults(parser, cls=None):
     """Temporarily replace each REDACTED action's ``.default`` with its class
     default for the duration of ``parser.format_help()``/``format_usage()``,
     restoring the original (possibly still env/config-layered) value on exit.
@@ -592,13 +592,13 @@ def redact_action_defaults(parser, cls=None):
     unconditionally afterward means an actual parse (or a later ``--help``
     once a value changes) still starts from the true, layered default.
 
-    Calls :func:`stash_default_provenance` first (idempotent -- a no-op if
+    Calls :func:`_stash_default_provenance` first (idempotent -- a no-op if
     ``cls``/``parser._duho_cls_`` is unavailable or the parser was never
     layered), then only touches actions it actually stashed onto
     (``hasattr(action, "_duho_class_default_")``) -- a plain argparse action
     with no duho field behind it (``-h``, ``--version``) is left alone.
     """
-    stash_default_provenance(parser, cls=cls)
+    _stash_default_provenance(parser, cls=cls)
     originals = []
     for action in parser._actions:
         if not hasattr(action, "_duho_class_default_"):
@@ -613,10 +613,10 @@ def redact_action_defaults(parser, cls=None):
 
 
 class _RedactedHelpAction(_argparse._HelpAction):
-    """Plain ``-h``/``--help``, with the redaction :func:`redact_action_defaults`
+    """Plain ``-h``/``--help``, with the redaction :func:`_redact_action_defaults`
     performs applied around the render.
 
-    Installed on a MODULE COMMAND's subparser (:func:`install_help_redaction`)
+    Installed on a MODULE COMMAND's subparser (:func:`_install_help_redaction`)
     -- a bare stdlib ``add_parser()`` instance that never goes through
     ``args.py``'s ``_install_agent_help``/``_AgentHelpAction`` (see this
     module's own docstring on why a module command's subparser deliberately
@@ -628,12 +628,12 @@ class _RedactedHelpAction(_argparse._HelpAction):
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
-        with redact_action_defaults(parser):
+        with _redact_action_defaults(parser):
             _compat.write_human(parser.format_help(), _sys.stdout)
         parser.exit()
 
 
-def install_help_redaction(parser) -> None:
+def _install_help_redaction(parser) -> None:
     """Swap every ``_HelpAction`` on ``parser`` to :class:`_RedactedHelpAction`.
 
     For a module command's subparser (the only caller today, from
@@ -641,7 +641,7 @@ def install_help_redaction(parser) -> None:
     that command's own provenance) -- its plain, argparse-added ``-h``/
     ``--help`` action would otherwise render a literal ``%(default)s`` in its
     help text straight from the live ``action.default``, same as any other
-    unprotected parser (see :func:`redact_action_defaults`). A no-op for an
+    unprotected parser (see :func:`_redact_action_defaults`). A no-op for an
     action already swapped (idempotent, safe to call more than once).
     """
     for action in parser._actions:
@@ -658,17 +658,28 @@ def describe_parser(
     root_cls: "type[_Args] | None" = None,
     name: "str | None" = None,
     aliases: "_ty.Sequence[str] | None" = None,
-    _seen: "set | None" = None,
 ) -> "dict":
     """Describe one built ``ArgumentParser`` (and its subtree) as plain data.
 
     ``root`` adds the document-level keys (schema tag, version, exit codes,
     examples). ``name``/``aliases`` label a subcommand within its parent.
-    ``_seen`` guards against re-describing a subparser reached under multiple
-    (alias) names.
     """
-    if _seen is None:
-        _seen = set()
+    return _describe_parser(
+        parser, root=root, root_cls=root_cls, name=name, aliases=aliases, seen=set()
+    )
+
+
+def _describe_parser(
+    parser: "_argparse.ArgumentParser",
+    *,
+    root: bool,
+    root_cls: "type[_Args] | None",
+    name: "str | None",
+    aliases: "_ty.Sequence[str] | None",
+    seen: "set",
+) -> "dict":
+    """:func:`describe_parser`'s walk; ``seen`` guards against re-describing a
+    subparser reached under several (alias) names."""
     builders, clsargs = _cls_metadata(parser)
     cls = getattr(parser, "_duho_cls_", None)
     # Which of THIS parser's fields are currently showing a live
@@ -740,15 +751,16 @@ def describe_parser(
         # hand-copy of this exact grouping, kept separately in
         # `duho.mcp`, that could silently diverge from this one).
         for canonical, alias_names, subparser in _parsers.unique_subcommands(
-            parser, seen=_seen
+            parser, seen=seen
         ):
             subcommands.append(
-                describe_parser(
+                _describe_parser(
                     subparser,
                     root=False,
+                    root_cls=None,
                     name=canonical,
                     aliases=list(alias_names),
-                    _seen=_seen,
+                    seen=seen,
                 )
             )
     spec["subcommands"] = subcommands

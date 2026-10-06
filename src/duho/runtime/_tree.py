@@ -263,12 +263,12 @@ def _finalize_command_tree(
         action.required = False
         # Un-requiring the action for enforcement's sake also made argparse's
         # own usage renderer show it as `[--opt]` (optional) -- flag it so
-        # `formatters.install_required_usage_formatter` (installed on
+        # `formatters._install_required_usage_formatter` (installed on
         # `parser` below) still renders it as required in `--help`/usage
         # text without re-enabling argparse's own (now redundant, and
         # differently timed) rejection.
         action._duho_display_required_ = True  # type: ignore[attr-defined]
-    _formatters.install_required_usage_formatter(parser)
+    _formatters._install_required_usage_formatter(parser)
     for sub_parser in (subparsers.choices or {}).values():
         # A class command's subparser shares the root's Action objects via
         # `parents=[base_parser]`; a default it redeclares goes on a private
@@ -298,7 +298,7 @@ def _finalize_command_tree(
                 action.required = False
                 action.default = _argparse.SUPPRESS
                 action._duho_display_required_ = True  # type: ignore[attr-defined]
-        _formatters.install_required_usage_formatter(sub_parser)
+        _formatters._install_required_usage_formatter(sub_parser)
         # A root-inherited option's default may now be `_argparse.SUPPRESS`
         # (set just above for a formerly-required global, or by
         # `_suppress_inherited_defaults` for an optional one) so the child's
@@ -314,13 +314,13 @@ def _finalize_command_tree(
         # which never copies a parent's Actions at all -- see this
         # function's own docstring). Stash the ROOT's own class default
         # directly on the action so `duho.agenthelp`'s
-        # `redact_action_defaults` -- already installed on every class
+        # `_redact_action_defaults` -- already installed on every class
         # command's `-h` via `_AgentHelpAction`, and on every module
-        # command's via `install_help_redaction` in
+        # command's via `_install_help_redaction` in
         # `_apply_app_config_layers` -- substitutes a real value back onto
         # `action.default` for the duration of the render. This dest is
         # never in the CHILD class's own `_getargs_()` (it belongs to the
-        # root), so `stash_default_provenance`'s own builder-keyed stash
+        # root), so `_stash_default_provenance`'s own builder-keyed stash
         # never reaches it and never overwrites what's set here.
         for action in sub_parser._actions:
             if action.dest in root_dests and action.default is _argparse.SUPPRESS:

@@ -42,7 +42,7 @@ from pathlib import Path as _Path
 from . import _compat as _compat
 from .args import AUTO as _AUTO, Cli as _Cli, main as _main
 
-__all__ = ["generate_launchers", "ScaffoldCmd"]
+__all__ = ["generate_launchers", "ScaffoldCmd", "main"]
 
 #: Default interpreter tokens per launcher flavor when ``python`` is not pinned.
 #: The POSIX launcher defaults to ``python3``; the Windows ``.cmd`` defaults to

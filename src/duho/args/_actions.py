@@ -108,16 +108,16 @@ class _AgentHelpAction(_argparse._HelpAction):
         # Human help: show only each field's CLASS default, never a
         # live env/config value `_stage_layers`/`_apply_default_layers_one`
         # may have already installed as `action.default` for THIS invocation.
-        # `stash_default_provenance` alone only stashes the class default
+        # `_stash_default_provenance` alone only stashes the class default
         # onto each action for `DefaultsFormatter` (which only ever sees
         # `action`, never `parser`) to read -- it does NOT touch
         # `action.default` itself, so argparse's OWN `%(default)s` expansion
         # (`HelpFormatter._expand_help`, which reads `action.default`
         # directly and runs regardless of formatter) still saw the live
         # value for any help text that spells the placeholder literally.
-        # `redact_action_defaults` additionally swaps that attribute for the
+        # `_redact_action_defaults` additionally swaps that attribute for the
         # duration of this render, then restores it.
-        with _agenthelp.redact_action_defaults(parser):
+        with _agenthelp._redact_action_defaults(parser):
             # Write via the stream's own encoding with a lossy
             # fallback (`errors="backslashreplace"`) instead of argparse's own
             # `_print_message`, which writes strict-encoded text and raises

@@ -31,7 +31,7 @@ __all__ = [
     "ColorDefaultsFormatter",
 ]
 
-#: The attribute :func:`install_required_usage_formatter`'s formatter reads;
+#: The attribute :func:`_install_required_usage_formatter`'s formatter reads;
 #: set by ``duho.runtime`` on a root-declared required global it had to
 #: un-require on an ``app()``-built subparser (so the value can be supplied
 #: after the subcommand, or by a config/env layer) -- see
@@ -56,7 +56,7 @@ class DefaultsFormatter(_argparse.HelpFormatter):
     fields) never gains a suffix.
 
     Shows the field's CLASS default, never a live env/config value:
-    ``duho.agenthelp.stash_default_provenance`` -- called from ``args.py``'s
+    ``duho.agenthelp._stash_default_provenance`` -- called from ``args.py``'s
     ``_AgentHelpAction`` right before it renders human help -- snapshots each
     action's declared default (and, when the value actually came from env or
     config, a value-free provenance note) as ``_duho_class_default_``/
@@ -205,7 +205,7 @@ class _RequiredForUsageFormatter(_argparse.HelpFormatter):
     FORMATTING -- never touching real parsing, and restored immediately after
     -- closes that display gap without re-enabling argparse's own (now
     redundant, and differently timed) rejection. Composed onto whatever
-    formatter a parser already uses (see :func:`install_required_usage_formatter`),
+    formatter a parser already uses (see :func:`_install_required_usage_formatter`),
     so an author's own ``_help_formatter_`` keeps working unchanged.
     """
 
@@ -224,7 +224,7 @@ class _RequiredForUsageFormatter(_argparse.HelpFormatter):
                 action.required = False
 
 
-def install_required_usage_formatter(parser) -> None:
+def _install_required_usage_formatter(parser) -> None:
     """Compose :class:`_RequiredForUsageFormatter` onto ``parser``'s
     ``formatter_class``, so any action flagged :data:`_DISPLAY_REQUIRED_ATTR`
     renders as required in USAGE text.

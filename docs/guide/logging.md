@@ -85,12 +85,19 @@ scale, and is accepted by `--loglevel`.
 
 ## Naming the logger
 
-`self._logger_` is scoped to the parser's name. Override it with `_logger_name_`:
+`-v`, `-q` and `--loglevel LEVEL` raise the application's logger — the
+application's name (see [The application's name](https://github.com/jose-pr/duho/#the-applications-name)),
+which is the name your own modules normally log under. `self._logger_` is that
+logger. Declare `_logger_name_` to use another one:
 
 ```python
 class App(LoggingArgs):
     _logger_name_ = "myapp.cli"
 ```
+
+A `_logger_name_` on the root applies to every command it dispatches, and one
+on a command applies to that command alone. A command that is itself a
+`LoggingArgs` follows the same rule as a plain `Cmd`.
 
 ## Debugging framework failures: `DUHO_TRACEBACK`
 
@@ -146,18 +153,18 @@ myapp --loglevel duho.discovery:DEBUG run
 All of them sit under the `duho` parent, so `--loglevel duho:DEBUG` still turns
 on everything at once.
 
-**Your commands' own records are named after the command, not the module.** A
-command's `self._logger_` is scoped to its parser name, and that is what the
-framework logs *through* wherever a run is associated with one. RunPath is the
-clearest case: a `steps/` directory logs its per-step messages under `steps`,
-not `duho.runpath`, so several RunPaths in one app stay distinguishable:
+**A RunPath directory logs under its own name, not the module's.** Its
+`self._logger_` is named after the directory, and that is what the framework
+logs *through* wherever a run is associated with one. A `steps/` directory logs
+its per-step messages under `steps`, not `duho.runpath`, so several RunPaths in
+one app stay distinguishable:
 
 ```
 INFO steps: running step boom
 ERROR steps: step boom failed: kaboom
 ```
 
-Target those by the command's own name:
+Target those by the directory's name:
 
 ```bash
 myapp --loglevel steps:DEBUG steps

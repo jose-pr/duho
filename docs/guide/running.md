@@ -182,6 +182,9 @@ else entirely, pass `name=`:
 Serve._parser_(subparsers, name="run-server")
 ```
 
+The application itself is named differently: see
+[The application's name](https://github.com/jose-pr/duho/#the-applications-name).
+
 ### Mode flags instead of positional commands
 
 Some established command-line interfaces select a mode with a flag rather than

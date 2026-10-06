@@ -403,8 +403,8 @@ if __name__ == "__main__":
 ```
 
 ```bash
-python app.py Serve --port 3000
-python app.py Build --output dist
+python app.py serve --port 3000
+python app.py build --output dist
 ```
 
 **Subcommand aliases**: set `_parseraliases_` on a `Cmd` subclass to register
@@ -425,7 +425,7 @@ class App(Args):
 ```
 
 ```bash
-python app.py Create web   # full name (the class name, verbatim)
+python app.py create web   # full name (the class name, kebab-case)
 python app.py c web        # alias -> same command
 python app.py new web      # alias -> same command
 ```
@@ -462,6 +462,20 @@ If the distribution can't be found (e.g. running from a source checkout that
 isn't installed), duho does **not** add a `--version` flag at all — it logs a
 debug message via `logging.getLogger("duho")` instead of printing a bogus
 `0.0.0+unknown`-style version or raising.
+
+### The application's name
+
+An application has one name, and every surface uses it: the usage line, the
+name a `--print-completion` script binds, the `<NAME>_MCP` launch variable, the
+root of every MCP tool name (`NAME.command`) and the default logger that
+`-v`/`-q` raise. It is, in order: `duho.app(name=...)`, the root class's own
+`_parsername_`, the top-level package the root class is defined in (the `pkg`
+of `pkg.cli.Root`, also under `python -m pkg`), then the kebab-case of the class
+name. A script run directly has no package, so it is named after its class. The
+name never comes from the script's file name, so `python app.py`, `python tools/run.py`,
+`python -m pkg` and a console script all agree. Declare `_parsername_` to fix
+the name wherever the class lives. A subcommand's name is its own
+`_parsername_`, else the kebab-case of its class name (`Create` → `create`).
 
 ### Output encoding
 
@@ -680,7 +694,10 @@ class MyApp(LoggingArgs, Cmd):
 ```
 
 `duho.main()` calls `self._set_loglevels_()` for you before dispatching the
-command (pass `setup_logging=False` to opt out). If you drive the parser
+command (pass `setup_logging=False` to opt out). `-v`/`-q` raise the
+application's logger (see [the application's name](#the-applications-name))
+for every command, whether or not the command is itself a `LoggingArgs`;
+`_logger_name_` on a command, or on the root, names a different one. If you drive the parser
 yourself instead of using `duho.main()`, call `self._set_loglevels_()` before
 you start logging.
 
@@ -727,9 +744,9 @@ python app.py --print-completion powershell | Out-String | Invoke-Expression
 
 `_completion_` is off by default (matches the `_version_` opt-in precedent) —
 set it to add the `--print-completion {bash,zsh,fish,powershell}` flag, which
-registers the emitted script under the invoked command name (`sys.argv[0]`'s
-stem) by default. You can also generate a script without adding the flag at
-all, via the standalone function:
+registers the emitted script under the [application's
+name](#the-applications-name). You can also generate a script without adding
+the flag at all, via the standalone function:
 
 ```python
 import sys
@@ -739,13 +756,9 @@ duho.print_completion(MyApp, "bash", file=sys.stdout, prog="myapp")
 ```
 
 `print_completion`'s keyword-only `prog=` overrides the command name the script
-binds to. An explicit `_parsername_`/`duho.app(name=...)` always wins;
-otherwise it defaults to the stem of *this call's own* `sys.argv[0]` — correct
-when called from behind the app's own `--print-completion` flag, but wrong
-when called from a separate build/doc-generation script, which would bind the
-completion script to that script's own name instead of `myapp`. Pass `prog=`
-explicitly whenever you generate a completion script from anywhere other than
-the target app's own invocation.
+binds to; by default it is the application's name, so the script is the same
+whether it is generated from the app itself or from a separate build script.
+Pass `prog=` when the command users type differs from that name.
 
 Both paths walk the built parser tree, including nested `_subcommands_`:
 `Literal`/`Enum` fields offer their choices as completion candidates, and
@@ -975,12 +988,13 @@ you also want discovery/config/env — see [main vs app](#run-your-app)).
 
 `duho.app(root, ...)` threads a `Cli` root's `_config_` and any `env` down to the
 dispatched subcommand. TOML top-level keys apply to the root's fields; a
-`[<Subcommand>]` table applies to that subcommand; and the resolved `duho.Env` (if
+`[<subcommand>]` table (its kebab-case name, e.g. `[deploy]`) applies to that
+subcommand; and the resolved `duho.Env` (if
 passed) is reachable from the command as `self._env_`:
 
 ```python
 # app.toml
-# [Deploy]
+# [deploy]
 # region = "eu-west"
 
 raise SystemExit(duho.app(MyApp, source="myapp.commands",
@@ -1460,7 +1474,7 @@ class Run(duho.Cmd):
     def __call__(self):
         subprocess.run(["pytest", *self._passthrough_])
 
-# myapp Run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]
+# myapp run -- -k test_foo -x   ->   self._passthrough_ == ["-k", "test_foo", "-x"]
 ```
 
 `--` never acts as argparse's own end-of-options marker in duho — it always
@@ -1601,9 +1615,9 @@ newline-delimited JSON-RPC 2.0 over stdin/stdout — wire it into any MCP client
 stdio server.
 
 Every `Cmd` reachable from your root — the root itself, and every `_subcommands_`
-node, recursively — becomes one tool, named after its own `_parsername_`, or the
-kebab-case of its class name when it declares none (`parent.child` when nested,
-e.g. `MyApp` (no `_parsername_`) with a `Deploy` child → `my-app.deploy`). A tool's
+node, recursively — becomes one tool, named by its command path under the
+[application's name](#the-applications-name) (`app.parent.child`; e.g. a root
+named `my-app` with a `Deploy` child → `my-app.deploy`). A tool's
 `inputSchema` is a real JSON Schema built from the same field declarations that
 already drive your `--help`:
 
@@ -1660,10 +1674,9 @@ $ MYAPP_MCP=stdio myapp
 ```
 
 The variable name is `<PREFIX>MCP` when the app supplies an `Env` (`app(env=Env
-("myapp"))` → `MYAPP_MCP`), else `<NAME>_MCP` derived from a declared
-`_parsername_`, `app(name=...)`, the program name, or the kebab-case of the class
-name when none of those apply (upper-cased, every character outside `[A-Z0-9]`
-replaced by `_`) — e.g. `SomeApp` → `SOME_APP_MCP`. Set to `stdio`, it serves the
+("myapp"))` → `MYAPP_MCP`), else `<NAME>_MCP` derived from the [application's
+name](#the-applications-name) (upper-cased, every character outside `[A-Z0-9]`
+replaced by `_`) — e.g. an app named `some-app` → `SOME_APP_MCP`. Set to `stdio`, it serves the
 app's full tool tree over stdio instead of running any command; set to anything
 else, the process exits `2` naming the unsupported transport. The variable is
 always removed from `os.environ` the moment it's seen — present or not — so a
@@ -1695,13 +1708,12 @@ before anything is registered, never silently swallowed.
 ### Naming and identity
 
 The dotted tool-name namespace, and the `serverInfo` an MCP client sees in its
-`initialize` response, both follow the SAME resolved name — a declared
-`_parsername_`, an explicit `duho.app(name=...)`, or the kebab-case of the class
-name, in that order of precedence:
+`initialize` response, both follow the [application's
+name](#the-applications-name):
 
 ```python
 app(Dotagents, name="dotagents")   # tools come out "dotagents.*"
-app(Dotagents)                     # same result: kebab-case of the class name
+app(Dotagents)                     # the root's `_parsername_`, else its package
 ```
 
 `serverInfo.version` reports the served app's own `_version_` when it resolves to a

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- An application now has one name, used for the usage line, the
+  `--print-completion` script, the `<NAME>_MCP` launch variable, MCP tool
+  names and `serverInfo.name`, and the default logger. It is
+  `duho.app(name=...)`, else the root's own `_parsername_`, else the
+  top-level package the root class is defined in, else the kebab-case of the
+  class name. It no longer depends on how the program is launched. What you
+  may see change:
+  - A root with no `_parsername_` that lives in package `pkg` is now named
+    `pkg`, not the kebab-case of its class (`my-app`), in the usage line and
+    in MCP tool names (`pkg.deploy`, not `my-app.deploy`). A script run
+    directly keeps its class name.
+  - The completion script and the `<NAME>_MCP` variable follow the app's name,
+    not the file name of the script: `python app.py`, `python tools/run.py`,
+    `python -m pkg` and an installed console script all give the same result.
+  - A command's `-v`/`-q` now raises the application's logger. This was the
+    command's own name for a command that is a `LoggingArgs`, and the root's
+    name for a plain `Cmd`.
+  - A `_logger_name_` on a root now applies to every command it dispatches.
+  Declare `_parsername_` (and `_logger_name_` for the logger) to keep a name
+  fixed wherever the class lives.
+
+### Fixed
+
+- `_version_ = duho.AUTO` on a root that also sets `_mcp_command_` looked up
+  duho's own distribution and reported duho's version; it now looks up the
+  application's own distribution, like any other root.
+
+### Notes for readers upgrading from 0.6.1 or earlier
+
+Since 0.6.2 a command name derived from a class name is kebab-case
+(`DeployAll` is `deploy-all`). That also changed, without an error, the
+config table key (`[Deploy]` is now `[deploy]`), the name in
+`--loglevel NAME:LEVEL`, and MCP tool names. Declare `_parsername_` on the
+class to keep an earlier name.
+
 ## [0.6.4] - 2026-10-06
 
 ### Fixed

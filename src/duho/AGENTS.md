@@ -44,7 +44,8 @@ regardless of which internal module implements it:
   - `_parser_(subparser=None, name=None, parents=(), **kw) -> ArgumentParser` — build
     this class's (sub)parser.
   - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None)` —
-    populate an already-created parser with this class's fields.
+    populate an already-created parser with this class's fields. `explicit_prog` is
+    accepted for compatibility and has no effect.
   - `_getargs_() -> list[ArgumentBuilder]` — this class's resolved field specs (cached).
   A `list[T]`/`set[T]`/`tuple[T, ...]` field used as a POSITIONAL keeps `nargs="*"`
   (space-separated: `prog a b`); used as an OPTION it defaults to `nargs=None` — ONE
@@ -73,13 +74,19 @@ regardless of which internal module implements it:
   itself (a base class's build never leaks its derived name to a subclass). A class with
   no OWN `_parsername_` is named with the KEBAB-CASE (`duho.text.kebabcase`) of its class
   name, not the exact class name: `BuildPyz` → `build-pyz`, `ShowHTTPStatus` →
-  `show-http-status`. This is visible everywhere a resolved command name is used — the
-  parser `prog`, the subcommand name, `LoggingArgs`'s default logger name, the MCP tool
-  name and the `<NAME>_MCP` env var's class-name fallback, and agent-help/completion —
-  since every one of those reads the single `duho.args._command_name` rule. An explicit
-  `_parsername_`, an `app(name=...)`, a `_parseraliases_` alias, and a discovered MODULE
-  command's own file-stem name (`_` → `-`, unrelated to a class) are never kebab-cased —
-  only a bare class-name fallback is.
+  `show-http-status`. An explicit `_parsername_`, a `_parseraliases_` alias, and a
+  discovered MODULE command's own file-stem name (`_` → `-`, unrelated to a class) are
+  never kebab-cased — only a bare class-name fallback is.
+  **The application's name** — one name, used for the root parser's `prog` (the usage
+  line), the `--print-completion` script, the `<NAME>_MCP` launch variable, the root
+  segment of every MCP tool name and `serverInfo.name`, and the default logger `-v`/`-q`
+  raise. In order: `app(name=...)`, the root class's own `_parsername_`, the top-level
+  package the root class is defined in (also under `python -m pkg`; `__main__` and
+  `duho` itself never count), then the kebab-case of the class name — so a single-file
+  script run directly is named after its class. It never comes from the script's file name:
+  `python app.py`, `python tools/run.py`, `python -m pkg` and a console script all agree.
+  A root that must keep a fixed name wherever it lives declares `_parsername_`.
+  `duho.app(root=None)` builds on duho's own `Args` and so is named `args`; pass `name=`.
 - **`command(args_cls, func, *, name=None, module=None) -> type[Cmd]`** — build a `Cmd`
   subclass from a data `Args` + a callable; the built `__call__` calls `func(self)`.
   `name` sets `_parsername_`. `module=` overrides the built class's `__module__`
@@ -298,16 +305,9 @@ just its annotation.
   `"powershell"` (an unrecognized name raises `ValueError` listing the valid ones).
   Standalone counterpart to the `--print-completion` flag injected when `_completion_ =
   True` — builds `cls`'s parser tree fresh, independent of whether `_completion_` is
-  set. `prog` overrides the command name the emitted script binds to; an explicit
-  `_parsername_`/`duho.app(name=...)` always wins, otherwise it defaults to the stem
-  of THIS CALL's own `sys.argv[0]` — correct only when called from behind the app's
-  own `--print-completion` flag; a separate build/doc-generation script must pass
-  `prog=` explicitly or the script binds to ITS OWN name instead. The
-  `--print-completion` FLAG (as opposed to this function) registers the completion
-  script under the invoked command name
-  (`sys.argv[0]`'s stem, minus a `-script` suffix) by default, rather than the root
-  class's derived name, whenever no `_parsername_`/`duho.app(name=...)` was explicitly
-  declared.
+  set. `prog` overrides the command name the emitted script binds to; by default it
+  is the application's name (see "The application's name" above), the same one the
+  `--print-completion` flag binds, however the program was launched.
 
 `_passthrough_`: on a parsed instance, argv after the first literal `--` (a `list[str]`,
 empty when absent).
@@ -422,8 +422,9 @@ empty when absent).
   flags — long spellings work alongside the short ones), and `--loglevel
   [NAME:]LEVEL[,...]` (a per-logger level spec, NOT a generic `KEY=VALUE` dict grammar —
   `LEVEL` matches a registered level name case-insensitively or a plain integer, e.g.
-  `--loglevel mypkg.sub:DEBUG,other:20`). `_logger_` (scoped to the parsed instance's own
-  command name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the NUMERIC level,
+  `--loglevel mypkg.sub:DEBUG,other:20`). `_logger_` (the logger `-v`/`-q` apply to: a
+  `_logger_name_` on the command's class, else one on the root that dispatched it, else
+  the application's name), `_set_loglevels_()`, `_verbose_loglevel_()` (returns the NUMERIC level,
   e.g. `logging.DEBUG` — not a level name). `VERBOSE_LEVELS` is most-severe-first;
   `-v`→DEBUG, `-vv`→TRACE, `-q`→WARNING; verbose and quiet offset each other in one
   combined count.
@@ -657,9 +658,8 @@ manipulating a parser tree directly:
   **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
   unresolvable tool name and for arguments that are not a JSON object or fail the
   tool's schema, respectively. `initialize`'s `serverInfo` reports the served APP's own
-  identity, not a fixed placeholder: `name` is the same root tool-name segment every
-  tool name's own root uses (an `app(name=...)` value when given, else `_parsername_`/
-  the class name), and `version` is the app's own `_version_` when it resolves to a
+  identity, not a fixed placeholder: `name` is the application's name, the same root
+  tool-name segment every tool name uses, and `version` is the app's own `_version_` when it resolves to a
   string, else the empty string -- duho's own version is NEVER reported as the served
   app's (a served app with no resolvable `_version_` used to report duho's own
   release number as if it were the app's). `initialize` negotiates
@@ -668,8 +668,7 @@ manipulating a parser tree directly:
   `json`/`importlib.metadata` stay function-local.
   - **Launching a server from the CLI itself** (no MCP-specific code required):
     every `duho.main(cls)`/`duho.app(...)` call checks a `<PREFIX>MCP` (an
-    `Env(prefix)` app's own prefix) or `<NAME>_MCP` (derived from a declared
-    `_parsername_`, `app(name=...)`, the program name, or the class name,
+    `Env(prefix)` app's own prefix) or `<NAME>_MCP` (derived from the application's name,
     upper-cased with non-`[A-Z0-9]` characters replaced by `_`) environment
     variable FIRST, before parsing `argv`. Set to `stdio`, it serves that
     app's full tool tree over stdio instead of running any command; set to

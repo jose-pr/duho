@@ -24,10 +24,8 @@ _LOGGER = _logging.getLogger(__name__)
 # their source entirely (stops re-parsing e.g. argparse.py for Namespace).
 _SKIP_MODULES = frozenset({"argparse", "builtins", "typing"})
 
-# ``try/except*`` (PEP 654, 3.11+) carries the same statement-body fields as a
-# plain ``Try``; reference it via ``getattr`` so the isinstance check is a no-op
-# on 3.9/3.10 where the node type does not exist. Together with ``ast.Try`` this
-# lets the statement-only walk below descend both try forms.
+# ``try/except*`` (PEP 654, 3.11+) has the same body fields as ``Try``; looked
+# up with ``getattr`` so it is skipped on 3.9/3.10, where the type is absent.
 _TRY_TYPES = tuple(
     t for t in (_ast.Try, getattr(_ast, "TryStar", None)) if t is not None
 )
@@ -41,19 +39,11 @@ _TypeAliasType = getattr(_ty, "TypeAliasType", None)
 def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
     """Parse a source file once and index every ClassDef by qualname.
 
-    Qualname is reconstructed by walking the tree while tracking the
-    enclosing scope chain: entering a ClassDef appends "Name.", entering a
-    Function/AsyncFunctionDef appends "name.<locals>." -- this yields
-    __qualname__ exactly, so nested and function-local classes resolve.
-
-    A qualname maps to a LIST, not a single node: the same qualname can be
-    defined more than once in one file (an if/else branch, a
-    try/except ImportError fallback) -- see ``getclsdef`` for how the live
-    one is picked.
-
-    Source is read as BYTES and decoded via ``tokenize.detect_encoding``,
-    which honors both a UTF-8 BOM and a PEP 263 ``# -*- coding: ... -*-``
-    cookie, both of which a plain UTF-8 ``read_text`` would raise on.
+    Qualnames match ``__qualname__`` (``Name.`` for a class scope,
+    ``name.<locals>.`` for a function), so nested and function-local classes
+    resolve. A qualname maps to a list: an if/else or try/except fallback can
+    define it twice (see ``getclsdef``). Source is decoded with
+    ``tokenize.detect_encoding``, which honors a BOM and a PEP 263 cookie.
     """
     index: dict[str, list[_ast.ClassDef]] = {}
     raw = _Path(filename).read_bytes()
@@ -62,14 +52,9 @@ def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
     tree = _ast.parse(src)
 
     def walk(body, prefix: str):
-        # Recurse only into STATEMENT containers, not `ast.iter_child_nodes` on
-        # every node. A ClassDef/FunctionDef can only appear as a statement
-        # in some enclosing statement's body -- never inside an expression -- so
-        # walking only the statement-carrying fields (`body`/`orelse`/`finalbody`
-        # and each except handler's `body`) reaches every class while skipping the
-        # deep expression/argument/decorator subtrees `iter_child_nodes` descends.
-        # Qualname reconstruction is preserved exactly: a ClassDef appends
-        # "Name.", a Function/AsyncFunctionDef appends "name.<locals>.".
+        # Walk only statement containers (a ClassDef or FunctionDef occurs only
+        # as a statement), skipping the expression subtrees that
+        # ``iter_child_nodes`` descends.
         for child in body:
             if isinstance(child, _ast.ClassDef):
                 qualname = prefix + child.name
@@ -102,10 +87,9 @@ def _module_index(filename: str) -> dict[str, list[_ast.ClassDef]]:
     return index
 
 
-# A block read costs a fixed amount per class; the whole-file index costs per
-# line once and then serves every class of the file. A file gets one block read
-# per this many bytes, so a large file whose classes are all commands pays the
-# index plus at most ``size // _BYTES_PER_BLOCK_READ`` block reads.
+# A block read costs a fixed amount per class, the whole-file index per line
+# once. A file gets one block read per this many bytes; beyond that the index
+# serves its classes.
 _BYTES_PER_BLOCK_READ = 12_000
 
 #: file -> (mtime and size, block-read budget, first lines already read by
@@ -204,23 +188,12 @@ def _own_annotations(cls: type) -> dict[str, object]:
 def _pick_live_classdef(
     cls: type, candidates: list[_ast.ClassDef]
 ) -> _ast.ClassDef | None:
-    """Pick the ClassDef Python actually bound to ``cls`` out of several
-    sharing one qualname (an if/else or try/except fallback both defining the
-    same name).
+    """Pick the ClassDef Python bound to ``cls`` among several sharing one
+    qualname (an if/else or try/except fallback defining the same name).
 
-    ``cls.__firstlineno__`` (3.13+, PEP 626) names the class's own real
-    source line directly and settles this exactly -- it is set by the
-    interpreter at class-creation time from the ACTUAL executing branch,
-    unlike ``inspect.getsourcelines``, which (before 3.13) finds only the
-    FIRST textual ``class X`` regardless of which branch ever ran.
-
-    Before 3.13, candidates are matched instead by the shape ``cls`` itself
-    ended up with: its own (non-inherited) annotated field names
-    (``vars(cls)["__annotations__"]``) and its own docstring -- the two
-    things a genuinely different fallback implementation usually differs on.
-    When more than one candidate still matches (the branches are
-    structurally identical, e.g. two branches declaring the exact same
-    field), the LAST one in source-walk order wins (the prior behavior).
+    ``cls.__firstlineno__`` (3.13+) settles it exactly. Before 3.13, candidates
+    are matched on ``cls``'s own annotated field names and docstring; if
+    several still match, the last in source order wins.
     """
     if len(candidates) == 1:
         return candidates[0]
@@ -262,16 +235,9 @@ def getclsdef(cls: type) -> _ty.Optional[_ast.ClassDef]:
         file = getattr(module, "__file__", None)
         if file:
             qualname = getattr(cls, "__qualname__", cls.__name__)
-            # `_module_index` reads and parses the file -- `OSError` when
-            # `file` isn't a real filesystem path (e.g. a zipapp's
-            # `module.__file__` is a zip-internal path that doesn't exist on
-            # disk), or `SyntaxError`/`ValueError` when the encoding cookie
-            # names a codec that can't decode the bytes, or is otherwise
-            # unrecognizable. All three are caught HERE, narrowly, so the
-            # failure falls through to the `inspect.getsource` fallback below
-            # (which reads through `tokenize`/`linecache` and handles a BOM
-            # or PEP 263 cookie correctly) instead of propagating to the
-            # outer `except`, which would return None before ever trying it.
+            # OSError (a zipapp's ``__file__``), SyntaxError and ValueError (a bad
+            # encoding cookie) are caught here so the ``getsource`` fallback below
+            # still runs, not the outer ``except``.
             node = _classdef_by_firstlineno(cls, file, qualname)
             if node is not None:
                 return node
@@ -283,14 +249,9 @@ def getclsdef(cls: type) -> _ty.Optional[_ast.ClassDef]:
                 found = index.get(qualname)
                 if found is not None:
                     return _pick_live_classdef(cls, found)
-                # The module file WAS indexed successfully but this qualname is
-                # absent -- the class was created dynamically (``type(...)`` /
-                # ``duho.command(...)``) and has no literal ``ClassDef`` in the
-                # source. ``inspect.getsource`` re-parses the exact same file and
-                # fails the identical lookup, only slower (up to ~23 ms per class in
-                # a large dynamically-built tree). Give up now. The getsource
-                # fallback below is reserved for the no-module-file case
-                # (REPL/``exec``) or the unreadable/undecodable-file case above.
+                # Indexed but absent: the class was created dynamically, and
+                # ``inspect.getsource`` would fail the same lookup more slowly
+                # (up to ~23 ms per class). The fallback is for no readable file.
                 return None
 
         src = _inspect.getsource(cls)
@@ -399,21 +360,9 @@ def _class_constants(cls: type) -> dict[str, list]:
             # report an ancestor's fields as this class's own.
             has_own_annotations = bool(_own_annotations(cls))
             if has_own_annotations:
-                # A class with annotated fields whose source we could not locate
-                # (a PyInstaller/py2exe freeze, a .pyc-only install, Nuitka, REPL/
-                # exec, zipapp) silently loses its flags/env/docstrings -- every
-                # field falls back to a derived `--field-name` option, a
-                # no-default positional becomes a REQUIRED option, and short
-                # aliases/help text vanish. This happens while the parser
-                # is still being BUILT, before an app's own `-v`/`--loglevel`
-                # could raise the level to see a DEBUG-level diagnostic, so it
-                # must be loud enough to be seen by default (this runs once per
-                # class -- the result is cached below).
-                #
-                # When the module's own source IS readable, the class simply was
-                # never written as a class body there: it was created at runtime
-                # (`type(...)`, a factory). There is nothing to lose, so that is
-                # only a debug-level note rather than a warning per class.
+                # No locatable source (freeze, .pyc-only, REPL, zipapp) silently
+                # loses flags, env and help, and this runs before ``-v`` applies,
+                # so warn; a class made at runtime in readable source loses nothing.
                 level = (
                     _logging.DEBUG
                     if _module_source_readable(getattr(cls, "__module__", None))
@@ -510,17 +459,13 @@ def _is_routine_or_descriptor(value) -> bool:
 
 
 def _looks_like_a_resolved_type(value: object) -> bool:
-    """True if ``value`` is a plausible resolved type-hint (a type, or a
-    typing construct), False if it's some OTHER kind of object entirely.
+    """True if ``value`` is a plausible resolved type hint (a type or typing
+    construct), False for any other kind of object.
 
-    Detects a field whose NAME is identical to its own annotation (e.g.
-    ``bool: bool = False``): the annotated assignment stores the VALUE before
-    the annotation expression is evaluated, so the class's own raw
-    ``__annotations__`` entry is the value (``False``), not the builtin
-    ``bool``. :func:`_resolve_public_type_hints` recovers the intended type
-    from the class's source text; without readable source the symptom (a
-    "type" that plainly isn't one) is reported as a clear error naming the
-    field, instead of an ``argparse`` internals crash.
+    Detects a field named like its own annotation (``bool: bool = False``):
+    the assignment stores the value before the annotation is evaluated, so the
+    raw ``__annotations__`` entry is ``False``. :func:`_resolve_public_type_hints`
+    recovers the type from source; without source the caller reports it.
     """
     if isinstance(value, type):
         return True
@@ -528,10 +473,8 @@ def _looks_like_a_resolved_type(value: object) -> bool:
         # An unresolved forward-ref string is a legitimate (if unusual at
         # this point) intermediate value, not the shadow symptom.
         return True
-    # A typing construct (Optional[int], list[str], Literal[...], ...) has
-    # __origin__ or lives under the `typing` module's machinery -- accept
-    # anything that isn't a plain, mundane instance of a builtin scalar type
-    # a class body could plausibly have assigned as an accidental value.
+    # A typing construct has ``__origin__`` or lives in ``typing``/``types``;
+    # anything but a plain builtin scalar instance passes.
     if _ty.get_origin(value) is not None:
         return True
     if type(value).__module__ in ("typing", "types"):
@@ -543,43 +486,15 @@ def _looks_like_a_resolved_type(value: object) -> bool:
 
 
 def _raw_public_annotations(base: type) -> dict[str, object]:
-    """``base``'s OWN (not inherited) public annotations, UNEVALUATED where
-    possible.
+    """``base``'s own public annotations, unevaluated where possible.
 
-    When ``base``'s source is available (the common case), each value is the
-    EXACT source text of the annotation expression, extracted via AST
-    (``ast.unparse`` on the ``AnnAssign`` node) -- never executed, and never
-    read back off the class's own (possibly self-shadowed, possibly not-yet-
-    fully-built) namespace. This is what lets :func:`_resolve_public_type_hints`
-    evaluate each field in complete isolation on 3.14 (see there for why that
-    matters), and as a side effect it also makes a field whose NAME equals a
-    builtin type it's annotated with (``bool: bool = False``) resolve
-    correctly instead of seeing its own already-reassigned VALUE -- the
-    source text says "bool" regardless of what class-body execution order
-    later does to the name ``bool`` in the class namespace.
-
-    Trying ``annotationlib.get_annotations(base, format=Format.STRING)``
-    instead (3.14+) was rejected: when a class body already forced VALUE-format
-    evaluation (nothing unusual -- duho's own ``LoggingArgs.loglevels`` did,
-    just by being imported), 3.14's own STRING-format fallback re-derives text
-    via ``repr()`` of the cached values instead of real source, and a `lambda`
-    inside an annotation (e.g. ``NS(help=lambda self: ...)``) evaluates for
-    real even under STRING format's "stringizer", embedding a live function's
-    ``repr()`` (``<function ... at 0x...>``) into the "source" -- not valid
-    Python, so re-evaluating it always raises. Reading real source via AST has
-    neither problem.
-
-    When source isn't available (a frozen build, REPL/exec, a dynamically
-    created class -- the existing gap, where flags/docstrings are
-    already unavailable too), falls back to whatever ``__annotations__``
-    already holds -- accepting, in this rare case only, both the runtime
-    self-shadow risk and (3.14 only) the cross-field entanglement risk this
-    function otherwise avoids.
-
-    Private (``_``-prefixed) names are dropped here, before anything ever
-    tries to resolve them: a private field's unresolvable annotation (a
-    function-local type, a ``TYPE_CHECKING``-only import) must never crash
-    parser build for a name nobody will ever see as a CLI flag.
+    With source, each value is the annotation's source text (``ast.unparse``),
+    never executed, so a field named like its type (``bool: bool = False``)
+    resolves correctly and each field can be evaluated alone on 3.14.
+    ``annotationlib``'s STRING format is not used: after a VALUE-format
+    evaluation it can embed a lambda's ``repr()`` (``<function ... at 0x...>``),
+    which never evaluates. Without source it falls back to ``__annotations__``.
+    Private names are dropped before resolution.
     """
     clsdef = None if base.__module__ in _SKIP_MODULES else getclsdef(base)
     if clsdef is not None:
@@ -595,40 +510,13 @@ def _raw_public_annotations(base: type) -> dict[str, object]:
 def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls``.
 
-    The fast, PRIMARY path is plain ``typing.get_type_hints(cls,
-    include_extras=True)``, so a function-local class/enum referenced by a
-    public field's annotation works: the annotation is already evaluated
-    eagerly in the common case, or on 3.14 lazily through a closure that
-    still sees the enclosing function's locals.
-
-    Only if that raises does this fall back to
-    :func:`_resolve_public_type_hints_isolated`, which re-resolves each
-    PUBLIC field completely independently of every other -- fixing the two
-    failure modes without weakening the common case:
-
-    * A private field's annotation can't be resolved at all (a class or enum
-      defined inside a function, a ``TYPE_CHECKING``-only import) and
-      currently aborts the WHOLE class's ``get_type_hints`` call, even though
-      that name will never become a CLI flag. The fallback filters private
-      names out before ever attempting to resolve them.
-    * On 3.14 (PEP 649/749), a class's annotations are evaluated together as
-      ONE function, seeing the class's FINAL namespace -- so a class with
-      ``names: list[str]`` followed later by ``list: bool`` (a ``--list``
-      flag) resolves the EARLIER field's ``list[str]`` against the LATER
-      field's own name, raising ``TypeError: 'bool' object is not
-      subscriptable``. This never happens on 3.9-3.13, where annotations are
-      evaluated eagerly, in source order, each seeing only what was defined
-      *before* it. The fallback resolves each field in total isolation, so
-      one field's name can never shadow another's.
-
-    The fallback's own trade-off (documented, not perfect): since it
-    re-evaluates each field's annotation SOURCE TEXT against its MODULE's
-    globals only, a public field whose annotation itself references a
-    function-local name is not resolvable there either -- but that combination
-    (a class already failing the fast path for some OTHER reason, AND a
-    surviving field needing function-local scope) is not a shape duho has ever
-    supported cleanly, and the fallback at least names the class and field
-    instead of crashing opaquely.
+    The primary path is ``typing.get_type_hints(cls, include_extras=True)``, so
+    a function-local class in an annotation resolves. If it raises, the
+    isolated fallback resolves each public field alone, which survives a
+    private field's unresolvable annotation and, on 3.14 (PEP 649), a field
+    name shadowing an earlier annotation (``names: list[str]`` then
+    ``list: bool``). The fallback sees module globals only, so a function-local
+    name is not resolvable there.
     """
     try:
         hints = _ty.get_type_hints(cls, include_extras=True)
@@ -651,18 +539,13 @@ def _resolve_public_type_hints(cls: type) -> dict[str, object]:
 
 
 def _resolve_public_type_hints_isolated(cls: type) -> dict[str, object]:
-    """Resolve every PUBLIC annotation on ``cls`` (its own MRO), one field at
-    a time, in complete isolation from every OTHER field. See
-    :func:`_resolve_public_type_hints` (the only caller) for when and why.
+    """Resolve every PUBLIC annotation on ``cls`` (its MRO), one field at a time
+    (see :func:`_resolve_public_type_hints`, the only caller).
 
-    Reuses ``typing.get_type_hints``'s own forward-ref/``Optional``/
-    ``include_extras`` machinery UNCHANGED, rather than reimplementing it, by
-    handing it a throwaway single-field "class" per name: same ``__module__``
-    (so module-level forward refs still resolve normally) holding ONLY that
-    one field's own raw annotation -- nothing else in its namespace to be
-    shadowed by, or to shadow. A resolution failure is re-raised naming the
-    real class and field, never a bare ``NameError``/``TypeError`` pointing at
-    neither.
+    Each name is resolved by ``typing.get_type_hints`` on a throwaway
+    single-field class with the same ``__module__``, so nothing in its namespace
+    shadows or is shadowed. A failure is re-raised naming the real class and
+    field.
     """
     names: dict[str, tuple[str, object]] = {}
     for base in reversed(cls.__mro__):
@@ -678,16 +561,9 @@ def _resolve_public_type_hints_isolated(cls: type) -> dict[str, object]:
             (),
             {"__annotations__": {name: raw}, "__module__": module_name},
         )
-        # `globalns`/`localns` are passed EXPLICITLY (never both left `None`):
-        # `typing.get_type_hints`, when a caller leaves both unset, SWAPS its
-        # own module-globals and class-locals internally (a documented
-        # `typing` quirk letting an inner class reference an outer one) --
-        # which would give a `lambda` embedded in the annotation (e.g.
-        # `NS(help=lambda: f"...{_module_global}...")`) the probe's own
-        # near-empty namespace as `__globals__` instead of the real module,
-        # so it raises `NameError` the first time it's actually CALLED, long
-        # after parser build. Passing the real module dict as `globalns`
-        # explicitly bypasses that swap.
+        # Explicit globalns: with both left None, ``get_type_hints`` swaps
+        # globals and locals, so a lambda in the annotation would get the probe's
+        # empty namespace and raise NameError when called.
         module_globals = getattr(_sys.modules.get(module_name), "__dict__", {})
         try:
             resolved = _ty.get_type_hints(
@@ -710,18 +586,10 @@ def _resolve_public_type_hints_isolated(cls: type) -> dict[str, object]:
 def _unwrap_annotated(hint, name: str, cls: type) -> tuple[object, list]:
     """Peel a PEP 695 alias and/or ``Annotated`` metadata off ``hint``.
 
-    Handles three shapes:
-
-    * a bare ``Annotated[T, *metadata]`` (the common case);
-    * a PEP 695 ``type X = Annotated[T, *metadata]`` alias (3.12+), unwrapped
-      via ``__value__`` before the ``Annotated`` check;
-    * a ``Union``/``Optional`` with exactly ONE ``Annotated`` member (e.g.
-      ``Optional[Arg[int, NS(...)]]``) -- lifts that member's metadata and
-      rebuilds the union from the bare types. More than one
-      ``Annotated`` member is ambiguous and raises, naming the field.
-
-    Returns ``(bare_type, metadata_list)``; ``metadata_list`` is ``[]`` when
-    ``hint`` carries none.
+    Handles a bare ``Annotated[T, ...]``, a PEP 695 ``type X = Annotated[...]``
+    (3.12+, via ``__value__``), and a Union/Optional with exactly one
+    ``Annotated`` member, whose metadata is lifted; more than one raises.
+    Returns ``(bare_type, metadata_list)``.
     """
     if _TypeAliasType is not None and isinstance(hint, _TypeAliasType):
         hint = hint.__value__
@@ -815,10 +683,8 @@ def get_clsargs(cls: type) -> dict[str, ClsArgDeclaration]:
                 f"its own declared type."
             )
 
-        # ClassVar/Final are declarations, not CLI fields: a `count: ClassVar[int]`
-        # or `MAX: Final[int]` must never become a `--count`/`--max` flag.
-        # `get_origin(ClassVar[int]) is ClassVar` on 3.9+; a bare `ClassVar`/
-        # `Final` (unsubscripted) is caught by the identity check.
+        # ClassVar/Final are declarations, not CLI fields; a bare (unsubscripted)
+        # one is caught by the identity check.
         if hint is _ty.ClassVar or hint is _ty.Final:
             continue
         if _ty.get_origin(hint) in (_ty.ClassVar, _ty.Final):

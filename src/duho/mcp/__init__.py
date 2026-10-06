@@ -98,7 +98,9 @@ field that defaults to ``True`` and declares only short flags (no long flag)
 cannot be turned back to ``False`` over MCP (there is no ``--no-<x>`` form to
 emit) and raises rather than silently doing the wrong thing; a module command
 whose ``register()`` hook adds its own subparsers is listed as that one tool;
-the hand-made subparsers are not tools of their own; a value equal to
+the hand-made subparsers are not tools of their own: one is chosen through a
+property named after the subparsers' ``dest``, and their own options are not
+served; a value equal to
 the literal string ``"--"`` is refused as a positional value and for a field
 with only a short flag (argparse's own ``--`` end-of-options marker, and duho's
 own ``_passthrough_`` split, make it unsafe there -- use the dedicated ``"--"``

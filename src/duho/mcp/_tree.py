@@ -416,7 +416,11 @@ def _schema_for_action(action: "_argparse.Action") -> "tuple[dict, bool]":
         }
     else:
         schema = {"type": scalar or "string"}
-    if is_positional:
+    if isinstance(action, _argparse._SubParsersAction):
+        # A subparsers action a register() hook added: the property picks one
+        # of its names, and is required only when the hook made it so.
+        required = bool(action.required)
+    elif is_positional:
         required = action.nargs not in ("?", "*")
     else:
         required = bool(getattr(action, "required", False))

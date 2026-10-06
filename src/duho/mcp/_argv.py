@@ -397,6 +397,7 @@ def _synthesize_argv_from_actions(
     :func:`_emit_option`) for every emitted token.
     """
     argv: "list[str]" = []
+    subparser_choice: "_ty.Optional[str]" = None
     parser = step.parser
     forbidden = _sibling_names(parser) | ancestor_forbidden
     own = _own_dests(parser) or set()
@@ -410,6 +411,18 @@ def _synthesize_argv_from_actions(
             continue
         value = arguments[dest]
         if value is None:
+            continue
+
+        if isinstance(action, _argparse._SubParsersAction):
+            # Its value names one of the hook's own subparsers; it is checked
+            # against exactly those names and goes last, since everything
+            # after it belongs to that subparser.
+            if not isinstance(value, str) or value not in action.choices:
+                raise InvalidArgumentsError(
+                    "value %r is not one of %s for %r"
+                    % (value, ", ".join(sorted(action.choices)), dest)
+                )
+            subparser_choice = value
             continue
 
         is_positional = not action.option_strings
@@ -443,6 +456,8 @@ def _synthesize_argv_from_actions(
             argv.append(token)
         else:
             _emit_option(argv, flag, is_long, token, parser)
+    if subparser_choice is not None:
+        argv.append(subparser_choice)
     return argv
 
 

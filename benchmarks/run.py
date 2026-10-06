@@ -3,7 +3,8 @@
 
 Produces a comparable JSON result plus a human summary. Save a run to the
 results directory with --save; results land in benchmarks/results/<name>.json
-(tracked and committed -- see benchmarks/README.md) where <name> defaults to
+(untracked -- baseline.json is the only benchmark record in the repository,
+see benchmarks/README.md) where <name> defaults to
 duho-<version>-py<major><minor>.
 
     python benchmarks/run.py            # print summary (warm metrics)

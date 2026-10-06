@@ -1,6 +1,7 @@
 import argparse as _argparse
 import logging as _logging
 import pathlib as _pathlib
+import sys as _sys
 import typing as _ty
 
 from .. import _compat as _compat
@@ -11,6 +12,7 @@ from ._argsclass import Args, _duho_instance_last_parser_
 from ._mcptrigger import _maybe_serve_mcp_trigger
 from ._meta import _A
 from ._naming import _app_name
+from ._parserfix import _argv_before_subcommand
 
 
 def _logger_name_for(instance, root_cls: "type | None" = None) -> str:
@@ -361,6 +363,11 @@ def parse_globals(
 
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     _apply_layers(parser, cls, config=config)
+    # A static tree's real parse hands everything after the subcommand name to
+    # the subcommand, so a root option written there is not a global.
+    argv = _argv_before_subcommand(
+        parser, list(_sys.argv[1:] if argv is None else argv)
+    )
     return _prerun_parse(parser, argv)
 
 

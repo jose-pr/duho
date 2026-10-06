@@ -359,3 +359,56 @@ def _set_private_default(child_parser, dest, value) -> None:
             actions = group._group_actions
             if action in actions:
                 actions[actions.index(action)] = private
+
+
+def _argv_before_subcommand(
+    parser: "_argparse.ArgumentParser", argv: "list[str]"
+) -> "list[str]":
+    """Return the part of ``argv`` the root parser itself consumes.
+
+    Stops at the first token that names one of ``parser``'s subcommands and is
+    not the value of a preceding root option. Returns ``argv`` unchanged when
+    the parser has no subcommands, a ``--`` comes first, or an option whose
+    argument count cannot be told in advance precedes the name.
+    """
+    names = {
+        name
+        for action in parser._actions  # type: ignore[attr-defined]
+        if isinstance(action, _argparse._SubParsersAction)  # type: ignore[attr-defined]
+        for name in action.choices
+    }
+    if not names:
+        return argv
+    known = parser._option_string_actions  # type: ignore[attr-defined]
+    allow_abbrev = getattr(parser, "allow_abbrev", True)
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token == "--":
+            return argv
+        if token in names:
+            return argv[:i]
+        if len(token) > 1 and token[0] == "-":
+            key, eq, _ = token.partition("=")
+            action = known.get(key)
+            if action is None and key.startswith("--") and allow_abbrev:
+                matches = {
+                    id(a): a
+                    for opt, a in known.items()
+                    if opt.startswith("--") and opt.startswith(key)
+                }
+                if len(matches) == 1:
+                    (action,) = matches.values()
+            if action is None or eq or (token[1] != "-" and len(token) > 2):
+                i += 1
+            elif action.nargs == 0:
+                i += 1
+            elif action.nargs is None:
+                i += 2
+            elif isinstance(action.nargs, int):
+                i += 1 + action.nargs
+            else:
+                return argv
+            continue
+        i += 1
+    return argv

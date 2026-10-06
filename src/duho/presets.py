@@ -30,7 +30,22 @@ def _loglevel_value(text: str) -> int:
 _loglevels_type.value_factory = _loglevel_value  # type: ignore[attr-defined]
 
 
-def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
+def _stepped_level(base: "_ty.Union[int, str]", verbose: int, quiet: int) -> int:
+    """The numeric level ``verbose`` ``-v`` and ``quiet`` ``-q`` steps reach from ``base``.
+
+    ``base`` is a level number or name and must be a registered level.
+    """
+    number = _loglevel_value(base) if isinstance(base, str) else base
+    levels = list(_duho_logging.VERBOSE_LEVELS.keys())
+    if number not in levels:
+        raise ValueError(f"_base_loglevel_ {base!r} is not a registered log level")
+    index = levels.index(number) + verbose - quiet
+    return levels[max(0, min(index, len(levels) - 1))]
+
+
+def _apply_loglevels(
+    ns: "Args", default_logger: str, root_cls: "_ty.Optional[type]" = None
+) -> "dict[str, int]":
     """Apply parsed ``loglevels``/``verbose``/``quiet`` fields to loggers.
 
     Module-level so it works on ANY object carrying
@@ -50,7 +65,7 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     Prefers ``ns._verbose_loglevel_()`` -- a bound method, so a subclass
     override is honored -- over the base implementation, which is used
     only when ``ns``'s own class doesn't define one at all (again, the plain
-    ``Cmd`` leaf case).
+    ``Cmd`` leaf case), stepping from ``root_cls``'s ``_base_loglevel_``.
     """
     loglevels = ns.loglevels.copy()
     # Names the user EXPLICITLY passed via `--loglevel name:LEVEL` -- captured
@@ -66,11 +81,11 @@ def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
     default = loglevels.get("") if not (ns.verbose or ns.quiet) else None
     if default is None:
         verbose_loglevel = getattr(ns, "_verbose_loglevel_", None)
-        default = (
-            verbose_loglevel()
-            if verbose_loglevel is not None
-            else LoggingArgs._verbose_loglevel_(ns)
-        )
+        if verbose_loglevel is not None:
+            default = verbose_loglevel()
+        else:
+            base = getattr(root_cls, "_base_loglevel_", LoggingArgs._base_loglevel_)
+            default = _stepped_level(base, ns.verbose, ns.quiet)
     # An explicit `--loglevel app:LEVEL` covers the whole `app.*` subtree, so
     # it must also reach the dispatched command's own logger when that logger
     # sits inside it (`app.scan`). Injecting the -v/-q default for that logger
@@ -202,17 +217,18 @@ class LoggingArgs(Args):
         ),
     ] = 0
 
+    #: The level ``-v``/``-q`` step from: a level number or name. A plain
+    #: ``Cmd`` leaf under a ``LoggingArgs`` root uses the root's value.
+    _base_loglevel_: _ty.Union[int, str] = _logging.INFO
+
     def _verbose_loglevel_(self) -> int:
         """Convert verbose/quiet count to a NUMERIC log level.
 
         ``VERBOSE_LEVELS`` is keyed by int, so this returns the level number
-        (e.g. ``logging.DEBUG``), not a level name.
+        (e.g. ``logging.DEBUG``), not a level name. The count steps from
+        ``_base_loglevel_``.
         """
-        levels = list(_duho_logging.VERBOSE_LEVELS.keys())
-        base = levels.index(_logging.INFO)
-        index = base + self.verbose - self.quiet
-        index = max(0, min(index, len(levels) - 1))
-        return levels[index]
+        return _stepped_level(self._base_loglevel_, self.verbose, self.quiet)
 
     def _set_loglevels_(self) -> "dict[str, int]":
         """Apply parsed log levels to loggers."""

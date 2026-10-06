@@ -157,6 +157,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_parseraliases_` | `Sequence[str]` | none | command | extra subcommand names |
 | `_runpath_dir_` | `Path \| None` | `None` | `duho.runpath.RunPathCmd` subclass | the directory of `NN-name.py` steps; the provider sets it |
 | `_logger_name_` | `str \| None` | the application's name | root, command | the logger `-v`/`-q`/`--loglevel` raise and `self._logger_` returns; a command's own wins over the root's |
+| `_base_loglevel_` | `int \| str` | `logging.INFO` | `LoggingArgs` root | the level `-v`/`-q` step from: a number or the name of a registered level |
 
 ### Field metadata helpers (use inside `Arg[T, ...]`)
 

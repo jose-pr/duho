@@ -76,7 +76,7 @@ def _setup_instance_logging(
 
         if issubclass(root_cls, _presets.LoggingArgs):
             logger_name = _logger_name_for(instance, root_cls)
-            setter = lambda: _presets._apply_loglevels(instance, logger_name)
+            setter = lambda: _presets._apply_loglevels(instance, logger_name, root_cls)
     if setter is None:
         return
     root_handlers = _logging.getLogger().handlers

@@ -71,7 +71,7 @@ jobs:
     # force-include, a misplaced py.typed, a mis-rooted `packages` config)
     # could ship unnoticed even with a fully green suite. Install it fresh,
     # on the floor and the latest supported interpreter, and check the
-    # resources PYTHON.md requires actually reach site-packages.
+    # resources it must ship (py.typed, README.md, AGENTS.md) reach site-packages.
     name: Verify installed wheel (py${{ matrix.python-version }})
     needs: build
     runs-on: ubuntu-latest

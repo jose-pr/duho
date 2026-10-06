@@ -375,22 +375,22 @@ def cold_metrics() -> "dict":
 
 
 # ---------------------------------------------------------------------------
-# Shared result envelope (REPO.md schema: name/python/platform/timestamp +
-# a ``metrics`` map of {min_ms, median_ms, max_ms}). Every script's --save /
+# Shared result envelope (name/python/platform/timestamp + a ``metrics`` map
+# of {min_ms, median_ms, max_ms}). Every script's --save /
 # --json goes through this so benchmarks/results/*.json is one shape.
 # ---------------------------------------------------------------------------
 
-#: Where every script's ``--save`` lands. Tracked and committed (REPO.md):
-#: this is what makes a before/after perf claim recoverable from the repo.
+#: Where every script's ``--save`` lands. Untracked: ``baseline.json`` is the
+#: only benchmark record in the repository.
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
 def result_envelope(name: str, metrics: dict, **extra) -> dict:
     """Build the standard result document for ``name``: identifying fields
     (python/platform/processor/timestamp) plus ``metrics`` (name -> either a
-    ``{min_ms, median_ms, max_ms}`` dict or a bare float, both of which
-    ``$ENGINEERING_OVERLAY_ROOT/tools/compare_bench.py`` reads). Extra keys
-    (e.g. ``duho_version``, ``iterations``) are merged in on top."""
+    ``{min_ms, median_ms, max_ms}`` dict or a bare float; compare two files on
+    the median). Extra keys (e.g. ``duho_version``, ``iterations``) are merged
+    in on top."""
     result = {
         "name": name,
         "python": platform.python_version(),

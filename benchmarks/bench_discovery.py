@@ -78,7 +78,7 @@ def _stats(times):
 
 
 def measure(n_files, samples):
-    """Return the REPO.md-shaped metrics dict: ``discover.<n_files>`` and
+    """Return the result-envelope metrics dict: ``discover.<n_files>`` and
     ``dispatch.1``, each ``{min_ms, median_ms, max_ms}``."""
     discover_times = []
     dispatch_times = []

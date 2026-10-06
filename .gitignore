@@ -7,9 +7,9 @@
 !/.gitattributes
 !/.github/
 
-# Private agent config (always excluded -- see REPO.md). No trailing slash on
-# purpose: `dotagents link` makes .agents a symlink, which git treats as a
-# file, so a directory-only `.agents/` would NOT ignore it. These stay even
+# Private agent config (always excluded). No trailing slash on purpose: a
+# .agents that is a symlink to a private store is treated by git as a file,
+# so a directory-only `.agents/` would NOT ignore it. These stay even
 # though /.* already covers them at the root: they also catch nested copies.
 # *.local.* is the unshared override (machine- or user-specific) and must
 # never be committed or packaged.

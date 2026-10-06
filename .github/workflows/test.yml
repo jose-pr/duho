@@ -150,7 +150,7 @@ jobs:
         run: python -m pytest -q
 
   format:
-    # black is standard on this project (kb/PYTHON.md); --check makes CI fail
+    # black is standard on this project; --check makes CI fail
     # on unformatted code instead of relying on a developer running it locally.
     name: Formatting check (black)
     runs-on: ubuntu-latest

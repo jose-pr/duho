@@ -64,6 +64,14 @@ _PATTERNS = [
     # Built via concatenation (not a literal dotted path) so this detector's
     # own source is never itself a textual match for what it detects.
     ("private-working-dir", re.compile(r"\." + r"agents\b")),
+    # Paths and commands that exist only on the author's machine: an overlay
+    # root variable, the private standards files, the private sync command.
+    ("overlay-root-variable", re.compile(r"[A-Z]+_OVERLAY" + r"_ROOT")),
+    (
+        "private-standards-file",
+        re.compile(r"\b(?:REPO|PYTHON|ENGINEERING|TESTING|COMMENTS)" + r"\.md\b"),
+    ),
+    ("private-sync-command", re.compile(r"dotagents" + r" link\b")),
 ]
 
 # (path, substring, reason) -- a match on `path` whose offending line
@@ -171,6 +179,12 @@ def test_label_patterns_catch_a_planted_offender():
         "decision-id": "Per " + "D" + "01" + ", the SDK stays optional.",
         "backlog-item": "Three fixes from the " + "backl" + "og.",
         "private-working-dir": "Notes live in " + "." + "agents" + "/plans/.",
+        "overlay-root-variable": "Run "
+        + "$ENGINEERING"
+        + "_OVERLAY"
+        + "_ROOT/tools/x.py.",
+        "private-standards-file": "As " + "PYTH" + "ON" + ".md" + " requires.",
+        "private-sync-command": "Run `" + "dotagents" + " link` first.",
     }
     assert set(samples) == {
         name for name, _ in _PATTERNS

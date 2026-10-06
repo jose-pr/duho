@@ -38,28 +38,42 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `max-skips` is the most tests a job may skip: the shells and optional
+          # packages a leg lacks account for its skips, and a count above it
+          # means a probe failed (a hung shell, a missing extra) and not that
+          # the leg is merely missing a tool.
           # Ubuntu full matrix over every supported version
           - os: ubuntu-latest
             python-version: "3.9"
+            max-skips: 30
           - os: ubuntu-latest
             python-version: "3.10"
+            max-skips: 26
           - os: ubuntu-latest
             python-version: "3.11"
+            max-skips: 26
           - os: ubuntu-latest
             python-version: "3.12"
+            max-skips: 23
           - os: ubuntu-latest
             python-version: "3.13"
+            max-skips: 21
           - os: ubuntu-latest
             python-version: "3.14"
+            max-skips: 21
           # Windows/macOS matrix edges (oldest + newest supported)
           - os: windows-latest
             python-version: "3.9"
+            max-skips: 41
           - os: windows-latest
             python-version: "3.14"
+            max-skips: 32
           - os: macos-latest
             python-version: "3.9"
+            max-skips: 40
           - os: macos-latest
             python-version: "3.14"
+            max-skips: 31
     steps:
       - uses: actions/checkout@v7
         with:
@@ -78,7 +92,22 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest -q -rs --junitxml=junit.xml
+      - name: The skip count stays within this leg's bound
+        shell: python
+        env:
+          MAX_SKIPS: ${{ matrix.max-skips }}
+        run: |
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("junit.xml").getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          skipped, limit = int(suite.get("skipped")), int(os.environ["MAX_SKIPS"])
+          print("skipped %d, at most %d expected" % (skipped, limit))
+          if skipped > limit:
+              sys.exit("more tests skipped than this leg expects: see the -rs list above")
 
   format:
     # black is standard on this project (kb/PYTHON.md); --check makes CI fail

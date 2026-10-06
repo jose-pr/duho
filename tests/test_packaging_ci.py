@@ -356,3 +356,44 @@ def test_release_workflow_publishes_to_pypi_only_for_final_tags():
     job = text[text.index("  publish-pypi:") :]
     job = job[: job.index("    steps:")]
     assert "if: ${{ !contains(github.ref_name, '-') }}" in job
+
+
+# -- skips are shown and bounded per CI leg ------------------------------------
+
+_SKIP_STEP = "The skip count stays within this leg's bound"
+
+
+def _run_skip_check(tmp_path, skipped, limit):
+    script = _step_script(_read(_WORKFLOWS / "test.yml"), _SKIP_STEP)
+    (tmp_path / "junit.xml").write_text(
+        '<?xml version="1.0"?><testsuites><testsuite name="pytest" tests="10" '
+        f'skipped="{skipped}"></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "MAX_SKIPS": str(limit)},
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_test_workflow_lists_skips_and_writes_the_junit_file_the_check_reads():
+    text = _read(_WORKFLOWS / "test.yml")
+    assert "python -m pytest -q -rs --junitxml=junit.xml" in text
+
+
+def test_every_test_matrix_leg_bounds_its_skips():
+    text = _read(_WORKFLOWS / "test.yml")
+    matrix = text[text.index("        include:") : text.index("    steps:")]
+    assert matrix.count("- os:") == matrix.count("max-skips:") > 0
+
+
+def test_skip_check_passes_at_and_below_the_bound(tmp_path):
+    assert _run_skip_check(tmp_path, 20, 20).returncode == 0
+    assert _run_skip_check(tmp_path, 3, 20).returncode == 0
+
+
+def test_skip_check_fails_above_the_bound(tmp_path):
+    assert _run_skip_check(tmp_path, 21, 20).returncode != 0

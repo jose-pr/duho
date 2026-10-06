@@ -47,10 +47,25 @@ def _find_bash() -> "str | None":
     return None
 
 
-_BASH = _find_bash()
-_ZSH = shutil.which("zsh")
-_FISH = shutil.which("fish")
-_PWSH = shutil.which("pwsh")
+def _usable(path: "str | None", *trivial: str) -> "str | None":
+    """``path`` when it runs a trivial command to completion, else None.
+
+    A shell that cannot even do that (a WSL launcher stub, a wedged install) is
+    skipped once here; one that then hangs on a generated script fails its test.
+    """
+    if not path:
+        return None
+    try:
+        done = subprocess.run([path, *trivial], capture_output=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return path if done.returncode == 0 else None
+
+
+_BASH = _usable(_find_bash(), "-c", "exit 0")
+_ZSH = _usable(shutil.which("zsh"), "-fc", "exit 0")
+_FISH = _usable(shutil.which("fish"), "--no-config", "-c", "exit 0")
+_PWSH = _usable(shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-Command", "0")
 
 
 # --- Fixtures ---------------------------------------------------------------
@@ -280,22 +295,14 @@ def _complete_bash(script, func, words, cword, cwd=None):
         + f"\nCOMP_WORDS=({words_literal})\nCOMP_CWORD={cword}\n"
         + f"{func}\nprintf '%s\\n' \"${{COMPREPLY[@]}}\"\n"
     )
-    # A bounded timeout, not just correctness: on some Windows setups `bash`
-    # on PATH resolves to the WSL launcher shim rather than a native/Git Bash
-    # binary, and invoking it via subprocess (as opposed to an interactive
-    # console) can hang indefinitely on WSL interop rather than erroring --
-    # observed hanging forever with no output. Fail loudly instead of wedging
-    # the whole test run.
-    try:
-        result = subprocess.run(
-            [_BASH, "-c", harness],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=cwd,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.skip("bash on PATH did not respond within 10s (WSL shim interop?)")
+    # Bounded, so a hang fails this test instead of wedging the run.
+    result = subprocess.run(
+        [_BASH, "-c", harness],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        cwd=cwd,
+    )
     assert result.returncode == 0, result.stderr
     return [line for line in result.stdout.splitlines() if line]
 
@@ -756,17 +763,14 @@ def _zsh_drive(zsh_path, fpath_dir, funcname, cmdname, cmdline, timeout=20):
         env = dict(os.environ)
         env["HOME"] = home
         env["ZDOTDIR"] = home
-        try:
-            result = subprocess.run(
-                [zsh_path, driver_path, cmdline],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=home,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            pytest.skip("zsh did not respond within the timeout")
+        result = subprocess.run(
+            [zsh_path, driver_path, cmdline],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=home,
+            env=env,
+        )
         return result.stdout
 
 
@@ -946,21 +950,18 @@ def test_zsh_hostile_choice_does_not_execute(tmp_path):
 
 
 def _fish_drive(fish_path, script_path, cmdline, cwd, timeout=10):
-    try:
-        result = subprocess.run(
-            [
-                fish_path,
-                "--no-config",
-                "-c",
-                f"source {script_path}; complete -C '{cmdline}'",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.skip("fish did not respond within the timeout")
+    result = subprocess.run(
+        [
+            fish_path,
+            "--no-config",
+            "-c",
+            f"source {script_path}; complete -C '{cmdline}'",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
+    )
     return result.stdout, result.stderr
 
 
@@ -1114,16 +1115,13 @@ def _pwsh_complete(script, line, cwd, timeout=15):
     with tempfile.TemporaryDirectory() as script_dir:
         script_file = pathlib.Path(script_dir) / "complete.ps1"
         script_file.write_bytes(ps_script.encode("utf-8"))
-        try:
-            result = subprocess.run(
-                [_PWSH, "-NoProfile", "-NonInteractive", "-File", str(script_file)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=cwd,
-            )
-        except subprocess.TimeoutExpired:
-            pytest.skip("pwsh did not respond within the timeout")
+        result = subprocess.run(
+            [_PWSH, "-NoProfile", "-NonInteractive", "-File", str(script_file)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
     assert result.returncode == 0, result.stderr
     return [line for line in result.stdout.splitlines() if line]
 
@@ -1313,3 +1311,25 @@ def test_zsh_dispatches_to_a_subcommand_name_needing_quotes(tmp_path):
     )
     assert "invalid argument" not in out
     assert "--fast" in out
+
+
+# --- A shell that hangs on a real script fails the test, never skips it ------
+
+
+@pytest.mark.parametrize(
+    "drive",
+    [
+        lambda: _complete_bash("true", "true", ["x"], 0),
+        lambda: _zsh_drive("zsh", "/nonexistent", "_f", "f", "f "),
+        lambda: _fish_drive("fish", "/nonexistent", "f ", None),
+        lambda: _pwsh_complete("", "f ", None),
+    ],
+    ids=["bash", "zsh", "fish", "pwsh"],
+)
+def test_a_timeout_driving_a_shell_propagates(monkeypatch, drive):
+    def hang(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 1)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(subprocess.TimeoutExpired):
+        drive()

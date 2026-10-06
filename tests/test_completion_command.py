@@ -168,6 +168,8 @@ def test_a_default_app_does_not_load_completion(tmp_path):
     import subprocess
     import sys
 
+    from conftest import subprocess_env
+
     script = tmp_path / "plain_app.py"
     script.write_text(
         "import sys, duho\n"
@@ -179,5 +181,7 @@ def test_a_default_app_does_not_load_completion(tmp_path):
         "duho.app(R, argv=['l'])\n"
         "print('duho.completion' in sys.modules)\n"
     )
-    out = subprocess.check_output([sys.executable, str(script)], text=True)
+    out = subprocess.check_output(
+        [sys.executable, str(script)], text=True, env=subprocess_env()
+    )
     assert out.strip() == "False"

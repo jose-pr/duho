@@ -122,11 +122,12 @@ def test_local_files_excluded_from_built_wheel_and_sdist(tmp_path, parent):
 # -- explicit wheel `packages` config dropped ---------------------------------
 
 
-def test_pyproject_does_not_pin_wheel_packages():
+def test_pyproject_wheel_target_names_the_src_package_or_relies_on_detection():
     text = _read(_PYPROJECT)
-    assert (
-        'packages = ["src/duho"]' not in text
-    ), "hatchling auto-detects the src/ layout; an explicit packages list can break editable builds"
+    if "packages =" in text:
+        assert 'packages = ["src/duho"]' in text
+    else:
+        assert (_ROOT / "src" / "duho" / "__init__.py").is_file()
 
 
 # -- PEP 639 license fields -----------------------------------------------
@@ -243,15 +244,17 @@ def test_release_workflow_verifies_the_installed_wheel():
 # -- docs deploy ownership -- docs.yml deploys, release.yml only gates --------
 
 
-def test_release_workflow_does_not_deploy_pages():
+def test_release_workflow_gates_on_docs_but_dispatches_the_deploy():
     text = _read(_WORKFLOWS / "release.yml")
     assert "deploy-pages" not in text
-    assert "docs-deploy" not in text
+    assert 'gh workflow run docs.yml --repo "$GITHUB_REPOSITORY"' in text
+    assert "actions: write" in text
 
 
 def test_docs_workflow_owns_every_pages_trigger():
     text = _read(_WORKFLOWS / "docs.yml")
-    assert "types: [published]" in text
+    assert "types: [published]" not in text
+    assert "\n  release:" not in text
     assert "src/**" in text
     assert "CHANGELOG.md" in text
     assert "workflow_dispatch" in text

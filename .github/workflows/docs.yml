@@ -3,21 +3,17 @@ name: Docs
 # Builds the docs site and deploys it to GitHub Pages. Kept separate from
 # release.yml so the site can be rebuilt/redeployed without cutting a
 # release, and a release is never the first time the docs build is
-# exercised. This workflow owns EVERY Pages deploy (main = latest tracked
-# between releases, a published release = the version just shipped):
-# release.yml only gates on a strict `mkdocs build --strict` and never
-# deploys itself, so a Pages hiccup can no longer turn an otherwise-green
-# release red.
+# exercised. This workflow owns EVERY Pages deploy; release.yml only gates on
+# a strict `mkdocs build --strict` and dispatches this workflow at its tag.
 #
 # Triggers:
-#   - release published (a v* release ships its matching docs).
 #   - push to the default branch touching docs sources -- src/** because the
 #     API reference is generated from src/ docstrings by mkdocstrings, and
 #     CHANGELOG.md because docs/changelog.md snippet-embeds it.
-#   - workflow_dispatch, for a manual redeploy against any ref.
+#   - workflow_dispatch, for a manual redeploy against any ref; release.yml
+#     dispatches it at a final tag. A release created with the workflow token
+#     starts no workflow, so there is no `release: published` trigger.
 on:
-  release:
-    types: [published]
   push:
     branches: ["main"]
     paths:

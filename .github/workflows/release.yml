@@ -188,3 +188,21 @@ jobs:
           # them and publish only what's missing. The build job's tag/version
           # check keeps it from masking a wrong tag.
           skip-existing: true
+
+  # Events made with the workflow's own GITHUB_TOKEN, such as the release above,
+  # start no workflows, so docs.yml cannot listen for the release itself. A
+  # workflow_dispatch is the exception: it deploys the docs at this tag. A
+  # pre-release leaves the published docs alone. Off the publish chain, so a
+  # docs problem never blocks a package that passed its tests.
+  docs-deploy:
+    name: Deploy the docs for this release
+    needs: github-release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch docs.yml at this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docs.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"

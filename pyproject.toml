@@ -24,7 +24,6 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: System :: Shells",
     "Typing :: Typed",
 ]
 dependencies = []
@@ -57,6 +56,7 @@ Homepage = "https://github.com/jose-pr/duho/"
 Documentation = "https://jose-pr.github.io/duho/"
 Issues = "https://github.com/jose-pr/duho/issues"
 Repository = "https://github.com/jose-pr/duho"
+Changelog = "https://github.com/jose-pr/duho/blob/main/CHANGELOG.md"
 
 
 # Ship the consumer-facing docs inside the installed package, so they are

@@ -454,5 +454,13 @@ def test_test_workflow_runs_the_suite_at_the_declared_floors():
     assert "pip install -c floors.txt" in text
 
 
+def test_metadata_links_the_changelog_and_does_not_claim_the_shells_topic():
+    text = _read(_PYPROJECT)
+    assert (
+        'Changelog = "https://github.com/jose-pr/duho/blob/main/CHANGELOG.md"' in text
+    )
+    assert "Topic :: System :: Shells" not in text
+
+
 def test_dev_extra_carries_mypy_for_the_typing_surface_test():
     assert '"mypy",' in _read(_PYPROJECT)

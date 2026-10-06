@@ -50,26 +50,16 @@ def _handle_error(
 
 
 def _iter_class_commands(module: object) -> _ty.Iterator[type]:
-    """Yield ``Cmd`` subclasses *defined in* ``module`` (module-boundary dedup).
+    """Yield ``Cmd`` subclasses defined in ``module``.
 
-    The ``obj.__module__ == module.__name__`` filter is what stops a naive
-    ``vars(module)`` walk from re-registering ``Cmd`` itself (imported for
-    subclassing) or a shared base command re-exported/imported into several
-    command files -- only classes whose home module is this one count, so a
-    class imported unchanged from elsewhere is not double-collected.
-
-    A class whose ``__name__`` starts with ``_`` is also skipped -- the same
-    "private, not a command" convention the file-level ``_`` prefix already
-    gives discovery, so a shared base meant only for other command files to
-    subclass (``class _RemoteBase(Cmd): ...``) is never itself listed/runnable.
+    The ``__module__`` check skips ``Cmd`` itself and bases imported from
+    elsewhere. A ``_``-prefixed class is a private base, not a command.
     """
     module_name = getattr(module, "__name__", None)
     for obj in vars(module).values():
         if not is_class_command(obj):
             continue
-        # Exclude the data ``Args`` base defensively (is_class_command already
-        # requires a strict Cmd subclass, so Args -- not a Cmd -- is excluded,
-        # but keep the intent explicit for readers).
+        # `Args` is not a `Cmd`, but excluding it keeps the intent explicit.
         if obj is _Args:
             continue
         if getattr(obj, "__name__", "").startswith("_"):
@@ -128,15 +118,10 @@ def _namespace_locations(name: str) -> list[_Path]:
 def _looks_like_path(source: object) -> bool:
     """True if ``source`` should be treated as a filesystem path, not a dotted name.
 
-    A ``Path``/``os.PathLike`` always is. A ``str`` containing a separator
-    (``/`` or ``\\``) always is. A separator-free ``str`` is tried as a
-    **dotted package name FIRST** -- if it resolves via ``sys.path``, that
-    import wins -- and only falls back to a same-named CWD-relative directory
-    when nothing is importable. This ordering matters: without it, a bare
-    ``discover_commands("mycmds")`` (or ``app(source="mycmds")``) run from a
-    directory that happens to contain an unrelated ``./mycmds/`` would import
-    THAT directory's ``.py`` files -- silently executing code from wherever the
-    user is standing and shadowing the intended package (a security-relevant concern).
+    A ``Path``/``os.PathLike``, or a ``str`` with ``/`` or ``\\``, always is. A
+    separator-free ``str`` is tried as a dotted package first and falls back to
+    a same-named directory only when nothing is importable; otherwise a bare
+    name could execute an unrelated ``./name/`` in the current directory.
     """
     if isinstance(source, _Path) or (
         isinstance(source, _os.PathLike) and not isinstance(source, str)
@@ -153,18 +138,11 @@ def _looks_like_path(source: object) -> bool:
 
 
 def _is_empty_source(source: object) -> bool:
-    """True if ``source`` is a bare empty string, or an ``os.PathLike`` whose
-    ``__fspath__()`` returns ``""``.
+    """True if ``source`` is ``""`` or an ``os.PathLike`` whose path is ``""``.
 
-    Either would otherwise resolve to the current working directory as a
-    SIDE EFFECT of a blank/uninitialised value (e.g. ``discover_commands(cfg
-    .get("cmds_dir", ""))`` with the key unset), rather than the deliberate,
-    explicit ``"."`` a caller writes to actually mean "scan my own current
-    directory". A real ``pathlib.Path`` can never reach here empty:
-    ``pathlib.Path("")`` already normalises to ``Path(".")`` at CONSTRUCTION
-    time, before this function ever sees it -- so an already-built ``Path``,
-    ``Path("")`` and ``Path(".")`` alike, is always the explicit, allowed
-    spelling, never rejected here.
+    Either would resolve to the current directory by accident of a blank value.
+    A built ``pathlib.Path`` is never empty (``Path("")`` is ``Path(".")``) and
+    is always allowed.
     """
     if isinstance(source, str):
         return source == ""
@@ -177,18 +155,11 @@ def _is_empty_source(source: object) -> bool:
 
 
 def _is_bare_drive_source(source: object) -> bool:
-    """True if ``source`` is a bare Windows drive segment (``"C:"``, matching
-    ``^[A-Za-z]:$`` -- no trailing separator/backslash).
+    """True if ``source`` is a bare Windows drive segment (``"C:"``).
 
-    Windows resolves this to "the current directory on drive C", an implicit,
-    ambient lookup -- ``Path("C:").is_dir()`` is true, and iterating it globs
-    whatever the process happens to be running FROM, not a directory the
-    caller actually named. ``discover_commands("C:")`` /
-    ``app(source="C:")`` would otherwise silently glob-import that ambient
-    CWD's ``.py`` files (a security-relevant fix; mirrors
-    :data:`duho.env._BARE_DRIVE_RE`'s identical rejection of a bare-drive
-    ``CMDS_PATH`` *segment* -- this guards a whole ``source=`` argument
-    instead of one segment after splitting).
+    That spelling means the ambient current directory on the drive, so it would
+    glob-import whatever the process runs from; it mirrors the rejection of a
+    bare-drive ``CMDS_PATH`` segment in :data:`duho.env._BARE_DRIVE_RE`.
     """
     if isinstance(source, str):
         return bool(_BARE_DRIVE_RE.match(source))
@@ -362,35 +333,17 @@ def _discover_from_path(
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
     Only a lower-case ``.py`` suffix counts: Windows' case-insensitive ``glob``
-    would also match ``X.PY``, which Python's import machinery then refuses.
+    also matches ``X.PY``, which Python's import machinery refuses.
 
-    **Sibling imports.** While importing each file, ``directory`` is
-    temporarily appended to ``sys.path`` (after the standard library and
-    installed packages, which a same-named command file must not shadow) so a
-    bare ``from _helpers import x`` resolves -- the documented convention for factoring shared code into a
-    ``_``-prefixed helper file that command files in the same directory can
-    import (the ``_`` prefix means "not a command", not "unimportable"). The
-    directory is removed from ``sys.path`` again immediately after, and any
-    module this pulled in that lives INSIDE ``directory`` (the helper module
-    itself, imported under its own bare name) -- beyond the command file's own
-    synthetic key -- is popped back out of ``sys.modules``, so a *different*
-    discovered directory that also ships a same-named helper is never served a
-    stale cached one. This only supports the bare/absolute form (``from
-    _helpers import x``); a relative ``from ._helpers import x`` still fails,
-    since these files have no real parent package.
-
-    **Scoped to this directory.** Only a module whose ``__file__`` resolves
-    *inside* ``directory`` is ever popped -- a command file routinely imports
-    shared helper classes, or ordinary stdlib/third-party modules, as a normal
-    side effect of executing its body; blindly popping every name added to
-    ``sys.modules`` during the import would evict THOSE too, so a second
-    discovered file sharing one of those classes would lose its
-    ``isinstance``/``is`` identity against the first (and a popped stdlib
-    module would reimport with a rebuilt C extension state). A module with
-    no resolvable ``__file__``
-    (a namespace package, a C extension) is left alone -- there is no
-    "inside/outside" ``directory`` to test, and leaving it in place is the
-    safe default.
+    While a file is imported, ``directory`` is appended to ``sys.path`` (after
+    the standard library and installed packages, which a command file must not
+    shadow) so ``from _helpers import x`` resolves; a relative import fails, as
+    these files have no parent package. Afterwards the entry is removed and
+    each module pulled in from inside ``directory`` is popped from
+    ``sys.modules``, so a same-named helper in another discovered directory is
+    not served a stale one. Modules from outside ``directory``, and those with
+    no ``__file__``, are left alone: evicting a shared class or a stdlib module
+    would break ``isinstance`` identity between command files.
     """
     directory = _Path(directory)
     if not directory.is_dir():
@@ -495,14 +448,11 @@ def _running_script() -> _Path | None:
 
 
 def _module_inside(module: object, directory: _Path) -> bool:
-    """True if ``module``'s own file resolves to a path inside ``directory``.
+    """True if ``module``'s own file resolves inside ``directory``.
 
-    Used by :func:`_discover_from_path` to decide whether a module pulled into
-    ``sys.modules`` while importing a command file is a SIBLING helper (evict
-    it, so a same-named helper in a different discovered directory is never
-    served this stale one) or anything else the command file merely imported
-    as a normal side effect (a shared helper class, a stdlib/third-party
-    module) -- which must be left in ``sys.modules`` untouched.
+    Tells a sibling helper (evicted from ``sys.modules`` so another directory's
+    same-named helper is not served a stale one) from anything else the command
+    file merely imported, which stays.
     """
     modfile = getattr(module, "__file__", None)
     if not modfile:

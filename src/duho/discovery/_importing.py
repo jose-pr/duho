@@ -23,15 +23,9 @@ def _unique_module_name(base: str) -> str:
     return name
 
 
-#: Cache mapping a resolved absolute file path to ``(sys.modules key, mtime)``
-#: for the last file imported from that path via :func:`_import_from_path`.
-#: Repeated discovery of the SAME file (an unchanged in-process re-run of
-#: ``discover_commands``/``CmdBuilder`` over the same directory, e.g. from an
-#: MCP server or a fan-out dispatcher) reuses the cached module instead of
-#: re-executing the file under an ever-longer synthesized name each time --
-#: unbounded ``sys.modules`` growth and duplicate module-body side effects
-#: were the failure mode this closes. Keyed on ``(path, mtime)`` so editing the
-#: file (mtime changes) still gets a fresh import.
+#: Resolved path -> ``(sys.modules key, mtime)`` of the last import, so an
+#: unchanged file is reused rather than re-executed under a new name each time
+#: (unbounded ``sys.modules`` growth, repeated side effects).
 _IMPORTED_BY_PATH: dict[str, tuple[str, object]] = {}
 
 
@@ -42,19 +36,13 @@ _IMPORT_LOCK = _threading.RLock()
 
 
 def _import_from_path(name: str, path: _Path) -> _ModuleType:
-    """Import a ``.py`` file at ``path`` under module key ``name`` and return it.
+    """Import the ``.py`` file at ``path`` under ``sys.modules`` key ``name``.
 
-    Uses ``spec_from_file_location`` + ``exec_module`` (stdlib only). The module
-    is registered in ``sys.modules`` under ``name`` before execution so a module
-    that inspects its own ``__name__`` / does relative-ish self-reference works.
-    A missing/unloadable spec raises ``ImportError`` (skippable by discovery);
-    an exception raised *by the module body* (e.g. ``SyntaxError``,
-    ``NameError``) propagates unchanged.
-
-    Re-importing the SAME file (matched by resolved path + mtime, see
-    :data:`_IMPORTED_BY_PATH`) returns the already-imported module instead
-    of executing it again under a new key -- ``name`` is then unused for that
-    call.
+    The module is registered before it executes, so self-references work. A
+    missing spec raises ``ImportError`` (skippable by discovery); an exception
+    from the module body propagates. An unchanged file (same resolved path and
+    mtime, see :data:`_IMPORTED_BY_PATH`) returns the cached module and ``name``
+    is unused.
     """
     with _IMPORT_LOCK:
         return _import_from_path_locked(name, path)

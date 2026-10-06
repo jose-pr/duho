@@ -9,12 +9,8 @@ from ._command import _LOGGER
 # External provider injection hook
 # --------------------------------------------------------------------------
 
-#: Registry of (predicate, builder) pairs consulted by ``CmdBuilder`` for a
-#: filesystem source before falling back to a normal import. A predicate takes
-#: the resolved ``Path`` and returns True if its builder should handle it; the
-#: builder takes ``(path, qualname)`` and returns a ``Command`` (or object
-#: fulfilling it). Registered newest-first so a later registration can override
-#: an earlier one for the same shape.
+#: (predicate, builder) pairs ``CmdBuilder`` consults for a filesystem source
+#: before a normal import; newest first, so a later one overrides an earlier.
 _PROVIDERS: list[
     tuple[_ty.Callable[[_Path], bool], _ty.Callable[[_Path, str], object]]
 ] = []

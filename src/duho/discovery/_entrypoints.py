@@ -23,33 +23,15 @@ from ._command import (
 
 
 def _coerce_entry_point_command(obj: object, name: str | None) -> Command | None:
-    """Coerce an ``EntryPoint.load()`` result to a :class:`Command`, or None.
+    """Coerce an ``EntryPoint.load()`` result to a :class:`Command`, or ``None``.
 
-    An entry point may resolve to any of the command shapes the other sources
-    accept, run through the same coercion:
-
-    * a :class:`~duho.Cmd` **subclass** or an already-:class:`Command` object --
-      used as-is (a class command names itself via ``_parsername_``/class name).
-      A **class** whose own ``__name__`` starts with ``_`` is refused, though
-      (yields ``None``, same as "not a command" below) -- the identical
-      "private, not a command" convention every other class-command source
-      already enforces (:func:`_iter_class_commands`'s own ``_`` skip); an
-      entry point is simply a different way to REACH the same class object,
-      and had bypassed that convention entirely (an entry point advertising a
-      private base class -- meant only for other command classes to
-      subclass, never to be listed/run itself -- was still discovered and
-      registered as a real subcommand);
-    * a **module** (a plugin whose top-level ``main``/``run``/``call`` is the
-      entrypoint) -- wrapped in a :class:`ModuleCommand`. The module's OWN
-      ``_parsername_`` wins when set (matching every other command source);
-      only when the module declares none is the entry point's advertised
-      ``name`` used, falling back to :func:`_resolved_module_name` when even
-      that is unavailable.
-
-    Anything else (e.g. a bare function or a helpers-only module with no
-    entrypoint) yields ``None`` so the caller logs and skips it. A module with no
-    entrypoint surfaces as ``ModuleCommand``'s ``NotImplementedError``, caught by
-    the caller.
+    A ``Cmd`` subclass or ``Command`` object is used as-is, except a class
+    whose name starts with ``_``: a private base is not a command here either
+    (``None``). A module becomes a :class:`ModuleCommand`, named by its own
+    ``_parsername_``, else the entry point's ``name``, else
+    :func:`_resolved_module_name`. Anything else yields ``None`` for the caller
+    to log and skip; a module with no entrypoint raises ``NotImplementedError``,
+    which the caller also handles.
     """
     if is_class_command(obj):
         if _ty.cast(type, obj).__name__.startswith("_"):

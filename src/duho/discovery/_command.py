@@ -68,42 +68,16 @@ def is_module_command(obj: object) -> bool:
 
 
 def _own_callable(module: object, name: str) -> _ty.Callable[..., object] | None:
-    """Return ``module``'s attribute ``name`` only if it is genuinely DEFINED there.
+    """``module``'s attribute ``name`` if it is a callable defined there, else ``None``.
 
-    Guards the entrypoint (``main``/``run``/``call``) and the lifecycle hooks
-    (``register``/``init``/``success``/``finally_``) against an *imported*
-    callable of the same name -- ``from subprocess import run`` must not become
-    a module command's entrypoint, and ``from colorama import init`` must not
-    become its ``init`` hook. For a real ``types.ModuleType``, a **plain
-    function, a bound/unbound method, a builtin/C function or method** (e.g.
-    ``atexit.register`` -- ``inspect.isfunction``/``ismethod``/``isbuiltin``),
-    or a **class** ``fn`` counts only when ``fn.__module__ ==
-    module.__name__`` (mirrors the class-command module-boundary filter in
-    :func:`_iter_class_commands`) or when ``name`` is listed in the module's
-    own ``__all__`` (the escape hatch for a deliberate re-export, e.g.
-    ``from ._impl import main; __all__ = ["main"]``).
-
-    **Any other callable -- a ``functools.partial``, or a plain callable
-    instance (``class Runner: __call__ = ...; main = Runner()``) -- is
-    accepted unconditionally**, without that ``__module__`` check: such an
-    object's ``__module__`` reflects where its TYPE was defined, never where
-    the particular instance was actually constructed (``functools.partial(
-    ...).__module__`` is always the literal string ``"functools"``, no matter
-    which module built the partial) -- comparing it against ``module.__name__``
-    would reject a genuinely module-level ``main = functools.partial(_impl)``
-    just as readily as a real cross-module import, with no way to tell the
-    two apart. Deliberately NOT ``inspect.isroutine`` here: a
-    ``functools.partial`` instance implements ``__get__`` (so it also passes
-    as a method-descriptor to attribute lookup), which makes
-    ``inspect.isroutine`` -- and therefore the ``__module__`` boundary check
-    -- wrongly true for it too, right back to rejecting it; the four explicit
-    predicates above cover every shape whose ``__module__`` genuinely tracks
-    its own definition site, and nothing else.
-
-    A non-``ModuleType`` source (anything else exposing the same attributes,
-    per :class:`ModuleCommand`'s "plain wrapper" contract) keeps the prior
-    "just check it's callable" behavior, since there is no meaningful
-    ``__module__`` boundary to enforce for a duck-typed object.
+    Keeps an imported callable (``from subprocess import run``) from becoming
+    the entrypoint or a hook. For a real module, a function, method, builtin or
+    class counts only when its ``__module__`` is the module's own or ``name``
+    is in ``__all__`` (a deliberate re-export). Any other callable, such as a
+    ``functools.partial`` or a callable instance, is accepted: its
+    ``__module__`` names where its type was defined, so the check cannot tell
+    it from an import (and ``inspect.isroutine`` would wrongly match a
+    partial). A non-module object is accepted if callable.
     """
     fn = getattr(module, name, None)
     if not callable(fn):
@@ -156,15 +130,9 @@ def _module_entrypoint(module: object) -> _ty.Callable[..., object] | None:
 def _resolved_module_name(module: object, stem: str | None = None) -> str:
     """Resolve a module command's subcommand name.
 
-    A module-level ``_parsername_`` wins (explicit override); otherwise the
-    module's file stem is used with ``_`` normalised to ``-`` (e.g.
-    ``deploy_all.py`` -> ``deploy-all``). For a PACKAGE (``module.__path__``
-    is set -- a dotted import or a directory with ``__init__.py``), the stem
-    is instead the last dotted segment of ``module.__name__``, so a package's
-    module command is named after the package, not ``--init--`` (the
-    ``__init__.py`` file stem). ``stem`` overrides the derived stem when the
-    caller already knows it (e.g. a synthesized ``sys.modules`` name would
-    otherwise be misleading).
+    A module-level ``_parsername_`` wins; otherwise the file stem with ``_`` as
+    ``-``. For a package (``__path__`` set) the stem is the last dotted segment
+    of ``__name__``, not ``__init__``. ``stem`` overrides the derived one.
     """
     override = getattr(module, "_parsername_", None)
     if override:
@@ -267,11 +235,8 @@ class ModuleCommand:
     ) -> None:
         self.module = module
         self._parsername_ = name or _resolved_module_name(module)
-        # A module-level `_mcp_ = False` opts this command out of the MCP
-        # tool surface (`duho.mcp`'s per-command exclusion), mirroring
-        # `_parsername_`'s own "read a module-level override, stash it as a
-        # plain instance attribute" pattern -- `duho.mcp` reads it straight
-        # off this attribute, never the raw module.
+        # A module-level `_mcp_ = False` excludes this command from the MCP
+        # tool surface; `duho.mcp` reads this attribute, never the module.
         self._mcp_ = getattr(module, "_mcp_", True)
 
         entry = entrypoint if entrypoint is not None else _module_entrypoint(module)
@@ -282,25 +247,10 @@ class ModuleCommand:
             )
         self._entrypoint = entry
 
-        # A module-level `Args` declares this module's own CLI fields,
-        # combined with the app's shared root class (see
-        # `runtime._register_module_command`, which does the actual mixing
-        # since the root class is only known at registration time) and added
-        # to the subparser before `register` runs. Stored as-is here: either
-        # a real `Args` subclass (used directly by the caller) or a plain
-        # class (mixed with the root at registration time so its own
-        # annotated attrs still work as CLI fields -- `_introspect.get_clsargs`
-        # walks the MRO -- without the author needing to import/subclass
-        # `duho.Args` or the app's root explicitly).
-        #
-        # An identity check (not a subclass check) distinguishes "a real
-        # declared class" from "the module did `from duho import Args` for
-        # its own use but never subclassed it" -- `getattr(module, "Args",
-        # None)` would resolve to `duho.args.Args` (or `Cmd`) itself there,
-        # which this correctly treats as "nothing declared", not a usable
-        # class. A subclass of either (including one that also mixes in
-        # `Cli`) still passes, since `not in (_Args, _Cmd)` only excludes the
-        # two bare base classes themselves.
+        # Stored as-is: a plain class is mixed with the app's root class at
+        # registration (`runtime._register_module_command`). The identity check
+        # rejects `Args`/`Cmd` themselves, which a module that only imported
+        # them would resolve here; subclasses of either pass.
         args_cls = getattr(module, "Args", None)
         self.args_cls: type | None = (
             args_cls
@@ -308,13 +258,9 @@ class ModuleCommand:
             else None
         )
 
-        # Bind lifecycle hooks with contract defaults. ``init`` defaults to a
-        # context-less builder (returns None); the others to no-ops. All
-        # defaults swallow extra args so the driver's call shape need not match
-        # a module's chosen arity exactly. `_own_callable` guards each hook the
-        # same way as the entrypoint: an *imported* function of the same name
-        # (`from atexit import register`, `from colorama import init`) is
-        # never mistaken for the module's own hook.
+        # Bind hooks, defaulting to no-ops that swallow extra args so the
+        # driver's call shape need not match a module's arity. `_own_callable`
+        # keeps an imported function of the same name from becoming a hook.
         self.register = _own_callable(module, "register") or _noop
         self.init = _own_callable(module, "init") or _init_noop
         self.success = _own_callable(module, "success") or _noop

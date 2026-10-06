@@ -54,10 +54,8 @@ class CmdBuilder:
     returns; for an already-``Command`` source it is that object.
     """
 
-    #: Declared so a type checker sees the documented
-    #: ``duho.app(commands=[CmdBuilder(...).command])`` recipe as a properly
-    #: typed ``Command``, not the ``object`` a provider's own loose
-    #: ``Callable[[Path, str], object]`` signature would otherwise infer.
+    #: Declared so a type checker sees a ``Command``, not the ``object`` a
+    #: provider's loose signature would infer.
     command: Command
 
     def __init__(
@@ -91,10 +89,8 @@ class CmdBuilder:
 
         if path.is_dir():
             if (path / "__init__.py").exists():
-                # A real package: import by qualname (so relative imports
-                # work) but ONLY once it's verified that the qualname
-                # actually resolves to THIS directory -- see
-                # `_import_package_at`.
+                # A real package: import by qualname so relative imports work,
+                # once `_import_package_at` verifies it resolves to this directory.
                 return self._import_package_at(path)
             raise ImportError(
                 "no command provider handles the directory %s (a bare directory "
@@ -104,12 +100,8 @@ class CmdBuilder:
                 path=_os.fspath(path),
             )
 
-        # Namespaced under a private `duho._cmdbuilder.` prefix (mirroring
-        # `_discover_from_path`'s `duho._discovered.` prefix) so a loose file
-        # is never registered under a real dotted name -- `self.qualname`
-        # alone would clobber `sys.modules["json"]` for the rest of the
-        # process the first time an app builds a command named "json" from a
-        # file, even though `json` itself was never imported yet.
+        # The prefix keeps a loose file off a real dotted name: `qualname`
+        # alone would clobber `sys.modules["json"]` for a command named "json".
         module = import_from_path("duho._cmdbuilder." + self.qualname, path)
         return self._wrap_module(module, stem=path.stem)
 

@@ -34,6 +34,8 @@ The CLI dogfoods duho itself: ``python -m duho.scaffold <app> [--root DIR]
 All union annotations are quoted so the module imports cleanly on Python 3.9.
 """
 
+from __future__ import annotations
+
 import os as _os
 import sys as _sys
 import typing as _ty
@@ -189,7 +191,7 @@ def _windows_launcher(app: str, libdir: str, python: str) -> str:
     ).format(app=app, libdir=libdir, python=python)
 
 
-def _make_executable(path: "_Path") -> None:
+def _make_executable(path: _Path) -> None:
     """Best-effort ``chmod +x`` on ``path`` (add the execute bits mode allows).
 
     Mirrors the read bits into execute bits (``u+x`` where ``u+r``, etc.), which
@@ -207,12 +209,12 @@ def _make_executable(path: "_Path") -> None:
 
 def generate_launchers(
     app: str,
-    root: "_ty.Union[str, _Path]",
+    root: _ty.Union[str, _Path],
     *,
     libdir: str = "lib",
-    python: "_ty.Optional[str]" = None,
+    python: _ty.Optional[str] = None,
     overwrite: bool = False,
-) -> "_ty.List[_Path]":
+) -> _ty.List[_Path]:
     """Write a POSIX + Windows launcher pair for ``app`` into ``<root>/bin/``.
 
     Emits ``<root>/bin/<app>`` (POSIX ``sh``) and ``<root>/bin/<app>.cmd``
@@ -310,7 +312,7 @@ class ScaffoldCmd(_Cli):
     "Importable module name of the app to launch (the <app> in `python -m <app>`)."
     ("app",)  # type: ignore
 
-    root: "_Path" = _Path(".")
+    root: _Path = _Path(".")
     "App root directory (parent of bin/); defaults to the current directory."
     ("--root",)  # type: ignore
 
@@ -318,7 +320,7 @@ class ScaffoldCmd(_Cli):
     "Subdir under root holding the app package, put on PYTHONPATH (default: lib)."
     ("--libdir",)  # type: ignore
 
-    python: "_ty.Optional[str]" = None
+    python: _ty.Optional[str] = None
     "Interpreter to bake in as the default (overridable at runtime via $PYTHON)."
     ("--python",)  # type: ignore
 
@@ -369,7 +371,7 @@ class ScaffoldCmd(_Cli):
         return 0
 
 
-def main(argv: "_ty.Optional[_ty.Sequence[str]]" = None) -> int:
+def main(argv: _ty.Optional[_ty.Sequence[str]] = None) -> int:
     """``python -m duho.scaffold`` entry point: dispatch :class:`ScaffoldCmd`."""
     return _main(ScaffoldCmd, argv)
 

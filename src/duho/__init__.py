@@ -4,6 +4,8 @@ Build command-line applications with minimal boilerplate by declaring
 your arguments and commands as Python classes.
 """
 
+from __future__ import annotations
+
 import typing as _ty
 
 from ._compat import utf8_stdio
@@ -78,7 +80,7 @@ if _ty.TYPE_CHECKING:
 __version__ = "0.6.4"
 
 
-def parser(cls: "type[_A]", *args: object, **kwargs: object) -> "_Parser[_A]":
+def parser(cls: type[_A], *args: object, **kwargs: object) -> _Parser[_A]:
     """Build an ArgumentParser for an Args class.
 
     Public module-level entry point (delegates to ``cls._parser_``, matching

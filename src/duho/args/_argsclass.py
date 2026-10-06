@@ -520,7 +520,9 @@ class Args(_argparse.Namespace):
             # top-level ArgumentParser does not, so only apply when nested).
             aliases = getattr(cls, "_parseraliases_", None)
             if aliases:
-                kwargs.setdefault("aliases", list(aliases))
+                kwargs.setdefault(
+                    "aliases", [a for a in dict.fromkeys(aliases) if a != name]
+                )
 
         # Guard against `cls` already being built higher up in this same
         # call tree (a subcommand that subclasses its own root, directly or
@@ -570,18 +572,25 @@ class Args(_argparse.Namespace):
                 # dispatch (3.9/3.10) or raise argparse's own unrelated
                 # "conflicting subparser" error (3.11+) -- neither names the
                 # two duho classes actually responsible.
+                # A class listed twice is registered once; an alias is checked
+                # against every sibling's name and aliases the same way.
+                subcommands = list(dict.fromkeys(subcommands))
                 sibling_names = [_command_name(sub) for sub in subcommands]
                 seen_names: "dict[str, object]" = {}
                 for sibling, sibling_name in zip(subcommands, sibling_names):
-                    prior = seen_names.get(sibling_name)
-                    if prior is not None and prior is not sibling:
-                        raise ValueError(
-                            f"subcommand name {sibling_name!r} is used by both "
-                            f"{prior.__name__!r} and {sibling.__name__!r} -- "
-                            "declare an explicit _parsername_ on one of them "
-                            "to disambiguate"
-                        )
-                    seen_names[sibling_name] = sibling
+                    own_names = [sibling_name] + list(
+                        getattr(sibling, "_parseraliases_", None) or ()
+                    )
+                    for own_name in own_names:
+                        prior = seen_names.get(own_name)
+                        if prior is not None and prior is not sibling:
+                            raise ValueError(
+                                f"subcommand name {own_name!r} is used by both "
+                                f"{prior.__name__!r} and {sibling.__name__!r} -- "
+                                "declare an explicit _parsername_ on one of them "
+                                "to disambiguate"
+                            )
+                        seen_names[own_name] = sibling
                 # argparse falls back to the ACTION'S DEST (never `choices`)
                 # for its "required" / "invalid choice" ERROR text when no
                 # `metavar` is set -- only the usage SYNOPSIS defaults to a

@@ -1494,11 +1494,12 @@ command against a list of targets (hosts, environments, datasets) and roll their
 exit codes into one, `import duho.fanout` — an opt-in, stdlib-only helper (core
 never imports it, and it stays off the top-level `duho.*` surface).
 
-`run_targets(func, targets, *, max_workers=None, aggregate=max)` runs `func(target)`
+`run_targets(func, targets, *, max_workers=None, aggregate=<worst-by-magnitude>, logger=None)` runs `func(target)`
 for each target concurrently on a thread pool and returns an aggregated exit code
 (`None` → `0`, an int as-is, an unhandled exception → logged and treated as `1` so
-one failing target never aborts the rest; codes reduced by `max` — `0` only if all
-succeed). Log lines a target emits while it runs are tagged with a `[<target>]`
+one failing target never aborts the rest; codes reduced to the worst by magnitude —
+`0` only if all succeed, and a negative code such as `-9` (a process killed by a
+signal) is not hidden by a succeeding target as `max` would hide it). Log lines a target emits while it runs are tagged with a `[<target>]`
 prefix so interleaved concurrent output stays attributable; the prefixing filter is
 installed on your existing stderr handler for the duration and removed afterwards.
 

@@ -139,10 +139,9 @@ class DotQualNamed(QualName, str):
 
     @classmethod
     def _qualsplit(cls, name: str) -> list[str]:
-        # Drop empty segments (a leading, trailing or doubled separator), same
-        # as `_qualparts` -- otherwise a name like "a." or "a..b" carries a ""
-        # part downstream, and `QualName.camelcase`'s `part[0]` raises
-        # IndexError on it.
+        # Drop empty segments (leading, trailing or doubled separator), as
+        # `_qualparts` does: a "" part would make `QualName.camelcase` raise
+        # IndexError on `part[0]`.
         return [part for part in name.split(cls.SEPARATOR) if part]
 
     @classmethod

@@ -304,6 +304,7 @@ from ._command import (
     RunPathCmd,
 )
 from ._provider import (
+    __getattr__,
     _MASKED_ROOT_ATTRS,
     _build_runpath_command,
     register,
@@ -311,16 +312,6 @@ from ._provider import (
 )
 
 __all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
-
-
-def __getattr__(name: str) -> object:
-    # _REGISTERED, _BASE and _ADAPTER are rebound by register()/unregister() in
-    # the submodules that own them; a read here returns the live value.
-    if name in ("_REGISTERED", "_BASE"):
-        return getattr(_provider, name)
-    if name == "_ADAPTER":
-        return _adapter._ADAPTER
-    raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 
 # Auto-register on import: importing ``duho.runpath`` is the opt-in activation.

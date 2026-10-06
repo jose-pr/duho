@@ -171,3 +171,13 @@ def unregister() -> None:
         return
     _discovery.unregister_command_provider(*_REGISTERED)
     _REGISTERED = None
+
+
+def __getattr__(name: str) -> object:
+    # The package re-exports this, so a read of _REGISTERED, _BASE or _ADAPTER on
+    # `duho.runpath` returns the live value that register() last stored.
+    if name in ("_REGISTERED", "_BASE"):
+        return globals()[name]
+    if name == "_ADAPTER":
+        return _adapter._ADAPTER
+    raise AttributeError("module %r has no attribute %r" % (__package__, name))

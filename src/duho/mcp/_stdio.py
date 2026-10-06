@@ -72,24 +72,12 @@ def _reject_constant(name: str) -> _ty.NoReturn:
 def _write_message(stream: object, message: dict | list) -> None:
     import json
 
-    # `message` is a `list` only for a JSON-RPC *batch* reply (one combined
-    # array of response objects, see `serve`); a single response is always
-    # a `dict`.
-    #
-    # `ensure_ascii=True` (never False): the OUTPUT stream's own encoding is
-    # not always known to be UTF-8-safe (an injected stream, or a
-    # not-yet-reconfigured real stdout), so every non-ASCII character is
-    # escaped to a plain-ASCII `\uXXXX` sequence -- still valid JSON, and
-    # correct for any text stream whatsoever.
-    #
-    # `json.dumps` itself can fail on a pathological response -- a `result`
-    # holding an unserializable object, or a deeply nested structure echoed
-    # back from the request (e.g. its own `id`) that overflows the C
-    # recursion limit `RecursionError` guards. Either way this must still
-    # produce SOME reply line rather than raise out of `serve`'s loop (which
-    # would end the server for every other in-flight/future request), so a
-    # failure here falls back to a minimal, always-serializable error
-    # response instead of the original message.
+    # `message` is a list only for a batch reply.
+    # `ensure_ascii=True`: the output stream's encoding is not known to be
+    # UTF-8-safe, and `\uXXXX` escapes are valid JSON for any text stream.
+    # `json.dumps` can fail on an unserializable result or a structure deep
+    # enough to overflow the recursion limit; fall back to a minimal error
+    # reply rather than raise out of the `serve` loop.
     try:
         text = json.dumps(message, ensure_ascii=True, allow_nan=False)
     except Exception:
@@ -106,33 +94,15 @@ def _write_message(stream: object, message: dict | list) -> None:
 
 
 def _real_stdio_streams() -> tuple:
-    """Take ownership of the real stdio fds for the JSON-RPC protocol channel,
-    and isolate fd 0/1 from anything a dispatched command does.
+    """Take the real stdio fds for the protocol and isolate fd 0/1 from commands.
 
-    Duplicates the CURRENT fd 0/1 for the protocol itself -- the OUTPUT side
-    as a fresh UTF-8/LF-normalised text stream, the INPUT side as a BINARY
-    stream (see :func:`serve`, which decodes it one line at a time so a
-    single malformed line can be rejected without losing the rest of the
-    session) -- then points the process's real fd 1 at fd 2 (stderr) and
-    fd 0 at the null device for the rest of the server's life, and rebinds
-    ``sys.stdout``/``sys.stdin`` to match. This is what makes the module
-    docstring's "one broken command never crashes the whole server loop"
-    promise hold even against code the command doesn't control:
-
-    * a subprocess the command spawns WITHOUT capturing its own output
-      inherits fd 1 -- now stderr, not the protocol pipe -- instead of
-      injecting non-JSON lines into the stream a client is trying to parse;
-    * a command honoring the "'-' = stdin" convention, or any low-level
-      ``os.read(0, ...)``, gets an immediate EOF on the (now devnull) fd 0
-      instead of consuming the client's NEXT request.
-
-    Called directly by :func:`main` -- **before** it resolves ``<app>`` --
-    so the takeover is already in effect for the whole rest of the process's
-    life by the time anything imports the caller's code (see :func:`main`'s
-    docstring for why the ordering matters). Also reachable as
-    :func:`serve`'s own fallback when a caller invokes it directly with
-    neither ``stdin`` nor ``stdout`` injected; a test driving ``serve`` over
-    ``io.StringIO`` is unaffected either way.
+    Returns ``(stream_in, stream_out)``: duplicates of fd 0 (binary, so
+    :func:`serve` can reject one bad line) and fd 1 (UTF-8, LF). Then fd 1 is
+    pointed at stderr and fd 0 at the null device, so a spawned subprocess
+    cannot write non-JSON into the protocol pipe and a command reading stdin
+    gets EOF instead of the client's next request. :func:`main` calls this
+    before importing ``<app>``; :func:`serve` falls back to it when no stream
+    is injected.
     """
     _sys.stdout.flush()
     proto_in_fd = _os.dup(0)
@@ -246,13 +216,8 @@ def serve(
         try:
             request = json.loads(line, parse_constant=_reject_constant)
         except (ValueError, RecursionError):
-            # `ValueError` is `json.loads`'s own documented failure
-            # (`JSONDecodeError` is a `ValueError` subclass); `RecursionError`
-            # is not one, and without the nesting check above a deeply
-            # nested line would otherwise raise it uncaught here, ending the
-            # whole `serve` loop -- kept as a second layer of defense in case
-            # some other line shape ever reaches the C decoder's own
-            # recursion limit despite that check.
+            # `RecursionError` is not a `ValueError`; a second layer behind the
+            # nesting check, for a line shape that still overflows the decoder.
             _write_message(stream_out, _error_response(None, -32700, "parse error"))
             continue
 

@@ -1,8 +1,8 @@
 """An option's attached ``--`` value keeps its value on every Python version.
 
-argparse before 3.13 strips a bare ``--`` from an option's values, so
-``--k=--`` and ``-k--`` would otherwise parse to an empty value. Fixtures are
-module-level classes (introspection reads this file's source).
+argparse up to 3.12.6, and in 3.13.0, strips a bare ``--`` from an option's
+values, so ``--k=--`` and ``-k--`` would otherwise parse to an empty value.
+Fixtures are module-level classes (introspection reads this file's source).
 """
 
 import typing as _t

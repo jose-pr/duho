@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `--flag=--` and `-f--` now give the field the value `--` on Python 3.9 to
-  3.12, where it was silently replaced by an empty list (by `const` for a
-  `nargs="?"` option, or dropped from a list field). Newer Pythons already
-  did this.
+- `--flag=--` and `-f--` now give the field the value `--` on every
+  supported Python. On Python 3.9 through 3.12.6, and on 3.13.0, argparse
+  dropped it: the field silently received an empty list (`const` for a
+  `nargs="?"` option, and a list field lost the item). Python 3.12.7, 3.13.1
+  and later already kept it.
 - An MCP tool call may pass `"--"` as an option value; it was refused with an
   invalid-arguments error. Still refused: `--` as a positional value, and for
   a field that has only a short flag.

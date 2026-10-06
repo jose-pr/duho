@@ -1,5 +1,6 @@
 """Pre-configured argument classes for common patterns."""
 
+import argparse as _argparse
 import logging as _logging
 import typing as _ty
 
@@ -8,6 +9,25 @@ from .args import Args, NS, UpdateAction
 from .args._naming import _command_name as _command_name
 from .args._entry import _logger_name_for
 from .logging import parse_loglevels
+
+
+def _loglevels_type(text: str) -> "dict[str, int]":
+    return parse_loglevels(text)
+
+
+def _loglevel_value(text: str) -> int:
+    """One level (a name or an integer) as a number, for a config table value."""
+    try:
+        levels = parse_loglevels(text)
+    except _argparse.ArgumentTypeError as exc:
+        raise ValueError(str(exc)) from None
+    if list(levels) != [""]:
+        raise ValueError(f"expected a single level name or number, got {text!r}")
+    return levels[""]
+
+
+# Read by the layering code to convert each value of a `[loglevels]` table.
+_loglevels_type.value_factory = _loglevel_value  # type: ignore[attr-defined]
 
 
 def _apply_loglevels(ns: "Args", default_logger: str) -> "dict[str, int]":
@@ -148,7 +168,7 @@ class LoggingArgs(Args):
     loglevels: _ty.Annotated[
         dict[str, int],
         NS(
-            type=parse_loglevels,
+            type=_loglevels_type,
             action=UpdateAction,
             flags=("--loglevel",),
             metavar="[NAME:]LEVEL[,...]",

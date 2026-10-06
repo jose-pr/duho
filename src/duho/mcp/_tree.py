@@ -567,8 +567,9 @@ def describe_tools(root_cls: "_ty.Union[type, _ServerCore]") -> "list[dict]":
     """Describe every callable command in ``root_cls``'s tree as MCP tool specs.
 
     ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
-    tree path -- unchanged) or a :class:`_ServerCore` (an ``app()``-built
-    tree, from :func:`_core_for_app`).
+    tree). The other form, a :class:`_ServerCore`, is the server core duho
+    itself builds for an ``app()`` tree (the environment trigger and
+    ``_mcp_command_``); a caller does not construct one.
 
     Each command reached by walking the built parser tree -- the root itself
     (when it can itself be dispatched), and every subcommand, recursively --

@@ -156,9 +156,10 @@ def serve(
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
 
     ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
-    tree path) or a :class:`_ServerCore` (an ``app()``-built tree, from
-    :func:`_core_for_app`, or the one :func:`serve_running_app` builds from
-    the currently-dispatching app's own context) -- forwarded opaquely to
+    tree). The :class:`_ServerCore` form is the server core duho builds for
+    an ``app()`` tree (the environment trigger, ``_mcp_command_`` and
+    :func:`serve_running_app`); a caller does not construct one. Either is
+    forwarded opaquely to
     :func:`_handle_request`, which in turn forwards it to
     :func:`describe_tools`/:func:`call_tool` (both already accept either
     shape -- see :func:`describe_tools`).

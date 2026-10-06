@@ -258,8 +258,8 @@ def call_tool(
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
     ``root_cls`` is a ``Cmd``/``Cli`` class (the static ``_subcommands_``
-    tree path -- unchanged) or a :class:`_ServerCore` (an ``app()``-built
-    tree, from :func:`_core_for_app`) -- see :func:`describe_tools`.
+    tree); the :class:`_ServerCore` form is built by duho for an ``app()``
+    tree, not by a caller -- see :func:`describe_tools`.
 
     Resolves ``name`` to a node in the tree, raising
     :class:`UnknownToolError` for a name that is not in the tree, that names

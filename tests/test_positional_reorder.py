@@ -302,3 +302,66 @@ def test_unambiguous_long_prefix_with_attached_value_between_positionals():
     assert result.ns == "user"
     assert result.targets == ["nas1"]
     assert result.filters == ["username=root"]
+
+
+# --------------------------------------------------------------------------
+# Negative numbers are values, not flags
+# --------------------------------------------------------------------------
+
+
+class DigitFlagArgs(Args):
+    """A parser with a negative-number-shaped option: `-5` is then a flag."""
+
+    ns: str
+    ("ns",)
+
+    targets: "list[str]" = []
+    ("targets",)
+
+    five: bool = False
+    ("-5",)
+
+    filters: "Arg[list, NS(action='append', nargs=None)]" = []
+    ("-f",)
+
+
+def test_negative_number_positional_in_every_ordering():
+    expected_filters = ["a=b"]
+    for argv in (
+        ["q", "-5", "h2", "-f", "a=b"],
+        ["-f", "a=b", "q", "-5", "h2"],
+        ["q", "-f", "a=b", "-5", "h2"],
+        ["q", "-5", "-f", "a=b", "h2"],
+    ):
+        result = duho.parse(QueryArgs, argv)
+        assert result.ns == "q", argv
+        assert result.targets == ["-5", "h2"], argv
+        assert result.filters == expected_filters, argv
+
+
+def test_negative_number_positional_without_a_flag():
+    result = duho.parse(QueryArgs, ["q", "-5", "h2"])
+    assert result.targets == ["-5", "h2"]
+
+
+def test_declared_negative_number_option_is_hoisted_like_any_flag():
+    parser = DigitFlagArgs._parser_()
+    argv = ["q", "-5", "-f", "a=b", "h2"]
+    assert _reorder_argv_for_variadic_positional(parser, argv) == [
+        "-5",
+        "-f",
+        "a=b",
+        "q",
+        "h2",
+    ]
+    result = duho.parse(DigitFlagArgs, argv)
+    assert result.five is True
+    assert result.filters == ["a=b"]
+
+
+def test_other_negative_number_is_left_alone_when_the_parser_declares_one():
+    """With a negative-number option declared, an unknown `-7` is ambiguous:
+    the reorder gets out of the way and argparse reports it."""
+    parser = DigitFlagArgs._parser_()
+    argv = ["q", "-7", "-f", "a=b", "h2"]
+    assert _reorder_argv_for_variadic_positional(parser, list(argv)) == argv

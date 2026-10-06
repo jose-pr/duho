@@ -84,10 +84,10 @@ All of these are optional and default to the behaviour you already have.
   highest first: an explicit `config=`, the field (when given on the command
   line or in its own variable), the variable, then `_config_`. A path chosen by
   the field or the variable must exist, like an explicit `config=`.
-- On Python 3.13 and later the first parser build reads only the class's own
-  source, once per 12,000 bytes of file and from a whole-file index after
-  that, so building a command in a very large file no longer costs more as
-  the file grows. Results are the same.
+- On Python 3.13 and later the first parser build of a class in a large file
+  reads that class's own source instead of parsing the whole file. This
+  applies to the first few classes of a file; after that the file is indexed
+  once, as before, and a small file is always indexed. Results are the same.
 
 ### Changed
 
@@ -120,7 +120,7 @@ All of these are optional and default to the behaviour you already have.
   - Code that rebinds the private `duho.args._AUTO_VERSION_CACHE` on the
     package no longer affects duho: the cache lives in `duho.args._naming`.
 - A malformed JSON or TOML config file, or one whose top level is not a table,
-  is now a one-line usage error (exit 2) naming the file and position under
+  is now a usage error (exit 2) naming the file and position under
   `duho.main`, `duho.parse` and `duho.app`, where it used to end in a
   traceback or a `ValueError`. An exception raised by your own
   `_config_loader_` is not converted: it reaches the caller as before. A

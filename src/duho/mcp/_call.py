@@ -388,6 +388,19 @@ def call_tool(
         raise
     except ValueError as exc:
         return _text_result(str(exc), is_error=True)
+    # argparse expands any argv token starting with a parser's
+    # `fromfile_prefix_chars` into the lines of the named file, so a value
+    # must never start with one (long-flag values start with `-`, not here).
+    prefixes = "".join(
+        getattr(p, "fromfile_prefix_chars", None) or ""
+        for p in [root_parser] + [step.parser for step in chain]
+    )
+    for token in argv:
+        if token and token[0] in prefixes:
+            raise InvalidArgumentsError(
+                "value %r cannot be passed: it starts with a response-file "
+                "prefix character that argparse would read as a file" % (token,)
+            )
 
     out = _io.StringIO()
     err = _io.StringIO()

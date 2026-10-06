@@ -74,9 +74,7 @@ def test_env_beats_config(tmp_path, monkeypatch):
     (tmp_path / "modlayer.py").write_text(_PRECEDENCE)
     monkeypatch.setenv("DUHO_TEST_MODLAYER_TOKEN", "from-env")
     cfg = _config(tmp_path, '[modlayer]\ntoken = "from-config"\n')
-    rc = app(
-        Root, source=tmp_path, argv=["modlayer"], config=cfg, setup_logging=False
-    )
+    rc = app(Root, source=tmp_path, argv=["modlayer"], config=cfg, setup_logging=False)
     assert rc == 0
     assert _seen("modlayer")["token"] == "from-env"
 

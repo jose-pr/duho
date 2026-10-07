@@ -7,6 +7,7 @@ from pathlib import Path as _Path
 
 from .. import _compat as _compat
 from .. import parsers as _parsers
+from .._outcome import _guard_dispatch
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
 from ..args._entry import _class_config_location as _class_config_location
@@ -86,7 +87,9 @@ def _run_app(
     if module_command is not None:
         # `run_command` owns the lifecycle; building the context here would run
         # `init` twice. A custom `dispatch` replaces this step.
-        return run(module_command, instance)
+        return _guard_dispatch(
+            lambda: run(module_command, instance), parser.prog, root_cls
+        )
 
     # Class command, or a runnable root: the instance is the deepest selected Cmd.
     if not isinstance(instance, _Cmd):
@@ -102,7 +105,9 @@ def _run_app(
             f"build one with duho.command(...)) to run it, or register runnable "
             f"commands"
         )
-    return run(_ty.cast(_Command, type(instance)), instance)
+    return _guard_dispatch(
+        lambda: run(_ty.cast(_Command, type(instance)), instance), parser.prog, root_cls
+    )
 
 
 def _default_run(

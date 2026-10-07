@@ -9,6 +9,7 @@ import typing as _ty
 
 from .. import _compat as _compat
 from .. import logging as _duho_logging
+from .._outcome import _guard_dispatch
 from .._layers import _apply_layers as _apply_layers
 from .._layers import value_sources as _value_sources
 
@@ -296,7 +297,7 @@ def main(
     # within a dispatched command.
     token = _compat._MCP_CONTEXT.set(("class", cls))
     try:
-        result = _maybe_await(run())
+        result = _guard_dispatch(lambda: _maybe_await(run()), parser.prog, cls)
     finally:
         _compat._MCP_CONTEXT.reset(token)
     return 0 if result is None else result

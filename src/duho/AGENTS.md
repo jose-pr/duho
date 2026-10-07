@@ -182,6 +182,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_agent_help_env_` | `str \| None` | `None` | root | the one env var that switches `--help` to agent mode, replacing `AGENT_HELP`/`AGENTS_HELP` |
 | `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
 | `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
+| `_errors_` | `Mapping[type, int] \| None` | `None` | root | exception type → exit status for exceptions a command lets escape; matched by `isinstance` in the mapping's order, first match wins; `main`/`app` (and an MCP tool call) catch them like a `CommandError`; `None` catches nothing |
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
@@ -373,7 +374,11 @@ just its annotation.
   not `int`: a `None` command result maps to exit code `0`, but any other value the
   command returns passes straight through unchanged (an `IntEnum` member works
   directly as a distinct exit code). `Any` (not `object`) keeps `sys.exit(duho.main(...))`
-  type-clean under a strict-mypy consumer. Dispatching a bare data `Args` (no `__call__`)
+  type-clean under a strict-mypy consumer. **Caught errors**: while dispatching (never
+  while parsing), a `CommandError` or an exception matching the root's `_errors_` is
+  caught, `<prog>: error: <message>` goes to stderr (no line for an empty message) and
+  the status is returned; under `DUHO_TRACEBACK` it propagates instead. Nothing else is
+  caught. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
   in `LoggingArgs`, logging is still set up under the root's own command name — a
@@ -439,6 +444,27 @@ just its annotation.
   `args` is `None` only if the root cannot be built without arguments. The real parse
   still enforces the required options. A malformed or unreadable built-in config file is a
   usage error here as under `main` (see "Env / config").
+  `app` catches errors the same way `main` does, around its `dispatch=` step too.
+- **`run(root, argv=None, **app_kwargs) -> NoReturn`** — the program entry:
+  `if __name__ == "__main__": duho.run(App)`. Calls `main(root, argv)`, or
+  `app(root, argv=argv, **app_kwargs)` when keywords are given, then `sys.exit`s. `None` →
+  0; a `Result` → its rendered `value` (when not `None`) on stdout, status `int(result)`;
+  any other `int` (a `bool` too) → the status; any other value → printed on stdout (a
+  `str` as it is, else `json.dumps(value, indent=2, ensure_ascii=False, default=str)`),
+  status 0. `KeyboardInterrupt` → 130 and `BrokenPipeError` (also from its own printing) →
+  1, silent (stdout is pointed at the null device first); both propagate under
+  `DUHO_TRACEBACK`. A `SystemExit` passes through. Also `duho.runtime.run`.
+- **`Result(code=0, *, value=None, text=None, is_error=None)`** — an `int` subclass a
+  command returns for more than a status. `int(result)` is the exit status (`sys.exit`
+  and every int check work); attributes `code`, `value` (the answer: printed by `run`,
+  the MCP text when there is no `text`), `text` (words for an MCP client only, never
+  printed), property `is_error` (the explicit flag, else `code != 0`). `code` must be an
+  `int`, not a `bool` (`TypeError`). `main`/`app` return it unchanged.
+- **`CommandError(message="", code=1)`** and **`UsageError(message="", code=2)`**
+  (`duho.exceptions`, also `duho.CommandError`/`duho.UsageError`; `UsageError` is a
+  `CommandError`) — raise from `__call__` to end with a message and a status; attributes
+  `message`, `code`; `str(exc)` is the message. Caught by `main`/`app` as above; over MCP
+  they are an `isError` result whose text is the message.
 - **`run_command(command, instance, *, context=None, adapter=None) -> Any`** —
   dispatch one resolved
   command. `adapter(entrypoint)` is the same hook as `app`'s: it applies to a module
@@ -965,6 +991,7 @@ manipulating a parser tree directly:
 - **`duho.mcp.InvalidArgumentsError`** — `ValueError` subclass; the tool arguments are not
   a JSON object or fail the tool's schema. JSON-RPC code `-32602`; over `serve` a schema
   failure is an `isError` tool result instead in a `2025-11-25`+ session.
+- **`duho.CommandError`** / **`duho.UsageError`** — see "Build / parse / run".
 - **`NotImplementedError`** — dispatching an `Args` that is not a `Cmd`, or a `Cmd` that
   never overrode `__call__`, names the class. A module with no entrypoint raises it too,
   which discovery treats as "not a command" and skips.

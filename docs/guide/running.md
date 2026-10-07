@@ -57,6 +57,103 @@ class Deploy(duho.Cmd):
 raise SystemExit(duho.main(Deploy))
 ```
 
+### Errors and exit status
+
+`duho.run(root, argv=None)` is the program entry. It calls `duho.main`, prints
+the command's answer and exits with the status; `duho.main` returns the status
+for a caller that wants it. `None` or an `int` is the exit status; any other
+value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
+with status 0. A `KeyboardInterrupt` exits 130 and a closed pipe exits 1, both
+silently, unless `DUHO_TRACEBACK` is set.
+
+Raise `duho.CommandError(message, code=1)` from a command to fail with a message:
+`main` and `app` print `<prog>: error: <message>` to stderr and return the code
+(`duho.UsageError` is the same with code 2). Under `DUHO_TRACEBACK` the
+exception propagates. Over MCP the message becomes the error result's text.
+
+<!-- runnable: commands -->
+```python
+import duho
+
+class Lookup(duho.Cmd):
+    """Find a value."""
+
+    key: str
+    "The key to find"
+
+    def __call__(self):
+        if self.key != "known":
+            raise duho.CommandError(f"no value for {self.key!r}", code=3)
+        return "found"
+
+if __name__ == "__main__":
+    duho.run(Lookup)
+```
+
+```console
+python lookup.py --key known
+python lookup.py --key other  # error
+```
+
+To turn your own exception types into statuses without raising `CommandError`,
+set `_errors_` on the root class: a mapping from exception type to exit status,
+matched by `isinstance` in the mapping's order. `None` (the default) catches
+nothing.
+
+<!-- runnable: commands -->
+```python
+import duho
+
+class Open(duho.Cli):
+    """Open a file."""
+
+    _errors_ = {FileNotFoundError: 66}
+
+    path: str
+    "The file to open"
+
+    def __call__(self):
+        with open(self.path) as handle:
+            return handle.read()
+
+if __name__ == "__main__":
+    duho.run(Open)
+```
+
+```console
+python open_file.py --path missing.txt  # error
+```
+
+A command that has an answer and a status, or words only an MCP client should
+see, returns a `duho.Result`. It is an `int` (its `code`), so `sys.exit(result)`
+works; `value` is the answer that `run` prints and an MCP client receives,
+`text` is for an MCP client only and is never printed, and `is_error` overrides
+the default of `code != 0`.
+
+<!-- runnable: commands -->
+```python
+import duho
+
+class Find(duho.Cmd):
+    """Look a key up; exit 1 when it is absent."""
+
+    key: str
+    "The key to find"
+
+    def __call__(self):
+        if self.key == "known":
+            return duho.Result(0, value={"key": self.key})
+        return duho.Result(1, text=f"no value for {self.key!r}", is_error=False)
+
+if __name__ == "__main__":
+    duho.run(Find)
+```
+
+```console
+python find.py --key known
+python find.py --key other  # error
+```
+
 ### Async commands
 
 `__call__` may be `async def`. When it returns a coroutine, `duho.main` (and

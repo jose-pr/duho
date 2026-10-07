@@ -551,7 +551,8 @@ must be a `duho.Cmd` (see [Commands: Args vs Cmd](https://github.com/jose-pr/duh
 
 <!-- runnable -->
 ```python
-from duho import Cmd, main
+import duho
+from duho import Cmd
 
 class Greet(Cmd):
     """Print a greeting."""
@@ -563,8 +564,18 @@ class Greet(Cmd):
         # returning None counts as a successful exit (code 0)
 
 if __name__ == "__main__":
-    raise SystemExit(main(Greet))
+    duho.run(Greet)
 ```
+
+`duho.run(root, argv=None)` is the program entry: it calls `main`, prints the
+command's answer and exits with the status. `duho.main` returns that status
+instead, for a caller that wants it (`raise SystemExit(main(Greet))` is the same
+program minus the printing). The return contract, once: `None` or an `int` is the
+exit status; anything else is an answer, which `run` prints to stdout (a `str` as
+it is, other values as JSON) with status 0 and an MCP client receives as the tool
+result. A command that wants both a status and an answer returns `duho.Result`;
+one that fails with a message raises `duho.CommandError` (the
+running guide covers both).
 
 `SystemExit` raised by argparse (bad args, `--help`, `--version`) propagates
 normally. Dispatching a bare data `Args` (not a `Cmd`) raises a clear

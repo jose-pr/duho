@@ -122,6 +122,7 @@ from ._tree import (
     _register_commands,
     _finalize_command_tree,
 )
+from ._program import run
 from ._app import (
     _run_app,
     app,
@@ -129,4 +130,4 @@ from ._app import (
     _build_app_core,
 )
 
-__all__ = ["run_command", "app", "accepts_positional"]
+__all__ = ["run_command", "app", "run", "accepts_positional"]

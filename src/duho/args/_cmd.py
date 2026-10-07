@@ -223,6 +223,14 @@ class Cli(Cmd):
     #: (default) uses the defaults alone. Read by ``duho.agenthelp``.
     _exit_codes_: _ty.Optional[_ty.Mapping[_ty.Any, str]] = None
 
+    #: Exception type -> exit status, for exceptions a command lets escape. Read
+    #: from the root class given to ``duho.main``/``duho.app`` (and the served
+    #: root over MCP); matched with ``isinstance`` in the mapping's order, first
+    #: match wins. A caught exception prints ``<prog>: error: <message>`` to
+    #: stderr and the function returns the status. ``None`` (default) catches
+    #: nothing. ``duho.CommandError`` needs no entry.
+    _errors_: _ty.Optional[_ty.Mapping[type, int]] = None
+
     #: When ``True`` (the default), ``duho.main``/``duho.app`` call
     #: :func:`duho.utf8_stdio` first, before the MCP trigger and argv parsing, so
     #: piped stdout/stderr on a non-UTF-8 locale (``cp1252`` on Windows) become

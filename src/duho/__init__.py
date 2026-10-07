@@ -36,6 +36,8 @@ from .args import (
     value_sources,
 )
 from .args._meta import _A as _A
+from ._outcome import Result
+from .exceptions import CommandError, UsageError
 from .discovery import (
     CmdBuilder,
     Command,
@@ -63,7 +65,7 @@ from .logging import (
 from .parsers import command_name
 from .presets import LoggingArgs
 from .qualname import PythonName, QualName
-from .runtime import app, run_command
+from .runtime import app, run, run_command
 from .text import (
     camelcase,
     expand,
@@ -132,6 +134,7 @@ __all__ = [
     "ColorHelpFormatter",
     "command",
     "command_name",
+    "CommandError",
     "Command",
     "completion",
     "Const",
@@ -162,11 +165,14 @@ __all__ = [
     "pysafe",
     "PythonName",
     "QualName",
+    "Result",
     "register_command_provider",
+    "run",
     "run_command",
     "snakecase",
     "subcommand",
     "unregister_command_provider",
+    "UsageError",
     "utf8_stdio",
     "UpdateAction",
     "value_sources",

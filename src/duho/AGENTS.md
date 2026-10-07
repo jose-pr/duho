@@ -244,13 +244,15 @@ just its annotation.
   field metadata, for a key `Meta` does not have or for a custom argument's own keys. A
   key that is neither a `Meta` field nor an attribute the field's `ArgumentBuilder` class
   declares is ignored, and the parser build logs one WARNING per field on logger
-  `duho.args`: `App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta
+  `duho.args`: `App.port: metadata key 'hlep' is not a Meta field and is ignored; closest Meta
   field: 'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice`
   are accepted. `dest` is such a key, since a field's `dest` is always its own name.
-  Field metadata that is read is exactly a `Meta`, a `dict` (any `Mapping`) and an object
-  with a str `.documentation` (PEP 727, used as help); any other object in `Arg[...]` is
-  ignored. An `argparse.Namespace` there is a `TypeError` naming the class and field when
-  the parser is built.
+  Field metadata comes in two forms. A `Meta` (or a subclass of it) is strict. Anything
+  else that carries keys is permissive and read like a `dict`: a `dict` (any `Mapping`),
+  or any other object with attributes, such as an `argparse.Namespace`, whose public
+  attributes are its keys. The keys duho knows are used; the rest are ignored with the
+  warning above. An object with a str `.documentation` (PEP 727) gives the help text. A
+  class, a bare string and an object with no attributes are ignored.
 - **`argparse.SUPPRESS`** — placed anywhere in a field's metadata (`Arg[str, argparse.SUPPRESS]`)
   it hides the field from the command line entirely: no flag, no parsed value.
 - **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.

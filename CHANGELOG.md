@@ -21,16 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   keyword-only parameters.
 - `Choice`, `Const`, `Count`, `Append` and `Extend` return a `Meta`, and `Meta`
   has a `split` field, the one `Extend` sets.
-- An object that merely has attributes, put in a field's `Arg[...]` metadata, is
-  no longer read as options; it is ignored, like any other value duho does not
-  recognise. The metadata that is read is a `Meta`, a `dict`, and an object with
-  a string `.documentation`. An `argparse.Namespace` there raises a `TypeError`
-  naming the class and field when the parser is built, so a declaration that has
-  not been migrated fails instead of losing its flags and help.
-- A `dict` in a field's metadata is where a key that nothing claims is
-  reported: it is ignored and logged once per field as a WARNING on
-  `duho.args`, naming `dict(...)` and the closest `Meta` field. Keys that a
-  custom argument's own builder declares are passed to it without a warning.
+- Field metadata has two forms. A `Meta`, or a subclass of it, is strict.
+  Anything else that carries keys is permissive and read like a `dict`: a
+  `dict`, or any other object with attributes, such as an
+  `argparse.Namespace`, whose public attributes are its keys. The keys duho
+  knows are used. A key that nothing claims is ignored and logged once per
+  field as a WARNING on `duho.args`, naming the key and the closest `Meta`
+  field; keys that a custom argument's own builder declares are passed to it
+  without a warning. A class placed in a field's metadata is not read.
 - The warning for a flag-shaped `help` or `env` on `Meta` is gone: the mistake
   it reported, `Meta("-n", "--name")`, is now an error.
 
@@ -43,8 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   write that field's metadata as a `dict` instead: `dict(shout=True)`.
 - A `Meta("...")` call with positional arguments names them: `Meta(help="...")`,
   and a flag goes in `flags=("-n", "--name")`.
-- A field that gave an `argparse.Namespace` as its metadata (without `NS`) now
-  raises a `TypeError` naming the field; make it a `Meta(...)` or a `dict`.
+- A field that gives an `argparse.Namespace` as its metadata directly keeps
+  working, as the permissive form. `Meta(...)` is the form that catches a
+  misspelled key.
 
 ## [0.6.5] - 2026-10-07
 

@@ -401,12 +401,15 @@ class App(Args):
 fields you set are merged. A field's `dest` is always its declared name — there
 is no `dest=` override, so `Meta(dest=...)` is a `TypeError` at
 class-definition time. Any metadata object exposing a str
-`.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
+`.documentation` attribute (a PEP-727-style `Doc`) contributes help text. A
+`dict`, or any other object with attributes such as an `argparse.Namespace`, is
+the permissive form: the keys duho knows are used and the rest are ignored
+with a warning.
 
 **Misdeclaration warnings.** Two mistakes that would otherwise do nothing are logged
 once as a WARNING on the `duho.args` logger when the parser is built; neither is an
 error. A `dict` key that is not a `Meta` field is ignored with
-`App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta field:
+`App.port: metadata key 'hlep' is not a Meta field and is ignored; closest Meta field:
 'help'`; `dest` is such a key, since a field's `dest` is always its own name. And a
 sandwich attribute on a command class that duho does not read but whose spelling is
 a near-miss of one it does (`_verison_` for `_version_`) logs `App declares

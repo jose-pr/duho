@@ -116,7 +116,7 @@ def _warn_unknown_dict_keys(
         close = _difflib.get_close_matches(key, sorted(Meta.__dataclass_fields__), n=1)
         hint = f"; closest Meta field: {close[0]!r}" if close else ""
         _LOGGER.warning(
-            "%s.%s: dict(%s=...) is not a Meta field and is ignored%s",
+            "%s.%s: metadata key %r is not a Meta field and is ignored%s",
             cls.__name__,
             field,
             key,

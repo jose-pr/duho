@@ -174,6 +174,10 @@ class Run(Args):
     level: Arg[int, dict(help="verbosity", env="LEVEL")] = 0
 ```
 
+Any other object with attributes is read the same way, its public attributes
+being the keys, so an `argparse.Namespace(help="verbosity")` works where the
+`dict` does. Only a `Meta`, or a subclass of it, is strict.
+
 Any metadata object exposing a str `.documentation` attribute (a PEP-727-style
 `Doc`) contributes help text, so `Arg[int, Doc("how many")]` works too.
 
@@ -278,7 +282,7 @@ A `dict` key that is not a `Meta` field is reported once per field, naming the
 nearest `Meta` field when there is one:
 
 ```text
-App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta field: 'help'
+App.port: metadata key 'hlep' is not a Meta field and is ignored; closest Meta field: 'help'
 ```
 
 `dest` is such a key. Keys that `Extend`, `Count`, `Append`, `Const` and `Choice` set,

@@ -24,22 +24,21 @@ in two ways and no others.
 
 ### Upgrade notes
 
-The edit is mechanical, and a project that has not made it fails loudly, not
+The edit is mechanical, and a project that imports `NS` fails at import, not
 quietly:
 
 - `from duho import NS` raises `ImportError`. Replace `NS(` with `Meta(` and
   import `Meta`.
-- An `argparse.Namespace` left in a field's metadata raises a `TypeError`
-  naming the class and field when the parser is built. It is not ignored,
-  because ignoring it would drop that field's flags and help.
+- An `argparse.Namespace` given directly as a field's metadata keeps working:
+  it is read like a `dict`, the permissive form.
 - A `TypeError` from `Meta` naming an unknown field means that key was being
   ignored before: delete it, or write that field's metadata as a `dict` if the
   key belongs to a custom argument.
 - A positional `Meta(...)` call names its arguments; a flag goes in
   `flags=("-n", "--name")`.
-- An object that merely has attributes, placed in a field's `Arg[...]`
-  metadata, is no longer read as options. Metadata that is read: a `Meta`, a
-  `dict`, and an object with a string `.documentation`.
+- Only a `Meta`, or a subclass of it, is strict. A `dict` or any other object
+  with attributes is permissive: the keys duho knows are used, and a key
+  nothing claims is ignored with a warning.
 
 ### Performance
 

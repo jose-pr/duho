@@ -309,15 +309,9 @@ class Args(_argparse.Namespace):
                 options: dict = {}
                 dict_keys: list[str] = []
                 for opts in decl.annotations:
-                    # Consumed: a Meta, a Mapping, or a PEP 727 `.documentation`
-                    # str as help. Anything else (a bare `Annotated[int, "doc"]`
-                    # string, another library's marker) is ignored.
-                    if isinstance(opts, _argparse.Namespace):
-                        # Refused: it would silently drop the flags and help.
-                        raise TypeError(
-                            f"{cls.__name__}.{name}: field metadata is Meta(...) or "
-                            f"a dict, not an argparse.Namespace"
-                        )
+                    # A Meta is strict. A Mapping, or any other object with
+                    # attributes (an argparse.Namespace, say), is permissive:
+                    # the keys duho knows are used and the rest are reported.
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
                         # an unset (sentinel) field never overrides a type-derived
@@ -328,6 +322,14 @@ class Args(_argparse.Namespace):
                         dict_keys.extend(opts)
                     elif isinstance(getattr(opts, "documentation", None), str):
                         options.setdefault("help", opts.documentation)
+                    elif hasattr(opts, "__dict__") and not isinstance(opts, type):
+                        public = {
+                            key: value
+                            for key, value in vars(opts).items()
+                            if not key.startswith("_")
+                        }
+                        options.update(public)
+                        dict_keys.extend(public)
                 if isinstance(decl.type, Argument):
                     # A custom Argument type in Arg[...]/Meta(...) must be built by
                     # its own `_argbuilder_` (`from_type` would use the plain

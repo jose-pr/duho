@@ -42,7 +42,7 @@ def test_misspelled_key_is_reported_once_and_still_dropped(caplog):
     records = _records(caplog)
     assert len(records) == 1
     text = records[0].getMessage()
-    for word in ("Typo", "port", "hlep", "help", "dict(hlep=...)"):
+    for word in ("Typo", "port", "hlep", "help", "metadata key"):
         assert word in text
     assert records[0].levelno == logging.WARNING
 

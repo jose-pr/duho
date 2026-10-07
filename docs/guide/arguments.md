@@ -260,9 +260,10 @@ class App(Args):
 
 ## Misdeclaration warnings
 
-Two mistakes that would otherwise silently do nothing are logged when the parser is
-built, once each, as a WARNING on the `duho.args` logger. Neither is an error and
-neither has a switch.
+Three mistakes that would otherwise silently do nothing, or the wrong thing, are logged
+as a WARNING on the `duho.args` logger: the first two when the parser is built, once
+each, the third when the `Meta(...)` is constructed. None is an error and none has a
+switch.
 
 An `NS(...)` key that is not a `Meta` field is reported once per field, naming the
 nearest `Meta` field when there is one:
@@ -285,6 +286,18 @@ App declares '_verison_', which duho does not read; did you mean '_version_'?
 
 Only a near-miss is reported. An attribute of your own that merely extends a name duho
 reads (`_config_dir_`), a dunder, and a name starting `_duho_` are left alone.
+
+`Meta`'s first two positional parameters are `help` and `env`, so `Meta("-n", "--name")`
+sets `help="-n"` and `env="--name"`. A `help` that is a string shaped like a flag
+(`-n`, `--dry-run`) or an `env` that is a string starting with `-` logs one warning per
+`Meta(...)` call; the value is used as given, so the call still builds:
+
+```text
+Meta(help='-n', env='--name'): its positional parameters are help, env, ... in that order; pass flags as flags=(...)
+```
+
+Help text that merely starts with a dash and has spaces (`"- optional"`) is not
+reported.
 
 ## Private fields
 

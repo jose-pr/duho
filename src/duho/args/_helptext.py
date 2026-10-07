@@ -38,4 +38,3 @@ def _escape_description(text: str) -> str:
     escaping every one would show a doubled ``%`` in ``--help``.
     """
     return _escape_stray_percent(text) if "%(prog)" in text else text
-

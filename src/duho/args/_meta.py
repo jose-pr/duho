@@ -7,6 +7,8 @@ import typing as _ty
 from .. import _introspect as _introspect
 from .._fieldspec import Factory as Factory
 
+from ._guards import _warn_flag_shaped_meta
+
 if _ty.TYPE_CHECKING:
     from ._argsclass import Args
     from ._cmd import Cmd
@@ -195,6 +197,7 @@ class Meta:
         self.default = default
         self.enum_by = enum_by
         self.literal_value = literal_value
+        _warn_flag_shaped_meta(help, env)
 
     def _duho_options_(self) -> dict[str, object]:
         """The explicitly-set metadata as a plain dict (unset fields omitted).

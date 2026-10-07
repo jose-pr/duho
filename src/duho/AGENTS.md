@@ -227,6 +227,12 @@ just its annotation.
   class-definition time instead of `NS(dest=...)`'s silently-ignored value. `flags=`
   and `default=` are the typed equivalents of `NS(flags=...)`/`NS(default=...)`. Only
   explicitly-set fields are merged; an unknown keyword to `Meta(...)` is a `TypeError`.
+  The positional order is `help`, `env`, then the rest as listed. A `help` that is a
+  string shaped like a flag (`-n`, `--dry-run`: `^--?[A-Za-z0-9][A-Za-z0-9_-]*$`) or an
+  `env` that is a string starting with `-` logs one WARNING on logger `duho.args` per
+  `Meta(...)` call (`Meta("-n", "--name")`: pass flags as `flags=(...)`); the values are
+  still used as given, nothing is rejected, and prose such as `"- optional"` is not
+  reported.
   - `type=f` with a user converter `f` (neither a builtin nor from `duho`): a
     `ValueError`/`TypeError` from `f` with a non-empty message is shown as the usage-error
     text (`app: error: argument --port: port must be 1..65535`, exit 2). An empty message,

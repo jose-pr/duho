@@ -1,5 +1,7 @@
 """Pre-configured argument classes for common patterns."""
 
+from __future__ import annotations
+
 import argparse as _argparse
 import logging as _logging
 import typing as _ty

@@ -5,6 +5,8 @@ attr contributes help). All classes are declared at module level so AST-derived
 flag tuples resolve.
 """
 
+import inspect
+
 import pytest
 
 import duho
@@ -59,39 +61,6 @@ def test_meta_dest_is_not_a_field():
     """
     with pytest.raises(TypeError, match="Meta has no 'dest' field"):
         Meta(dest="renamed")
-
-
-def test_meta_kwargs_keeps_its_positional_index_with_default_declared_after_it():
-    """`default` was added AFTER `kwargs` already existed; it must sit AFTER
-    `kwargs` in the field order too, not before it -- otherwise every
-    existing positional `Meta(..., kwargs={...})` call site would have
-    silently shifted onto a different field the moment `default` was
-    declared earlier in the list."""
-    m = Meta(
-        None,  # help
-        None,  # env
-        None,  # conflicts
-        None,  # conflicts_required
-        None,  # group
-        None,  # action
-        None,  # nargs
-        None,  # const
-        None,  # choices
-        None,  # metavar
-        None,  # required
-        None,  # type
-        None,  # version
-        None,  # flags
-        {"foo": "bar"},  # kwargs -- must land here, not on `default`
-    )
-    assert m.kwargs == {"foo": "bar"}
-    assert m.default is _META_UNSET
-
-
-def test_meta_default_is_the_last_positional_field():
-    m = Meta(*([None] * 14), {"a": 1}, "the-default")
-    assert m.kwargs == {"a": 1}
-    assert m.default == "the-default"
 
 
 class MetaFlags(Args):
@@ -172,43 +141,53 @@ def test_pep727_documentation_contributes_help():
 
 
 # --------------------------------------------------------------------------
-# `Meta` is a plain dataclass, so positional construction binds by position.
-# A field added after the original design must go LAST, never in the middle
-# -- inserting one earlier silently shifts every field declared after it for
-# any caller using positional args.
+# `Meta` takes keyword arguments only.
 # --------------------------------------------------------------------------
 
+_FIELDS = (
+    "help env conflicts conflicts_required group action nargs const choices "
+    "metavar required type version flags kwargs default enum_by literal_value"
+).split()
 
-def test_meta_positional_field_order_matches_the_documented_prefix():
-    m = Meta(
-        "help text",  # help
-        "ENVVAR",  # env
-        "grp",  # conflicts
-        True,  # conflicts_required
-        "title",  # group
-        "store",  # action
-        None,  # nargs
-        None,  # const
-        (1, 2),  # choices
-        "N",  # metavar
-        False,  # required
-        int,  # type
-        "1.0",  # version
-        ("-x",),  # flags
-    )
-    assert m.help == "help text"
-    assert m.env == "ENVVAR"
-    assert m.conflicts == "grp"
-    assert m.conflicts_required is True
-    assert m.group == "title"
-    assert m.action == "store"
-    assert m.choices == (1, 2)
-    assert m.metavar == "N"
-    assert m.required is False
-    assert m.type is int
-    assert m.version == "1.0"
-    assert m.flags == ("-x",)
-    # `default` (added after `flags` took over the removed `dest` slot) sits
-    # LAST, right before the `kwargs` escape hatch -- not in the middle of
-    # the prefix above.
-    assert m.default is duho.args._META_UNSET
+
+@pytest.mark.parametrize(
+    "args",
+    [("help text",), ("-n", "--name"), (None, None, None), ("a", "b", "c", "d")],
+)
+def test_meta_positional_arguments_are_a_type_error(args):
+    with pytest.raises(TypeError, match="keyword arguments only"):
+        Meta(*args)
+
+
+def test_meta_positional_flag_points_at_flags():
+    with pytest.raises(TypeError, match=r"flags=\(\.\.\.\)"):
+        Meta("-n", "--name")
+
+
+def test_meta_unknown_keyword_names_it_and_the_closest_field():
+    with pytest.raises(TypeError) as info:
+        Meta(hlep="oops")
+    assert "'hlep'" in str(info.value) and "'help'" in str(info.value)
+    with pytest.raises(TypeError) as info:
+        Meta(zzzzzz=1)
+    assert "'zzzzzz'" in str(info.value) and "did you mean" not in str(info.value)
+
+
+def test_meta_signature_lists_keyword_only_fields_in_order():
+    params = list(inspect.signature(Meta).parameters.values())
+    assert [p.name for p in params] == _FIELDS
+    assert all(p.kind is p.KEYWORD_ONLY for p in params)
+    assert all(p.default is _META_UNSET for p in params)
+
+
+def test_meta_every_field_is_settable_by_keyword():
+    meta = Meta(**{name: name for name in _FIELDS})
+    for name in _FIELDS:
+        assert getattr(meta, name) == name
+    assert Meta().__dict__ == {name: _META_UNSET for name in _FIELDS}
+
+
+def test_meta_equality_and_repr():
+    assert Meta(help="a", env="B") == Meta(env="B", help="a")
+    assert Meta(help="a") != Meta(help="b")
+    assert repr(Meta(help="a")).startswith("Meta(help='a', env=")

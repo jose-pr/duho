@@ -219,20 +219,15 @@ just its annotation.
   'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice` and the
   attributes a custom `ArgumentBuilder` subclass declares are accepted; only
   `argparse.Namespace` metadata is checked, not a plain `dict`.
-- **`Meta(help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, literal_value, *, dest)`** — typed, typo-safe alternative to `NS`: a dataclass with exactly the
-  same fields as `NS` (`help`, `env`, `conflicts`, `conflicts_required`, `group`,
-  `action`, `nargs`, `const`, `default`, `choices`, `metavar`, `required`, `type`,
-  `version`, `flags`, `kwargs`, `enum_by`, `literal_value`) EXCEPT `dest` — `Meta` has no `dest` field at all (a
-  field's `dest` is always its declared name), so `Meta(dest=...)` is a `TypeError` at
-  class-definition time instead of `NS(dest=...)`'s silently-ignored value. `flags=`
-  and `default=` are the typed equivalents of `NS(flags=...)`/`NS(default=...)`. Only
-  explicitly-set fields are merged; an unknown keyword to `Meta(...)` is a `TypeError`.
-  The positional order is `help`, `env`, then the rest as listed. A `help` that is a
-  string shaped like a flag (`-n`, `--dry-run`: `^--?[A-Za-z0-9][A-Za-z0-9_-]*$`) or an
-  `env` that is a string starting with `-` logs one WARNING on logger `duho.args` per
-  `Meta(...)` call (`Meta("-n", "--name")`: pass flags as `flags=(...)`); the values are
-  still used as given, nothing is rejected, and prose such as `"- optional"` is not
-  reported.
+- **`Meta(*, help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, literal_value)`** — typed, typo-safe field metadata: a
+  dataclass whose fields are the metadata keys (`help`, `env`, `conflicts`,
+  `conflicts_required`, `group`, `action`, `nargs`, `const`, `choices`, `metavar`,
+  `required`, `type`, `version`, `flags`, `kwargs`, `default`, `enum_by`, `literal_value`).
+  Keyword arguments only: a positional argument is a `TypeError` (for a flag-shaped first
+  one, the message says to use `flags=(...)`), and so is an unknown keyword, which names
+  the closest field. `Meta` has no `dest` field (a field's `dest` is always its declared
+  name), so `Meta(dest=...)` is a `TypeError` too. Only explicitly-set fields are
+  merged. `inspect.signature(Meta)` lists the real keyword-only parameters.
   - `type=f` with a user converter `f` (neither a builtin nor from `duho`): a
     `ValueError`/`TypeError` from `f` with a non-empty message is shown as the usage-error
     text (`app: error: argument --port: port must be 1..65535`, exit 2). An empty message,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging as _logging
-import re as _re
 import typing as _ty
 import weakref as _weakref
 
@@ -88,29 +87,6 @@ def _warn_misspelled_attrs(cls: type) -> None:
                 attr,
                 close[0],
             )
-
-
-#: A ``help`` that reads as a command-line flag (``-n``, ``--dry-run``), not prose.
-_FLAG_SHAPED = _re.compile(r"-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*")
-
-
-def _warn_flag_shaped_meta(help: object, env: object) -> None:
-    """Log when a ``Meta`` ``help`` or ``env`` looks like a flag given by position.
-
-    ``Meta``'s first positional parameters are ``help`` and ``env``, so
-    ``Meta("-n", "--name")`` assigns them silently. The values are still used.
-    """
-    given = []
-    if isinstance(help, str) and _FLAG_SHAPED.fullmatch(help):
-        given.append(f"help={help!r}")
-    if isinstance(env, str) and env.startswith("-"):
-        given.append(f"env={env!r}")
-    if given:
-        _LOGGER.warning(
-            "Meta(%s): its positional parameters are help, env, ... in that "
-            "order; pass flags as flags=(...)",
-            ", ".join(given),
-        )
 
 
 def _claimed_keys(built: object) -> _ty.Set[str]:

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import argparse as _argparse
 import dataclasses as _dataclasses
+import inspect as _inspect
 import typing as _ty
 
 from .. import _introspect as _introspect
 from .._fieldspec import Factory as Factory
-
-from ._guards import _warn_flag_shaped_meta
 
 if _ty.TYPE_CHECKING:
     from ._argsclass import Args
@@ -83,34 +82,92 @@ class _MetaUnset:
 _META_UNSET = _MetaUnset()
 
 
-@_dataclasses.dataclass(init=False)
+if _ty.TYPE_CHECKING:
+    from typing_extensions import dataclass_transform as _dataclass_transform
+else:
+
+    def _dataclass_transform(**_options: object):
+        """Run-time stand-in: only a type checker reads the real decorator."""
+        return lambda obj: obj
+
+
+@_dataclass_transform(kw_only_default=True)
+def _keyword_only_fields(cls: type) -> type:
+    """Make ``cls`` a dataclass whose constructor takes its annotated fields by keyword only.
+
+    Every field is optional and defaults to :data:`_META_UNSET`. A positional
+    argument or an unknown name is a ``TypeError``; ``inspect.signature`` shows
+    the real keyword-only parameters.
+    """
+    cls = _dataclasses.dataclass(init=False)(cls)
+    names = tuple(field.name for field in _dataclasses.fields(cls))
+
+    def __init__(self, *args: _ty.Any, **kwargs: _ty.Any) -> None:
+        if args:
+            first = args[0]
+            hint = (
+                "; flags go in flags=(...)"
+                if isinstance(first, str) and first.startswith("-")
+                else ""
+            )
+            raise TypeError(
+                f"{cls.__name__} takes keyword arguments only, "
+                f"got {len(args)} positional{hint}"
+            )
+        if "dest" in kwargs:
+            # `dest` is the one key `Meta` deliberately never accepts.
+            raise TypeError(
+                f"{cls.__name__} has no 'dest' field: "
+                "an argument's dest is always its field name"
+            )
+        for key in kwargs:
+            if key not in names:
+                import difflib as _difflib
+
+                close = _difflib.get_close_matches(key, names, n=1)
+                hint = f"; did you mean {close[0]!r}?" if close else ""
+                raise TypeError(f"{cls.__name__} has no field {key!r}{hint}")
+        for name in names:
+            setattr(self, name, kwargs.get(name, _META_UNSET))
+
+    __init__.__qualname__ = f"{cls.__qualname__}.__init__"
+    cls.__init__ = __init__  # type: ignore[method-assign]
+    cls.__signature__ = _inspect.Signature(  # type: ignore[attr-defined]
+        [
+            _inspect.Parameter(
+                name,
+                _inspect.Parameter.KEYWORD_ONLY,
+                default=_META_UNSET,
+                annotation=_ty.Any,
+            )
+            for name in names
+        ]
+    )
+    return cls
+
+
+@_keyword_only_fields
 class Meta:
-    """Typed, typo-safe alternative to ``NS(...)`` for field metadata.
+    """Typed, typo-safe field metadata: ``Arg[int, Meta(help="...")]``.
 
-    ``NS(...)`` is an untyped ``argparse.Namespace``: a misspelled key
-    (``NS(hlep="oops")``) is silently dropped. ``Meta`` declares the known
-    metadata fields as a dataclass, so an unknown keyword is a ``TypeError`` --
-    the whole point -- raised as soon as the annotation is evaluated: at
-    class-definition time on Python 3.9-3.13 with eager annotations, or at
-    first parser build on 3.14+ (PEP 649), under string annotations, or with
-    ``from __future__ import annotations``. Only the fields you set are merged
-    (each defaults to a private sentinel); every key ``NS`` accepts EXCEPT
-    ``dest`` (see below) is also a ``Meta`` field, and ``NS`` keeps working
-    forever.
-
-    Use it exactly where ``NS`` goes::
+    ``Meta`` takes keyword arguments only, each one a documented metadata
+    field; an unknown name (``Meta(hlep="oops")``) is a ``TypeError``, raised
+    as soon as the annotation is evaluated: at class-definition time on Python
+    3.9-3.13 with eager annotations, or at first parser build on 3.14+ (PEP
+    649), under string annotations, or with ``from __future__ import
+    annotations``. Only the fields you set are merged (each defaults to a
+    private sentinel), so an unset field never overrides a type-derived value::
 
         level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
         ("--level",)
 
-    Recommended over ``NS`` precisely because a typo fails loud instead of
-    vanishing. The ``kwargs`` field is the same raw ``add_argument`` escape hatch
-    ``NS(kwargs=...)`` provides.
+    The ``kwargs`` field is the raw ``add_argument`` escape hatch. A plain
+    ``dict`` is the permissive alternative: a key no ``Meta`` field and no
+    custom argument claims is ignored with a warning.
 
     There is deliberately no ``dest`` field: an argument's ``dest`` is always
     its declared field name (the parsed instance attribute), so ``Meta`` raises
-    a dedicated ``TypeError`` for ``dest=`` instead of a value that looks
-    honored but never is (as ``NS(dest=...)`` -- accepted, and ignored -- does).
+    a dedicated ``TypeError`` for ``dest=``.
 
     ``enum_by="value"`` matches an Enum field against ``str(member.value)``
     (command line, env and config alike) instead of the member name; the
@@ -127,10 +184,6 @@ class Meta:
         times: Arg[int, Meta(flags=("-n", "--times"))] = 1
     """
 
-    # Field order is the positional order of `Meta(...)`: append new fields,
-    # never insert, so earlier positional uses (`Meta("help text")`,
-    # `Meta(..., kwargs={...})`) keep their index. `flags` sits in the removed
-    # `dest`'s old slot, just before `kwargs`.
     help: _ty.Any = _META_UNSET
     env: _ty.Any = _META_UNSET
     conflicts: _ty.Any = _META_UNSET
@@ -149,55 +202,6 @@ class Meta:
     default: _ty.Any = _META_UNSET
     enum_by: _ty.Any = _META_UNSET
     literal_value: _ty.Any = _META_UNSET
-
-    def __init__(
-        self,
-        help: _ty.Any = _META_UNSET,
-        env: _ty.Any = _META_UNSET,
-        conflicts: _ty.Any = _META_UNSET,
-        conflicts_required: _ty.Any = _META_UNSET,
-        group: _ty.Any = _META_UNSET,
-        action: _ty.Any = _META_UNSET,
-        nargs: _ty.Any = _META_UNSET,
-        const: _ty.Any = _META_UNSET,
-        choices: _ty.Any = _META_UNSET,
-        metavar: _ty.Any = _META_UNSET,
-        required: _ty.Any = _META_UNSET,
-        type: _ty.Any = _META_UNSET,
-        version: _ty.Any = _META_UNSET,
-        flags: _ty.Any = _META_UNSET,
-        kwargs: _ty.Any = _META_UNSET,
-        default: _ty.Any = _META_UNSET,
-        enum_by: _ty.Any = _META_UNSET,
-        literal_value: _ty.Any = _META_UNSET,
-        *,
-        dest: _ty.Any = _META_UNSET,
-    ) -> None:
-        if dest is not _META_UNSET:
-            # A dedicated message rather than the generic "unexpected keyword
-            # argument": `dest` is the one key `Meta` deliberately never accepts.
-            raise TypeError(
-                "Meta has no 'dest' field: an argument's dest is always its field name"
-            )
-        self.help = help
-        self.env = env
-        self.conflicts = conflicts
-        self.conflicts_required = conflicts_required
-        self.group = group
-        self.action = action
-        self.nargs = nargs
-        self.const = const
-        self.choices = choices
-        self.metavar = metavar
-        self.required = required
-        self.type = type
-        self.version = version
-        self.flags = flags
-        self.kwargs = kwargs
-        self.default = default
-        self.enum_by = enum_by
-        self.literal_value = literal_value
-        _warn_flag_shaped_meta(help, env)
 
     def _duho_options_(self) -> dict[str, object]:
         """The explicitly-set metadata as a plain dict (unset fields omitted).

@@ -645,8 +645,8 @@ def _unwrap_annotated(hint, name: str, cls: type) -> tuple[object, list]:
             raise TypeError(
                 f"argument {name!r} on {cls.__name__!r}: more than one "
                 f"member of its Union/Optional annotation carries "
-                f"Arg[...]/NS(...) metadata -- put it on a single member "
-                f"(e.g. Optional[Arg[int, NS(...)]]), not several"
+                f"Arg[...]/Meta(...) metadata -- put it on a single member "
+                f"(e.g. Optional[Arg[int, Meta(...)]]), not several"
             )
 
     return hint, []

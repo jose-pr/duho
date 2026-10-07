@@ -13,16 +13,16 @@ command line.
 
 ## Environment variables
 
-Annotate a field with `NS(env="VAR_NAME")`:
+Annotate a field with `Meta(env="VAR_NAME")`:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 class Deploy(Args):
     """Deploy the app."""
 
-    token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
+    token: Arg[str, Meta(env="DEPLOY_TOKEN")] = ""
     "Auth token"
 ```
 
@@ -32,7 +32,7 @@ $ deploy                      # token == "abc123"
 $ deploy --token override     # token == "override"   (CLI wins)
 ```
 
-The env value is converted with the field's own type, so `NS(env="PORT")` on an
+The env value is converted with the field's own type, so `Meta(env="PORT")` on an
 `int` field yields an `int` — and a bad value produces the same clear error
 argparse would give. A `bool` field reads `1`, `true`, `yes`, `on`, `y`, `t` as
 `True` and `0`, `false`, `no`, `off`, `n`, `f` or the empty string as `False`,

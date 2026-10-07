@@ -155,7 +155,6 @@ __all__ = [
     "main",
     "Meta",
     "ModuleCommand",
-    "NS",
     "parse",
     "parse_bool",
     "parse_globals",

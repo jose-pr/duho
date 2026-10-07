@@ -368,7 +368,7 @@ def parse_globals(
     class default), and parses ``argv`` with help/version/print-
     completion suppressed and subcommand descent skipped entirely, so a
     consumer can resolve config-file-driven command search paths (or any
-    other global, including one backed by ``NS(env=...)`` or only made
+    other global, including one backed by ``Meta(env=...)`` or only made
     non-required by a layer) BEFORE building/committing to the full
     subcommand parser. This is the documented, public form of the internal
     prepass ``duho.app`` already runs -- it wraps

@@ -19,7 +19,7 @@ Both are imported only when used.
 - **Type-driven.** `int`, `Literal`, `Enum`, `list[T]`, `Optional`, `Union` — the
   annotation decides how the CLI text is parsed and validated.
 - **Not a walled garden.** duho builds a real `argparse.ArgumentParser`. Any
-  `add_argument` keyword is reachable via `Arg[T, NS(...)]`, and you can take the
+  `add_argument` keyword is reachable via `Arg[T, Meta(...)]`, and you can take the
   parser and do whatever you want with it.
 - **Layered defaults.** CLI args override environment variables, which override a
   TOML config file, which overrides class defaults — with a helper that tells you

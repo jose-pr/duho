@@ -16,7 +16,7 @@ def _escape_stray_percent(text: str) -> str:
 
     argparse %-formats every ``help=`` (``_expand_help``, or ``_check_help`` in
     ``add_argument`` on 3.14+), so a stray ``%`` in docstring-derived help would
-    crash parser build on 3.14 or ``--help`` on 3.9. An explicit ``NS(help=...)``
+    crash parser build on 3.14 or ``--help`` on 3.9. An explicit ``Meta(help=...)``
     is applied after this and is never escaped.
     """
     if "%" not in text:

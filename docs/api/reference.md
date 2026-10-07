@@ -3,7 +3,7 @@
 Generated from docstrings, organized by area:
 
 - **[Args](args.md)** — `Args`, `Cmd`, `Cli`, `Argument`, `ArgumentBuilder`, the
-  `Arg`/`NS` annotation helpers, `Meta` (the typed, typo-safe metadata form),
+  `Arg` annotation helper, `Meta` (the typed, typo-safe metadata form),
   the argument factories (`Count`, `Append`, `Const`, `Choice`, `Extend`),
   `UpdateAction`, and the module-level entry points (`parser`, `parse`,
   `parse_globals`, `main`, `finish_parse`, `command`, `subcommand`, `value_sources`,

@@ -618,7 +618,7 @@ def _factory_for(tp, name: str, enum_by: str = "name") -> _FieldSpec:
 
     if origin is _ty.Annotated:
         # A nested Annotated/Arg[...] Union member (e.g.
-        # `Optional[Arg[int, NS(env=...)]]`) has unhashable metadata the
+        # `Optional[Arg[int, Meta(env=...)]]`) has unhashable metadata the
         # later lookups cannot use, so it is rejected here.
         raise ValueError(
             f"argument {name!r}: a nested Annotated/Arg[...] type {tp!r} is "
@@ -732,7 +732,7 @@ class UpdateAction(_argparse.Action):
         if isinstance(values, (list, tuple)) and all(
             isinstance(v, _ty.Mapping) for v in values
         ):
-            # ``NS(nargs="*")`` on a dict field gives a LIST of one-pair dicts
+            # ``Meta(nargs="*")`` on a dict field gives a LIST of one-pair dicts
             # (each already converted); merge them in order, since ``dict.update``
             # on the list raises. Any other update()-compatible value falls through.
             for one in values:

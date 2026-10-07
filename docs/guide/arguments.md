@@ -119,33 +119,31 @@ becomes optional (duho gives it `nargs="?"`):
 
 ## The full argparse surface
 
-Anything `parser.add_argument()` accepts is reachable through `Arg[T, NS(...)]`,
-where `Arg` is `typing.Annotated` and `NS` is `argparse.Namespace`:
+Anything `parser.add_argument()` accepts is reachable through `Arg[T, Meta(...)]`,
+where `Arg` is `typing.Annotated`:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 class Run(Args):
-    tags: Arg[list, NS(action="append", metavar="TAG")] = []
+    tags: Arg[list, Meta(action="append", metavar="TAG")] = []
     "Repeatable tag"
     ("--tag",)
 
-    level: Arg[int, NS(choices=(1, 2, 3))] = 1
+    level: Arg[int, Meta(choices=(1, 2, 3))] = 1
 ```
 
 `action`, `nargs`, `const`, `metavar`, `choices`, `required` — they all
 pass straight through. Anything duho doesn't model explicitly can go through
-`NS(kwargs={...})`, which is merged last. `dest` is not among them: a field's `dest`
-is always its declared name, and `NS(dest=...)` is ignored.
+`Meta(kwargs={...})`, which is merged last. `dest` is not among them: a field's `dest`
+is always its declared name, and `Meta(dest=...)` is a `TypeError`.
 
 ### Typed metadata with `Meta`
 
-`NS(...)` is an untyped `argparse.Namespace`, so a misspelled key
-(`NS(hlep="oops")`) is ignored (see [Misdeclaration warnings](#misdeclaration-warnings)).
-`duho.Meta` is a dataclass with the
-same known fields EXCEPT `dest` — an unknown keyword is a `TypeError`, and
-only the fields you set are merged. That `TypeError` is raised as soon as the
+`duho.Meta` is a dataclass of the known metadata fields. It takes keyword
+arguments only: a positional argument and an unknown keyword (`Meta(hlep="oops")`)
+are both a `TypeError`, and only the fields you set are merged. The `TypeError` is raised as soon as the
 annotation is evaluated: at class-definition time on Python 3.9-3.13 with
 eager annotations, or at first parser build on 3.14+ (PEP 649), under string
 annotations, or with `from __future__ import annotations`:
@@ -158,11 +156,23 @@ class Run(Args):
     level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
 ```
 
-`Meta` is the recommended, typo-safe form; `NS` keeps working. A field's
-`dest` is always its declared name, so `Meta` has no `dest` field at all —
-`Meta(dest=...)` is a `TypeError` where `NS(dest=...)` would be silently
-ignored. `Meta.kwargs` is the same raw `add_argument` escape hatch as
-`NS(kwargs=...)`.
+A field's `dest` is always its declared name, so `Meta` has no `dest` field at
+all and `Meta(dest=...)` is a `TypeError`. `Meta(kwargs=...)` is the raw
+`add_argument` escape hatch.
+
+### Untyped metadata with a `dict`
+
+A plain `dict` (`dict(help="...", env="...")` or a literal) is the permissive form:
+use it for a key `Meta` does not have, or for the keys a custom argument's own
+builder declares. A key that no `Meta` field and no such builder claims is ignored
+and logged (see [Misdeclaration warnings](#misdeclaration-warnings)):
+
+```python
+from duho import Arg, Args
+
+class Run(Args):
+    level: Arg[int, dict(help="verbosity", env="LEVEL")] = 0
+```
 
 Any metadata object exposing a str `.documentation` attribute (a PEP-727-style
 `Doc`) contributes help text, so `Arg[int, Doc("how many")]` works too.
@@ -201,13 +211,13 @@ after a short flag is left alone as well.
 
 ### Mutually exclusive groups
 
-`NS(conflicts="<group-name>")` puts fields into the same mutually exclusive group:
+`Meta(conflicts="<group-name>")` puts fields into the same mutually exclusive group:
 
 ```python
 class Output(Args):
-    json: Arg[bool, NS(conflicts="format")] = False
+    json: Arg[bool, Meta(conflicts="format")] = False
 
-    yaml: Arg[bool, NS(conflicts="format")] = False
+    yaml: Arg[bool, Meta(conflicts="format")] = False
 ```
 
 Passing both `--json` and `--yaml` is now an error.
@@ -215,20 +225,20 @@ Passing both `--json` and `--yaml` is now an error.
 Add `conflicts_required=True` on any member to require exactly one:
 
 ```python
-    push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
+    push: Arg[bool, Meta(conflicts="mode", conflicts_required=True)] = False
 
-    pull: Arg[bool, NS(conflicts="mode")] = False
+    pull: Arg[bool, Meta(conflicts="mode")] = False
 ```
 
 Omitting both `--push` and `--pull` is now an error.
 
 ### Titled argument groups
 
-`NS(group="<title>")` buckets fields under a named `--help` section:
+`Meta(group="<title>")` buckets fields under a named `--help` section:
 
 ```python
 class App(Args):
-    outfile: Arg[str, NS(group="Output options")] = "-"
+    outfile: Arg[str, Meta(group="Output options")] = "-"
 ```
 
 A field combining `group=` and `conflicts=` nests the mutually-exclusive group
@@ -236,7 +246,7 @@ inside the titled section.
 
 ### Helpers
 
-Common `NS(...)` combinations have shorthands:
+Common `Meta(...)` combinations have shorthands:
 
 <!-- runnable -->
 ```python
@@ -260,21 +270,20 @@ class App(Args):
 
 ## Misdeclaration warnings
 
-Three mistakes that would otherwise silently do nothing, or the wrong thing, are logged
-as a WARNING on the `duho.args` logger: the first two when the parser is built, once
-each, the third when the `Meta(...)` is constructed. None is an error and none has a
-switch.
+Two mistakes that would otherwise silently do nothing are logged as a WARNING on the
+`duho.args` logger when the parser is built, once each. Neither is an error and neither
+has a switch.
 
-An `NS(...)` key that is not a `Meta` field is reported once per field, naming the
+A `dict` key that is not a `Meta` field is reported once per field, naming the
 nearest `Meta` field when there is one:
 
 ```text
-App.port: NS(hlep=...) is not a Meta field and is ignored; closest Meta field: 'help'
+App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta field: 'help'
 ```
 
 `dest` is such a key. Keys that `Extend`, `Count`, `Append`, `Const` and `Choice` set,
-and attributes a custom `ArgumentBuilder` subclass declares, are accepted; only
-`argparse.Namespace` metadata is checked, not a plain `dict`.
+and attributes a custom `ArgumentBuilder` subclass declares, are accepted. `Meta`
+itself needs no such check: an unknown keyword is a `TypeError`.
 
 A sandwich attribute (leading and trailing underscore) in a class body that duho does
 not read, but whose spelling is a near-miss of exactly one it does, is reported once
@@ -286,18 +295,6 @@ App declares '_verison_', which duho does not read; did you mean '_version_'?
 
 Only a near-miss is reported. An attribute of your own that merely extends a name duho
 reads (`_config_dir_`), a dunder, and a name starting `_duho_` are left alone.
-
-`Meta`'s first two positional parameters are `help` and `env`, so `Meta("-n", "--name")`
-sets `help="-n"` and `env="--name"`. A `help` that is a string shaped like a flag
-(`-n`, `--dry-run`) or an `env` that is a string starting with `-` logs one warning per
-`Meta(...)` call; the value is used as given, so the call still builds:
-
-```text
-Meta(help='-n', env='--name'): its positional parameters are help, env, ... in that order; pass flags as flags=(...)
-```
-
-Help text that merely starts with a dash and has spaces (`"- optional"`) is not
-reported.
 
 ## Private fields
 

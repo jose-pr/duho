@@ -163,19 +163,19 @@ python app.py --help
 
 ### Layered defaults
 
-A field can take its default from an environment variable (`NS(env=...)`) or a
+A field can take its default from an environment variable (`Meta(env=...)`) or a
 config file; the command line wins over both. `duho.value_sources` tells you
 which layer supplied each value:
 
 <!-- runnable -->
 ```python
 import duho
-from duho import Arg, Cmd, NS
+from duho import Arg, Cmd, Meta
 
 class Deploy(Cmd):
     """Deploy the application."""
 
-    token: Arg[str, NS(env="DEPLOY_TOKEN")] = "none"
+    token: Arg[str, Meta(env="DEPLOY_TOKEN")] = "none"
     "Auth token"
 
     def __call__(self):
@@ -214,7 +214,7 @@ modules are imported by name. The full reference is on the
 
 | Module | Purpose |
 | --- | --- |
-| `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`NS`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `subcommand`, `value_sources`, `parse_bool`, `utf8_stdio`, `AUTO` |
+| `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `subcommand`, `value_sources`, `parse_bool`, `utf8_stdio`, `AUTO` |
 | `duho.discovery` | `discover_commands`, `discover_entry_points`, `CmdBuilder`, `ModuleCommand`, `register_command_provider` |
 | `duho.env` | `Env`, the prefixed, typed environment accessor |
 | `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
@@ -285,7 +285,7 @@ attribute. A class whose source isn't available this way — defined in a REPL
 or via `exec`, or shipped as a frozen executable (PyInstaller, Nuitka), a
 `.pyc`-only install, or a zipapp — logs a one-time warning and falls back to a
 derived `--field-name` flag with no help text for every field, silently
-dropping any class-body flags/docstrings/`NS(env=...)`. Use `Meta`/`NS`
+dropping any class-body flags/docstrings/`Meta(env=...)`. Use `Meta`
 metadata instead in that case — it needs no source lookup:
 
 ```python
@@ -300,7 +300,7 @@ class Copy(Args):
 | `str`, `int`, `float`, `bool` | Direct conversion; `bool` gets `store_true` or `--flag`/`--no-flag` (see above) |
 | `typing.Literal["a", "b"]` | `choices=("a", "b")`; mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips |
 | `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the Enum member (`Color["RED"] -> Color.RED`). `Meta(enum_by="value")` matches the members' value text instead |
-| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — via `action="extend", nargs=None`. As a POSITIONAL: variadic (`nargs="*"`, space-separated: `a b c`). Bare `list` elements are `str`; default is `[]` when no explicit default is given. Pass an explicit `NS(nargs="*")` to opt an OPTION back into space-separated multi-value |
+| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — via `action="extend", nargs=None`. As a POSITIONAL: variadic (`nargs="*"`, space-separated: `a b c`). Bare `list` elements are `str`; default is `[]` when no explicit default is given. Pass an explicit `Meta(nargs="*")` to opt an OPTION back into space-separated multi-value |
 | `set` / `set[T]` | Same option-vs-positional split as `list`, but the final value is a `set` (dedups; **iteration order is not guaranteed**); bare `set` elements are `str`; default is `set()` when no explicit default is given |
 | `tuple[T, ...]` / `tuple` | Variadic **homogeneous** tuple, same option-vs-positional split as `list`, final value a `tuple` (order preserved, no dedup); bare `tuple` elements are `str`; default is `()` when no explicit default is given. A fixed-length heterogeneous `tuple[A, B]` is **not** supported and raises a clear error at parser build — use `tuple[T, ...]` |
 | `dict` / `dict[str, V]` | Each occurrence is one `KEY=VALUE` token; repeated flags merge into one dict (`--opt k=1 --opt j=2` → `{"k": ..., "j": ...}`) via `UpdateAction`; the value half is converted with `V` (bare `dict` == `dict[str, str]`); only **`str` keys** are supported (a non-`str` key type is a clear build-time error); default is `{}` when no explicit default is given |
@@ -313,7 +313,7 @@ class Copy(Args):
 **Negative numbers** work as values out of the box — `--temp -5` and a positional
 `int` accepting `-3` both parse correctly (argparse's `_negative_number_matcher`
 handles them as long as no option is itself declared to look like `-1`). If you
-truly need a `-1`-style flag, use the `NS(kwargs=...)` escape hatch.
+truly need a `-1`-style flag, use the `Meta(kwargs=...)` escape hatch.
 
 #### Positional arguments
 
@@ -375,15 +375,17 @@ identically. A genuinely unrecognized/misspelled flag still raises argparse's
 own honest "unrecognized arguments" error; the fix never silently absorbs a
 typo as a phantom positional value.
 
-#### Field metadata: `NS` or `Meta`
+#### Field metadata: `Meta` or a `dict`
 
-Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `NS(...)`
-(an `argparse.Namespace`) is the untyped form; `duho.Meta` is the typed,
-typo-safe form — a dataclass whose unknown keyword is a `TypeError`
-(`NS(hlep=...)` is ignored, with a logged warning) raised as soon as the annotation is
-evaluated: at class-definition time on Python 3.9-3.13 with eager
-annotations, or at first parser build on 3.14+ (PEP 649), under string
-annotations, or with `from __future__ import annotations`:
+Extra per-field configuration goes in the `Arg[T, ...]` metadata slot. `Meta(...)`
+is the typed form: it takes keyword arguments only, and an unknown keyword is a
+`TypeError` raised as soon as the annotation is evaluated: at class-definition
+time on Python 3.9-3.13 with eager annotations, or at first parser build on
+3.14+ (PEP 649), under string annotations, or with
+`from __future__ import annotations`. A plain `dict` (`dict(help=..., env=...)`)
+is the permissive form, for a key `Meta` does not have or for a custom
+argument's own keys; a key nothing claims (`dict(hlep=...)`) is ignored, with a
+logged warning:
 
 <!-- runnable -->
 ```python
@@ -393,26 +395,25 @@ class App(Args):
     level: Arg[int, Meta(help="verbosity", env="LEVEL")] = 0
 ```
 
-`Meta` accepts every field `NS` does EXCEPT `dest` (`help`, `env`, `conflicts`,
-`conflicts_required`, `group`, `action`, `nargs`, `const`, `default`, `choices`,
-`metavar`, `required`, `type`, `version`, `flags`, `kwargs`, `enum_by`,
-`literal_value`) and only merges the fields you set. A field's `dest` is always its declared name — there is no
-`dest=` override on `Meta`, so `Meta(dest=...)` is a `TypeError` at
-class-definition time instead of `NS(dest=...)`'s silently-ignored value.
-`NS` keeps working forever. Any metadata object exposing a str
+`Meta`'s fields are `help`, `env`, `conflicts`, `conflicts_required`, `group`,
+`action`, `nargs`, `const`, `default`, `choices`, `metavar`, `required`, `type`,
+`version`, `flags`, `kwargs`, `enum_by`, `literal_value` and `split`; only the
+fields you set are merged. A field's `dest` is always its declared name — there
+is no `dest=` override, so `Meta(dest=...)` is a `TypeError` at
+class-definition time. Any metadata object exposing a str
 `.documentation` attribute (a PEP-727-style `Doc`) contributes help text.
 
 **Misdeclaration warnings.** Two mistakes that would otherwise do nothing are logged
 once as a WARNING on the `duho.args` logger when the parser is built; neither is an
-error. An `NS(...)` key that is not a `Meta` field is ignored with
-`App.port: NS(hlep=...) is not a Meta field and is ignored; closest Meta field:
+error. A `dict` key that is not a `Meta` field is ignored with
+`App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta field:
 'help'`; `dest` is such a key, since a field's `dest` is always its own name. And a
 sandwich attribute on a command class that duho does not read but whose spelling is
 a near-miss of one it does (`_verison_` for `_version_`) logs `App declares
 '_verison_', which duho does not read; did you mean '_version_'?`. An attribute of
 your own that only extends a known name (`_config_dir_`) is not reported.
 
-**A converter's own message.** With `NS(type=parse_port)` (or `Meta(type=...)`), a
+**A converter's own message.** With `Meta(type=parse_port)` (or `Meta(type=...)`), a
 `ValueError`/`TypeError` your converter raises with a non-empty message becomes the
 usage error: `app: error: argument --port: port must be 1..65535`. A builtin,
 duho's own factories, an empty message and `argparse.ArgumentTypeError` keep
@@ -443,25 +444,25 @@ the passthrough. A flag, a variable-arity option or a positional with it raises
 
 #### Mutually exclusive options
 
-Set `NS(conflicts="group-name")` on the fields that must not be used together.
+Set `Meta(conflicts="group-name")` on the fields that must not be used together.
 Duho builds one `argparse` mutually-exclusive group per distinct `conflicts`
 value, so only one option from the group may appear on the command line:
 
 <!-- runnable -->
 ```python
 import duho
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 class Archive(Args):
     """Create an archive."""
 
-    gzip: Arg[bool, NS(conflicts="compression")] = False
+    gzip: Arg[bool, Meta(conflicts="compression")] = False
     "Compress with gzip."
 
-    zstd: Arg[bool, NS(conflicts="compression")] = False
+    zstd: Arg[bool, Meta(conflicts="compression")] = False
     "Compress with zstd."
 
-    none: Arg[bool, NS(conflicts="compression")] = False
+    none: Arg[bool, Meta(conflicts="compression")] = False
     "Store uncompressed."
 
 if __name__ == "__main__":
@@ -475,15 +476,15 @@ python archive.py --gzip --zstd     # error: not allowed with argument --gzip
 
 Fields sharing the same `conflicts` string join the same group; use different
 strings for independent exclusive sets. (The `examples/fileinstall.py` `--type`
-field uses `NS(conflicts="type")` this way.)
+field uses `Meta(conflicts="type")` this way.)
 
 Add `conflicts_required=True` on **any** member to make the whole group
 required — the user must supply exactly one of its options:
 
 ```python
-    push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
+    push: Arg[bool, Meta(conflicts="mode", conflicts_required=True)] = False
 
-    pull: Arg[bool, NS(conflicts="mode")] = False
+    pull: Arg[bool, Meta(conflicts="mode")] = False
 ```
 
 ```bash
@@ -493,16 +494,16 @@ python app.py --push     # ok
 
 #### Titled argument groups
 
-Set `NS(group="Section title")` to bucket fields under a named section in
+Set `Meta(group="Section title")` to bucket fields under a named section in
 `--help`. Fields sharing a title join the same section; the rest stay under the
 default `options:`:
 
 ```python
 class App(Args):
-    outfile: Arg[str, NS(group="Output options")] = "-"
+    outfile: Arg[str, Meta(group="Output options")] = "-"
     "Where to write."
 
-    verbose: Arg[bool, NS(group="Output options")] = False
+    verbose: Arg[bool, Meta(group="Output options")] = False
     "Verbose output."
 ```
 
@@ -825,14 +826,14 @@ A value supplied by *any* layer also un-requires that field — a field with
 no class default that's set in the config file (say) no longer needs to be
 passed on the CLI.
 
-**Environment variables**: annotate a field with `NS(env="VAR_NAME")`:
+**Environment variables**: annotate a field with `Meta(env="VAR_NAME")`:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 class Deploy(Args):
-    token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
+    token: Arg[str, Meta(env="DEPLOY_TOKEN")] = ""
     "Auth token"
 ```
 
@@ -1093,7 +1094,7 @@ ordinary human use. Set `_agent_help_env_` to rename the trigger per-app.
 
 **No secrets in agent help.** Neither the agent-help JSON nor human `--help`
 ever renders a field's *live* env/config-sourced value as its default — that
-would print a secret straight from the flagship `NS(env="DEPLOY_TOKEN")`
+would print a secret straight from the flagship `Meta(env="DEPLOY_TOKEN")`
 example. Both instead show the field's **declared class default**, plus, only
 when the value actually came from an env var or a config file, a value-free
 provenance note in its place: `"default_source": "env DEPLOY_TOKEN"` in the
@@ -1335,7 +1336,7 @@ seeding its **upper-case, non-underscore** variables (all `str()`-coerced); a
 missing one is ignored. Pass `Env(prefix, autoload=False)` to disable the import
 — autoload imports `<prefix>env` from anywhere on `sys.path` (including the CWD),
 so disable it if the prefix is not fully under your control. This is distinct from
-the per-field `NS(env="VAR")` default layer above — that resolves one argparse
+the per-field `Meta(env="VAR")` default layer above — that resolves one argparse
 field; `Env` is the app-level accessor a driver reads settings through.
 
 ### String/target expansion
@@ -2055,7 +2056,7 @@ prefix); a root's `_exit_codes_` adds ` (meaning)` to the `exit code: N` line.
 
 **v1 limitations** (documented, not silently wrong): a custom `action=`/`type=`
 field with no registered override is passed through as a plain string; an
-`NS(conflicts=...)` exclusive group is noted in the tool's description text only (no
+`Meta(conflicts=...)` exclusive group is noted in the tool's description text only (no
 `oneOf`/`not` JSON Schema encoding yet); it's strictly one request → one result, no
 streaming/long-running commands. See [`examples/mcp_app.py`](https://github.com/jose-pr/duho/blob/main/examples/mcp_app.py) for
 a runnable app plus a note on wiring it into an MCP client.
@@ -2237,8 +2238,8 @@ the actual filesystem work — the point is the CLI); the other three show
   ```
 
 - [`examples/fileinstall.py`](https://github.com/jose-pr/duho/blob/main/examples/fileinstall.py) — an `install(1)`-like file
-  installer; exercises positionals, `Union` types, `NS(nargs="?")`, a custom
-  `action=UpdateAction`, and `NS(conflicts=...)` mutually-exclusive grouping:
+  installer; exercises positionals, `Union` types, `Meta(nargs="?")`, a custom
+  `action=UpdateAction`, and `Meta(conflicts=...)` mutually-exclusive grouping:
 
   ```python
   class Install(LoggingArgs, Cmd):
@@ -2246,7 +2247,7 @@ the actual filesystem work — the point is the CLI); the other three show
 
       options: Arg[
           dict,
-          NS(action=UpdateAction, type=lambda x: [x.split("=", maxsplit=1)]),
+          Meta(action=UpdateAction, type=lambda x: [x.split("=", maxsplit=1)]),
       ] = {}
       ("-O",)
       source: Path

@@ -4,7 +4,7 @@ An :class:`Env` presents a single typed view over ``os.environ`` keys sharing a
 common prefix (``MYAPP_DEBUG``, ``MYAPP_CMDS_PATH``, ...), plus an optional
 companion ``<prefix>env`` module of defaults an app may ship.
 
-Distinct from the per-field ``NS(env=...)`` default layer: that resolves
+Distinct from the per-field ``Meta(env=...)`` default layer: that resolves
 one argparse field; this is the app-level accessor a driver reads settings through
 (command search paths, ``DEBUG``, import hooks)."""
 

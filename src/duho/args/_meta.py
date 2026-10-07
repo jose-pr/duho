@@ -238,7 +238,7 @@ def Extend(
 
     A ``list[str]`` OPTION's own default builder already takes ``nargs=None``
     (one value per flag occurrence); a VARIADIC positional, or an option with
-    an explicit ``NS(nargs="*")`` override, instead gathers several raw
+    an explicit ``Meta(nargs="*")`` override, instead gathers several raw
     tokens per occurrence. Combined with a factory that SPLITS one token into
     several, that shape would double-collect: argparse applies the factory to
     EACH gathered token individually, so a token's split result (itself a
@@ -283,7 +283,7 @@ def Append(type: Factory = str, **kw: object) -> Meta:
 
     Explicitly clears nargs to `None` (one scalar value per flag occurrence)
     regardless of the field's own declared collection kind or any ambient
-    `NS(nargs=...)`, so `append()` always collects one scalar per occurrence
+    `Meta(nargs=...)`, so `append()` always collects one scalar per occurrence
     instead of gathering a list of tokens per occurrence.
     """
     return Meta(action="append", type=type, nargs=None, **_helper_options(kw))

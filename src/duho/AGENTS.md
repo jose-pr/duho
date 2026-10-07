@@ -76,7 +76,7 @@ regardless of which internal module implements it:
   A `list[T]`/`set[T]`/`tuple[T, ...]` field used as a POSITIONAL keeps `nargs="*"`
   (space-separated: `prog a b`); used as an OPTION it defaults to `nargs=None` — ONE
   value per flag occurrence, repeat the flag for more (`-f a -f b`), not
-  space-separated in one occurrence (`-f a b`) — pass an explicit `NS(nargs="*")` to
+  space-separated in one occurrence (`-f a b`) — pass an explicit `Meta(nargs="*")` to
   restore space-separated collection on a specific OPTION field. An option placed BETWEEN
   two positionals (one variable-arity) parses correctly, where argparse's own greedy
   positional-run matching would trip on it; a genuinely unrecognized flag still raises
@@ -154,7 +154,7 @@ regardless of which internal module implements it:
 **Reserved field names** — a field named `help`, `version` (when a `--version` flag
 resolves), or `print_completion` (when `_completion_ = True`) raises a build-time
 `ValueError` naming the collision (a field's `dest` is always its declared name — there
-is no `dest=` override; `NS(kwargs={"dest": ...})` is the raw `add_argument` escape
+is no `dest=` override; `Meta(kwargs={"dest": ...})` is the raw `add_argument` escape
 hatch). `subcommand` on a `Cli` subclass is a *different*, non-raising gotcha — see
 above.
 
@@ -205,20 +205,9 @@ starting `_duho_` are not.
 ### Field metadata helpers (use inside `Arg[T, ...]`)
 
 `Arg` is `typing.Annotated` (`from typing import Annotated as Arg`; same runtime object,
-so it type-checks correctly) — `Arg[T, NS(...)]` needs ≥2 args; a plain-typed field is
+so it type-checks correctly) — `Arg[T, Meta(...)]` needs ≥2 args; a plain-typed field is
 just its annotation.
 
-- **`NS(**kwargs)`** — a bare `argparse.Namespace` alias: an untyped metadata bag. Accepts
-  any keyword (`flags`, `help`, `env`, `conflicts=` exclusive-group key,
-  `conflicts_required=`, `group=` titled-group name, `metavar`, `nargs`, `action`,
-  `const`, `default`, `choices`, `required`, `type`, `version`, `kwargs=` raw
-  `add_argument` passthrough, `enum_by`, `literal_value`, …). A key that is not a `Meta`
-  field (a misspelling, or `dest`, which is always the field's own name) is ignored, and
-  the parser build logs one WARNING per field on logger `duho.args`:
-  `App.port: NS(hlep=...) is not a Meta field and is ignored; closest Meta field:
-  'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice` and the
-  attributes a custom `ArgumentBuilder` subclass declares are accepted; only
-  `argparse.Namespace` metadata is checked, not a plain `dict`.
 - **`Meta(*, help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, literal_value, split)`** — typed, typo-safe field metadata: a
   dataclass whose fields are the metadata keys (`help`, `env`, `conflicts`,
   `conflicts_required`, `group`, `action`, `nargs`, `const`, `choices`, `metavar`,
@@ -251,6 +240,13 @@ just its annotation.
     (`--ka` for `--k...`), a short flag inside a cluster (`-vk -x`), and an empty value
     after a short flag. `--k=--` works without it; a repeated flag joins once per
     occurrence.
+- **A plain `dict`** (`dict(help=..., env=...)` or a literal) is the permissive form of
+  field metadata, for a key `Meta` does not have or for a custom argument's own keys. A
+  key that is neither a `Meta` field nor an attribute the field's `ArgumentBuilder` class
+  declares is ignored, and the parser build logs one WARNING per field on logger
+  `duho.args`: `App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta
+  field: 'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice`
+  are accepted. `dest` is such a key, since a field's `dest` is always its own name.
 - **`argparse.SUPPRESS`** — placed anywhere in a field's metadata (`Arg[str, argparse.SUPPRESS]`)
   it hides the field from the command line entirely: no flag, no parsed value.
 - **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.
@@ -424,7 +420,7 @@ just its annotation.
   env/config defaults onto root + each class command: **CLI > env > config > class
   default** (no "instance" layer here — that only exists for `parse()`). Attaches the
   resolved `Env` as `_env_`. A module command's own declared `Args` fields support
-  `NS(conflicts=...)`/`NS(group=...)` the same as a class command's. `dispatch(command,
+  `Meta(conflicts=...)`/`Meta(group=...)` the same as a class command's. `dispatch(command,
   instance)` replaces only the final run step; what it returns is what `app` returns
   (typed `Any`, like a command's own return value).
   `source` may be one source or a list/tuple of them (see `discover_commands`).
@@ -527,8 +523,8 @@ empty when absent).
   module's fields work AND the parsed instance still carries the root's own
   fields/methods. Its fields are added to the subparser BEFORE `register` runs
   (declared positionals first, register-added ones last), through the SAME field-adding
-  routine a class command uses — so a declarative `args_cls` field's `NS(conflicts=...)`/
-  `NS(group=...)` metadata is honored too, the same as on a class command. The parsed
+  routine a class command uses — so a declarative `args_cls` field's `Meta(conflicts=...)`/
+  `Meta(group=...)` metadata is honored too, the same as on a class command. The parsed
   instance stays the ROOT instance either way (declarative fields never install the
   class-command-only `"#cls"` dispatch-patching machinery).
 - **`CmdBuilder(qualname, source=None)`** — resolve one source (Path / dotted import path /
@@ -599,7 +595,7 @@ empty when absent).
   set matches the layered env/config bool converter; the difference is strictness —
   `.bool` returns `False` for an unrecognized value, the layered converter raises.
   Mapping-like (`__iter__`/`__len__`/`**env`).
-- **Field env binding** — `NS(env="VAR")` (or `Meta(env=...)`) on a field makes the
+- **Field env binding** — `Meta(env="VAR")` (or `Meta(env=...)`) on a field makes the
   environment variable `VAR` supply its default; the text is converted with the field's
   own type. Layering, highest first: **CLI > instance (`parse` only) > env > config >
   class default**; a value from any layer also un-requires a field with no class default.

@@ -117,7 +117,7 @@ def _add_fields(
     parent_dests = parent_dests if parent_dests is not None else frozenset()
     exclusive_groups = exclusive_groups or {}
 
-    # A mutex group is required when ANY member sets NS(conflicts_required=True);
+    # A mutex group is required when ANY member sets Meta(conflicts_required=True);
     # groups are created on their first member, so compute it up front.
     required_by_conflicts: dict[str, bool] = {}
     # A `conflicts=` key must use the same `group=` title everywhere, or its
@@ -148,7 +148,7 @@ def _add_fields(
     # root's `_config_`, or a `config=` kwarg known only at the call site).
     _has_config_source = getattr(cls, "_config_", None) is not None or config_hint
 
-    # Titled argument groups (NS(group="...")), created lazily per title.
+    # Titled argument groups (Meta(group="...")), created lazily per title.
     # Persisted on the parser so a parents=[...] merge / subclass override can
     # reuse them, mirroring `exclusive_groups`.
     titled_groups: dict[str, object] = (
@@ -174,7 +174,7 @@ def _add_fields(
                     f"(-h/--help, --version, or --print-completion each "
                     f"reserve their field name); rename the field (a "
                     f"field's dest is always its name -- there is no "
-                    f"dest= override; NS(kwargs={{'dest': ...}}) is the raw "
+                    f"dest= override; Meta(kwargs={{'dest': ...}}) is the raw "
                     f"add_argument escape hatch if you truly need one)"
                 )
             # Not strict (a module command's own declared fields): a dest
@@ -186,7 +186,7 @@ def _add_fields(
         group_title = arg.group
 
         # The container the field's argument is added to: a titled group when
-        # NS(group=...) is set, else the parser itself.
+        # Meta(group=...) is set, else the parser itself.
         if group_title is not None:
             if group_title not in titled_groups:
                 titled_groups[group_title] = parser.add_argument_group(group_title)
@@ -292,7 +292,7 @@ class Args(_argparse.Namespace):
 
         Built once from ``_introspect.get_clsargs(cls)`` (each field's type
         routed through :meth:`Argument.from_type`/its own ``_argbuilder_``,
-        then any ``NS(...)``/``Meta(...)`` metadata applied) and cached on
+        then any ``Meta(...)`` metadata applied) and cached on
         ``cls`` (``_duho_builders_``) -- override to add/hide/reorder fields
         programmatically (call ``super()._getargs_()`` and adjust the list).
         """
@@ -309,8 +309,8 @@ class Args(_argparse.Namespace):
                 options: dict = {}
                 dict_keys: list[str] = []
                 for opts in decl.annotations:
-                    # Consumed: a Mapping, a namespace-like object (has __dict__,
-                    # e.g. NS(...)), or a PEP 727 `.documentation` str as help.
+                    # Consumed: a Meta, a Mapping, a PEP 727 `.documentation` str
+                    # as help, or an object with a __dict__ read as options.
                     # Anything else (a bare `Annotated[int, "doc"]` string) is ignored.
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
@@ -327,7 +327,7 @@ class Args(_argparse.Namespace):
                         if isinstance(opts, _argparse.Namespace):
                             dict_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
-                    # A custom Argument type in Arg[...]/NS(...) must be built by
+                    # A custom Argument type in Arg[...]/Meta(...) must be built by
                     # its own `_argbuilder_` (`from_type` would use the plain
                     # protocol default), then get the same options applied.
                     built = decl.type._argbuilder_(name, decl)

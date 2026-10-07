@@ -154,7 +154,6 @@ __all__ = [
     "finish_parse",
     "main",
     "Meta",
-    "NS",
     "NOT_DEFINED",
     "parse",
     "parse_globals",

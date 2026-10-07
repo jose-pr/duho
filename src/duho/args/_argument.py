@@ -59,8 +59,8 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         ``_introspect.ClsArgDeclaration`` (annotation, default, docstring,
         flags expression); ``factory`` is an already-resolved text-to-value
         callable, or ``None`` to derive one from ``decl.type``/``cls``.
-        Returns a freshly built ``ArgumentBuilder`` -- ``NS(...)``/
-        ``Meta(...)`` metadata is applied by the CALLER afterward (see
+        Returns a freshly built ``ArgumentBuilder`` -- ``Meta(...)`` or
+        ``dict`` metadata is applied by the CALLER afterward (see
         :func:`_apply_argument_options`), not here.
         """
         # `%` must be escaped: argparse %-expands every `help=` (crashing parser
@@ -148,7 +148,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
 
         Returns an ``Argument`` subclass whose ``_argbuilder_`` builds via
         ``cls``'s own (``Argument``'s base) logic using ``factory``, then
-        applies ``**kwargs`` (the ``NS(...)``/``Meta(...)`` metadata dict) onto
+        applies ``**kwargs`` (the ``Meta(...)`` metadata dict) onto
         the result via :func:`_apply_argument_options`. Every plain-typed
         field (i.e. one not ALREADY a custom :class:`Argument`) is built
         through this single path -- see ``Args._getargs_``.
@@ -194,7 +194,7 @@ _ENUM_BY = ("name", "value")
 
 
 def _enum_by_of(name: str, decl: _introspect.ClsArgDeclaration) -> str:
-    """The ``enum_by`` a field's ``Meta``/``NS`` metadata asks for (default ``"name"``)."""
+    """The ``enum_by`` a field's ``Meta`` metadata asks for (default ``"name"``)."""
     enum_by = "name"
     for opts in decl.annotations or ():
         if isinstance(opts, _ty.Mapping):
@@ -245,10 +245,10 @@ def _keep_message(func: _ty.Callable[[str], _ty.Any]):
 
 
 def _apply_argument_options(builder: ArgumentBuilder, options: dict) -> None:
-    """Apply ``NS(...)``/``Meta(...)`` metadata onto an already-built builder.
+    """Apply ``Meta(...)`` metadata onto an already-built builder.
 
     Shared by :meth:`Argument.from_type` and by a custom :class:`Argument` type
-    used as ``Arg[Custom, NS(...)]``, whose own ``_argbuilder_`` must keep running.
+    used as ``Arg[Custom, Meta(...)]``, whose own ``_argbuilder_`` must keep running.
     """
     for k, v in options.items():
         setattr(builder, k, v)
@@ -321,7 +321,7 @@ class ArgumentBuilder(_argparse.Namespace):
 
     Built by :meth:`Argument._argbuilder_` (via :meth:`Argument.from_type` for
     a plain type) from a field's ``_introspect.ClsArgDeclaration``, then
-    post-processed with any ``NS(...)``/``Meta(...)`` metadata
+    post-processed with any ``Meta(...)`` metadata
     (:func:`_apply_argument_options`). One instance per declared field,
     cached on the owning class (``Args._getargs_``). :meth:`_kwargs` resolves
     it to the exact keyword arguments :meth:`add_to_parser` passes to
@@ -343,16 +343,16 @@ class ArgumentBuilder(_argparse.Namespace):
     const: _ty.Union[object, _introspect.NotDefined] = NOT_DEFINED
     version: _ty.Optional[str] = None
     env: _ty.Optional[str] = None
-    #: ``NS(conflicts=...)``/``Meta(conflicts=...)``'s mutually-exclusive-group
+    #: ``Meta(conflicts=...)``'s mutually-exclusive-group
     #: key; ``None`` for a field in no group.
     conflicts: _ty.Optional[str] = None
-    #: Whether THIS member's group must be satisfied (``NS(conflicts_required=True)``);
+    #: Whether THIS member's group must be satisfied (``Meta(conflicts_required=True)``);
     #: a group is required if ANY of its members sets this.
     conflicts_required: bool = False
-    #: ``NS(group=...)``/``Meta(group=...)``'s titled-argument-group heading;
+    #: ``Meta(group=...)``'s titled-argument-group heading;
     #: ``None`` puts the field directly on the parser/container instead.
     group: _ty.Optional[str] = None
-    #: The raw ``add_argument`` escape hatch (``NS(kwargs={...})``/
+    #: The raw ``add_argument`` escape hatch (``Meta(kwargs={...})``/
     #: ``Meta(kwargs={...})``), applied LAST in :meth:`_kwargs` so it wins over
     #: every field-derived kwarg, including duho's own ``dest``.
     kwargs: _ty.Optional[_ty.Mapping[str, object]] = None
@@ -364,11 +364,11 @@ class ArgumentBuilder(_argparse.Namespace):
     #: `Argument.from_type`'s wrapper to compose a text-splitting factory with
     #: the field's own element type; never read afterwards.
     split: _ty.Optional[_ty.Callable] = None
-    #: True when `nargs` came from the type ladder, not `NS(nargs=...)`: lets
+    #: True when `nargs` came from the type ladder, not `Meta(nargs=...)`: lets
     #: `_kwargs` make a repeatable option take one value per occurrence without
     #: clobbering an explicit opt-back into multi-value.
     _implicit_nargs_: bool = False
-    #: True when `type` came from a user's ``NS(type=...)``/``Meta(type=...)``
+    #: True when `type` came from a user's ``Meta(type=...)``
     #: and is neither a builtin type nor one of duho's own factories; the
     #: command-line conversion then keeps that callable's own error message.
     _user_type_: bool = False
@@ -571,7 +571,7 @@ class ArgumentBuilder(_argparse.Namespace):
         return value
 
     def _kwargs(self, *, layered: bool = False):
-        # NS(kwargs={...}) is the raw escape hatch and wins over every derived
+        # Meta(kwargs={...}) is the raw escape hatch and wins over every derived
         # kwarg, so it is applied last.
         overrides = dict(self.kwargs or {})
         kwargs: dict = {}
@@ -580,7 +580,7 @@ class ArgumentBuilder(_argparse.Namespace):
         nargs = self.nargs
         # A repeatable OPTION's type-ladder nargs="*" (`_implicit_nargs_`) means
         # one value per occurrence; decided here from the FINAL flags/nargs, so
-        # an explicit `NS(nargs="*")` or a `NS(flags=...)` making it positional
+        # an explicit `Meta(nargs="*")` or a `Meta(flags=...)` making it positional
         # both work.
         if self._implicit_nargs_ and nargs == "*" and not positional:
             nargs = None
@@ -782,7 +782,7 @@ class ArgumentBuilder(_argparse.Namespace):
             action._duho_literal_value_ = True  # type: ignore[attr-defined]
         if isinstance(action, _argparse.BooleanOptionalAction):
             # 3.9/3.10 append " (default: %(default)s)" to any non-None help;
-            # reset it so NS(help=SUPPRESS) stays hidden and no literal
+            # reset it so Meta(help=SUPPRESS) stays hidden and no literal
             # `%(default)s` reaches agent-help JSON.
             action.help = help
         return action

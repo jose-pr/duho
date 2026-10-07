@@ -357,7 +357,7 @@ def _describe_positional(action, clsargs, builders, prog: str, sources=None):
 
 
 def _conflict_groups(builders):
-    """Mutually-exclusive groups declared via ``NS(conflicts=...)``."""
+    """Mutually-exclusive groups declared via ``Meta(conflicts=...)``."""
     groups = {}
     for name, builder in builders.items():
         conflicts = getattr(builder, "conflicts", None)

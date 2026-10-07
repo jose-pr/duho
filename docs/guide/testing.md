@@ -52,11 +52,11 @@ together:
 <!-- runnable -->
 ```python
 import duho
-from duho import Arg, NS
+from duho import Arg, Meta
 from duho.testing import invoke
 
 class Deploy(duho.Cmd):
-    region: Arg[str, NS(env="DEPLOY_REGION")] = "local"
+    region: Arg[str, Meta(env="DEPLOY_REGION")] = "local"
 
     def __call__(self):
         print(self.region)

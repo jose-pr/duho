@@ -33,7 +33,7 @@ _LOGGER = _logging.getLogger(__name__)
 
 
 def _raw_env_values(cls, env=None) -> dict[str, object]:
-    """{field_name: raw_string} for every declared ``NS(env=...)`` var that is
+    """{field_name: raw_string} for every declared ``Meta(env=...)`` var that is
     set, read from `env` (a ``Mapping``) when given, else ``os.environ``.
 
     Values stay unconverted; `_stage_layers` converts only fields the CLI does
@@ -243,7 +243,7 @@ def _is_replace_semantics_action(action) -> bool:
 
 
 def _bound_lookup_choices_desc(factory) -> str | None:
-    """Describe what a bound lookup factory (``NS(type=MAPPING.__getitem__)`` or
+    """Describe what a bound lookup factory (``Meta(type=MAPPING.__getitem__)`` or
     ``.get``) accepts, instead of its internal name.
 
     A mapping of up to 20 keys lists them sorted by ``repr`` (so unorderable

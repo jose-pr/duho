@@ -182,7 +182,7 @@ def _tree_for(root_cls: type[_Cmd]) -> tuple:
     """Return (and cache) ``root_cls``'s ``(root_parser, {dotted_name: _Node})``.
 
     The parser is built and env/config-layered once. Only the config-file
-    content and the tree structure are cached: ``NS(env=...)`` is resolved
+    content and the tree structure are cached: ``Meta(env=...)`` is resolved
     live inside ``parse_args()``.
     """
     cached = _TREE_CACHE.get(root_cls)
@@ -277,7 +277,7 @@ def _is_mcp_command_node(node: _Node) -> bool:
 def _drop_layer_satisfied(
     required: list[str], cls: type, parser: _argparse.ArgumentParser
 ) -> list[str]:
-    """Fields whose value can come from ``NS(env=...)``/``_config_`` even
+    """Fields whose value can come from ``Meta(env=...)``/``_config_`` even
     though the MCP call omits them are not required over MCP.
 
     Unlike a CLI user, an MCP client cannot see the server process's own
@@ -446,7 +446,7 @@ def _input_schema_for_node(node: _Node) -> dict:
 
 
 def _conflict_note(cls: _ty.Optional[type]) -> str:
-    """A short human-readable note for ``cls``'s ``NS(conflicts=...)`` groups.
+    """A short human-readable note for ``cls``'s ``Meta(conflicts=...)`` groups.
 
     Exclusive groups are surfaced only as tool-description text in v1 (no
     ``oneOf``/``not`` JSON Schema encoding yet). Reuses

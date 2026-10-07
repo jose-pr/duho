@@ -49,7 +49,7 @@ Three layers, thin glue between them:
   fields, in order, with the subcommand name token between each level, then
   its own fields), and dispatches through the tree's single
   shared ROOT parser -- exactly the parser ``duho.main``/``duho.parse`` would
-  build and parse, so env/config layering (``NS(env=...)``, ``_config_``),
+  build and parse, so env/config layering (``Meta(env=...)``, ``_config_``),
   root globals, ``_passthrough_``, and ``LoggingArgs``' own ``-v``/``-q``/
   ``--loglevel`` verbosity setup all work over MCP exactly as they do on the
   CLI. Maps the result per the return convention (see below).
@@ -103,7 +103,7 @@ with ``isError: true``.
 
 **Documented v1 limitations**: a custom ``action=``/``type=`` field with no
 registered override is passed through as a plain string, verbatim;
-``NS(conflicts=...)`` exclusive groups are surfaced only as a note appended to
+``Meta(conflicts=...)`` exclusive groups are surfaced only as a note appended to
 the tool's description text (no ``oneOf``/``not`` JSON Schema encoding yet); a
 field that defaults to ``True`` and declares only short flags (no long flag)
 cannot be turned back to ``False`` over MCP (there is no ``--no-<x>`` form to

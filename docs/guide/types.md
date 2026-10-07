@@ -8,7 +8,7 @@ The annotation decides how duho converts the string argparse hands it.
 | `bool` | Default `False` (or no default) → a simple `--flag` switch. Default `True` → `--flag` / `--no-flag`, so the default can be turned back off. |
 | `typing.Literal["a", "b"]` | Becomes `choices`. Mixed-type literals (`Literal["auto", 1]`) try each declared value's own type and keep whichever round-trips. |
 | `enum.Enum` subclass | `choices` are the member **names**; the parsed value is the member itself. `Meta(enum_by="value")` matches the value text instead. |
-| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — space-separated (`--x a b`) is **not** the default; pass `NS(nargs="*")` to opt back into it. As a POSITIONAL: variadic and space-separated (`nargs="*"`) unconditionally. Bare `list` elements are `str`. Defaults to `[]`. |
+| `list` / `list[T]` | As an OPTION: one value per flag occurrence, repeated (`--x a --x b`) to accumulate — space-separated (`--x a b`) is **not** the default; pass `Meta(nargs="*")` to opt back into it. As a POSITIONAL: variadic and space-separated (`nargs="*"`) unconditionally. Bare `list` elements are `str`. Defaults to `[]`. |
 | `datetime.date` / `datetime.datetime` / `datetime.time` | Parsed via `fromisoformat`. See [Dates and times](#dates-and-times) below. |
 | `typing.Optional[T]` / `T \| None` | Not required; converts with `T`. |
 | `typing.Union[A, B]` / `A \| B` | Tries each member in declaration order; the first that accepts the text wins. |
@@ -26,7 +26,7 @@ argparse treats `-5`/`-2.5` as values, not unknown options. No special support i
 needed.
 
 If you genuinely need a `-1`-style *flag* (rare and ambiguous), reach for the
-`NS(kwargs=...)` escape hatch to pass raw `add_argument` keywords.
+`Meta(kwargs=...)` escape hatch to pass raw `add_argument` keywords.
 
 ## Booleans
 
@@ -67,7 +67,7 @@ $ app --color 2         # error: invalid choice
 
 ### Matching by value
 
-`Meta(enum_by="value")` (or `NS(enum_by="value")`) matches the text against
+`Meta(enum_by="value")` (or `Meta(enum_by="value")`) matches the text against
 `str(member.value)` instead of the member name. It applies on the command line, in
 env and in config (a TOML number `2` matches the value `2`); `--help`, the error
 text, shell completion, agent help and the MCP schema all list the value text. The
@@ -139,14 +139,14 @@ $ app --tag a b           # error: unrecognized arguments: b
 ```
 
 Space-separated multi-value (`--tag a b`) is not the default for an option —
-pass an explicit `NS(nargs="*")` to opt back into it:
+pass an explicit `Meta(nargs="*")` to opt back into it:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 class App(Args):
-    tags: Arg[list[str], NS(nargs="*")] = []
+    tags: Arg[list[str], Meta(nargs="*")] = []
     ("--tag",)
 ```
 
@@ -230,18 +230,18 @@ exception from a custom type propagates rather than being silently swallowed.
 
 ## Custom types
 
-Any callable taking a single string works as a type via `NS(type=...)`:
+Any callable taking a single string works as a type via `Meta(type=...)`:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 def kv(text: str) -> tuple[str, str]:
     key, _, value = text.partition("=")
     return key, value
 
 class App(Args):
-    setting: Arg[tuple, NS(type=kv)] = ("", "")
+    setting: Arg[tuple, Meta(type=kv)] = ("", "")
     ("--set",)
 ```
 
@@ -250,7 +250,7 @@ is the usage error:
 
 <!-- runnable -->
 ```python
-from duho import Args, Arg, NS
+from duho import Args, Arg, Meta
 
 def port(text: str) -> int:
     value = int(text)
@@ -259,7 +259,7 @@ def port(text: str) -> int:
     return value
 
 class App(Args):
-    port: Arg[int, NS(type=port)] = 8080
+    port: Arg[int, Meta(type=port)] = 8080
 ```
 
 ```bash

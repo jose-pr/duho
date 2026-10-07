@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- `NS` is gone from `duho` and `duho.args`. Field metadata is written as
+  `Meta(...)`, or as a plain `dict` for a key `Meta` does not have.
+
+### Changed
+
+- `Meta(...)` takes keyword arguments only. A positional argument is a
+  `TypeError`; when the first one looks like a flag, the message says to pass
+  it as `flags=(...)`. An unknown keyword is still a `TypeError`, and now names
+  the closest field. `help(Meta)` and `inspect.signature(Meta)` list the
+  keyword-only parameters.
+- `Choice`, `Const`, `Count`, `Append` and `Extend` return a `Meta`, and `Meta`
+  has a `split` field, the one `Extend` sets.
+- An object that merely has attributes, put in a field's `Arg[...]` metadata, is
+  no longer read as options; it is ignored, like any other value duho does not
+  recognise. The metadata that is read is a `Meta`, a `dict`, and an object with
+  a string `.documentation`. An `argparse.Namespace` there raises a `TypeError`
+  naming the class and field when the parser is built, so a declaration that has
+  not been migrated fails instead of losing its flags and help.
+- A `dict` in a field's metadata is where a key that nothing claims is
+  reported: it is ignored and logged once per field as a WARNING on
+  `duho.args`, naming `dict(...)` and the closest `Meta` field. Keys that a
+  custom argument's own builder declares are passed to it without a warning.
+- The warning for a flag-shaped `help` or `env` on `Meta` is gone: the mistake
+  it reported, `Meta("-n", "--name")`, is now an error.
+
+### Migrating from 0.6
+
+- Replace `NS(` with `Meta(` and fix the import: `from duho import NS` becomes
+  `from duho import Meta`.
+- A `TypeError` from `Meta` naming an unknown field means that key was being
+  ignored before: delete it. If the key belongs to a custom argument you wrote,
+  write that field's metadata as a `dict` instead: `dict(shout=True)`.
+- A `Meta("...")` call with positional arguments names them: `Meta(help="...")`,
+  and a flag goes in `flags=("-n", "--name")`.
+- A field that gave an `argparse.Namespace` as its metadata (without `NS`) now
+  raises a `TypeError` naming the field; make it a `Meta(...)` or a `dict`.
+
 ## [0.6.5] - 2026-10-07
 
 ### Added

@@ -8,6 +8,63 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+Prepared as 0.7.0. It is a minor release because it breaks the documented API,
+in two ways and no others.
+
+- **`NS` is removed.** Field metadata is written as `Meta(...)`, or as a plain
+  `dict` for a key `Meta` does not have. `NS` was an alias of
+  `argparse.Namespace`: untyped, and a misspelled key was dropped. There were
+  three ways to say the same thing; there are now two, one strict and one
+  permissive.
+- **`Meta(...)` takes keyword arguments only.** `Meta("-n", "--name")` used to
+  set `help` and `env` without a word; it is now a `TypeError` that says where
+  flags go.
+
+`Choice`, `Const`, `Count`, `Append` and `Extend` return a `Meta`.
+
+### Upgrade notes
+
+The edit is mechanical, and a project that has not made it fails loudly, not
+quietly:
+
+- `from duho import NS` raises `ImportError`. Replace `NS(` with `Meta(` and
+  import `Meta`.
+- An `argparse.Namespace` left in a field's metadata raises a `TypeError`
+  naming the class and field when the parser is built. It is not ignored,
+  because ignoring it would drop that field's flags and help.
+- A `TypeError` from `Meta` naming an unknown field means that key was being
+  ignored before: delete it, or write that field's metadata as a `dict` if the
+  key belongs to a custom argument.
+- A positional `Meta(...)` call names its arguments; a flag goes in
+  `flags=("-n", "--name")`.
+- An object that merely has attributes, placed in a field's `Arg[...]`
+  metadata, is no longer read as options. Metadata that is read: a `Meta`, a
+  `dict`, and an object with a string `.documentation`.
+
+### Performance
+
+No performance claim is made. The CI regression gate passed on Python 3.9,
+3.13 and 3.14 at the tree below against the same baseline as 0.6.5.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (2785 passed, 44 skipped) and
+  3.14 (2799 passed, 30 skipped); Linux (WSL) Python 3.14 (2803 passed, 26
+  skipped).
+- CI: all 17 jobs green (run
+  [37579822853](https://github.com/jose-pr/duho/actions/runs/37579822853)).
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits (one README line and two lines of
+  `examples/dotagents.py`, whose subject is that directory).
+- Nine projects that use duho had their own suites run against this tree.
+  Six are unchanged. Three declare fields with `NS` and fail at import, as
+  intended, until they make the edit above.
+
+### Publication state
+
+Prepared and pushed to `main`. The version number is not bumped and no tag
+exists: tagging `v0.7.0` awaits the owner's consent for this release.
+
 ---
 
 ## [0.6.5] — 2026-10-07

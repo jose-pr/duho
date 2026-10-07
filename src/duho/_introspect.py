@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast as _ast
+import collections as _collections
 import functools as _functools
 import inspect as _inspect
 import io as _io
@@ -507,11 +508,38 @@ def _raw_public_annotations(base: type) -> dict[str, object]:
     return {k: v for k, v in raw.items() if not k.startswith("_")}
 
 
+def _type_hints_per_module(cls: type) -> dict[str, object]:
+    """``typing.get_type_hints(cls, include_extras=True)``, each class of the MRO
+    evaluated against its own module.
+
+    With neither namespace given, ``typing`` (3.10+) uses the class namespace as
+    globals, so a lambda built while evaluating an annotation would lose its
+    module's globals. Module names are looked up before class names, as there.
+    """
+    hints: dict[str, object] = {}
+    for base in reversed(cls.__mro__):
+        if base is object:
+            continue
+        own = _own_annotations(base)
+        if not own:
+            continue
+        module = getattr(_sys.modules.get(base.__module__), "__dict__", {})
+        probe = type(
+            "_duho_annotation_probe_",
+            (),
+            {"__annotations__": own, "__module__": base.__module__},
+        )
+        names = _collections.ChainMap(module, dict(vars(base)))
+        hints.update(_ty.get_type_hints(probe, module, names, include_extras=True))
+    return hints
+
+
 def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls``.
 
-    The primary path is ``typing.get_type_hints(cls, include_extras=True)``, so
-    a function-local class in an annotation resolves. If it raises, the
+    The primary path is ``typing.get_type_hints(cls, include_extras=True)`` (per
+    module of the MRO when any annotation is a string), so a function-local
+    class in an annotation resolves. If it raises, the
     isolated fallback resolves each public field alone, which survives a
     private field's unresolvable annotation and, on 3.14 (PEP 649), a field
     name shadowing an earlier annotation (``names: list[str]`` then
@@ -519,7 +547,14 @@ def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     name is not resolvable there.
     """
     try:
-        hints = _ty.get_type_hints(cls, include_extras=True)
+        if any(
+            isinstance(value, str)
+            for base in cls.__mro__
+            for value in _own_annotations(base).values()
+        ):
+            hints = _type_hints_per_module(cls)
+        else:
+            hints = _ty.get_type_hints(cls, include_extras=True)
     except Exception:
         return _resolve_public_type_hints_isolated(cls)
     public = {name: hint for name, hint in hints.items() if not name.startswith("_")}

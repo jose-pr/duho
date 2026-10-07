@@ -77,7 +77,7 @@ from .text import (
 
 from .args._meta import _Parser as _Parser
 
-__version__ = "0.6.5"
+__version__ = "0.7.0"
 
 
 def parser(cls: type[_A], *args: object, **kwargs: object) -> _Parser[_A]:

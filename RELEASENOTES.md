@@ -8,8 +8,12 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
-Prepared as 0.7.0. It is a minor release because it breaks the documented API,
-in two ways and no others.
+---
+
+## [0.7.0] — 2026-10-07
+
+A minor release, because it breaks the documented API, in two ways and no
+others.
 
 - **`NS` is removed.** Field metadata is written as `Meta(...)`, or as a plain
   `dict` for a key `Meta` does not have. `NS` was an alias of
@@ -62,8 +66,9 @@ No performance claim is made. The CI regression gate passed on Python 3.9,
 
 ### Publication state
 
-Prepared and pushed to `main`. The version number is not bumped and no tag
-exists: tagging `v0.7.0` awaits the owner's consent for this release.
+Prepared and pushed to `main`; tagged `v0.7.0` with the owner's consent for
+this release (2026-10-07). The CI test workflow ran at the release commit
+before tagging.
 
 ---
 

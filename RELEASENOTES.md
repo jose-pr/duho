@@ -10,6 +10,135 @@ user-facing; this file is the durable record.
 
 ---
 
+## [0.6.5] — 2026-10-07
+
+A large patch: the fixes and additions that came out of a whole-repository
+review, with nothing removed from the documented API. `CHANGELOG.md` has the
+full list; this is what is worth knowing before upgrading.
+
+**Fixed.** Options written after a subcommand now always bind to the
+subcommand; a root option's default redeclared by one command no longer leaks
+to its siblings under `duho.app`; a malformed config file is a usage error and
+not a traceback; the MCP server no longer reads a tool value as an argument
+file, runs a tool below an optional positional, and rejects non-finite numbers
+and malformed requests with the right error; helper modules
+of a command directory are shared, not copied per command file; zsh and fish
+completion scripts survive unusual flag names and help text.
+
+**Added, all opt-in.** A command can raise `duho.CommandError` or return a
+`duho.Result`, and `duho.run(App)` is a program entry that prints a command's
+answer and exits with its status. Discovery takes several sources, an error
+policy and providers. New field options (`enum_by`, `literal_value`), class
+attributes (`_default_subcommand_`, `_allow_passthrough_`, `_config_env_`,
+`_config_field_`, `_completion_command_`, `_base_loglevel_`, `_errors_`),
+`duho.testing.invoke`, and MCP protocol revision 2025-11-25.
+
+**Also.** Every public callable is fully annotated and its annotations resolve
+at run time on Python 3.9; the six largest modules are packages of private
+submodules with every import path kept; comments and private docstrings were
+cut to what the code requires.
+
+### Upgrade notes
+
+- **One application name.** The usage line, the completion script, the
+  `<NAME>_MCP` variable, MCP tool names and the default logger all use one
+  name: `app(name=)`, else the root's own `_parsername_`, else its top-level
+  package, else its kebab-case class name. A root in package `pkg` with no
+  `_parsername_` is now `pkg`, and a command's `-v` raises the application's
+  logger, not one named after the command. A test that asserts on a logger
+  named after a command needs the application's name instead.
+- **Config errors.** A malformed JSON or TOML config is a usage error (exit 2)
+  under `main`, `parse` and `app`. An exception raised by an application's own
+  `_config_loader_` still reaches the caller unchanged.
+- **Helper modules of a command directory** are loaded once under a private
+  name and are not in `sys.modules` under their bare name.
+- **MCP.** A client that names no protocol revision, or an unknown one, is
+  answered `2025-11-25`. In a connection on that revision a bad argument is a
+  tool result with `isError: true`, not a `-32602` error.
+- **Extras.** `duho[colorama]` requires `colorama>=0.4.6,<0.5`; `duho[config]`
+  requires `tomli>=2.0,<3` below Python 3.11.
+- The other deliberate behaviour changes are under "Changed" in
+  `CHANGELOG.md`, each with what you will see.
+
+### Performance
+
+No performance claim is made for this release beyond the gate result below.
+
+- The CI regression gate compares against `benchmarks/baseline.json`, which
+  was regenerated during this cycle from one CI run
+  ([37529677398](https://github.com/jose-pr/duho/actions/runs/37529677398)):
+  the 3.9 entry had been off against its own calibration (an unchanged tree
+  read 1.1x to 1.5x). The baseline now also holds `first_build.complex` and
+  `e2e_delta`, so a first parser build and an end-to-end start are gated, not
+  only `import duho`.
+- The gate at the tree this release was cut from (run
+  [37563938647](https://github.com/jose-pr/duho/actions/runs/37563938647),
+  `ubuntu-latest`), every metric within its threshold (1.5x warm, 1.3x
+  startup). Ratios are normalised by the calibration row of their group, so a
+  faster or slower runner cancels out:
+
+| Metric (ms) | 3.9: baseline, this run, ratio | 3.13: baseline, this run, ratio | 3.14: baseline, this run, ratio |
+| --- | --- | --- | --- |
+| calibration, in-process | 0.2373, 0.1657, 0.70x | 0.2333, 0.1856, 0.80x | 0.2115, 0.2083, 0.98x |
+| calibration, subprocess | 10.6500, 8.8900, 0.83x | 13.2600, 12.3100, 0.93x | 13.5500, 13.4800, 0.99x |
+| `build.complex` | 0.2709, 0.1836, **0.97x** | 0.2864, 0.2139, **0.94x** | 0.2427, 0.2391, **1.00x** |
+| `build.enum` | 0.1555, 0.1087, **1.00x** | 0.1541, 0.1147, **0.94x** | 0.1636, 0.1629, **1.01x** |
+| `build.list` | 0.1557, 0.1056, **0.97x** | 0.1534, 0.1156, **0.95x** | 0.1643, 0.1656, **1.02x** |
+| `build.literal` | 0.1584, 0.1137, **1.03x** | 0.1548, 0.1154, **0.94x** | 0.1656, 0.1647, **1.01x** |
+| `build.set` | 0.1561, 0.1085, **1.00x** | 0.1547, 0.1158, **0.94x** | 0.1663, 0.1647, **1.01x** |
+| `build.simple` | 0.1767, 0.1195, **0.97x** | 0.1782, 0.1331, **0.94x** | 0.1785, 0.1802, **1.03x** |
+| `build.tuple` | 0.1563, 0.1095, **1.00x** | 0.1537, 0.1147, **0.94x** | 0.1636, 0.1638, **1.02x** |
+| `build.union` | 0.1555, 0.1110, **1.02x** | 0.1528, 0.1144, **0.94x** | 0.1639, 0.1629, **1.01x** |
+| `first_build.complex` | 2.2184, 1.4481, **0.93x** | 1.2700, 1.0258, **1.02x** | 1.2275, 1.1713, **0.97x** |
+| `parse.complex` | 0.0687, 0.0394, **0.82x** | 0.0634, 0.0540, **1.07x** | 0.0646, 0.0640, **1.01x** |
+| `parse.simple` | 0.0389, 0.0193, **0.71x** | 0.0376, 0.0302, **1.01x** | 0.0384, 0.0384, **1.02x** |
+| `tree.build.1` | 0.3682, 0.2487, **0.97x** | 0.3830, 0.2887, **0.95x** | 0.4066, 0.4013, **1.00x** |
+| `tree.build.10` | 2.2547, 1.5519, **0.99x** | 2.3426, 1.7750, **0.95x** | 2.2851, 2.2765, **1.01x** |
+| `tree.build.50` | 10.7761, 7.6372, **1.01x** | 11.0966, 8.4100, **0.95x** | 10.6552, 10.6471, **1.01x** |
+| `tree.parse.1` | 0.0756, 0.0425, **0.81x** | 0.0747, 0.0646, **1.09x** | 0.0753, 0.0753, **1.02x** |
+| `tree.parse.10` | 0.0757, 0.0434, **0.82x** | 0.0741, 0.0646, **1.10x** | 0.0753, 0.0747, **1.01x** |
+| `tree.parse.50` | 0.0765, 0.0435, **0.81x** | 0.0751, 0.0654, **1.09x** | 0.0756, 0.0750, **1.01x** |
+| `e2e_delta` | 41.69, 28.61, **0.82x** | 51.88, 48.72, **1.01x** | 63.11, 62.63, **1.00x** |
+| `import_duho_delta` | 36.48, 27.41, **0.90x** | 46.87, 43.30, **1.00x** | 53.89, 54.02, **1.01x** |
+
+- Caveats: one run per Python version on shared runners; the baseline and
+  this run are different machines, which is what the calibration rows correct
+  for; medians of the benchmark's own repeats. Local numbers on the
+  development machine vary several-fold and are not quoted.
+- Two changes touch measured paths. On Python 3.13 and later a class in a
+  large file is read on its own instead of parsing the whole file, for the
+  first few classes of a file only. A class's type hints are resolved from its
+  public annotations only. Neither is claimed as a speed-up here: the gate
+  rows above are the evidence that neither is a regression.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (2784 passed, 44 skipped) and
+  3.14 (2798 passed, 30 skipped); Linux (WSL) Python 3.14 (2802 passed, 26
+  skipped). Warnings are errors in the test run.
+- CI: all 17 jobs green at the tree this release was cut from (run
+  37563938647 above): the test matrix on Python 3.9 to 3.14 across Linux,
+  Windows and macOS, the dependency-floor job, coverage, formatting, the docs
+  build and the three benchmark gates. The same workflow ran at the release
+  commit before tagging.
+- `black --check` and `mkdocs build --strict` pass.
+- The leak check exits 1 with exactly its three known hits and no other: one
+  README line that describes the `examples/dotagents.py` example, and two
+  lines of that example, whose subject is that directory.
+- Nine projects that use duho had their own suites run against this tree:
+  eight are unchanged. One has a test that asserts a logger named after a
+  command (see the first upgrade note).
+- The release workflow itself changed in this cycle (it checks the tag against
+  the built version, runs `twine check`, and dispatches the docs build) and
+  runs for the first time with this tag.
+
+### Publication state
+
+Prepared and pushed to `main`; tagged `v0.6.5` with the owner's consent for
+this release (2026-10-07).
+
+---
+
 ## [0.6.4] — 2026-10-06
 
 One bug, reported by a downstream project, fixed in both places it showed.

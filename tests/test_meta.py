@@ -146,7 +146,7 @@ def test_pep727_documentation_contributes_help():
 
 _FIELDS = (
     "help env conflicts conflicts_required group action nargs const choices "
-    "metavar required type version flags kwargs default enum_by literal_value"
+    "metavar required type version flags kwargs default enum_by literal_value split"
 ).split()
 
 
@@ -191,3 +191,22 @@ def test_meta_equality_and_repr():
     assert Meta(help="a", env="B") == Meta(env="B", help="a")
     assert Meta(help="a") != Meta(help="b")
     assert repr(Meta(help="a")).startswith("Meta(help='a', env=")
+
+
+@pytest.mark.parametrize(
+    "made",
+    [
+        duho.Choice("a", "b", help="h"),
+        duho.Const(1, help="h"),
+        duho.Count(help="h"),
+        duho.Append(int, help="h"),
+        duho.Extend(",", help="h"),
+    ],
+)
+def test_helpers_return_meta(made):
+    assert isinstance(made, Meta)
+    assert made.help == "h"
+
+
+def test_extend_sets_the_split_field():
+    assert duho.Extend(",").split("a,b") == ["a", "b"]

@@ -177,6 +177,9 @@ class Meta:
     after it always that value, even when it looks like an option (``--k --``,
     ``--k -x``); the default is the usual argparse rule.
 
+    ``split`` is the callable ``Extend`` sets: it turns one raw token into
+    several values.
+
     ``flags`` is the typed, lint-clean way to give an explicit flag tuple
     (equivalent to the bare ``("-n", "--times")`` statement in the class body,
     which some checkers flag as an unused expression)::
@@ -202,6 +205,7 @@ class Meta:
     default: _ty.Any = _META_UNSET
     enum_by: _ty.Any = _META_UNSET
     literal_value: _ty.Any = _META_UNSET
+    split: _ty.Any = _META_UNSET
 
     def _duho_options_(self) -> dict[str, object]:
         """The explicitly-set metadata as a plain dict (unset fields omitted).
@@ -229,7 +233,7 @@ def _helper_options(kw: dict[str, object]) -> dict[str, object]:
 
 def Extend(
     split: _ty.Union[str, _ty.Callable[[str], _ty.Iterable]], **kwargs: object
-) -> _argparse.Namespace:
+) -> Meta:
     """Create a collection argument whose text is split on ``split`` first.
 
     A ``list[str]`` OPTION's own default builder already takes ``nargs=None``
@@ -266,15 +270,15 @@ def Extend(
                 return result
             return list(result)
 
-    return _argparse.Namespace(split=splitter, **options)
+    return Meta(split=splitter, **options)
 
 
-def Count(**kw: object) -> _argparse.Namespace:
+def Count(**kw: object) -> Meta:
     """Create a count-action argument (e.g. `-vvv` -> 3)."""
-    return NS(action="count", **_helper_options(kw))
+    return Meta(action="count", **_helper_options(kw))
 
 
-def Append(type: Factory = str, **kw: object) -> _argparse.Namespace:
+def Append(type: Factory = str, **kw: object) -> Meta:
     """Create an append-action argument, accumulating repeated flag values.
 
     Explicitly clears nargs to `None` (one scalar value per flag occurrence)
@@ -282,14 +286,14 @@ def Append(type: Factory = str, **kw: object) -> _argparse.Namespace:
     `NS(nargs=...)`, so `append()` always collects one scalar per occurrence
     instead of gathering a list of tokens per occurrence.
     """
-    return NS(action="append", type=type, nargs=None, **_helper_options(kw))
+    return Meta(action="append", type=type, nargs=None, **_helper_options(kw))
 
 
-def Const(value: object, **kw: object) -> _argparse.Namespace:
+def Const(value: object, **kw: object) -> Meta:
     """Create a store_const-action argument that stores `value` when present."""
-    return NS(action="store_const", const=value, **_helper_options(kw))
+    return Meta(action="store_const", const=value, **_helper_options(kw))
 
 
-def Choice(*choices: object, **kw: object) -> _argparse.Namespace:
+def Choice(*choices: object, **kw: object) -> Meta:
     """Restrict an argument's accepted values to `choices`."""
-    return NS(choices=tuple(choices), **_helper_options(kw))
+    return Meta(choices=tuple(choices), **_helper_options(kw))

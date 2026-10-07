@@ -19,9 +19,9 @@ from ._actions import (
     _install_agent_help,
 )
 from ._argument import Argument, ArgumentBuilder, _apply_argument_options
-from ._guards import _warn_misspelled_attrs, _warn_unknown_ns_keys
+from ._guards import _warn_misspelled_attrs, _warn_unknown_dict_keys
 from ._helptext import _escape_description, _escape_stray_percent
-from ._meta import Meta, NOT_DEFINED, NS
+from ._meta import Meta, NOT_DEFINED
 from ._naming import _app_name, _command_name, _resolve_version
 from ._parserfix import (
     _has_variadic_positional,
@@ -307,7 +307,7 @@ class Args(_argparse.Namespace):
                 if _argparse.SUPPRESS in decl.annotations:
                     continue
                 options: dict = {}
-                ns_keys: list[str] = []
+                dict_keys: list[str] = []
                 for opts in decl.annotations:
                     # Consumed: a Mapping, a namespace-like object (has __dict__,
                     # e.g. NS(...)), or a PEP 727 `.documentation` str as help.
@@ -319,12 +319,13 @@ class Args(_argparse.Namespace):
                         options.update(opts._duho_options_())
                     elif isinstance(opts, _ty.Mapping):
                         options.update(opts)
+                        dict_keys.extend(opts)
                     elif isinstance(getattr(opts, "documentation", None), str):
                         options.setdefault("help", opts.documentation)
                     elif hasattr(opts, "__dict__"):
                         options.update(vars(opts))
                         if isinstance(opts, _argparse.Namespace):
-                            ns_keys.extend(vars(opts))
+                            dict_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
                     # A custom Argument type in Arg[...]/NS(...) must be built by
                     # its own `_argbuilder_` (`from_type` would use the plain
@@ -335,8 +336,8 @@ class Args(_argparse.Namespace):
                     built = Argument.from_type(decl.type, **options)._argbuilder_(
                         name, decl
                     )
-                if ns_keys:
-                    _warn_unknown_ns_keys(cls, name, ns_keys, built)
+                if dict_keys:
+                    _warn_unknown_dict_keys(cls, name, dict_keys, built)
             elif isinstance(decl.type, Argument):
                 built = decl.type._argbuilder_(name, decl)
             else:
@@ -557,7 +558,8 @@ class Args(_argparse.Namespace):
         parent_dests = parent_dests if parent_dests is not None else frozenset()
 
         def parse_known_args(
-            args: _ty.Sequence[str] | None = None, namespace: NS | None = None
+            args: _ty.Sequence[str] | None = None,
+            namespace: _argparse.Namespace | None = None,
         ):
             if namespace is None:
                 namespace = _argparse.Namespace()

@@ -1,9 +1,9 @@
-"""A misspelled ``NS(...)`` key is reported once per field, never raised."""
+"""A misspelled ``dict`` key is reported once per field, never raised."""
 
 import logging
 
 import duho
-from duho import NS, Arg, Argument, ArgumentBuilder, Meta
+from duho import Arg, Argument, ArgumentBuilder, Meta
 
 
 class WideBuilder(ArgumentBuilder):
@@ -28,7 +28,7 @@ def _records(caplog):
 
 def test_misspelled_key_is_reported_once_and_still_dropped(caplog):
     class Typo(duho.Cmd):
-        port: Arg[int, NS(hlep="the port")] = 1
+        port: Arg[int, dict(hlep="the port")] = 1
         """the declared help"""
 
         def __call__(self):
@@ -42,14 +42,14 @@ def test_misspelled_key_is_reported_once_and_still_dropped(caplog):
     records = _records(caplog)
     assert len(records) == 1
     text = records[0].getMessage()
-    for word in ("Typo", "port", "hlep", "help"):
+    for word in ("Typo", "port", "hlep", "help", "dict(hlep=...)"):
         assert word in text
     assert records[0].levelno == logging.WARNING
 
 
 def test_documented_keys_and_helpers_are_silent(caplog):
     class Fine(duho.Cmd):
-        a: Arg[int, NS(help="x", env="A", group="g")] = 1
+        a: Arg[int, dict(help="x", env="A", group="g")] = 1
         b: Arg[list, duho.Extend(",")] = None
         c: Arg[int, duho.Count()] = 0
         d: Arg[str, duho.Choice("x", "y")] = "x"
@@ -65,7 +65,7 @@ def test_documented_keys_and_helpers_are_silent(caplog):
 
 def test_key_claimed_by_custom_argument_is_silent(caplog):
     class WithCustom(duho.Cmd):
-        word: Arg[Loud, NS(shout=True)] = "x"
+        word: Arg[Loud, dict(shout=True)] = "x"
 
         def __call__(self):
             return 0

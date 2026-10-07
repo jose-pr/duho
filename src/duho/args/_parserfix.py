@@ -4,7 +4,7 @@ import argparse as _argparse
 import copy as _copy
 import typing as _ty
 
-from ._meta import NOT_DEFINED, NS
+from ._meta import NOT_DEFINED
 
 #: `nargs` values that make a positional variable-arity: the trigger set for
 #: argparse's greedy positional-run matching (bpo-15112) when another positional
@@ -75,7 +75,8 @@ def _patch_parser_for_reorder(parser: _argparse.ArgumentParser) -> None:
     real_parse_known_args = parser.parse_known_args
 
     def parse_known_args(
-        args: _ty.Sequence[str] | None = None, namespace: NS | None = None
+        args: _ty.Sequence[str] | None = None,
+        namespace: _argparse.Namespace | None = None,
     ):
         if args is not None and _has_variadic_positional(parser):
             args = _reorder_argv_for_variadic_positional(parser, list(args))

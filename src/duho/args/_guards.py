@@ -100,14 +100,13 @@ def _claimed_keys(built: object) -> _ty.Set[str]:
     return keys
 
 
-def _warn_unknown_ns_keys(
+def _warn_unknown_dict_keys(
     cls: type, field: str, keys: _ty.Iterable[str], built: object
 ) -> None:
-    """Log each ``NS(...)`` key that is neither a ``Meta`` field nor claimed by ``built``."""
+    """Log each ``dict`` key that is neither a ``Meta`` field nor claimed by ``built``."""
     from ._meta import Meta
 
     known = set(Meta.__dataclass_fields__)
-    known.add("split")
     known |= _claimed_keys(built)
     for key in dict.fromkeys(keys):
         if key in known:
@@ -117,7 +116,7 @@ def _warn_unknown_ns_keys(
         close = _difflib.get_close_matches(key, sorted(Meta.__dataclass_fields__), n=1)
         hint = f"; closest Meta field: {close[0]!r}" if close else ""
         _LOGGER.warning(
-            "%s.%s: NS(%s=...) is not a Meta field and is ignored%s",
+            "%s.%s: dict(%s=...) is not a Meta field and is ignored%s",
             cls.__name__,
             field,
             key,

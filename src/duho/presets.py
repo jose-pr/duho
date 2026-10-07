@@ -7,7 +7,7 @@ import logging as _logging
 import typing as _ty
 
 from . import logging as _duho_logging
-from .args import Args, NS, UpdateAction
+from .args import Args, Meta, UpdateAction
 from .args._naming import _command_name as _command_name
 from .args._entry import _logger_name_for
 from .logging import parse_loglevels
@@ -133,13 +133,13 @@ class LoggingArgs(Args):
     """
 
     # Seed `_duho_constants_` like `Args`/`Cmd`/`Cli`: every field carries its
-    # flags in `NS(...)`, so no source scan is needed (and none is possible
+    # flags in `Meta(...)`, so no source scan is needed (and none is possible
     # in a build that ships no .py source).
     _duho_constants_: dict = {}
 
     loglevels: _ty.Annotated[
         dict[str, int],
-        NS(
+        Meta(
             type=_loglevels_type,
             action=UpdateAction,
             flags=("--loglevel",),
@@ -154,7 +154,7 @@ class LoggingArgs(Args):
     # Both the short and long spellings, as the shipped header documents.
     verbose: _ty.Annotated[
         int,
-        NS(
+        Meta(
             action="count",
             flags=("-v", "--verbose"),
             help="Increase verbosity (repeatable)",
@@ -163,7 +163,7 @@ class LoggingArgs(Args):
 
     quiet: _ty.Annotated[
         int,
-        NS(
+        Meta(
             action="count",
             flags=("-q", "--quiet"),
             help="Decrease verbosity (repeatable)",

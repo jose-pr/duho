@@ -219,10 +219,10 @@ just its annotation.
   'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice` and the
   attributes a custom `ArgumentBuilder` subclass declares are accepted; only
   `argparse.Namespace` metadata is checked, not a plain `dict`.
-- **`Meta(*, help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, literal_value)`** — typed, typo-safe field metadata: a
+- **`Meta(*, help, env, conflicts, conflicts_required, group, action, nargs, const, choices, metavar, required, type, version, flags, kwargs, default, enum_by, literal_value, split)`** — typed, typo-safe field metadata: a
   dataclass whose fields are the metadata keys (`help`, `env`, `conflicts`,
   `conflicts_required`, `group`, `action`, `nargs`, `const`, `choices`, `metavar`,
-  `required`, `type`, `version`, `flags`, `kwargs`, `default`, `enum_by`, `literal_value`).
+  `required`, `type`, `version`, `flags`, `kwargs`, `default`, `enum_by`, `literal_value`, `split`).
   Keyword arguments only: a positional argument is a `TypeError` (for a flag-shaped first
   one, the message says to use `flags=(...)`), and so is an unknown keyword, which names
   the closest field. `Meta` has no `dest` field (a field's `dest` is always its declared

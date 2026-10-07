@@ -9,6 +9,8 @@ import sys as _sys
 import typing as _ty
 
 from ..logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
+from .._outcome import Result as _Result
+from .._outcome import _error_status, _render
 from ..logging import log_exception as _log_exception
 
 from ._argv import _sibling_names, _synthesize_step_argv
@@ -154,6 +156,21 @@ def _text_result(text: str, *, is_error: bool = False) -> dict:
     if is_error:
         result["isError"] = True
     return result
+
+
+def _is_error_flag(result: object, default: bool = False) -> bool:
+    """A ``Result``'s own ``is_error``; a plain int keeps ``default``."""
+    return result.is_error if isinstance(result, _Result) else default
+
+
+def _declared_exit_meaning(root_cls: object, code: int) -> _ty.Optional[str]:
+    """The meaning the root's own ``_exit_codes_`` declares for ``code``, if any."""
+    declared = getattr(root_cls, "_exit_codes_", None)
+    if declared:
+        for key, meaning in dict(declared).items():
+            if str(key) == str(code):
+                return str(meaning)
+    return None
 
 
 def _systemexit_result(exc: SystemExit, stdout_text: str, stderr_text: str) -> dict:
@@ -429,6 +446,10 @@ def call_tool(
     except (
         Exception
     ) as exc:  # noqa: BLE001 - one broken command must not crash the server
+        if _error_status(exc, core.root_cls) is not None:
+            # An error the command meant to end with: its words, not a crash.
+            parts = [out.getvalue(), err.getvalue().strip(), str(exc)]
+            return _text_result("\n".join(p for p in parts if p), is_error=True)
         # The client only ever sees "Type: message"; the stack that says WHERE
         # the command broke exists nowhere else, so log it server-side too
         # (traceback under DUHO_TRACEBACK=1).
@@ -443,15 +464,25 @@ def call_tool(
 
     stdout_text = out.getvalue()
 
+    if isinstance(result, _Result) and (
+        result.text is not None or result.value is not None
+    ):
+        words = result.text if result.text is not None else _render(result.value)
+        parts = [stdout_text, words]
+        return _text_result(
+            "\n".join(part for part in parts if part), is_error=result.is_error
+        )
+
     if isinstance(result, int):
         if result == 0:
-            return _text_result(stdout_text)
+            return _text_result(stdout_text, is_error=_is_error_flag(result))
         trailing = "exit code: %d" % result
+        meaning = _declared_exit_meaning(core.root_cls, int(result))
+        if meaning is not None:
+            trailing += " (%s)" % meaning
         parts = [
             part for part in (stdout_text, err.getvalue().strip(), trailing) if part
         ]
-        return _text_result("\n".join(parts), is_error=True)
+        return _text_result("\n".join(parts), is_error=_is_error_flag(result, True))
 
-    import json
-
-    return _text_result(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    return _text_result(_render(result))

@@ -920,6 +920,14 @@ manipulating a parser tree directly:
   mandatory-subcommand parent with no runnable body of its own) is never
   listed as its own tool — its fields merge into each descendant's own input
   schema instead. **`call_tool(root_cls, name, arguments) -> dict`**,
+  Return mapping of `call_tool`: `0`/`None` → success with the captured stdout; a
+  `Result` with `text` or `value` → stdout then `text` (else the rendered `value`),
+  `isError` is `result.is_error`; a non-zero int (or a `Result` with neither) →
+  `isError` with stdout, stderr and `exit code: N`, plus ` (<meaning>)` when the root's
+  own `_exit_codes_` declares that code (the built-in 0/1/2 table is not used); a
+  `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
+  stderr and the message, no `Type:` prefix, not logged as a broken command; any other
+  value → success with its JSON.
   **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
   answered directly), **`input_schema_for_command(cls) -> dict`**,
   **`json_schema_for_field(decl, builder) -> tuple[dict, bool]`** (per-field JSON Schema fragment), **`main(argv=None)

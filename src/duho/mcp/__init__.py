@@ -58,7 +58,12 @@ Three layers, thin glue between them:
 captured. A command returning ``None``/``0`` -> a success result whose one
 ``text`` content block is the captured stdout (empty string allowed). A
 non-zero int -> ``isError: true``, text = captured stdout + a trailing
-``"exit code: N"`` line. A JSON-serialisable object/list return -> passed
+``"exit code: N"`` line (``"exit code: N (meaning)"`` when the root's own
+``_exit_codes_`` declares N). A ``duho.Result`` with ``text`` or ``value`` ->
+captured stdout then that text (else the rendered value), ``isError`` from
+``result.is_error``. A ``duho.CommandError``, or an exception the root's
+``_errors_`` maps -> ``isError: true`` with captured stdout, stderr and the
+message, no ``Type:`` prefix. A JSON-serialisable object/list return -> passed
 through as one ``text`` block holding its JSON dump. A command that calls
 ``sys.exit(...)``/raises ``SystemExit`` at RUN TIME (not during argument
 parsing) is mapped the same way as a returned exit code, from ``exc.code``:

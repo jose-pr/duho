@@ -2048,7 +2048,10 @@ returning `None`/`0` is a success result with your captured stdout as one `text`
 content block; a non-zero return is `isError: true` (stdout + a trailing
 `exit code: N` line); a JSON-serialisable object/list return is passed through as one
 `text` block holding its JSON dump — this is additive, existing int/`None` commands
-keep working exactly as before.
+keep working exactly as before. A command that wants to say more returns a
+`duho.Result` (`text`/`value` for the client, `is_error` to choose), or raises a
+`duho.CommandError` (an `isError` result carrying its message, with no `Type:`
+prefix); a root's `_exit_codes_` adds ` (meaning)` to the `exit code: N` line.
 
 **v1 limitations** (documented, not silently wrong): a custom `action=`/`type=`
 field with no registered override is passed through as a plain string; an

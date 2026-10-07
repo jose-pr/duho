@@ -10,6 +10,54 @@ user-facing; this file is the durable record.
 
 ---
 
+## [0.7.1] — 2026-10-07
+
+One change, to the hook an application overrides to adjust its parser.
+
+- `_initparser_(parser, **kwargs)` takes its build keywords by name, and
+  `duho.InitParserKwargs`, a `TypedDict`, says what they are. An override is
+  written once, `def _initparser_(cls, parser, **kwargs: Unpack[InitParserKwargs])`,
+  forwards `**kwargs` to `super()`, and needs no change when duho passes a new
+  keyword: that is a new key of the `TypedDict`, not a new parameter. A type
+  checker follows the keywords through `super()`. The base method, where the
+  keywords end up, raises `TypeError` for one the `TypedDict` does not list.
+
+### Upgrade notes
+
+- The build keywords were ordinary parameters and could be forwarded by
+  position: `super()._initparser_(parser, is_subcommand, parent_dests)`. That
+  now raises `TypeError`; forward them by name, or simply forward `**kwargs`.
+  An override that forwards `*args, **kwargs` keeps working, because duho
+  always passed them by name. This tightens a documented signature; the owner
+  ruled it a patch.
+
+### Performance
+
+No performance claim is made. The CI regression gate passed on Python 3.9,
+3.13 and 3.14 against the same baseline as 0.6.5.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (2794 passed, 44 skipped) and
+  3.14 (2808 passed, 30 skipped); Linux (WSL) Python 3.14 (2812 passed, 26
+  skipped).
+- CI: all 17 jobs green at the change (run
+  [37622395290](https://github.com/jose-pr/duho/actions/runs/37622395290)), and
+  the same workflow ran at the release commit before tagging. The typing test
+  in it checks the override above with mypy on each CI interpreter.
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits (one README line and two lines of
+  `examples/dotagents.py`, whose subject is that directory).
+- The suites of the projects that use duho were not re-run for this release.
+  One of them overrides the hook, and it forwards `*args, **kwargs`.
+
+### Publication state
+
+Prepared and pushed to `main`; tagged `v0.7.1` with the owner's consent for
+this release (2026-10-07).
+
+---
+
 ## [0.7.0] — 2026-10-07
 
 A minor release, because it breaks the documented API, in two ways and no

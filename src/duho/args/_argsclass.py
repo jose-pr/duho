@@ -309,9 +309,15 @@ class Args(_argparse.Namespace):
                 options: dict = {}
                 dict_keys: list[str] = []
                 for opts in decl.annotations:
-                    # Consumed: a Meta, a Mapping, a PEP 727 `.documentation` str
-                    # as help, or an object with a __dict__ read as options.
-                    # Anything else (a bare `Annotated[int, "doc"]` string) is ignored.
+                    # Consumed: a Meta, a Mapping, or a PEP 727 `.documentation`
+                    # str as help. Anything else (a bare `Annotated[int, "doc"]`
+                    # string, another library's marker) is ignored.
+                    if isinstance(opts, _argparse.Namespace):
+                        # Refused: it would silently drop the flags and help.
+                        raise TypeError(
+                            f"{cls.__name__}.{name}: field metadata is Meta(...) or "
+                            f"a dict, not an argparse.Namespace"
+                        )
                     if isinstance(opts, Meta):
                         # Typed metadata: merge only the explicitly-set fields so
                         # an unset (sentinel) field never overrides a type-derived
@@ -322,10 +328,6 @@ class Args(_argparse.Namespace):
                         dict_keys.extend(opts)
                     elif isinstance(getattr(opts, "documentation", None), str):
                         options.setdefault("help", opts.documentation)
-                    elif hasattr(opts, "__dict__"):
-                        options.update(vars(opts))
-                        if isinstance(opts, _argparse.Namespace):
-                            dict_keys.extend(vars(opts))
                 if isinstance(decl.type, Argument):
                     # A custom Argument type in Arg[...]/Meta(...) must be built by
                     # its own `_argbuilder_` (`from_type` would use the plain

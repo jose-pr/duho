@@ -247,6 +247,10 @@ just its annotation.
   `duho.args`: `App.port: dict(hlep=...) is not a Meta field and is ignored; closest Meta
   field: 'help'`. Never an error. Keys set by `Extend`/`Count`/`Append`/`Const`/`Choice`
   are accepted. `dest` is such a key, since a field's `dest` is always its own name.
+  Field metadata that is read is exactly a `Meta`, a `dict` (any `Mapping`) and an object
+  with a str `.documentation` (PEP 727, used as help); any other object in `Arg[...]` is
+  ignored. An `argparse.Namespace` there is a `TypeError` naming the class and field when
+  the parser is built.
 - **`argparse.SUPPRESS`** — placed anywhere in a field's metadata (`Arg[str, argparse.SUPPRESS]`)
   it hides the field from the command line entirely: no flag, no parsed value.
 - **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.

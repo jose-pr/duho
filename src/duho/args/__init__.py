@@ -47,7 +47,6 @@ from ._meta import (
     _T,
     _A,
     _C,
-    NS,
     _AutoVersion,
     AUTO,
     _MetaUnset,

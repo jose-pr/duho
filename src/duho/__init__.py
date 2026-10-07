@@ -26,7 +26,6 @@ from .args import (
     finish_parse,
     main,
     Meta,
-    NS,
     parse,
     parse_globals,
     print_agent_help,

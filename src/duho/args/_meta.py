@@ -59,8 +59,6 @@ _A = _ty.TypeVar("_A", bound="Args")
 #: widening it to ``type[Cmd]``.
 _C = _ty.TypeVar("_C", bound="type[Cmd]")
 
-NS = _argparse.Namespace
-
 
 class _AutoVersion:
     """Sentinel for ``_version_ = duho.AUTO``: resolve via importlib.metadata."""

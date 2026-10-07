@@ -1,12 +1,12 @@
 """Fields named like their own builtin annotation, and a list made positional
-through `NS(flags=("files",))` alone."""
+through `Meta(flags=("files",))` alone."""
 
 from typing import List
 
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 def test_field_named_like_its_own_type_builds_from_source():
@@ -34,6 +34,6 @@ def test_field_named_like_its_own_type_without_source():
 
 def test_list_positional_from_ns_flags_alone_takes_every_token():
     class Files(Args):
-        files: Arg[List[str], NS(flags=("files",))]
+        files: Arg[List[str], Meta(flags=("files",))]
 
     assert duho.parse(Files, ["f1", "f2", "f3"]).files == ["f1", "f2", "f3"]

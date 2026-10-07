@@ -14,7 +14,7 @@ import enum
 import pathlib
 import typing as ty
 
-from duho import Arg, Cmd, LoggingArgs, NS
+from duho import Arg, Cmd, LoggingArgs, Meta
 from duho.mcp import input_schema_for_command
 
 
@@ -297,7 +297,7 @@ def test_positional_with_default_is_optional_positional():
 class VariadicPositional(Cmd):
     """A `nargs='+'` positional that ALSO carries a python-level default."""
 
-    extra: "Arg[ty.List[str], NS(nargs='+')]" = []
+    extra: "Arg[ty.List[str], Meta(nargs='+')]" = []
     "one or more values -- argparse itself demands at least one"
     ("extra",)
 
@@ -365,7 +365,7 @@ def test_description_from_docstring():
 class RequiredWithDefault(Cmd):
     """A field forced required even though it also carries a default."""
 
-    token: Arg[str, NS(required=True)] = "unused-default"
+    token: Arg[str, Meta(required=True)] = "unused-default"
     "Explicitly required"
     ("--token",)
 
@@ -381,7 +381,7 @@ def test_explicit_ns_required_true_wins_over_a_present_default():
 class OptionalPositional(Cmd):
     """A positional explicitly given nargs='?' with no default/required set."""
 
-    target: Arg[str, NS(nargs="?")]
+    target: Arg[str, Meta(nargs="?")]
     "May be omitted"
     ("target",)
 
@@ -397,7 +397,7 @@ def test_explicit_nargs_optional_positional_is_not_required():
 class SuppressedHelp(Cmd):
     """A field whose help is suppressed from argparse's own output."""
 
-    hidden: Arg[str, NS(help=argparse.SUPPRESS)] = "x"
+    hidden: Arg[str, Meta(help=argparse.SUPPRESS)] = "x"
     "This docstring must never surface either"
     ("--hidden",)
 
@@ -413,7 +413,7 @@ def test_help_suppress_never_leaks_the_sentinel_or_the_docstring():
 class OverriddenHelp(Cmd):
     """A field whose explicit help overrides its own docstring."""
 
-    label: Arg[str, NS(help="the OVERRIDE text")] = "x"
+    label: Arg[str, Meta(help="the OVERRIDE text")] = "x"
     "the docstring text (must lose to the override)"
     ("--label",)
 

@@ -9,7 +9,7 @@ file.
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class DictArgs(Args):
@@ -96,7 +96,7 @@ def test_dict_non_str_key_errors_at_build():
 class EnvLayered(Args):
     """Dict field with env layer."""
 
-    labels: Arg["dict[str, str]", NS(env="DUHO_TEST_LABELS")] = None
+    labels: Arg["dict[str, str]", Meta(env="DUHO_TEST_LABELS")] = None
     "Labels"
     ("--label",)
 
@@ -144,15 +144,15 @@ def test_dict_repeated_flag_still_accumulates_after_replacing():
     assert result.opts == {"b": "2", "c": "3"}
 
 
-# --- NS(nargs="*") on a dict field merges each space-separated token
+# --- Meta(nargs="*") on a dict field merges each space-separated token
 
 
 class DictNargsStarArgs(Args):
-    """`NS(nargs="*")` on a dict field: argparse passes a LIST of one-pair
+    """`Meta(nargs="*")` on a dict field: argparse passes a LIST of one-pair
     dicts (one per space-separated KEY=VALUE token) rather than a single
     dict -- `dict.update()` on the whole list raised a raw ValueError."""
 
-    defs: "Arg[dict, NS(nargs='*')]" = None
+    defs: "Arg[dict, Meta(nargs='*')]" = None
     "Definitions"
     ("-D",)
 

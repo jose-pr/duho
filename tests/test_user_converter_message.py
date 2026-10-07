@@ -6,7 +6,7 @@ import datetime
 import pytest
 
 import duho
-from duho import NS, Arg, Meta
+from duho import Arg, Meta
 
 
 def parse_port(text):
@@ -32,7 +32,7 @@ def _err(cls, argv, capsys):
 
 
 class WithNS(duho.Cmd):
-    port: Arg[int, NS(type=parse_port)] = 80
+    port: Arg[int, Meta(type=parse_port)] = 80
 
     def __call__(self):
         return 0
@@ -59,7 +59,7 @@ def test_valid_value_still_converts(cls):
 
 def test_type_error_message_is_shown(capsys):
     class C(duho.Cmd):
-        thing: Arg[str, NS(type=type_error)] = "x"
+        thing: Arg[str, Meta(type=type_error)] = "x"
 
         def __call__(self):
             return 0
@@ -69,7 +69,7 @@ def test_type_error_message_is_shown(capsys):
 
 def test_empty_message_keeps_the_generic_text(capsys):
     class C(duho.Cmd):
-        thing: Arg[str, NS(type=no_message)] = "x"
+        thing: Arg[str, Meta(type=no_message)] = "x"
 
         def __call__(self):
             return 0
@@ -97,7 +97,7 @@ def test_converter_that_raises_argument_type_error_is_unchanged(capsys):
         raise argparse.ArgumentTypeError("custom explicit text")
 
     class C(duho.Cmd):
-        thing: Arg[str, NS(type=conv)] = "x"
+        thing: Arg[str, Meta(type=conv)] = "x"
 
         def __call__(self):
             return 0
@@ -107,7 +107,7 @@ def test_converter_that_raises_argument_type_error_is_unchanged(capsys):
 
 def test_layered_report_never_echoes_the_converter_message(monkeypatch, capsys):
     class C(duho.Cmd):
-        port: Arg[int, NS(type=parse_port, env="DUHO_T_PORT")] = 80
+        port: Arg[int, Meta(type=parse_port, env="DUHO_T_PORT")] = 80
 
         def __call__(self):
             return 0

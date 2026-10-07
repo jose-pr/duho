@@ -9,7 +9,7 @@ import argparse
 
 import pytest
 
-from duho import Arg, Args, Cmd, NS
+from duho import Arg, Args, Cmd, Meta
 
 # --- required mutually-exclusive groups -----------------------------------
 
@@ -17,11 +17,11 @@ from duho import Arg, Args, Cmd, NS
 class RequiredExclusive(Args):
     """Two flags in a required mutually-exclusive group."""
 
-    push: Arg[bool, NS(conflicts="mode", conflicts_required=True)] = False
+    push: Arg[bool, Meta(conflicts="mode", conflicts_required=True)] = False
     "Push mode"
     ("--push",)
 
-    pull: Arg[bool, NS(conflicts="mode")] = False
+    pull: Arg[bool, Meta(conflicts="mode")] = False
     "Pull mode"
     ("--pull",)
 
@@ -54,10 +54,10 @@ def test_required_group_marked_required_on_parser():
 class OptionalExclusive(Args):
     """A plain (not required) mutually-exclusive group."""
 
-    a: Arg[bool, NS(conflicts="g")] = False
+    a: Arg[bool, Meta(conflicts="g")] = False
     ("--a",)
 
-    b: Arg[bool, NS(conflicts="g")] = False
+    b: Arg[bool, Meta(conflicts="g")] = False
     ("--b",)
 
 
@@ -74,11 +74,11 @@ def test_optional_group_allows_none():
 class Grouped(Args):
     """Fields bucketed into a titled argument group."""
 
-    outfile: Arg[str, NS(group="Output options")] = "-"
+    outfile: Arg[str, Meta(group="Output options")] = "-"
     "Where to write"
     ("--outfile",)
 
-    verbose_out: Arg[bool, NS(group="Output options")] = False
+    verbose_out: Arg[bool, Meta(group="Output options")] = False
     "Verbose output"
     ("--verbose-out",)
 
@@ -103,11 +103,11 @@ def test_group_still_parses_normally():
 class GroupedAndExclusive(Args):
     """A field with both group= and conflicts= (nested exclusive group)."""
 
-    json_out: Arg[bool, NS(group="Format", conflicts="fmt")] = False
+    json_out: Arg[bool, Meta(group="Format", conflicts="fmt")] = False
     "JSON output"
     ("--json",)
 
-    yaml_out: Arg[bool, NS(group="Format", conflicts="fmt")] = False
+    yaml_out: Arg[bool, Meta(group="Format", conflicts="fmt")] = False
     "YAML output"
     ("--yaml",)
 
@@ -134,11 +134,11 @@ class ExclusiveNoDefaults(Args):
     optional"), failing the parser BUILD with a message naming neither
     field."""
 
-    name: Arg[str, NS(conflicts="who")]
+    name: Arg[str, Meta(conflicts="who")]
     "Name selector"
     ("--name",)
 
-    ident: Arg[int, NS(conflicts="who")]
+    ident: Arg[int, Meta(conflicts="who")]
     "Id selector"
     ("--id",)
 
@@ -164,10 +164,10 @@ class ConflictsAcrossTitles(Args):
     silently landed in TWO separate mutex groups (one per title) and were no
     longer mutually exclusive at all."""
 
-    a: Arg[bool, NS(conflicts="x", group="A")] = False
+    a: Arg[bool, Meta(conflicts="x", group="A")] = False
     ("--a",)
 
-    b: Arg[bool, NS(conflicts="x", group="B")] = False
+    b: Arg[bool, Meta(conflicts="x", group="B")] = False
     ("--b",)
 
 
@@ -179,10 +179,10 @@ def test_conflicts_key_across_different_titles_raises_at_build():
 class ConflictsSameTitleFine(Args):
     """The SAME conflicts= key under the SAME group= title is fine."""
 
-    a: Arg[bool, NS(conflicts="x", group="A")] = False
+    a: Arg[bool, Meta(conflicts="x", group="A")] = False
     ("--a",)
 
-    b: Arg[bool, NS(conflicts="x", group="A")] = False
+    b: Arg[bool, Meta(conflicts="x", group="A")] = False
     ("--b",)
 
 
@@ -198,7 +198,7 @@ def test_conflicts_key_under_same_title_still_conflicts():
 class _ConflictCmd(Cmd):
     """A command with a conflicts=-built mutually-exclusive group."""
 
-    type: Arg[str, NS(conflicts="type")] = "-"
+    type: Arg[str, Meta(conflicts="type")] = "-"
     ("--type", "-t")
 
     def __call__(self):

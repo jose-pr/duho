@@ -190,7 +190,7 @@ def test_framework_bases_have_seeded_constants():
 
 def test_logging_args_preset_is_source_independent():
     # LoggingArgs is seeded like every other framework base: it declares every
-    # field's flags/help directly as NS(...) metadata (read from the live
+    # field's flags/help directly as Meta(...) metadata (read from the live
     # Annotated object, not source), so its own
     # -v/-q/--loglevel/--verbose/--quiet keep working even when duho's own
     # source can't be found (a PyInstaller/.pyc-only/Nuitka build).

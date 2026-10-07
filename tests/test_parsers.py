@@ -14,7 +14,7 @@ flags/docstrings resolve normally (never via ``-c``).
 import pytest
 
 import duho
-from duho import Cli, Cmd, NS, Arg
+from duho import Cli, Cmd, Meta, Arg
 
 
 class _Child(Cmd):
@@ -79,7 +79,7 @@ def test_parse_globals_forwards_parser_kwargs():
 class _EnvRoot(Cli):
     """A root whose global is backed by an env var."""
 
-    cmds_path: "Arg[str, NS(env='DUHO_TEST_GLOBALS_ENV')]" = "builtin"
+    cmds_path: "Arg[str, Meta(env='DUHO_TEST_GLOBALS_ENV')]" = "builtin"
     ("--cmds-path",)
 
     _subcommands_ = [_Child]
@@ -103,7 +103,7 @@ def test_parse_globals_applies_config_kwarg(tmp_path):
 class _RequiredEnvRoot(Cli):
     """A REQUIRED global (no class default) suppliable only via env."""
 
-    token: "Arg[str, NS(env='DUHO_TEST_GLOBALS_TOKEN')]"
+    token: "Arg[str, Meta(env='DUHO_TEST_GLOBALS_TOKEN')]"
     ("--token",)
 
     _subcommands_ = [_Child]

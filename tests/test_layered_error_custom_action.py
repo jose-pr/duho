@@ -7,7 +7,7 @@ import argparse
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 SECRET = "S3CRET-VALUE"
 
@@ -22,11 +22,11 @@ def to_port(text: str) -> int:
 
 
 class Custom(Args):
-    port: Arg[int, NS(type=to_port, action=KeepAction, env="DUHO_T_CUSTOM_PORT")] = 1
+    port: Arg[int, Meta(type=to_port, action=KeepAction, env="DUHO_T_CUSTOM_PORT")] = 1
 
 
 class Plain(Args):
-    port: Arg[int, NS(type=to_port, env="DUHO_T_CUSTOM_PORT")] = 1
+    port: Arg[int, Meta(type=to_port, env="DUHO_T_CUSTOM_PORT")] = 1
 
 
 @pytest.mark.parametrize("cls", [Custom, Plain])

@@ -21,7 +21,7 @@ import typing as ty
 import pytest
 from conftest import subprocess_env
 
-from duho import Arg, Cli, Cmd, LoggingArgs, NS
+from duho import Arg, Cli, Cmd, LoggingArgs, Meta
 from duho.args import _keep_attached_double_dash
 from duho.mcp import (
     InvalidArgumentsError,
@@ -729,7 +729,7 @@ class EnvTool(Cmd):
 
     _parsername_ = "env-tool"
 
-    token: "Arg[str, NS(env='DUHO_MCP_TEST_TOKEN')]"
+    token: "Arg[str, Meta(env='DUHO_MCP_TEST_TOKEN')]"
     "Secret token"
     ("--token",)
 
@@ -798,7 +798,7 @@ class KeyErrorFactoryTool(Cmd):
 
     _parsername_ = "key-error-factory-tool"
 
-    region: "Arg[str, NS(env='DUHO_MCP_TEST_KEYERROR_REGION', type=_LEAK_REGIONS.__getitem__)]" = ("us")
+    region: "Arg[str, Meta(env='DUHO_MCP_TEST_KEYERROR_REGION', type=_LEAK_REGIONS.__getitem__)]" = ("us")
     "Region"
     ("--region",)
 
@@ -821,7 +821,7 @@ class ArgumentTypeErrorFactoryTool(Cmd):
     _parsername_ = "argument-type-error-factory-tool"
 
     token: (
-        "Arg[str, NS(env='DUHO_MCP_TEST_ARGTYPEERROR_TOKEN', type=_leak_parse_token)]"
+        "Arg[str, Meta(env='DUHO_MCP_TEST_ARGTYPEERROR_TOKEN', type=_leak_parse_token)]"
     ) = "tok_default"
     "API token"
     ("--token",)
@@ -1522,11 +1522,11 @@ def test_argument_error_text_has_no_ansi_escapes_under_force_color(monkeypatch):
 
         _parsername_ = "conflicting-flags"
 
-        gzip: "Arg[bool, NS(conflicts='compression')]" = False
+        gzip: "Arg[bool, Meta(conflicts='compression')]" = False
         "one compression choice"
         ("--gzip",)
 
-        zstd: "Arg[bool, NS(conflicts='compression')]" = False
+        zstd: "Arg[bool, Meta(conflicts='compression')]" = False
         "the other compression choice"
         ("--zstd",)
 

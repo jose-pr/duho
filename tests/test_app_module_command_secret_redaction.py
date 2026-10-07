@@ -17,11 +17,11 @@ from duho.runtime import app
 
 _MODULE_CMD_WITH_SECRET = '''\
 """Deploy something using a secret."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Args(Args):
-    token: Arg[str, NS(env="DUHO_TEST_MODULE_CMD_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_MODULE_CMD_SECRET")] = ""
     "Auth token"
     ("--token",)
 
@@ -38,11 +38,11 @@ def main(args):
 # env-layered `action.default`.
 _MODULE_CMD_WITH_PLACEHOLDER_SECRET = '''\
 """Deploy something using a secret, with the default spelled in help."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Args(Args):
-    token: Arg[str, NS(env="DUHO_TEST_MODULE_CMD_PLACEHOLDER_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_MODULE_CMD_PLACEHOLDER_SECRET")] = ""
     "Auth token (default: %(default)s)"
     ("--token",)
 
@@ -56,11 +56,11 @@ def main(args):
 # cannot.
 _MODULE_CMD_WITH_NONEMPTY_DEFAULT = '''\
 """Deploy something using a secret, with a non-empty class default."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Args(Args):
-    token: Arg[str, NS(env="DUHO_TEST_MODULE_CMD_NONEMPTY_SECRET")] = "cls"
+    token: Arg[str, Meta(env="DUHO_TEST_MODULE_CMD_NONEMPTY_SECRET")] = "cls"
     "Auth token (default: %(default)s)"
     ("--token",)
 
@@ -72,14 +72,14 @@ def main(args):
 
 _MODULE_CMD_WITH_KEYERROR_FACTORY = '''\
 """Deploy something using a mapped region."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 REGIONS = {"us": "us-east-1"}
 
 
 class Args(Args):
     region: Arg[
-        str, NS(env="DUHO_TEST_MODULE_CMD_KEYERROR_REGION", type=REGIONS.__getitem__)
+        str, Meta(env="DUHO_TEST_MODULE_CMD_KEYERROR_REGION", type=REGIONS.__getitem__)
     ] = "us"
     "Region"
     ("--region",)

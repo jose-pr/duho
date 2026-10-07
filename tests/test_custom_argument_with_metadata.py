@@ -1,5 +1,5 @@
 """Test: a custom `Argument` type's own `_argbuilder_` must
-still run when the field is wrapped in `Arg[CustomType, NS(...)]`/
+still run when the field is wrapped in `Arg[CustomType, Meta(...)]`/
 `Meta(...)`.
 
 A field with Annotated metadata must not be routed through
@@ -11,7 +11,7 @@ would silently break it.
 """
 
 import duho
-from duho import Arg, Args, Argument, ArgumentBuilder, NS
+from duho import Arg, Args, Argument, ArgumentBuilder, Meta
 
 
 class Reversed(Argument):
@@ -41,12 +41,12 @@ def test_bare_custom_argument_type_uses_its_own_builder():
     assert result.token == "cba"
 
 
-def test_custom_argument_type_wrapped_in_ns_help_still_uses_its_own_builder():
-    """Wrapping in Arg[..., NS(help=...)] must not bypass Reversed's
+def test_custom_argument_type_wrapped_in_meta_help_still_uses_its_own_builder():
+    """Wrapping in Arg[..., Meta(help=...)] must not bypass Reversed's
     own `_argbuilder_` and use `str(text)` instead."""
 
     class WithHelp(Args):
-        token: "Arg[Reversed, NS(help='the token')]" = "unused"
+        token: "Arg[Reversed, Meta(help='the token')]" = "unused"
 
     result = duho.parse(WithHelp, ["--token", "abc"])
     assert result.token == "cba"
@@ -59,7 +59,7 @@ def test_custom_argument_type_wrapped_in_ns_help_still_uses_its_own_builder():
 
 def test_custom_argument_type_wrapped_in_env_metadata_still_works(monkeypatch):
     class WithEnv(Args):
-        token: "Arg[Reversed, NS(env='PROBE_TOKEN')]" = "unused"
+        token: "Arg[Reversed, Meta(env='PROBE_TOKEN')]" = "unused"
 
     monkeypatch.setenv("PROBE_TOKEN", "abc")
     result = duho.parse(WithEnv, [])

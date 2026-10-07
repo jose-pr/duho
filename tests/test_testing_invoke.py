@@ -7,14 +7,14 @@ import typing
 import pytest
 
 import duho
-from duho import Arg, Cli, Cmd, NS
+from duho import Arg, Cli, Cmd, Meta
 from duho.testing import Result, invoke
 
 
 class _Echo(Cmd):
     """Print the name, log to stderr, and return a status."""
 
-    name: "Arg[str, NS(env='TESTING_INVOKE_NAME')]" = "world"
+    name: "Arg[str, Meta(env='TESTING_INVOKE_NAME')]" = "world"
     ("--name",)
 
     def __call__(self):

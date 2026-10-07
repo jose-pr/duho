@@ -14,7 +14,7 @@ import typing as ty
 
 import pytest
 
-from duho import Arg, Cli, Cmd, NS
+from duho import Arg, Cli, Cmd, Meta
 from duho.mcp import InvalidArgumentsError, UnknownToolError, call_tool
 
 
@@ -306,7 +306,7 @@ class BoolShapes(Cmd):
     "plain store_true"
     ("--plain",)
 
-    use_cache: "Arg[bool, NS(action='store_false', flags=('--no-cache',))]" = True
+    use_cache: "Arg[bool, Meta(action='store_false', flags=('--no-cache',))]" = True
     "explicit store_false under its OWN flag (no separate positive flag)"
 
     no_verify: bool = True
@@ -317,7 +317,7 @@ class BoolShapes(Cmd):
     "True-default -> BooleanOptionalAction (--always/--no-always)"
     ("--always",)
 
-    env_flag: "Arg[bool, NS(env='BOOLSHAPES_ENV_FLAG')]" = False
+    env_flag: "Arg[bool, Meta(env='BOOLSHAPES_ENV_FLAG')]" = False
     "env-layered bool -> BooleanOptionalAction even though its own default is False"
     ("--env-flag",)
 

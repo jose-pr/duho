@@ -10,14 +10,14 @@ occurrence (`nargs=None`) -- repeat the flag for more (`--x a --x b`), not
 space-separated in one occurrence (`--x a b`). `_factory_for`'s `"*"` default
 is downgraded to `None` specifically for the option case (a POSITIONAL
 collection field keeps `nargs="*"`, unrelated -- see `test_positional_reorder
-.py`); pass an explicit `NS(nargs="*")` to opt back into space-separated
+.py`); pass an explicit `Meta(nargs="*")` to opt back into space-separated
 multi-value for a specific option field.
 """
 
 import pytest
 
 import duho
-from duho import Arg, Args, Choice, NS
+from duho import Arg, Args, Choice, Meta
 
 # --- set / set[T] fields -------------------------------------------------
 
@@ -203,11 +203,11 @@ def test_set_and_tuple_round_trip_via_parse():
 
 
 class ExplicitNargsStarArgs(Args):
-    """An explicit `NS(nargs="*")` opts back into space-separated multi-value
+    """An explicit `Meta(nargs="*")` opts back into space-separated multi-value
     for a specific option field -- the escape hatch for anyone who wants the
     old behavior on a field they control."""
 
-    s: "Arg[set[int], NS(nargs='*')]"
+    s: "Arg[set[int], Meta(nargs='*')]"
     ("--s",)
 
 
@@ -217,13 +217,13 @@ def test_set_option_explicit_nargs_star_restores_space_separated():
 
 
 class ExplicitListNargsStarArgs(Args):
-    """Same explicit `NS(nargs="*")` opt-back, on a `list[T]` field this
+    """Same explicit `Meta(nargs="*")` opt-back, on a `list[T]` field this
     time: the option-vs-positional nargs/action shape is now decided from
     the FINAL flags and nargs once every override is applied, so this
     explicit opt-back restores space-separated multi-value instead of
     downgrading to one-value-per-occurrence and nesting."""
 
-    xs: "Arg[list[str], NS(nargs='*')]"
+    xs: "Arg[list[str], Meta(nargs='*')]"
     ("--xs",)
 
 
@@ -255,7 +255,7 @@ def test_list_repeated_flag_still_accumulates_after_replacing():
 class EnvListArgs(Args):
     """A list option layered from an env var."""
 
-    tags: "Arg[list[str], NS(env='DUHO_TEST_A005_TAGS')]" = []
+    tags: "Arg[list[str], Meta(env='DUHO_TEST_A005_TAGS')]" = []
     ("--tags",)
 
 

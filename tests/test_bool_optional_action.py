@@ -12,7 +12,7 @@ action needed handling:
   construction on 3.14+, on every invocation including `--help`.
 * Python 3.9/3.10's `BooleanOptionalAction.__init__` unconditionally appends
   " (default: %(default)s)" to any non-None help (removed in 3.11) -- this
-  breaks `NS(help=argparse.SUPPRESS)` (the option becomes visible again, since
+  breaks `Meta(help=argparse.SUPPRESS)` (the option becomes visible again, since
   argparse hides a help string only by IDENTITY with SUPPRESS) and would leak
   a raw "%(default)s" placeholder into agent-help JSON.
 
@@ -24,7 +24,7 @@ import argparse
 
 import pytest
 
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class NoPrefixTrueDefaultArgs(Args):
@@ -60,7 +60,7 @@ class MetavarTrueDefaultArgs(Args):
     (deprecated) metavar/choices/type params from BooleanOptionalAction
     outright, so building this used to crash on 3.14+."""
 
-    sign: Arg[bool, NS(metavar="SIGN")] = True
+    sign: Arg[bool, Meta(metavar="SIGN")] = True
     "Sign the result"
     ("--sign",)
 
@@ -74,10 +74,10 @@ def test_metavar_true_default_bool_builds_and_parses():
 
 
 class SuppressedTrueDefaultArgs(Args):
-    """A True-default bool hidden via NS(help=argparse.SUPPRESS), alongside a
+    """A True-default bool hidden via Meta(help=argparse.SUPPRESS), alongside a
     plain visible one with real help text."""
 
-    telemetry: Arg[bool, NS(help=argparse.SUPPRESS)] = True
+    telemetry: Arg[bool, Meta(help=argparse.SUPPRESS)] = True
     "unused"
     ("--telemetry",)
 
@@ -117,7 +117,7 @@ class NoPrefixLayeredFalseDefaultArgs(Args):
     synthesize a `--no-no-verify` pair here too, crashing parser
     construction on 3.14+ the same way the True-default case above did."""
 
-    no_verify: Arg[bool, NS(env="DUHO_TEST_LAYERED_NO_VERIFY")] = False
+    no_verify: Arg[bool, Meta(env="DUHO_TEST_LAYERED_NO_VERIFY")] = False
     "Skip verification"
     ("--no-verify",)
 

@@ -1,5 +1,5 @@
 """The collection/flag helpers (`Append`, `Choice`, `Const`, `Count`,
-`Extend`) accept the same metadata keys `Meta`/`NS` do, and a raw
+`Extend`) accept the same metadata keys `Meta` does, and a raw
 `kwargs={"help": ...}` overrides the derived help instead of colliding."""
 
 import os
@@ -8,7 +8,7 @@ from typing import List
 import pytest
 
 import duho
-from duho import Arg, Args, Meta, NS
+from duho import Arg, Args, Meta
 
 
 def _help(cls) -> str:
@@ -74,10 +74,9 @@ def test_choice_accepts_conflicts():
         duho.parse(C, ["--a", "y", "--b"])
 
 
-@pytest.mark.parametrize("wrap", [NS, Meta])
-def test_raw_kwargs_help_overrides_derived_help(wrap):
+def test_raw_kwargs_help_overrides_derived_help():
     class R(Args):
-        n: Arg[int, wrap(kwargs={"help": "raw help"})] = 1
+        n: Arg[int, Meta(kwargs={"help": "raw help"})] = 1
         "derived help"
 
     text = _help(R)

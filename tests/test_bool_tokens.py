@@ -11,7 +11,7 @@ AST-derived flags/env resolve normally.
 
 import pytest
 
-from duho import Arg, Args, NS, _compat
+from duho import Arg, Args, Meta, _compat
 from duho.env import Env
 from duho.logging import traceback_enabled
 
@@ -33,13 +33,13 @@ def test_traceback_enabled_respects_shared_truthy_set(monkeypatch, true_token):
 class _EnvBoolArgs(Args):
     """A bool field layered from the same env var `Env.bool` reads."""
 
-    debug: "Arg[bool, NS(env='WSAPP_DEBUG')]" = False
+    debug: "Arg[bool, Meta(env='WSAPP_DEBUG')]" = False
     ("--debug",)
 
 
 def test_env_bool_strips_whitespace_like_the_layered_converter(monkeypatch):
     # The classic cmd.exe `set VAR=1 && ...` trailing-space pitfall: a
-    # layered NS(env=...) bool field already saw "1 " as True (it strips);
+    # layered Meta(env=...) bool field already saw "1 " as True (it strips);
     # Env.bool disagreed by not stripping, and read the same text as False.
     monkeypatch.setenv("WSAPP_DEBUG", "1 ")
     import duho

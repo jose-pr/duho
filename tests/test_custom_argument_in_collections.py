@@ -77,10 +77,10 @@ def test_union_member_custom_type():
 
 
 def test_env_layer_uses_the_custom_builder(monkeypatch):
-    from duho import Arg, NS
+    from duho import Arg, Meta
 
     class A(Args):
-        p: Arg[Optional[Port], NS(env="DUHO_T_CUSTOM_PORT")] = None
+        p: Arg[Optional[Port], Meta(env="DUHO_T_CUSTOM_PORT")] = None
 
     monkeypatch.setenv("DUHO_T_CUSTOM_PORT", "81")
     assert duho.parse(A, []).p == Port(81)

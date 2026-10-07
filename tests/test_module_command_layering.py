@@ -11,13 +11,13 @@ from duho.runtime import app
 
 _PRECEDENCE = '''\
 """Module command with an env- and config-backed field."""
-from duho import Arg, NS
+from duho import Arg, Meta
 
 SEEN = {}
 
 
 class Args:
-    token: "Arg[str, NS(env='DUHO_TEST_MODLAYER_TOKEN')]" = "default"
+    token: "Arg[str, Meta(env='DUHO_TEST_MODLAYER_TOKEN')]" = "default"
     "Auth token"
     ("--token",)
 
@@ -29,15 +29,15 @@ def main(args):
 
 _GROUP = '''\
 """Module command with a required conflicts group."""
-from duho import Arg, NS
+from duho import Arg, Meta
 
 SEEN = {}
 
 
 class Args:
-    token: "Arg[str, NS(env='DUHO_TEST_MODLAYER_GTOKEN', conflicts='auth', conflicts_required=True)]" = ""
+    token: "Arg[str, Meta(env='DUHO_TEST_MODLAYER_GTOKEN', conflicts='auth', conflicts_required=True)]" = ""
     ("--token",)
-    password: "Arg[str, NS(conflicts='auth')]" = ""
+    password: "Arg[str, Meta(conflicts='auth')]" = ""
     ("--password",)
 
 

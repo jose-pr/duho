@@ -3,7 +3,7 @@
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Cluster(Args):
@@ -13,7 +13,7 @@ class Cluster(Args):
     files: "list[str]" = []
     ("files",)
 
-    verbose: "Arg[int, NS(action='count', flags=('-v',))]" = 0
+    verbose: "Arg[int, Meta(action='count', flags=('-v',))]" = 0
 
     all_: bool = False
     ("-a",)

@@ -15,7 +15,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import Arg, Args, Choice, NS
+from duho import Arg, Args, Choice, Meta
 
 # --------------------------------------------------------------------------
 # Bad env value -> ValueError naming the variable and the field
@@ -25,7 +25,7 @@ from duho import Arg, Args, Choice, NS
 class _EnvArgs(Args):
     """A typed field backed by an environment variable."""
 
-    port: Arg[int, NS(env="DUHO_T5_PORT")] = 8000
+    port: Arg[int, Meta(env="DUHO_T5_PORT")] = 8000
     "Server port"
     ("--port",)
 
@@ -89,7 +89,7 @@ class _KeyErrorFactoryArgs(Args):
     """A mapping-lookup ``type=`` factory -- raises ``KeyError``, which is
     neither ``TypeError`` nor ``ValueError``."""
 
-    region: Arg[str, NS(env="DUHO_T5_REGION", type=_REGIONS.__getitem__)] = "us"
+    region: Arg[str, Meta(env="DUHO_T5_REGION", type=_REGIONS.__getitem__)] = "us"
     "Region"
     ("--region",)
 
@@ -123,7 +123,7 @@ COLORS = {"red": 1, "green": 2}
 class _BoundLookupArgs(Args):
     """A small bound-lookup `type=` factory."""
 
-    color: Arg[int, NS(env="DUHO_T7_COLOR", type=COLORS.__getitem__)] = 1
+    color: Arg[int, Meta(env="DUHO_T7_COLOR", type=COLORS.__getitem__)] = 1
     "Color"
     ("--color",)
 
@@ -146,7 +146,7 @@ _BIG_TABLE = {str(i): i for i in range(25)}
 class _BoundLookupBigTableArgs(Args):
     """A bound-lookup `type=` factory whose mapping is too large to list."""
 
-    code: Arg[int, NS(env="DUHO_T7_CODE", type=_BIG_TABLE.__getitem__)] = 0
+    code: Arg[int, Meta(env="DUHO_T7_CODE", type=_BIG_TABLE.__getitem__)] = 0
     "Code"
     ("--code",)
 
@@ -179,7 +179,7 @@ class _ArgumentTypeErrorFactoryArgs(Args):
     """A ``type=`` factory raising ``argparse.ArgumentTypeError`` -- NOT a
     ``ValueError`` subclass, unlike most of argparse's own conversions."""
 
-    token: Arg[str, NS(env="DUHO_T5_TOKEN", type=_parse_token)] = "tok_default"
+    token: Arg[str, Meta(env="DUHO_T5_TOKEN", type=_parse_token)] = "tok_default"
     "API token"
     ("--token",)
 

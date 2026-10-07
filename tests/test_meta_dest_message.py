@@ -1,5 +1,5 @@
 """`Meta(dest=...)` is refused with a message that says the dest is always the
-field name, not one that points to `NS(dest=...)` (which changes nothing)."""
+field name."""
 
 import pytest
 
@@ -11,4 +11,3 @@ def test_meta_dest_error_says_the_dest_is_the_field_name():
         Meta(dest="renamed")
     message = str(info.value)
     assert "field name" in message
-    assert "NS(dest" not in message

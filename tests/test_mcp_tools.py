@@ -134,16 +134,16 @@ def test_leaf_tool_with_no_fields_of_its_own_inherits_ancestor_fields():
 
 
 def test_conflict_groups_noted_in_description():
-    from duho import Arg, NS
+    from duho import Arg, Meta
 
     class Compressed(Cmd):
         """Compress output."""
 
-        gzip: Arg[bool, NS(conflicts="compression")] = False
+        gzip: Arg[bool, Meta(conflicts="compression")] = False
         "gzip"
         ("--gzip",)
 
-        zstd: Arg[bool, NS(conflicts="compression")] = False
+        zstd: Arg[bool, Meta(conflicts="compression")] = False
         "zstd"
         ("--zstd",)
 

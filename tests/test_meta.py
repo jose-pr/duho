@@ -1,4 +1,4 @@
-"""Tests for duho.Meta -- the typed, typo-safe alternative to NS(...).
+"""Tests for duho.Meta -- the typed, typo-safe form of field metadata.
 
 Also covers PEP-727 ``Doc`` duck-typing (an object with a str ``.documentation``
 attr contributes help). All classes are declared at module level so AST-derived
@@ -15,7 +15,7 @@ from duho.args import _META_UNSET
 
 
 class MetaArgs(Args):
-    """Fields configured via Meta instead of NS."""
+    """Fields configured via Meta."""
 
     level: Arg[int, Meta(help="verbosity", env="DUHO_TEST_LEVEL")] = 0
     ("--level",)
@@ -56,8 +56,8 @@ def test_meta_only_set_fields_merge():
 def test_meta_dest_is_not_a_field():
     """Meta has no ``dest`` field: a field's dest is always its declared name,
 
-    so a ``dest=`` override that LOOKS honored but is silently dropped
-    (``NS(dest=...)``'s behavior) is a loud ``TypeError`` here instead.
+    so ``dest=`` is a ``TypeError`` instead of a value that looks honored
+    but is never used.
     """
     with pytest.raises(TypeError, match="Meta has no 'dest' field"):
         Meta(dest="renamed")
@@ -75,7 +75,7 @@ def test_meta_flags():
 
 
 class MetaDefault(Args):
-    """Meta(default=...) works the same as NS(default=...)."""
+    """Meta(default=...) sets the field's default."""
 
     count: Arg[int, Meta(default=7)] = 0
     ("--count",)
@@ -107,7 +107,7 @@ def test_meta_conflicts_required():
 
 
 class _AnnotatedForeignStr(Args):
-    """A bare str in the Annotated metadata (neither NS nor Meta)."""
+    """A bare str in the Annotated metadata (neither a Meta nor a dict)."""
 
     n: Arg[int, "a positive int"] = 1
     ("--n",)

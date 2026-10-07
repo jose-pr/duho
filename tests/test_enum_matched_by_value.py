@@ -1,4 +1,4 @@
-"""``Meta(enum_by="value")`` / ``NS(enum_by="value")`` match an Enum by value text."""
+"""``Meta(enum_by="value")`` matches an Enum by value text."""
 
 import enum
 import typing as ty
@@ -7,7 +7,7 @@ import pytest
 
 import duho
 import duho.completion as completion
-from duho import NS, Arg, Meta
+from duho import Arg, Meta
 from duho.agenthelp import describe
 from duho.mcp._schema import input_schema_for_command
 
@@ -25,7 +25,7 @@ class Level(enum.Enum):
 class ByValue(duho.Cmd):
     mode: Arg[Mode, Meta(enum_by="value")] = Mode.FAST
     """how"""
-    level: Arg[Level, NS(enum_by="value")] = Level.LOW
+    level: Arg[Level, Meta(enum_by="value")] = Level.LOW
     """how much"""
 
     def __call__(self):

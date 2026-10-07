@@ -16,10 +16,10 @@ field declared here is available to every subcommand without redeclaring it,
 and ``args._logger_`` (from ``LoggingArgs``) is one shared, correctly-named
 logger every command body logs through -- not a fresh ``print()`` per file.
 The root also exercises duho's config/env layering (``_config_``,
-``NS(env=...)``) and a few more ``Arg`` helper factories
+``Meta(env=...)``) and a few more ``Arg`` helper factories
 (``Choice``/``Count``/``Append``) that ``examples/fileinstall.py`` doesn't
 already cover (that example is the one for Union/Enum types,
-``NS(conflicts=...)``, ``NS(nargs="?")``, and a custom ``UpdateAction``).
+``Meta(conflicts=...)``, ``Meta(nargs="?")``, and a custom ``UpdateAction``).
 
 ``examples/discovery_cmds/`` has no ``__init__.py``, so this is a bare
 directory of loose command files:
@@ -64,7 +64,7 @@ import sys
 from pathlib import Path
 
 import duho
-from duho import Append, Arg, Choice, Count, LoggingArgs, NS
+from duho import Append, Arg, Choice, Count, LoggingArgs, Meta
 
 _CMDS_DIR = Path(__file__).parent / "discovery_cmds"
 _CONFIG_PATH = Path(__file__).parent / "discovery_app.toml"
@@ -89,7 +89,7 @@ class DiscoveryAppArgs(LoggingArgs):
     #: see the module docstring's "Run it" section.
     _mcp_command_ = True
 
-    label: "Arg[str, NS(env='DISCOVERY_APP_LABEL')]" = "discovery-app"
+    label: "Arg[str, Meta(env='DISCOVERY_APP_LABEL')]" = "discovery-app"
     "A label commands can read off the shared root (e.g. for a log-line tag). Also settable via DISCOVERY_APP_LABEL or discovery_app.toml's `label` key."
 
     tags: "Arg[list, Append()]" = []

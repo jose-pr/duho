@@ -66,17 +66,17 @@ def test_unsupported_generic_origin_raises_at_build_time():
 
 
 # --------------------------------------------------------------------------
-# Annotated nested inside a Union (e.g. Optional[Arg[int, NS(...)]]): the
+# Annotated nested inside a Union (e.g. Optional[Arg[int, Meta(...)]]): the
 # single Annotated member's metadata is lifted out of the Union and applied
 # to the field, rather than crashing with a bare TypeError from an
 # unhashable-metadata dict lookup or silently dropping the metadata.
 # --------------------------------------------------------------------------
 
-from duho import Arg, NS  # noqa: E402
+from duho import Arg, Meta  # noqa: E402
 
 
 class _NestedAnnotatedArgs(Args):
-    n: "ty.Optional[Arg[int, NS(env='ANNOT_N')]]" = None
+    n: "ty.Optional[Arg[int, Meta(env='ANNOT_N')]]" = None
     ("--n",)
 
 
@@ -85,7 +85,7 @@ def test_nested_annotated_in_union_lifts_metadata_and_works():
         # On 3.9 and 3.10, `typing.Union.__getitem__` itself eagerly hashes
         # its members (deduplicating them through a `set`) the moment the
         # annotation is evaluated, before duho's own resolution ever runs --
-        # and `Arg[int, NS(...)]`'s `NS(...)` metadata isn't hashable. Not a
+        # and `Arg[int, Meta(...)]`'s `Meta(...)` metadata isn't hashable. Not a
         # case duho's ladder can intercept earlier than that; it still
         # surfaces as a clear, field-named error rather than a bare,
         # unattributed one.
@@ -167,13 +167,13 @@ def test_pep695_type_alias_list_field_converts():
 
 # --------------------------------------------------------------------------
 # A PEP 695 alias WRAPPING Annotated (`type Port = Annotated[int,
-# NS(...)]`) must unwrap through `__value__` -- the bare alias case above
+# Meta(...)]`) must unwrap through `__value__` -- the bare alias case above
 # never carried metadata, so it never exercised this.
 # --------------------------------------------------------------------------
 
 if hasattr(ty, "TypeAliasType"):
     PortWithMeta = ty.TypeAliasType(
-        "PortWithMeta", ty.Annotated[int, NS(metavar="PORT")]
+        "PortWithMeta", ty.Annotated[int, Meta(metavar="PORT")]
     )
 
     class _Pep695AnnotatedAliasArgs(Args):
@@ -199,7 +199,7 @@ def test_pep695_type_alias_wrapping_annotated_unwraps_metadata():
 
 
 class _AmbiguousUnionArgs(Args):
-    n: "ty.Union[Arg[int, NS(metavar='A')], Arg[str, NS(metavar='B')]]" = None
+    n: "ty.Union[Arg[int, Meta(metavar='A')], Arg[str, Meta(metavar='B')]]" = None
     ("--n",)
 
 

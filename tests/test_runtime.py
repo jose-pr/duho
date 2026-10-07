@@ -19,6 +19,7 @@ docstrings, per the project's AST/-c limitation). The fixtures double as
 readable documentation of the supported command shapes.
 """
 
+import argparse
 import logging
 import os
 import sys
@@ -288,7 +289,7 @@ def test_verbose_before_class_subcommand_survives(tmp_path):
 class _RootEnv(duho.LoggingArgs, duho.Cli):
     """Root with an env-backed global field."""
 
-    token: duho.Arg[str, duho.NS(env="DUHO_TEST_ROOT_TOKEN")] = "class-default"
+    token: duho.Arg[str, duho.Meta(env="DUHO_TEST_ROOT_TOKEN")] = "class-default"
     "Auth token"
     ("--token",)
 
@@ -700,19 +701,19 @@ def test_module_args_class_fields_precede_register_added_ones(tmp_path):
 
 
 _MODULE_CMD_ARGS_CLASS_WITH_CONFLICTS = '''\
-"""A module command declaring a mutually-exclusive pair via NS(conflicts=...)."""
+"""A module command declaring a mutually-exclusive pair via Meta(conflicts=...)."""
 
 import duho
-from duho import Arg, NS
+from duho import Arg, Meta
 
 SEEN = {}
 
 
 class Args:
-    fast: Arg[bool, NS(conflicts="mode")] = False
+    fast: Arg[bool, Meta(conflicts="mode")] = False
     ("--fast",)
 
-    slow: Arg[bool, NS(conflicts="mode")] = False
+    slow: Arg[bool, Meta(conflicts="mode")] = False
     ("--slow",)
 
 
@@ -724,7 +725,7 @@ def main(args):
 
 
 def test_module_args_class_supports_mutually_exclusive_conflicts(tmp_path):
-    """A module command's own declared fields honor ``NS(conflicts=...)``
+    """A module command's own declared fields honor ``Meta(conflicts=...)``
     the same as a class command's -- ``_initparser_``'s fuller machinery is
     only available to a class command, so a module command would otherwise
     silently have no support for it at all."""
@@ -1031,7 +1032,7 @@ def test_run_command_module_lifecycle_direct(tmp_path):
     try:
         spec.loader.exec_module(module)
         command = ModuleCommand(module, name="backup")
-        rc = run_command(command, duho.NS())
+        rc = run_command(command, argparse.Namespace())
         assert rc == 0
         order = [s if isinstance(s, str) else s[0] for s in module.TRACE]
         assert order == ["init", "main", "success", "finally"]
@@ -1150,7 +1151,7 @@ def test_run_command_delivers_duho_logger_fallback_to_module_hooks(tmp_path):
     try:
         spec.loader.exec_module(module)
         command = ModuleCommand(module, name="plain-hook")
-        instance = duho.NS()  # no _logger_ of its own
+        instance = argparse.Namespace()  # no _logger_ of its own
         rc = run_command(command, instance)
         assert rc == 0
         assert module.SEEN["logger_name"] == "duho"
@@ -1171,7 +1172,7 @@ def test_run_command_does_not_override_an_existing_logger(tmp_path):
     try:
         spec.loader.exec_module(module)
         command = ModuleCommand(module, name="has-logger")
-        instance = duho.NS()
+        instance = argparse.Namespace()
         instance._logger_ = duho.logging.getLogger("scoped.logger")
         run_command(command, instance)
         assert module.SEEN["logger_name"] == "scoped.logger"
@@ -1877,13 +1878,13 @@ def test_module_command_reorders_flag_between_positionals(tmp_path):
 
 _CLASS_CMD_NESTED_D021 = '''\
 """Remote operations."""
-from duho import Cmd, Arg, NS
+from duho import Cmd, Arg, Meta
 
 
 class Push(Cmd):
     """Push to a remote."""
 
-    url: "Arg[str, NS(env='DUHO_TEST_D021_URL')]" = "default-url"
+    url: "Arg[str, Meta(env='DUHO_TEST_D021_URL')]" = "default-url"
     "Target url"
     ("--url",)
 
@@ -1926,13 +1927,13 @@ def test_app_threads_config_to_nested_class_subcommand(tmp_path):
 
 _MODULE_CMD_ARGS_ENV_D021 = '''\
 """A module command whose declared Args field is backed by env/config."""
-from duho import Arg, NS
+from duho import Arg, Meta
 
 SEEN = {}
 
 
 class Args:
-    token: "Arg[str, NS(env='DUHO_TEST_D021_MODTOKEN')]" = "unset"
+    token: "Arg[str, Meta(env='DUHO_TEST_D021_MODTOKEN')]" = "unset"
     "Auth token"
     ("--token",)
 
@@ -1988,7 +1989,7 @@ def test_app_threads_config_to_module_declared_args_class(tmp_path):
 class _RootWithPercentDefaultGlobal(duho.Cli):
     """Root whose own global's help spells %(default)s literally."""
 
-    rtok: "duho.Arg[str, duho.NS(env='DUHO_TEST_ROOT_PERCENT_DEFAULT')]" = "rootdef"
+    rtok: "duho.Arg[str, duho.Meta(env='DUHO_TEST_ROOT_PERCENT_DEFAULT')]" = "rootdef"
     "root %(default)s"
     ("--rtok",)
 
@@ -2084,7 +2085,7 @@ def test_help_never_shows_a_live_env_value_for_a_suppressed_root_global(
 ):
     """The stashed value is the CLASS default (see the tests above), never
     the LIVE env-layered one -- the same no-secrets-in-help contract every
-    other ``NS(env=...)`` field already gets."""
+    other ``Meta(env=...)`` field already gets."""
     _write(tmp_path, "plain.py", _MODULE_CMD_PLAIN_NO_OWN_ARGS)
     monkeypatch.setenv("DUHO_TEST_ROOT_PERCENT_DEFAULT", "topsecretvalue")
     with pytest.raises(SystemExit):
@@ -2109,11 +2110,11 @@ def test_help_never_shows_a_live_env_value_for_a_suppressed_root_global(
 
 _MODULE_CMD_WITH_INT_ENV_FIELD = '''\
 """module with an int env field."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Args(Args):
-    port: Arg[int, NS(env="DUHO_TEST_BAD_MOD_PORT")] = 1
+    port: Arg[int, Meta(env="DUHO_TEST_BAD_MOD_PORT")] = 1
     "port"
     ("--port",)
 

@@ -8,7 +8,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import Arg, Args, Count, Extend, NS
+from duho import Arg, Args, Count, Extend, Meta
 from duho.fanout import run_targets
 
 
@@ -49,7 +49,7 @@ def test_extend_with_a_callable_flattens_repeated_occurrences():
 class CountFromEnvArgs(Args):
     """A count field that can start from an environment variable."""
 
-    verbose: "Arg[int, NS(env='DUHO_TEST_COUNT_VERBOSE'), Count()]" = 0
+    verbose: "Arg[int, Meta(env='DUHO_TEST_COUNT_VERBOSE'), Count()]" = 0
     ("-v",)
 
 

@@ -5,7 +5,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import NS, Arg, Meta
+from duho import Arg, Meta
 
 
 class Plain(duho.Cmd):
@@ -29,7 +29,7 @@ class Lit(duho.Cmd):
     ("-k", "--k")
     plain: str = "none"
     ("--plain",)
-    names: Arg[ty.List[str], NS(literal_value=True)] = []
+    names: Arg[ty.List[str], Meta(literal_value=True)] = []
     ("--names",)
     flag: bool = False
     ("--flag",)

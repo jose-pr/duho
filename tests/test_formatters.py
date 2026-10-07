@@ -14,7 +14,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class DefaultsApp(Args):
@@ -79,7 +79,7 @@ class SecretHelpApp(Args):
 
     _help_formatter_ = duho.DefaultsFormatter
 
-    token: Arg[str, NS(env="DUHO_TEST_FORMATTERS_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_FORMATTERS_SECRET")] = ""
     "Auth token"
     ("--token",)
 
@@ -118,7 +118,7 @@ class SecretPlaceholderApp(Args):
 
     _help_formatter_ = duho.DefaultsFormatter
 
-    token: Arg[str, NS(env="DUHO_TEST_FORMATTERS_PLACEHOLDER_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_FORMATTERS_PLACEHOLDER_SECRET")] = ""
     "Auth token (default: %(default)s)"
     ("--token",)
 

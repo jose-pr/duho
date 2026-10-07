@@ -3,7 +3,7 @@
 import pytest
 
 import duho
-from duho import NS, Arg
+from duho import Meta, Arg
 
 
 class Resolve(duho.Cmd):
@@ -35,7 +35,7 @@ class Tool(duho.Cli):
     ("-v", "--verbose")
     profile: str = "none"
     ("--profile",)
-    multi: "Arg[list[str], NS(nargs='*')]" = []
+    multi: "Arg[list[str], Meta(nargs='*')]" = []
     ("--multi",)
 
 

@@ -7,7 +7,7 @@ from typing import Optional
 import pytest
 
 import duho
-from duho import Arg, Cli, Cmd, NS
+from duho import Arg, Cli, Cmd, Meta
 from duho.testing import invoke
 
 
@@ -39,7 +39,7 @@ class _FieldOnly(Cmd):
 class _FieldWithEnv(Cmd):
     _config_field_ = "config"
 
-    config: "Arg[Optional[str], NS(env='CFGLOC_FIELD_ENV')]" = None
+    config: "Arg[Optional[str], Meta(env='CFGLOC_FIELD_ENV')]" = None
     ("--config",)
 
     level: str = "default"

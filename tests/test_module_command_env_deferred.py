@@ -6,11 +6,11 @@ from duho.runtime import app
 
 _MOD = '''\
 """Uses a port."""
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Args(Args):
-    port: Arg[int, NS(env="DUHO_TEST_DEFERRED_PORT")] = 80
+    port: Arg[int, Meta(env="DUHO_TEST_DEFERRED_PORT")] = 80
     "Port"
     ("--port",)
 

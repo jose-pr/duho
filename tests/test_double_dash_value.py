@@ -10,7 +10,7 @@ import typing as _t
 import pytest
 
 import duho
-from duho import NS, Arg, Cli, Cmd, LoggingArgs
+from duho import Meta, Arg, Cli, Cmd, LoggingArgs
 
 from duho.args import _keep_attached_double_dash
 
@@ -34,7 +34,7 @@ class Opts(Cmd):
     "A short-only option"
     ("-s",)
 
-    tagged: "Arg[str, NS(type=_tag)]" = "none"
+    tagged: "Arg[str, Meta(type=_tag)]" = "none"
     "A converted option"
     ("--tagged",)
 
@@ -105,7 +105,7 @@ def test_subcommand_option():
 
 _MODULE_WITH_ARGS = '''\
 """A module command that declares an option."""
-from duho import Arg, NS
+from duho import Arg, Meta
 
 
 class Args:

@@ -13,13 +13,13 @@ import pytest
 
 from conftest import subprocess_env
 import duho
-from duho import Arg, Cli, Cmd, NS
+from duho import Arg, Cli, Cmd, Meta
 
 
 class JsonArgs(duho.Args):
     """Fields sourced from a JSON config file."""
 
-    host: Arg[str, NS(env="DUHO_TEST_JHOST")] = "localhost"
+    host: Arg[str, Meta(env="DUHO_TEST_JHOST")] = "localhost"
     "Server host"
     ("--host",)
 

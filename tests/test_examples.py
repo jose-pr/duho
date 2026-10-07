@@ -3,8 +3,8 @@ examples/discovery_app.py, examples/runpath_app.py.
 
 These exercise the example files as acceptance tests for duho's public API
 surface: LoggingArgs, _subcommands_, Cmd dispatch via duho.main(), and
-(for fileinstall) positionals, Union types, NS(nargs="?"), a custom
-action=UpdateAction, and NS(conflicts=...) mutually-exclusive grouping. The
+(for fileinstall) positionals, Union types, Meta(nargs="?"), a custom
+action=UpdateAction, and Meta(conflicts=...) mutually-exclusive grouping. The
 mcp_app tests exercise duho.mcp's describe_tools/call_tool against a real,
 unmodified duho CLI (fileinstall.FileInstall), the point of that example.
 discovery_app/runpath_app exercise duho.discover_commands / duho.runpath end

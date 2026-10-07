@@ -18,7 +18,7 @@ based introspection needs real on-disk source, never a ``python -c`` string
 """
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 from duho.args import (
     _has_variadic_positional,
     _reorder_argv_for_variadic_positional,
@@ -36,7 +36,7 @@ class QueryArgs(Args):
     "Trailing target hosts."
     ("targets",)
 
-    filters: "Arg[list, NS(action='append', nargs=None)]" = []
+    filters: "Arg[list, Meta(action='append', nargs=None)]" = []
     "Repeatable key=value filters -- nargs=None pins ONE value per flag."
     ("-f",)
 
@@ -206,7 +206,7 @@ def test_reorder_and_passthrough_compose():
 
 
 class VariadicFlagArgs(Args):
-    """A flag whose OWN nargs is variable (via an EXPLICIT `NS(nargs="*")`
+    """A flag whose OWN nargs is variable (via an EXPLICIT `Meta(nargs="*")`
     override -- a bare `list[T]`-as-option now defaults to `nargs=None`,
     see the `list[T]`-as-option default change) -- confirmed this session
     that even bare argparse cannot resolve this combination when the flag
@@ -219,9 +219,9 @@ class VariadicFlagArgs(Args):
     targets: "list[str]" = []
     ("targets",)
 
-    # An EXPLICIT NS(nargs="*") is now the only way to reach this shape for
+    # An EXPLICIT Meta(nargs="*") is now the only way to reach this shape for
     # an option -- the bare list[T] default is nargs=None (see above).
-    filters: "Arg[list, NS(action='extend', nargs='*')]" = []
+    filters: "Arg[list, Meta(action='extend', nargs='*')]" = []
     ("-f",)
 
 
@@ -266,7 +266,7 @@ class ShortFlagArgs(Args):
     targets: "list[str]" = []
     ("targets",)
 
-    filters: "Arg[list, NS(action='append', nargs=None)]" = []
+    filters: "Arg[list, Meta(action='append', nargs=None)]" = []
     ("-f", "--filter")
 
 
@@ -319,7 +319,7 @@ class DigitFlagArgs(Args):
     five: bool = False
     ("-5",)
 
-    filters: "Arg[list, NS(action='append', nargs=None)]" = []
+    filters: "Arg[list, Meta(action='append', nargs=None)]" = []
     ("-f",)
 
 

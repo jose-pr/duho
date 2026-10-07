@@ -1,4 +1,4 @@
-"""Every entry point layers the class's own `_config_` and `NS(env=...)`: a
+"""Every entry point layers the class's own `_config_` and `Meta(env=...)`: a
 bare parser from `duho.parser`/`cls._parser_()` agrees with `duho.parse`."""
 
 import json
@@ -6,7 +6,7 @@ import json
 import pytest
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def app_cls(tmp_path, monkeypatch):
     class EntryLayerApp(Args):
         _config_ = str(cfg)
         port: int = 1
-        host: Arg[str, NS(env="DUHO_T_ENTRY_HOST")] = "localhost"
+        host: Arg[str, Meta(env="DUHO_T_ENTRY_HOST")] = "localhost"
         debug: bool = False
 
     return EntryLayerApp

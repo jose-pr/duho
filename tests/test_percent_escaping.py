@@ -12,7 +12,7 @@ agent-help JSON document must EXPAND (not just avoid crashing on).
 import pytest
 
 import duho
-from duho import agenthelp, Arg, Args, Cmd, NS
+from duho import agenthelp, Arg, Args, Cmd, Meta
 
 
 def test_field_docstring_with_percent_does_not_crash_parser_build():
@@ -37,11 +37,11 @@ def test_field_docstring_with_percent_survives_parse_and_help():
 
 
 def test_explicit_help_override_is_not_double_escaped():
-    """An explicit `NS(help=...)`/`Meta(help=...)` is applied AFTER the
+    """An explicit `Meta(help=...)` is applied AFTER the
     docstring-derived escape and must not be touched by it."""
 
     class Explicit(Args):
-        pct: "Arg[int, NS(help='Literal %(default)s used verbatim')]" = 10
+        pct: "Arg[int, Meta(help='Literal %(default)s used verbatim')]" = 10
         "This docstring is replaced by the explicit help="
         ("--pct",)
 

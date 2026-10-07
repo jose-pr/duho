@@ -38,24 +38,6 @@ def _clean_modules():
             del sys.modules[name]
 
 
-def test_ns_help_lambda_reads_a_module_global(tmp_path):
-    m = _load(
-        tmp_path,
-        """
-        import duho
-        from duho import Arg, NS
-
-        WORDS = "alpha|beta"
-
-        class App(duho.Cmd):
-            mode: Arg[str, NS(help=lambda: "one of " + WORDS)] = "alpha"
-        """,
-    )
-    result = invoke(m.App, ["--help"])
-    assert result.status == 0
-    assert "one of alpha|beta" in result.stdout
-
-
 def test_meta_help_lambda_reads_a_module_global(tmp_path):
     m = _load(
         tmp_path,
@@ -79,25 +61,25 @@ def test_inherited_field_reads_the_global_of_its_own_module(tmp_path):
         tmp_path,
         """
         import duho
-        from duho import Arg, NS
+        from duho import Arg, Meta
 
         WORDS = "from-base"
 
         class Base(duho.Cmd):
-            first: Arg[str, NS(help=lambda: "base " + WORDS)] = "a"
+            first: Arg[str, Meta(help=lambda: "base " + WORDS)] = "a"
         """,
         name="deferred_base_mod",
     )
     child = _load(
         tmp_path,
         """
-        from duho import Arg, NS
+        from duho import Arg, Meta
         from deferred_base_mod import Base
 
         WORDS = "from-child"
 
         class Child(Base):
-            second: Arg[str, NS(help=lambda: "child " + WORDS)] = "b"
+            second: Arg[str, Meta(help=lambda: "child " + WORDS)] = "b"
         """,
     )
     result = invoke(child.Child, ["--help"])
@@ -132,7 +114,7 @@ def test_a_nested_class_named_in_a_string_annotation_resolves(tmp_path):
         """
         import enum
         import duho
-        from duho import Arg, NS
+        from duho import Arg, Meta
 
         WORDS = "color"
 
@@ -141,7 +123,7 @@ def test_a_nested_class_named_in_a_string_annotation_resolves(tmp_path):
                 red = "red"
                 blue = "blue"
 
-            color: Arg[Color, NS(help=lambda: "pick a " + WORDS)] = Color.red
+            color: Arg[Color, Meta(help=lambda: "pick a " + WORDS)] = Color.red
         """,
     )
     result = invoke(m.App, ["--help"])

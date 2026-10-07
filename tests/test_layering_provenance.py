@@ -11,7 +11,7 @@ import typing as _t
 import pytest
 
 import duho
-from duho import NS, Arg, Args
+from duho import Meta, Arg, Args
 
 # --------------------------------------------------------------------------
 # A layered/instance value must go through a `type=` factory
@@ -27,7 +27,7 @@ def _bang(text: str) -> str:
 
 
 class _NonIdempotent(Args):
-    token: "Arg[str, NS(type=_bang, env='DUHO_TEST_BANG_TOKEN')]" = "class-default"
+    token: "Arg[str, Meta(type=_bang, env='DUHO_TEST_BANG_TOKEN')]" = "class-default"
     ("--token",)
 
     verbose: bool = False
@@ -81,7 +81,7 @@ def test_parse_instance_seeded_placeholder_does_not_outrank_env(monkeypatch):
 
 
 class _EnvOverridable(Args):
-    flag: "Arg[bool, NS(env='DUHO_TEST_A31_FLAG')]" = False
+    flag: "Arg[bool, Meta(env='DUHO_TEST_A31_FLAG')]" = False
     ("--flag",)
 
 
@@ -103,10 +103,10 @@ def test_parse_instance_placeholder_lets_env_through(monkeypatch):
 
 
 class _Auth(Args):
-    token: "Arg[str, NS(env='DUHO_TEST_AUTH_TOKEN', conflicts='auth', conflicts_required=True)]" = ("")
+    token: "Arg[str, Meta(env='DUHO_TEST_AUTH_TOKEN', conflicts='auth', conflicts_required=True)]" = ("")
     ("--token",)
 
-    token_file: "Arg[str, NS(conflicts='auth')]" = ""
+    token_file: "Arg[str, Meta(conflicts='auth')]" = ""
     ("--token-file",)
 
 
@@ -135,7 +135,7 @@ def test_cli_sibling_drops_stale_layered_conflicts_member(monkeypatch):
 
 
 class Serve33(Args):
-    port: "Arg[int, NS(env='DUHO_TEST_A33_PORT')]" = 80
+    port: "Arg[int, Meta(env='DUHO_TEST_A33_PORT')]" = 80
     ("--port",)
 
     def __call__(self):
@@ -259,7 +259,7 @@ class InstallR21(Args):
 
 
 class RootR21(Args):
-    token: "Arg[str, NS(env='DUHO_TEST_R21_TOKEN')]" = ""
+    token: "Arg[str, Meta(env='DUHO_TEST_R21_TOKEN')]" = ""
     ("--token",)
 
     verbose: bool = False
@@ -294,7 +294,7 @@ def test_value_sources_on_subcommand_includes_root_fields(tmp_path, monkeypatch)
 
 
 class RepeatParsed(Args):
-    x: "Arg[int, NS(env='DUHO_TEST_REPEAT_X')]" = 1
+    x: "Arg[int, Meta(env='DUHO_TEST_REPEAT_X')]" = 1
     ("--x",)
 
 
@@ -319,7 +319,7 @@ def test_value_sources_does_not_flip_for_an_older_instance_of_the_same_class(
 
 
 class UnionExhaustion(Args):
-    value: "Arg[_t.Union[int, float], NS()]" = 0
+    value: "Arg[_t.Union[int, float], Meta()]" = 0
     ("--value",)
 
 
@@ -339,7 +339,7 @@ def test_union_conversion_error_names_member_types(capsys):
 
 
 class LayeredCount(Args):
-    verbose: "Arg[int, NS(env='DUHO_TEST_COUNT_VERBOSE'), duho.Count()]" = 0
+    verbose: "Arg[int, Meta(env='DUHO_TEST_COUNT_VERBOSE'), duho.Count()]" = 0
     ("-v", "--verbose")
 
 
@@ -358,7 +358,7 @@ def test_layered_count_field_cli_increments_on_top_of_it(monkeypatch):
 
 
 class LayeredAppend(Args):
-    tags: "Arg[_t.List[str], NS(env='DUHO_TEST_APPEND_TAGS'), duho.Append()]" = []
+    tags: "Arg[_t.List[str], Meta(env='DUHO_TEST_APPEND_TAGS'), duho.Append()]" = []
     ("--tags",)
 
 
@@ -382,7 +382,7 @@ def test_layered_append_field_cli_replaces_it_on_the_first_occurrence(monkeypatc
 
 
 class LayeredPositionalList(Args):
-    files: "Arg[_t.List[str], NS(flags=('files',), env='DUHO_TEST_POS_FILES')]" = []
+    files: "Arg[_t.List[str], Meta(flags=('files',), env='DUHO_TEST_POS_FILES')]" = []
     ("files",)
 
 
@@ -407,10 +407,10 @@ def test_layered_zero_token_positional_list_uses_the_converted_value(monkeypatch
 
 
 class ReusedParserArgs(Args):
-    port: "Arg[int, NS(env='DUHO_TEST_REUSE_PORT')]" = 80
+    port: "Arg[int, Meta(env='DUHO_TEST_REUSE_PORT')]" = 80
     ("--port",)
 
-    name: "Arg[str, NS(env='DUHO_TEST_REUSE_NAME')]"
+    name: "Arg[str, Meta(env='DUHO_TEST_REUSE_NAME')]"
     ("--name",)
 
 

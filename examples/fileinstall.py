@@ -5,7 +5,7 @@ Copies (or decompresses, symlinks, ...) a single source path to a destination,
 optionally setting mode/owner/group. This example is a stub -- it logs the
 resolved install plan instead of touching the filesystem, since the point here
 is exercising duho's heavier argparse surface (positionals, Union types,
-mutually-exclusive groups via ``NS(conflicts=...)``, ``NS(nargs="?")``, a custom
+mutually-exclusive groups via ``Meta(conflicts=...)``, ``Meta(nargs="?")``, a custom
 ``action=``, and ``enum.Enum`` choices), not re-implementing real install logic.
 
 Note: duho resolves `enum.Enum` CLI values by member *name* (not `.value`),
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import duho
-from duho import Arg, Cmd, LoggingArgs, NS, UpdateAction
+from duho import Arg, Cmd, LoggingArgs, Meta, UpdateAction
 
 
 class FileType(enum.Enum):
@@ -57,16 +57,16 @@ class Install(LoggingArgs, Cmd):
     "Optional staging root to prefix the (absolute) destination with."
     ("--root", "-r")
 
-    type: Arg[Union[FileType, str], NS(conflicts="type")] = "-"
+    type: Arg[Union[FileType, str], Meta(conflicts="type")] = "-"
     "Install type ('dir'/'file'/'link'); '-' autodetects from the source."
 
-    decompress: Arg[Union[str, bool], NS(nargs="?")] = False
+    decompress: Arg[Union[str, bool], Meta(nargs="?")] = False
     "Decompress the source; bare flag autodetects from its suffix."
     ("-x", "--decompress")
 
     options: Arg[
         dict,
-        NS(action=UpdateAction, type=lambda x: [x.split("=", maxsplit=1)]),
+        Meta(action=UpdateAction, type=lambda x: [x.split("=", maxsplit=1)]),
     ] = {}
     "Extra key=value install options (repeatable)."
     ("-O",)

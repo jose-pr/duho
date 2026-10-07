@@ -13,13 +13,13 @@ import typing as _ty
 import pytest
 
 import duho
-from duho import NS, Arg, Args
+from duho import Meta, Arg, Args
 
 
 class EnvArgs(Args):
     """A field with an env-var default."""
 
-    token: Arg[str, NS(env="DUHO_TEST_TOKEN")] = "class-default"
+    token: Arg[str, Meta(env="DUHO_TEST_TOKEN")] = "class-default"
     "Auth token"
     ("--token",)
 
@@ -45,7 +45,7 @@ def test_no_env_falls_back_to_class_default(monkeypatch):
 class ConfigArgs(Args):
     """Fields sourced from a config file."""
 
-    host: Arg[str, NS(env="DUHO_TEST_HOST")] = "localhost"
+    host: Arg[str, Meta(env="DUHO_TEST_HOST")] = "localhost"
     "Server host"
     ("--host",)
 
@@ -305,7 +305,7 @@ def test_main_config_kwarg_overrides_class_config_attr(tmp_path):
 class _ChoiceLayered(Args):
     """Literal/Choice fields backed by env and config."""
 
-    mode: "Arg[str, NS(choices=('fast', 'slow'), env='DUHO_TEST_MODE')]" = "fast"
+    mode: "Arg[str, Meta(choices=('fast', 'slow'), env='DUHO_TEST_MODE')]" = "fast"
     ("--mode",)
 
 
@@ -452,13 +452,13 @@ def test_config_loader_returning_none_is_treated_as_empty(tmp_path):
 class _EmptyEnvArgs(Args):
     """An env var set to the empty string."""
 
-    paths: "Arg[list[str], NS(env='DUHO_TEST_PATHS')]" = []
+    paths: "Arg[list[str], Meta(env='DUHO_TEST_PATHS')]" = []
     ("--paths",)
 
-    port: "Arg[_ty.Optional[int], NS(env='DUHO_TEST_PORT')]" = None
+    port: "Arg[_ty.Optional[int], Meta(env='DUHO_TEST_PORT')]" = None
     ("--port",)
 
-    name: "Arg[str, NS(env='DUHO_TEST_NAME')]" = "default-name"
+    name: "Arg[str, Meta(env='DUHO_TEST_NAME')]" = "default-name"
     ("--name",)
 
 
@@ -516,7 +516,7 @@ def test_missing_toml_backend_is_reported_with_a_clear_error(
 
 
 class _BoolEnv(Args):
-    dry: Arg[bool, NS(env="DUHO_A1_DRY")] = False
+    dry: Arg[bool, Meta(env="DUHO_A1_DRY")] = False
     "Dry run"
     ("--dry",)
 
@@ -559,13 +559,13 @@ def test_bool_env_garbage_reports_usage_error(monkeypatch, capsys):
 
 
 class _ListEnv(Args):
-    files: Arg[list[str], NS(env="DUHO_A1_FILES")]
+    files: Arg[list[str], Meta(env="DUHO_A1_FILES")]
     "Files"
     ("--files",)
 
 
 class _SetEnv(Args):
-    tags: Arg[set[str], NS(env="DUHO_A1_TAGS")]
+    tags: Arg[set[str], Meta(env="DUHO_A1_TAGS")]
     "Tags"
     ("--tags",)
 
@@ -622,7 +622,7 @@ def test_config_list_of_paths(tmp_path):
 
 
 class _SubLayeredVerbose(Args):
-    verbose: Arg[int, NS(env="DUHO_A2_VERBOSE")] = 0
+    verbose: Arg[int, Meta(env="DUHO_A2_VERBOSE")] = 0
     "Verbosity"
     ("--verbose",)
 
@@ -631,7 +631,7 @@ class _SubLayeredVerbose(Args):
 
 
 class _RootLayeredVerbose(duho.Cli):
-    verbose: Arg[int, NS(env="DUHO_A2_VERBOSE")] = 0
+    verbose: Arg[int, Meta(env="DUHO_A2_VERBOSE")] = 0
     "Verbosity"
     ("--verbose",)
 
@@ -659,7 +659,7 @@ def test_env_applies_when_no_cli_flag(monkeypatch):
 
 
 class _PositionalEnv(Args):
-    name: Arg[str, NS(env="DUHO_A3_NAME")]
+    name: Arg[str, Meta(env="DUHO_A3_NAME")]
     "Name"
     ("name",)
 

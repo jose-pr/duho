@@ -41,7 +41,7 @@ class Deploy(Cmd):
 
 _MODULE_CMD_GREET = '''\
 """Print a greeting (module command with its own declared Args)."""
-from duho import Arg, NS
+from duho import Arg, Meta
 
 
 class Args:
@@ -49,7 +49,7 @@ class Args:
     "Who to greet"
     ("--name",)
 
-    shout: "Arg[bool, NS(env='DUHO_TEST_MCP_APP_TREE_SHOUT')]" = False
+    shout: "Arg[bool, Meta(env='DUHO_TEST_MCP_APP_TREE_SHOUT')]" = False
     "Shout it"
     ("--shout",)
 
@@ -146,7 +146,7 @@ def test_module_command_without_fields_is_callable_over_mcp(tmp_path):
 
 
 def test_module_command_env_field_still_works_over_cli_layering(tmp_path, monkeypatch):
-    # A module command's own NS(env=...) field still resolves through the
+    # A module command's own Meta(env=...) field still resolves through the
     # real env/config layering pipeline when the MCP call omits it.
     monkeypatch.setenv("DUHO_TEST_MCP_APP_TREE_SHOUT", "1")
     core = _build(tmp_path)

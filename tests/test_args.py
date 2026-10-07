@@ -14,7 +14,7 @@ from duho import (
     Const,
     Count,
     Extend,
-    NS,
+    Meta,
     parse,
     parser as duho_parser,
 )
@@ -656,13 +656,15 @@ def test_double_dash_shorthand_twice_in_one_tuple_is_a_build_time_error():
         DoubledShorthand._parser_()
 
 
-# --- full argparse kwargs passthrough via Arg[T, NS(...)] ---
+# --- full argparse kwargs passthrough via Arg[T, Meta(...)] ---
 
 
 class KwargsOverrideArgs(Args):
-    """NS(kwargs={...}) must win over explicit NS(field=...) values."""
+    """Meta(kwargs={...}) must win over the explicit field values."""
 
-    mode: Arg[str, NS(required=True, kwargs={"required": False, "default": "x"})] = None
+    mode: Arg[str, Meta(required=True, kwargs={"required": False, "default": "x"})] = (
+        None
+    )
     "Mode with conflicting required flags"
     ("--mode",)
 
@@ -697,7 +699,7 @@ def test_store_const_without_const_raises():
     class BadConstArgs(Args):
         """Missing const for store_const."""
 
-        mode: Arg[str, NS(action="store_const")] = None
+        mode: Arg[str, Meta(action="store_const")] = None
         "Mode flag missing const"
         ("--fast",)
 
@@ -709,7 +711,7 @@ def test_action_version_forwards_version_and_suppresses_type():
     class VersionArgs(Args):
         """Class exercising a manual version action."""
 
-        ver: Arg[str, NS(action="version", version="myprog 1.2.3")] = None
+        ver: Arg[str, Meta(action="version", version="myprog 1.2.3")] = None
         "Show version"
         ("--show-version",)
 
@@ -724,7 +726,7 @@ def test_type_incompatible_actions_suppress_type_kwarg():
 
         class ActionArgs(Args):
             f"""Class exercising action={action!r}."""
-            flag: Arg[int, NS(action=action)] = 0
+            flag: Arg[int, Meta(action=action)] = 0
             "A flag"
             ("--flag",)
 
@@ -806,9 +808,9 @@ def test_two_positionals_preserve_order():
 
 
 class PositionalNargsPlusArgs(Args):
-    """A positional bound to nargs='+' via Arg[list, NS(nargs='+')]."""
+    """A positional bound to nargs='+' via Arg[list, Meta(nargs='+')]."""
 
-    files: Arg[list, NS(nargs="+")]
+    files: Arg[list, Meta(nargs="+")]
     "Files to process"
     ("files",)
 
@@ -911,7 +913,7 @@ def test_count_with_no_default_is_not_required():
 class StoreFalseNoDefaultArgs(Args):
     """A `store_false` action with no declared default."""
 
-    keep: Arg[bool, NS(action="store_false")]
+    keep: Arg[bool, Meta(action="store_false")]
     "Keep"
     ("--no-keep",)
 
@@ -943,10 +945,10 @@ def test_const_with_no_default_is_not_required():
 
 
 class RawKwargsConstArgs(Args):
-    """`const=` supplied through the raw NS(kwargs={...}) escape hatch must
+    """`const=` supplied through the raw Meta(kwargs={...}) escape hatch must
     still be seen by the store_const/append_const build-time check."""
 
-    fast: Arg[int, NS(kwargs={"action": "store_const", "const": 5})] = 0
+    fast: Arg[int, Meta(kwargs={"action": "store_const", "const": 5})] = 0
     "Fast mode"
     ("--fast",)
 
@@ -958,9 +960,9 @@ def test_const_via_raw_kwargs_escape_hatch():
 
 
 class RawKwargsVersionArgs(Args):
-    """`version=` supplied through the raw NS(kwargs={...}) escape hatch."""
+    """`version=` supplied through the raw Meta(kwargs={...}) escape hatch."""
 
-    dummy: Arg[str, NS(kwargs={"action": "version", "version": "9.9"})] = None
+    dummy: Arg[str, Meta(kwargs={"action": "version", "version": "9.9"})] = None
     "Version"
     ("--ver",)
 
@@ -1092,7 +1094,7 @@ def test_extend_on_set_field_produces_a_set_and_dedups():
 class ExtendEnvArgs(Args):
     """An Extend() field layered from an env var."""
 
-    paths: Arg[list, Extend(":"), NS(env="DUHO_TEST_A020_PATH")] = []
+    paths: Arg[list, Extend(":"), Meta(env="DUHO_TEST_A020_PATH")] = []
     "Search path"
     ("--path",)
 
@@ -1334,7 +1336,7 @@ def test_set_flags_container_is_build_error():
 
 
 class _SuppressSecond(Args):
-    hidden: Arg[int, NS(help="x"), argparse.SUPPRESS] = 0
+    hidden: Arg[int, Meta(help="x"), argparse.SUPPRESS] = 0
     ("--hidden",)
 
     shown: int = 1

@@ -259,7 +259,7 @@ def _declared_case(draw):
         return name, "int", "0", pos, v, v
     if kind == "count":
         v = draw(st.integers(min_value=0, max_value=5))
-        return name, "Arg[int, NS(action='count')]", "0", opt, v, v
+        return name, "Arg[int, Meta(action='count')]", "0", opt, v, v
     short = '("-z",)'
     if kind == "short_str":
         v = draw(_text)
@@ -281,7 +281,7 @@ import typing as ty
 from pathlib import Path
 
 import duho
-from duho import Arg, Cli, Cmd, NS
+from duho import Arg, Cli, Cmd, Meta
 
 
 class Color(enum.Enum):

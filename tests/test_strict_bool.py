@@ -12,7 +12,7 @@ AST-derived flags resolve normally.
 import typing as ty
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class _LitBoolArgs(Args):
@@ -107,7 +107,7 @@ def test_dict_bool_values_parse_strictly():
 class _EnvListBoolArgs(Args):
     """A list[bool] field layered from an env var, exercising convert_layered."""
 
-    bs: "Arg[list[bool], NS(env='STRICTBOOL_BS')]" = []
+    bs: "Arg[list[bool], Meta(env='STRICTBOOL_BS')]" = []
     ("--bs",)
 
 

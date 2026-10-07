@@ -25,7 +25,7 @@ import typing as ty
 import pytest
 
 import duho
-from duho import Arg, Cli, Cmd, LoggingArgs, NS
+from duho import Arg, Cli, Cmd, LoggingArgs, Meta
 from duho.agenthelp import (
     DEFAULT_ENVS,
     SCHEMA,
@@ -70,15 +70,15 @@ class Deploy(Cmd):
     "Repeatable tag (accumulates)"
     ("--tag",)
 
-    token: Arg[str, NS(env="DEPLOY_TOKEN")] = ""
+    token: Arg[str, Meta(env="DEPLOY_TOKEN")] = ""
     "Auth token"
     ("--token",)
 
-    gzip: Arg[bool, NS(conflicts="compression")] = False
+    gzip: Arg[bool, Meta(conflicts="compression")] = False
     "Compress with gzip"
     ("--gzip",)
 
-    zstd: Arg[bool, NS(conflicts="compression")] = False
+    zstd: Arg[bool, Meta(conflicts="compression")] = False
     "Compress with zstd"
     ("--zstd",)
 
@@ -130,7 +130,7 @@ def _opt(spec, dest):
 class SecretDeploy(Cmd):
     """Deploy something using a secret."""
 
-    token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_AGENTHELP_SECRET")] = ""
     "Auth token"
     ("--token",)
 
@@ -152,7 +152,7 @@ class SecretApp(Cli):
     _agent_help_ = True
     _subcommands_ = [SecretDeploy]
 
-    root_token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_ROOT_SECRET")] = ""
+    root_token: Arg[str, Meta(env="DUHO_TEST_AGENTHELP_ROOT_SECRET")] = ""
     "Root-level auth token"
     ("--root-token",)
 
@@ -231,7 +231,7 @@ def test_agent_help_env_trigger_scoped_to_subcommand_redacts_env_and_config_secr
 class PlaceholderDeploy(Cmd):
     """Deploy something using a secret, with the default spelled in help."""
 
-    token: Arg[str, NS(env="DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET")] = ""
+    token: Arg[str, Meta(env="DUHO_TEST_AGENTHELP_PLACEHOLDER_SECRET")] = ""
     "API token (default: %(default)s)"
     ("--token",)
 

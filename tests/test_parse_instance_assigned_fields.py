@@ -6,14 +6,14 @@ import copy
 from typing import List
 
 import duho
-from duho import Arg, Args, NS
+from duho import Arg, Args, Meta
 
 
 class Deploy(Args):
     environment: str = "dev"
     retries: int = 1
     tags: List[str] = []
-    url: Arg[str, NS(env="DUHO_T_ASSIGNED_URL")] = "http://default"
+    url: Arg[str, Meta(env="DUHO_T_ASSIGNED_URL")] = "http://default"
 
 
 def test_field_assigned_after_construction_is_kept():

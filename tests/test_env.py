@@ -83,7 +83,7 @@ class TestBool:
 
     def test_strips_whitespace(self, monkeypatch):
         # The cmd.exe `set VAR=1 && ...` trailing-space pitfall: a layered
-        # NS(env=...) bool field already stripped before matching; Env.bool
+        # Meta(env=...) bool field already stripped before matching; Env.bool
         # didn't.
         monkeypatch.setenv("MA_DEBUG", " 1 ")
         assert Env("ma").bool("DEBUG") is True

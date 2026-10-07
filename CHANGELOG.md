@@ -187,6 +187,9 @@ All of these are optional and default to the behaviour you already have.
 - `_version_ = duho.AUTO` on a root that also sets `_mcp_command_` looked up
   duho's own distribution and reported duho's version; it now looks up the
   application's own distribution, like any other root.
+- A `help=` callable that reads a module-level name raised `NameError` when
+  help was shown, on Python 3.10 and later, in a module that starts with
+  `from __future__ import annotations`. It now works there too.
 - Options and `--` handling:
   - An option written after a subcommand name now always binds to the
     subcommand, also when the root declares an optional or variadic positional.

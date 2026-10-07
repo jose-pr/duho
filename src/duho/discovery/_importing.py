@@ -5,6 +5,7 @@ import sys as _sys
 import threading as _threading
 from pathlib import Path as _Path
 from types import ModuleType as _ModuleType
+from typing import Callable as _Callable, Optional as _Optional
 
 # --------------------------------------------------------------------------
 # Import helpers
@@ -35,8 +36,15 @@ _IMPORTED_BY_PATH: dict[str, tuple[str, object]] = {}
 _IMPORT_LOCK = _threading.RLock()
 
 
-def _import_from_path(name: str, path: _Path) -> _ModuleType:
+def _import_from_path(
+    name: str,
+    path: _Path,
+    prepare: _Optional[_Callable[[_ModuleType], object]] = None,
+) -> _ModuleType:
     """Import the ``.py`` file at ``path`` under ``sys.modules`` key ``name``.
+
+    ``prepare(module)``, when given, runs after the module is created and
+    before its body executes.
 
     The module is registered before it executes, so self-references work. A
     missing spec raises ``ImportError`` (skippable by discovery); an exception
@@ -45,10 +53,14 @@ def _import_from_path(name: str, path: _Path) -> _ModuleType:
     is unused.
     """
     with _IMPORT_LOCK:
-        return _import_from_path_locked(name, path)
+        return _import_from_path_locked(name, path, prepare)
 
 
-def _import_from_path_locked(name: str, path: _Path) -> _ModuleType:
+def _import_from_path_locked(
+    name: str,
+    path: _Path,
+    prepare: _Optional[_Callable[[_ModuleType], object]] = None,
+) -> _ModuleType:
     import importlib.util as _importutil
 
     resolved = _os.fspath(_Path(path).resolve())
@@ -77,6 +89,8 @@ def _import_from_path_locked(name: str, path: _Path) -> _ModuleType:
     module = _importutil.module_from_spec(spec)
     _sys.modules[name] = module
     try:
+        if prepare is not None:
+            prepare(module)
         spec.loader.exec_module(module)
     except BaseException:
         # Do not leave a half-initialised module registered under our synthetic
@@ -102,3 +116,11 @@ def import_from_path(base_name: str, path: _Path) -> _ModuleType:
     """
     with _IMPORT_LOCK:
         return _import_from_path(_unique_module_name(base_name), path)
+
+
+def _import_prepared(
+    base_name: str, path: _Path, prepare: _Callable[[_ModuleType], object]
+) -> _ModuleType:
+    """:func:`import_from_path` with a ``prepare(module)`` hook run before the body."""
+    with _IMPORT_LOCK:
+        return _import_from_path(_unique_module_name(base_name), path, prepare)

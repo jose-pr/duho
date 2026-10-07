@@ -20,7 +20,8 @@ from ._command import (
     _resolved_module_name,
     is_class_command,
 )
-from ._importing import import_from_path
+from ._importing import _import_prepared
+from ._siblings import _builtins_setter, dir_state as _dir_state
 from ._providers import _match_provider
 
 # --------------------------------------------------------------------------
@@ -333,12 +334,10 @@ def _discover_from_path(
     """Import and collect commands from every top-level ``.py`` file in ``directory``.
 
     Only a lower-case ``.py`` suffix counts (Windows ``glob`` also matches
-    ``X.PY``, which import refuses). During each import ``directory`` is
-    appended to ``sys.path``, after the packages a command file must not
-    shadow, so ``from _helpers import x`` resolves. Afterwards modules loaded
-    from inside it are popped from ``sys.modules`` so another directory's
-    same-named helper is not served stale; outside modules stay, as evicting a
-    shared class would break ``isinstance`` identity between command files.
+    ``X.PY``, which import refuses). A bare ``import _helpers`` in a command
+    file resolves to the directory's own helper, one module per directory kept
+    under a private package name (``_siblings``); the standard library and
+    installed packages win over a same-named file, and ``sys.path`` is untouched.
     """
     directory = _Path(directory)
     if not directory.is_dir():
@@ -356,7 +355,7 @@ def _discover_from_path(
             if child.name.startswith(("_", ".")) or not child.is_dir():
                 continue
             commands.extend(_provider_command(child, on_error) or ())
-    dirstr = _os.fspath(directory)
+    state = _dir_state(resolved_dir)
     running = _running_script()
     for path in sorted(directory.glob("*.py")):
         if path.name.startswith("_") or path.suffix != ".py":
@@ -364,28 +363,15 @@ def _discover_from_path(
         if running is not None and path.resolve() == running:
             continue
         stem = path.stem
-        before_modules = set(_sys.modules)
-        _sys.path.append(dirstr)
-        module = None
         try:
-            module = import_from_path("duho._discovered." + stem, path)
+            module = _import_prepared(
+                "duho._discovered." + stem, path, _builtins_setter(state)
+            )
         except (Exception, SystemExit) as exc:
             _handle_error(
                 on_error, path, exc, "skipping command file %s during discovery: %s"
             )
             continue
-        finally:
-            # Drop the appended entry (the last one), not an earlier duplicate.
-            for index in range(len(_sys.path) - 1, -1, -1):
-                if _sys.path[index] == dirstr:
-                    del _sys.path[index]
-                    break
-            own_key = module.__name__ if module is not None else None
-            for extra in set(_sys.modules) - before_modules:
-                if extra == own_key:
-                    continue
-                if _module_inside(_sys.modules.get(extra), resolved_dir):
-                    _sys.modules.pop(extra, None)
         try:
             commands.extend(_commands_in_module(module, stem=stem))
         except (Exception, SystemExit) as exc:

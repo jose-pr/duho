@@ -11,6 +11,7 @@ from ..discovery import (
     is_module_command as _is_module_command,
 )
 from ..args._naming import _command_name as _command_name
+from ..discovery._siblings import refresh_builtins as _refresh_sibling_builtins
 
 _LOGGER = _logging.getLogger(__package__)
 
@@ -86,6 +87,8 @@ def run_command(
     ``TypeError`` (see :func:`_reject_coroutine`), rather than silently never
     running.
     """
+    # A command file from a scanned directory has its own copy of the builtins.
+    _refresh_sibling_builtins()
     if _is_module_command(command):
         module_command = _ty.cast(_ModuleCommand, command)
         if not isinstance(getattr(instance, "_logger_", None), _logging.Logger):

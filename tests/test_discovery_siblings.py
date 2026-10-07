@@ -356,3 +356,41 @@ def test_helper_body_runs_once_when_threads_discover_together(tmp_path):
         assert builtins._duho_sibling_runs == 1
     finally:
         del builtins._duho_sibling_runs
+
+
+def test_a_builtin_patched_after_discovery_is_seen_when_the_command_runs(
+    tmp_path, monkeypatch, capsys
+):
+    cmds = tmp_path / "cmds_builtins"
+    cmds.mkdir()
+    (cmds / "_ask.py").write_text(
+        "def ask():\n    return input('name? ')\n", encoding="utf-8"
+    )
+    (cmds / "greet.py").write_text(
+        "from _ask import ask\n\n\ndef main(args):\n    print('hello ' + ask())\n",
+        encoding="utf-8",
+    )
+    import builtins
+
+    import duho
+
+    commands = duho.discover_commands(cmds)
+    monkeypatch.setattr(builtins, "input", lambda prompt="": "patched")
+    assert duho.app(commands=commands, argv=["greet"], name="t") == 0
+    assert capsys.readouterr().out == "hello patched\n"
+
+
+def test_importing_duho_does_not_load_hashlib():
+    import subprocess
+    import sys
+
+    from conftest import subprocess_env
+
+    out = subprocess.run(
+        [sys.executable, "-c", "import sys, duho; print('hashlib' in sys.modules)"],
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "False"

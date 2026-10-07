@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import builtins as _builtins
-import hashlib as _hashlib
 import importlib.machinery as _machinery
 import os as _os
 import sys as _sys
 import threading as _threading
 import types as _types
 import typing as _ty
+import weakref as _weakref
 from pathlib import Path as _Path
 
 # --------------------------------------------------------------------------
@@ -24,6 +24,9 @@ _ROOT = "duho._discovered._dir_"
 _MARK = "_duho_dir_state_"
 _LOCK = _threading.RLock()
 
+#: Every live directory state, for :func:`refresh_builtins`.
+_STATES: _weakref.WeakSet[_DirState] = _weakref.WeakSet()
+
 
 class _DirState:
     """Per-directory state, kept on the directory's package module."""
@@ -33,6 +36,10 @@ class _DirState:
         self.prefix = prefix
         self.verdicts: dict[str, bool] = {}
         self.importer = self._import
+        # ONE mapping for every module of the directory, updated in place:
+        # a frame keeps the object it was created with.
+        self.builtins: dict[str, object] = {}
+        self.refresh()
 
     def is_sibling(self, first: str) -> bool:
         """Whether the top-level name ``first`` is a file or package of the directory.
@@ -68,10 +75,22 @@ class _DirState:
         return _builtins.__import__(name, globals, locals, fromlist, level)
 
     def namespace(self) -> dict[str, object]:
-        """A fresh copy of the builtins whose ``__import__`` is bound to the directory."""
-        ns = dict(vars(_builtins))
-        ns["__import__"] = self.importer
-        return ns
+        """The directory's builtins: the real ones, with ``__import__`` bound to it."""
+        return self.builtins
+
+    def refresh(self) -> None:
+        """Bring the directory's builtins in line with the real ones.
+
+        A copy goes stale when ``builtins`` is patched afterwards (a test
+        replacing ``builtins.input``), so it is renewed before each dispatch.
+        """
+        live = dict(vars(_builtins))
+        live["__import__"] = self.importer
+        ns = self.builtins
+        # One `update`, so no reader sees the real `__import__` in between.
+        ns.update(live)
+        for stale in [key for key in ns if key not in live]:
+            del ns[stale]
 
 
 def _decide(state: _DirState, first: str) -> bool:
@@ -136,8 +155,17 @@ def _install_finder() -> None:
 
 
 def _tag(directory: _Path) -> str:
+    import hashlib  # here, so `import duho` does not load it
+
     key = _os.path.normcase(_os.fspath(directory))
-    return _hashlib.sha1(key.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+    return hashlib.sha1(key.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+
+
+def refresh_builtins() -> None:
+    """Renew the builtins of every scanned directory (see :meth:`_DirState.refresh`)."""
+    if _STATES:
+        for state in list(_STATES):
+            state.refresh()
 
 
 def dir_state(directory: _Path) -> _DirState:
@@ -149,11 +177,13 @@ def dir_state(directory: _Path) -> _DirState:
         package = _sys.modules.get(name)
         state = getattr(package, _MARK, None)
         if state is not None:
+            state.refresh()
             return state
         spec = _machinery.ModuleSpec(name, None, is_package=True)
         spec.submodule_search_locations = [_os.fspath(resolved)]
         package = _importutil().module_from_spec(spec)
         state = _DirState(resolved, name)
+        _STATES.add(state)
         setattr(package, _MARK, state)
         _sys.modules[name] = package
         return state

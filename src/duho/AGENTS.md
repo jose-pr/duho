@@ -67,11 +67,31 @@ regardless of which internal module implements it:
   runnable on its own. Classmethods:
   - `_parser_(subparser=None, name=None, parents=(), **kw) -> ArgumentParser` — build
     this class's (sub)parser.
-  - `_initparser_(parser, is_subcommand=False, parent_dests=None, explicit_prog=False, agent_root_cls=None, external_config=False)` —
-    populate an already-created parser with this class's fields. `explicit_prog` is
-    accepted and unused. An override must accept `**kwargs` and forward them to
-    `super()._initparser_(...)`: `_parser_` passes build context by keyword
-    (`external_config` today) and may pass more than the signature lists.
+  - `_initparser_(parser, **kwargs) -> ArgumentParser` — populate an already-created
+    parser with this class's fields. `kwargs` are the build keywords `_parser_` passes,
+    described by the `InitParserKwargs` TypedDict (below); all are optional and the base
+    method raises `TypeError` for one it does not list. An override takes the same
+    `**kwargs`, calls `super()._initparser_(parser, **kwargs)` first and returns its
+    result:
+
+    ```python
+    @classmethod
+    def _initparser_(cls, parser, **kwargs: Unpack[InitParserKwargs]):
+        parser = super()._initparser_(parser, **kwargs)
+        parser.epilog = "..."
+        return parser
+    ```
+
+    (`Unpack` is `typing.Unpack` on 3.11+, `typing_extensions.Unpack` before; with
+    `from __future__ import annotations` it is only read by a type checker.) The keywords
+    are passed by name only.
+  - **`InitParserKwargs`** — a `TypedDict`, `total=False`, of those keywords:
+    `is_subcommand: bool` (the parser is a subparser), `parent_dests: frozenset[str] | None`
+    (dests it already has from `parents=`), `explicit_prog: bool` (accepted and unused),
+    `agent_root_cls: type | None` (the root agent help describes), `external_config: bool`
+    (a config table will reach this class although it declares no `_config_`). A keyword
+    duho adds later is a new key here, so an override that forwards `**kwargs` needs no
+    change.
   - `_getargs_() -> list[ArgumentBuilder]` — this class's resolved field specs (cached).
   A `list[T]`/`set[T]`/`tuple[T, ...]` field used as a POSITIONAL keeps `nargs="*"`
   (space-separated: `prog a b`); used as an OPTION it defaults to `nargs=None` — ONE

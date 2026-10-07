@@ -33,7 +33,10 @@ from ._parserfix import (
     _suppress_inherited_defaults,
 )
 
-from ._meta import _Parser, _Self
+from ._meta import InitParserKwargs, _Parser, _Self, _Unpack
+
+#: The build keywords `_initparser_` accepts.
+_INIT_PARSER_KEYS = frozenset(InitParserKwargs.__annotations__)
 
 #: {id(instance): frozenset(field names passed)} for every `Args` built via
 #: `__init__`. Seeded defaults must not count as caller-supplied when
@@ -542,24 +545,32 @@ class Args(_argparse.Namespace):
     def _initparser_(
         cls,
         parser: _argparse.ArgumentParser,
-        is_subcommand: bool = False,
-        parent_dests: _ty.Optional[_ty.FrozenSet[str]] = None,
-        explicit_prog: bool = False,
-        agent_root_cls: _ty.Optional[type] = None,
-        external_config: bool = False,
+        **kwargs: _Unpack[InitParserKwargs],
     ) -> _argparse.ArgumentParser:
         """Populate an already-created ``parser`` with this class's own fields.
 
         Called by :meth:`_parser_`: adds each field (with its groups), patches
         ``parse_known_args`` to build the final ``Args``/``Cmd`` instance, and on
-        a root with ``_completion_`` injects ``--print-completion``. Override
-        for parser-level configuration (call ``super()._initparser_`` first,
-        accept ``**kwargs`` and forward them: ``_parser_`` may pass more than
-        the signature lists). ``explicit_prog`` is accepted and unused.
-        ``external_config`` says a config table will reach this class although
-        it declares no ``_config_`` (see :func:`_add_fields`).
+        a root with ``_completion_`` injects ``--print-completion``.
+
+        ``kwargs`` are the build keywords :class:`InitParserKwargs` lists, all
+        optional. Override for parser-level configuration: take the same
+        ``**kwargs``, call ``super()._initparser_(parser, **kwargs)`` first and
+        return its result.
+
+        Raises ``TypeError`` for a keyword :class:`InitParserKwargs` does not
+        list.
         """
-        parent_dests = parent_dests if parent_dests is not None else frozenset()
+        unknown = sorted(set(kwargs) - _INIT_PARSER_KEYS)
+        if unknown:
+            raise TypeError(
+                f"{cls.__name__}._initparser_() got an unexpected keyword "
+                f"argument {unknown[0]!r}"
+            )
+        is_subcommand = bool(kwargs.get("is_subcommand", False))
+        parent_dests = kwargs.get("parent_dests") or frozenset()
+        agent_root_cls = kwargs.get("agent_root_cls")
+        external_config = bool(kwargs.get("external_config", False))
 
         def parse_known_args(
             args: _ty.Sequence[str] | None = None,

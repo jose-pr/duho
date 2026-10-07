@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `duho.InitParserKwargs`, a `TypedDict` of the keywords `_parser_` passes to
+  `_initparser_`. An override annotates its keywords with it and forwards
+  them, and a type checker follows them to the base method:
+
+  ```python
+  @classmethod
+  def _initparser_(cls, parser, **kwargs: Unpack[InitParserKwargs]):
+      parser = super()._initparser_(parser, **kwargs)
+      ...
+      return parser
+  ```
+
+### Changed
+
+- `_initparser_(parser, **kwargs)` takes its build keywords by name only; they
+  were positional-or-keyword parameters. duho always passed them by name, and
+  an override that forwards `*args, **kwargs` keeps working unchanged. The
+  base method raises `TypeError` for a keyword `InitParserKwargs` does not
+  list. A keyword duho adds later is a new key of that `TypedDict`, not a new
+  parameter, so an override with the signature above needs no change.
+
 ## [0.7.0] - 2026-10-07
 
 ### Removed

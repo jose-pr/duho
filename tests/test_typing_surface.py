@@ -1,7 +1,7 @@
 """Test for duho's public typing surface (py.typed).
 
 The package ships ``py.typed`` and the ``Typing :: Typed`` classifier, so its
-documented patterns (``Arg[...]``, ``Meta(...)``, ``@Cli.subcommand``,
+documented patterns (``Arg[...]``, ``Meta(...)``, ``@Cli.subcommand``, an ``_initparser_`` override,
 ``duho.parse``/``duho.parser``/``duho.main``, ``app(commands=[...])``,
 ``CmdBuilder.command``) must type-check cleanly under a consumer's own mypy
 run -- none may fail outright or silently widen
@@ -60,12 +60,15 @@ def test_main_and_app_return_any_for_sys_exit_compat():
 
 
 CONSUMER_SOURCE = textwrap.dedent("""
+    import argparse
     import sys
     from pathlib import Path
 
+    from typing_extensions import Unpack
+
     import duho
     import duho.mcp as dmcp
-    from duho import Arg, Cli, Cmd, Extend, Meta
+    from duho import Arg, Cli, Cmd, Extend, InitParserKwargs, Meta
 
 
     class Deploy(Cmd):
@@ -76,6 +79,19 @@ CONSUMER_SOURCE = textwrap.dedent("""
         ("--tags",)
 
         times: Arg[int, Meta(flags=("-n", "--times"))] = 1
+
+        def __call__(self) -> int:
+            return 0
+
+
+    class Tuned(Cmd):
+        @classmethod
+        def _initparser_(
+            cls, parser: argparse.ArgumentParser, **kwargs: Unpack[InitParserKwargs]
+        ) -> argparse.ArgumentParser:
+            parser = super()._initparser_(parser, **kwargs)
+            parser.epilog = "tuned"
+            return parser
 
         def __call__(self) -> int:
             return 0

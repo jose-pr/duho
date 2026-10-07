@@ -27,6 +27,40 @@ else:
     _Self = _ty.TypeVar("_Self")
 
 
+if _ty.TYPE_CHECKING:
+    from typing_extensions import Unpack as _Unpack
+else:
+    # `typing.Unpack` from 3.11; before that a stand-in, so an annotation that
+    # names it still resolves with `typing.get_type_hints`.
+    _Unpack = getattr(_ty, "Unpack", None)
+    if _Unpack is None:
+
+        class _Unpack:
+            def __class_getitem__(cls, item: object) -> object:
+                return item
+
+
+class InitParserKwargs(_ty.TypedDict, total=False):
+    """The keywords ``_parser_`` passes to ``_initparser_``, every one optional.
+
+    Annotate an override's ``**kwargs`` with ``Unpack[InitParserKwargs]`` and
+    forward them to ``super()._initparser_(parser, **kwargs)``. The base method
+    is where they end up: it raises ``TypeError`` for a key that is not listed
+    here and uses each key's default when it is missing.
+    """
+
+    #: The parser is a subparser: no ``--`` split, no completion flag.
+    is_subcommand: bool
+    #: Dests the parser already has from ``parents=``; reusing one is deliberate.
+    parent_dests: _ty.Optional[_ty.FrozenSet[str]]
+    #: Accepted and unused.
+    explicit_prog: bool
+    #: The root class agent help describes, on every node of its tree.
+    agent_root_cls: _ty.Optional[type]
+    #: A config table will reach this class although it declares no ``_config_``.
+    external_config: bool
+
+
 class _Parser(_argparse.ArgumentParser, _ty.Generic[_T]):
     """The parser ``_parser_`` returns, as a type checker sees it: an
     ``ArgumentParser`` whose ``parse_args``/``parse_known_args`` return ``_T``

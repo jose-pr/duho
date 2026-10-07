@@ -47,16 +47,17 @@ No performance claim is made. The CI regression gate passed on Python 3.9,
 
 ### Validation
 
-- Test suite, no failures: Windows Python 3.9 (2785 passed, 44 skipped) and
-  3.14 (2799 passed, 30 skipped); Linux (WSL) Python 3.14 (2803 passed, 26
+- Test suite, no failures: Windows Python 3.9 (2786 passed, 44 skipped) and
+  3.14 (2800 passed, 30 skipped); Linux (WSL) Python 3.14 (2804 passed, 26
   skipped).
 - CI: all 17 jobs green (run
-  [37579822853](https://github.com/jose-pr/duho/actions/runs/37579822853)).
+  [37616464145](https://github.com/jose-pr/duho/actions/runs/37616464145)).
 - `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
   exactly its three known hits (one README line and two lines of
   `examples/dotagents.py`, whose subject is that directory).
-- Nine projects that use duho had their own suites run against this tree.
-  Six are unchanged. Three declare fields with `NS` and fail at import, as
+- Nine projects that use duho had their own suites run against the tree one
+  commit earlier (before the permissive form was widened to any object with
+  attributes). Six are unchanged. Three import `NS` and fail at import, as
   intended, until they make the edit above.
 
 ### Publication state

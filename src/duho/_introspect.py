@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast as _ast
-import collections as _collections
 import functools as _functools
 import inspect as _inspect
 import io as _io
@@ -177,10 +176,12 @@ def _own_annotations(cls: type) -> dict[str, object]:
     cannot be evaluated: on 3.14 (lazy annotations) such a value comes back as
     a ``ForwardRef``; before that ``vars(cls)`` holds them already evaluated.
     """
-    try:
-        import annotationlib  # type: ignore[import-not-found]  # 3.14+
-    except ImportError:
+    # A version test, not `try: import`: a failed import searches the whole
+    # path again on every call.
+    if _sys.version_info < (3, 14):
         return dict(vars(cls).get("__annotations__", {}))
+    import annotationlib  # type: ignore[import-not-found]
+
     return dict(
         annotationlib.get_annotations(cls, format=annotationlib.Format.FORWARDREF)
     )
@@ -509,18 +510,24 @@ def _raw_public_annotations(base: type) -> dict[str, object]:
 
 
 def _type_hints_per_module(cls: type) -> dict[str, object]:
-    """``typing.get_type_hints(cls, include_extras=True)``, each class of the MRO
-    evaluated against its own module.
+    """The public type hints of ``cls``, each class of the MRO evaluated against
+    its own module.
 
-    With neither namespace given, ``typing`` (3.10+) uses the class namespace as
-    globals, so a lambda built while evaluating an annotation would lose its
-    module's globals. Module names are looked up before class names, as there.
+    ``typing.get_type_hints(cls)`` with neither namespace given uses the class
+    namespace as globals (3.10+), so a lambda built while evaluating a string
+    annotation would lose its module's globals. Module names are looked up
+    before class names, as there. Private (``_x``) annotations are not fields
+    and are not evaluated.
     """
     hints: dict[str, object] = {}
     for base in reversed(cls.__mro__):
         if base is object:
             continue
-        own = _own_annotations(base)
+        own = {
+            name: value
+            for name, value in _own_annotations(base).items()
+            if not name.startswith("_")
+        }
         if not own:
             continue
         module = getattr(_sys.modules.get(base.__module__), "__dict__", {})
@@ -529,7 +536,9 @@ def _type_hints_per_module(cls: type) -> dict[str, object]:
             (),
             {"__annotations__": own, "__module__": base.__module__},
         )
-        names = _collections.ChainMap(module, dict(vars(base)))
+        # A plain dict: `typing` walks `localns` once per annotation.
+        names = dict(vars(base))
+        names.update(module)
         hints.update(_ty.get_type_hints(probe, module, names, include_extras=True))
     return hints
 
@@ -537,9 +546,9 @@ def _type_hints_per_module(cls: type) -> dict[str, object]:
 def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     """Resolve every PUBLIC annotation on ``cls``.
 
-    The primary path is ``typing.get_type_hints(cls, include_extras=True)`` (per
-    module of the MRO when any annotation is a string), so a function-local
-    class in an annotation resolves. If it raises, the
+    The primary path is :func:`_type_hints_per_module`, which keeps an
+    already-evaluated annotation as it is, so a function-local class in one
+    resolves. If it raises, the
     isolated fallback resolves each public field alone, which survives a
     private field's unresolvable annotation and, on 3.14 (PEP 649), a field
     name shadowing an earlier annotation (``names: list[str]`` then
@@ -547,17 +556,9 @@ def _resolve_public_type_hints(cls: type) -> dict[str, object]:
     name is not resolvable there.
     """
     try:
-        if any(
-            isinstance(value, str)
-            for base in cls.__mro__
-            for value in _own_annotations(base).values()
-        ):
-            hints = _type_hints_per_module(cls)
-        else:
-            hints = _ty.get_type_hints(cls, include_extras=True)
+        public = _type_hints_per_module(cls)
     except Exception:
         return _resolve_public_type_hints_isolated(cls)
-    public = {name: hint for name, hint in hints.items() if not name.startswith("_")}
     if all(_looks_like_a_resolved_type(hint) for hint in public.values()):
         return public
     # A field named like its own annotation: the source text still says what

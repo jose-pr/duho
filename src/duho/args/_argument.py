@@ -14,7 +14,7 @@ from .._fieldspec import _factory_for as _factory_for
 from .._fieldspec import _LayeredChoiceError as _LayeredChoiceError
 from .._fieldspec import _NegatedBoolAction as _NegatedBoolAction
 
-from ._helptext import _escape_help
+from ._helptext import _escape_stray_percent
 from ._meta import NOT_DEFINED, _META_UNSET, _NONETYPE, _T, _type
 from ._naming import _default_long_flag, _expand_flag_shorthand
 
@@ -66,7 +66,7 @@ class Argument(_ty.Protocol, metaclass=ArgumentMeta):
         # `%` must be escaped: argparse %-expands every `help=` (crashing parser
         # build on 3.14, `--help` on 3.9). An explicit `help=` override is applied
         # after this, so it is never double-escaped.
-        help = _escape_help(decl.docstring or "")
+        help = _escape_stray_percent(decl.docstring or "")
         flags_expr = next(
             filter(lambda x: isinstance(x, (list, tuple, set)), decl.exprs),
             None,
@@ -394,12 +394,6 @@ class ArgumentBuilder(_argparse.Namespace):
         """
         return self.type is bool and not self.action and self.choices is None
 
-    #: Strings a layered bool maps to True/False (case-insensitive, stripped),
-    #: aliasing ``_compat.BOOL_TRUE``/``BOOL_FALSE``. Unlike ``Env.bool`` it is
-    #: STRICT: any other string is an error, not False.
-    _BOOL_TRUE = _compat.BOOL_TRUE
-    _BOOL_FALSE = _compat.BOOL_FALSE
-
     def _convert_single(self, raw):
         """Convert one raw scalar (env string / TOML-typed value) to the field type.
 
@@ -503,7 +497,7 @@ class ArgumentBuilder(_argparse.Namespace):
 
         * **bool** (``self.type is bool`` or a store_true/BooleanOptionalAction
           effective action): real bools pass through; strings map via the
-          strict :data:`_BOOL_TRUE`/:data:`_BOOL_FALSE` sets (unknown -> error).
+          the strict :func:`_bool_from_text` table (unknown -> error).
         * **collection** (``self.collection`` set): a *string* raw becomes a
           single element wrapped in the collection (``FILES=a.txt`` ->
           ``["a.txt"]``, matching one CLI occurrence); a *list/tuple/set* raw
@@ -524,18 +518,8 @@ class ArgumentBuilder(_argparse.Namespace):
             or self.action is _argparse.BooleanOptionalAction
         )
         if is_bool:
-            if isinstance(raw, bool):
-                return raw
-            if isinstance(raw, str):
-                low = raw.strip().lower()
-                if low in self._BOOL_TRUE:
-                    return True
-                if low in self._BOOL_FALSE:
-                    return False
-                raise ValueError(
-                    f"{raw!r} is not a valid boolean "
-                    f"(expected one of {sorted(self._BOOL_TRUE | self._BOOL_FALSE)})"
-                )
+            if isinstance(raw, (bool, str)):
+                return _bool_from_text(raw)
             raise ValueError(f"cannot interpret {raw!r} ({source}) as a boolean")
 
         if self.collection is dict:

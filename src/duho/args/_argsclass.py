@@ -20,7 +20,7 @@ from ._actions import (
 )
 from ._argument import Argument, ArgumentBuilder, _apply_argument_options
 from ._guards import _warn_misspelled_attrs, _warn_unknown_ns_keys
-from ._helptext import _escape_description, _escape_help
+from ._helptext import _escape_description, _escape_stray_percent
 from ._meta import Meta, NOT_DEFINED, NS
 from ._naming import _app_name, _command_name, _resolve_version
 from ._parserfix import (
@@ -80,6 +80,20 @@ def _guard_recursive_build(cls):
         )
     ids.add(id(cls))
     return ids
+
+
+def _drop_sidecars(ns: dict) -> None:
+    """Remove the collection-action sidecars and the command marker from ``ns``.
+
+    They would otherwise reach ``vars(instance)`` and the clone pattern.
+    """
+    for key in [
+        k
+        for k in ns
+        if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
+    ]:
+        del ns[key]
+    ns.pop("_duho_command_", None)
 
 
 def _add_fields(
@@ -400,7 +414,11 @@ class Args(_argparse.Namespace):
         if subparser:
             kwargs.setdefault(
                 "help",
-                _escape_help(_doc.strip().splitlines()[0]) if _doc.strip() else "",
+                (
+                    _escape_stray_percent(_doc.strip().splitlines()[0])
+                    if _doc.strip()
+                    else ""
+                ),
             )
             # Subcommand aliases (argparse's add_parser accepts `aliases`; the
             # top-level ArgumentParser does not, so only apply when nested).
@@ -612,15 +630,7 @@ class Args(_argparse.Namespace):
                 return parsed, unk
 
             _cls: type[_Self] = parsed.__dict__.pop("#cls")
-            # Drop the collection-action sidecars so they never reach
-            # vars(instance) or the clone pattern.
-            for _sidecar in [
-                k
-                for k in parsed.__dict__
-                if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
-            ]:
-                del parsed.__dict__[_sidecar]
-            parsed.__dict__.pop("_duho_command_", None)
+            _drop_sidecars(parsed.__dict__)
             if passthrough and not getattr(_cls, "_allow_passthrough_", True):
                 parser.error(
                     f"{_command_name(_cls)}: arguments after '--' are not accepted"

@@ -7,7 +7,7 @@ import typing as _ty
 from ..args._argsclass import _add_fields as _add_fields
 from ..args._helptext import (
     _escape_description as _escape_description,
-    _escape_help as _escape_help,
+    _escape_stray_percent as _escape_stray_percent,
 )
 from ..args._parserfix import (
     _keep_attached_double_dash as _keep_attached_double_dash,
@@ -147,7 +147,7 @@ def _register_module_command(
     parser = subparsers.add_parser(
         command._parsername_,
         parents=[base_parser],
-        help=_escape_help(command.help),
+        help=_escape_stray_percent(command.help),
         description=_escape_description(command.description),
         add_help=True,
     )

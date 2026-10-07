@@ -60,7 +60,7 @@ class TestBool:
 
     @pytest.mark.parametrize("value", ["on", "ON", "On"])
     def test_on_is_truthy(self, monkeypatch, value):
-        # The layered converter (ArgumentBuilder._BOOL_TRUE) has always taken
+        # The layered converter has always taken
         # "on"; Env.bool did not, so a var spelled ON read silently as False.
         monkeypatch.setenv("MA_DEBUG", value)
         assert Env("ma").bool("DEBUG") is True

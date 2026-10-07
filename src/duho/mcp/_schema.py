@@ -12,7 +12,7 @@ from .. import agenthelp as _agenthelp
 from ..args import ArgumentBuilder as _ArgumentBuilder
 from ..args import Cmd as _Cmd
 from .._fieldspec import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
-from ..args._helptext import _escape_help as _escape_help
+from ..args._helptext import _escape_stray_percent as _escape_stray_percent
 
 _NOT_DEFINED = _introspect.NOT_DEFINED
 
@@ -175,7 +175,7 @@ def _description_for(
     if raw_help is _argparse.SUPPRESS:
         return ""
     docstring = decl.docstring if decl is not None else ""
-    auto_derived = _escape_help(docstring or "")
+    auto_derived = _escape_stray_percent(docstring or "")
     if raw_help and raw_help != auto_derived:
         return raw_help
     return docstring or raw_help or ""

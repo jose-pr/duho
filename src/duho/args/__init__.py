@@ -72,9 +72,7 @@ from ._naming import (
 from ._helptext import (
     _PERCENT_PLACEHOLDER,
     _escape_stray_percent,
-    _escape_help,
     _escape_description,
-    _write_machine_text,
 )
 from ._actions import (
     _COMPLETION_SHELLS,

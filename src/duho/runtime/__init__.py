@@ -57,7 +57,7 @@ from ..args import (
     _add_fields as _add_fields,
     _apply_default_layers_one as _apply_default_layers_one,
     _escape_description as _escape_description,
-    _escape_help as _escape_help,
+    _escape_stray_percent as _escape_stray_percent,
     _maybe_await as _maybe_await,
     _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger,
     _keep_attached_double_dash as _keep_attached_double_dash,

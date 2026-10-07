@@ -6,8 +6,6 @@ import typing as _ty
 
 from .. import _compat as _compat
 
-from ._helptext import _write_machine_text
-
 #: The shells `print_completion` and `--print-completion` accept; the flag's
 #: `choices=` and the function's validation both read this tuple.
 _COMPLETION_SHELLS = ("bash", "zsh", "fish", "powershell")
@@ -52,7 +50,7 @@ class _PrintCompletionAction(_argparse.Action):
 
         emitter = getattr(_completion, values)
         root = self.root_parser if self.root_parser is not None else parser
-        _write_machine_text(emitter(root, prog=root.prog), _sys.stdout)
+        _compat.write_machine(emitter(root, prog=root.prog), _sys.stdout)
         parser.exit()
 
 
@@ -180,7 +178,7 @@ def print_completion(
     emitter = getattr(_completion, shell)
     if prog is None:
         prog = parser.prog
-    _write_machine_text(emitter(parser, prog=prog), file)
+    _compat.write_machine(emitter(parser, prog=prog), file)
 
 
 def print_agent_help(cls, file: _ty.Optional[_ty.TextIO] = None) -> None:

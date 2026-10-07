@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import re as _re
 
-from .. import _compat as _compat
-
 #: A ``%(key)conversion`` placeholder or a doubled ``%%``: the only forms
 #: argparse's %-format accepts against a mapping (a bare `%s` or stray `%` raises).
 _PERCENT_PLACEHOLDER = _re.compile(r"%\([^)]*\)[a-zA-Z]|%%")
@@ -15,6 +13,11 @@ def _escape_stray_percent(text: str) -> str:
     A real ``%(default)s``/``%(prog)s`` written in help text must still expand
     (see :class:`duho.formatters.DefaultsFormatter`), so a blanket
     ``replace("%", "%%")`` would turn it into inert text.
+
+    argparse %-formats every ``help=`` (``_expand_help``, or ``_check_help`` in
+    ``add_argument`` on 3.14+), so a stray ``%`` in docstring-derived help would
+    crash parser build on 3.14 or ``--help`` on 3.9. An explicit ``NS(help=...)``
+    is applied after this and is never escaped.
     """
     if "%" not in text:
         return text
@@ -28,17 +31,6 @@ def _escape_stray_percent(text: str) -> str:
     return "".join(pieces)
 
 
-def _escape_help(text: str) -> str:
-    """Escape a literal ``%`` to ``%%`` for a ``help=`` string.
-
-    argparse always %-formats ``help=`` (``_expand_help``, or ``_check_help`` in
-    ``add_argument`` on 3.14+), so a stray ``%`` in docstring-derived help would
-    crash parser build on 3.14 or ``--help`` on 3.9. An explicit ``NS(help=...)``
-    is applied after this and is never escaped.
-    """
-    return _escape_stray_percent(text)
-
-
 def _escape_description(text: str) -> str:
     """Escape a literal ``%`` to ``%%`` for a ``description=`` only if it has ``%(prog)``.
 
@@ -47,12 +39,3 @@ def _escape_description(text: str) -> str:
     """
     return _escape_stray_percent(text) if "%(prog)" in text else text
 
-
-def _write_machine_text(text: str, file=None) -> None:
-    """Write machine-consumed text (a completion script, agent-help JSON) as
-    literal UTF-8, bypassing newline translation and the console code page.
-
-    An alias for ``duho._compat.write_machine``, shared with ``duho.agenthelp``
-    and ``duho.mcp``.
-    """
-    _compat.write_machine(text, file)

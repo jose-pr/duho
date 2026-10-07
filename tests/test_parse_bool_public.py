@@ -6,13 +6,11 @@ import pytest
 
 import duho
 from duho import _compat, text
-from duho.args import ArgumentBuilder
 
 
 def test_tokens_are_one_table():
     assert _compat.BOOL_TRUE is text.BOOL_TRUE
     assert _compat.BOOL_FALSE is text.BOOL_FALSE
-    assert ArgumentBuilder._BOOL_TRUE is text.BOOL_TRUE
     assert isinstance(text.BOOL_TRUE, frozenset)
     assert isinstance(text.BOOL_FALSE, frozenset)
     assert text.BOOL_TRUE == {"1", "true", "yes", "on", "y", "t"}

@@ -12,15 +12,8 @@ AST-derived flags/env resolve normally.
 import pytest
 
 from duho import Arg, Args, NS, _compat
-from duho.args import ArgumentBuilder
 from duho.env import Env
 from duho.logging import traceback_enabled
-
-
-def test_args_bool_tables_are_compat_tables():
-    """One shared table, not four hand-copied literals."""
-    assert ArgumentBuilder._BOOL_TRUE is _compat.BOOL_TRUE
-    assert ArgumentBuilder._BOOL_FALSE is _compat.BOOL_FALSE
 
 
 @pytest.mark.parametrize("false_token", sorted(_compat.BOOL_FALSE - {""}))

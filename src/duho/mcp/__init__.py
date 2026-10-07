@@ -144,7 +144,7 @@ from ..args import Cmd as _Cmd
 from ..args import _apply_layers as _apply_layers
 from ..args import _ISOFORMAT_FACTORIES as _ISOFORMAT_FACTORIES
 from ..args import _command_name as _command_name
-from ..args import _escape_help as _escape_help
+from ..args import _escape_stray_percent as _escape_stray_percent
 from ..args import _raw_config_values as _raw_config_values
 from ..args import _raw_env_values as _raw_env_values
 from ..args import _resolve_version as _resolve_version

@@ -13,7 +13,7 @@ from .._outcome import _guard_dispatch
 from .._layers import _apply_layers as _apply_layers
 from .._layers import value_sources as _value_sources
 
-from ._argsclass import Args, _duho_instance_last_parser_
+from ._argsclass import Args, _drop_sidecars, _duho_instance_last_parser_
 from ._mcptrigger import _maybe_serve_mcp_trigger
 from ._meta import _A
 from ._naming import _app_name
@@ -431,14 +431,5 @@ def finish_parse(namespace: _argparse.Namespace) -> Args:
             "attached to a plain argparse parser."
         )
     cls = ns.pop("#cls")
-    # Strip the collection-action sidecars here too: this path builds the
-    # instance itself, and they would leak into vars(instance) and the clone
-    # pattern.
-    for sidecar in [
-        k
-        for k in ns
-        if k.startswith("_duho_items_") or k.startswith("_duho_dict_seen_")
-    ]:
-        del ns[sidecar]
-    ns.pop("_duho_command_", None)
+    _drop_sidecars(ns)
     return cls(**ns)

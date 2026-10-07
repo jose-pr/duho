@@ -905,8 +905,14 @@ manipulating a parser tree directly:
   tool-name segment every tool name uses, and `version` is the app's own `_version_` when it resolves to a
   string, else the empty string -- duho's own version is NEVER reported as the served
   app's. `initialize` negotiates
-  `protocolVersion` against a small supported set (falling back to the newest
-  supported version) rather than echoing the client's request unconditionally.
+  `protocolVersion` against the supported set (`2025-11-25`, `2025-06-18`,
+  `2025-03-26`, `2024-11-05`; an unsupported or absent request gets the newest)
+  rather than echoing the client's request unconditionally. In a session that
+  negotiated `2025-11-25` or later, `tools/call` with a JSON-object `arguments` that
+  raises `InvalidArgumentsError` is answered with a successful result
+  `{"content": [{"type": "text", "text": <message>}], "isError": true}`; an unknown
+  tool, non-object `arguments` and any request before `initialize` stay JSON-RPC
+  `-32602`, as do all bad arguments up to `2025-06-18`. `call_tool` raises either way.
   `json`/`importlib.metadata` stay function-local.
   - **Launching a server from the CLI itself** (no MCP-specific code required):
     every `duho.main(cls)`/`duho.app(...)` call checks a `<PREFIX>MCP` (an
@@ -950,7 +956,8 @@ manipulating a parser tree directly:
   (a namespace node that is never listed raises it too). JSON-RPC code `-32602` through
   `serve`.
 - **`duho.mcp.InvalidArgumentsError`** — `ValueError` subclass; the tool arguments are not
-  a JSON object or fail the tool's schema. JSON-RPC code `-32602`.
+  a JSON object or fail the tool's schema. JSON-RPC code `-32602`; over `serve` a schema
+  failure is an `isError` tool result instead in a `2025-11-25`+ session.
 - **`NotImplementedError`** — dispatching an `Args` that is not a `Cmd`, or a `Cmd` that
   never overrode `__call__`, names the class. A module with no entrypoint raises it too,
   which discovery treats as "not a command" and skips.

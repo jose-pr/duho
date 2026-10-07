@@ -1111,8 +1111,9 @@ def test_ping_is_answered_with_an_empty_result():
     [
         ("2024-11-05", "2024-11-05"),
         ("2025-03-26", "2025-03-26"),
-        ("2099-01-01", "2025-06-18"),
-        (None, "2025-06-18"),
+        ("2025-06-18", "2025-06-18"),
+        ("2099-01-01", "2025-11-25"),
+        (None, "2025-11-25"),
     ],
 )
 def test_initialize_negotiates_a_supported_protocol_version(requested, expected):

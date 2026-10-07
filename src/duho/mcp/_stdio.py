@@ -168,11 +168,13 @@ def serve(
         stream_in = stdin if stdin is not None else _sys.stdin
         stream_out = stdout if stdout is not None else _sys.stdout
 
+    session: dict = {}
+
     def _safe_handle(request):
         """`_handle_request`, with any unexpected exception mapped to a
         `-32603` response instead of propagating and ending the loop."""
         try:
-            return _handle_request(root_cls, request)
+            return _handle_request(root_cls, request, session)
         except Exception as exc:  # noqa: BLE001 - the loop itself must never die
             _log_exception(
                 _LOGGER,

@@ -85,7 +85,13 @@ option value, or a negative counting-flag value; see :func:`call_tool`'s own
 :class:`ValueError` subclasses carrying a JSON-RPC ``.code`` (``-32602``,
 "invalid params"); :func:`serve` maps them to a JSON-RPC *error response*,
 never a tool result -- the request itself, not the target command, was
-invalid. A problem in the dispatched command itself (a raised exception, a
+invalid. The one exception is a session that negotiated protocol revision
+2025-11-25 or later: there an :class:`InvalidArgumentsError` for a JSON-object
+``arguments`` (a schema failure or an unsafe value) is a successful response
+whose result is ``{"content": [{"type": "text", "text": <message>}], "isError":
+true}``, so the model can read the message and correct the call. An unknown
+tool, ``arguments`` that is not an object, and any request before
+``initialize`` stay JSON-RPC errors. :func:`call_tool` raises in every case. A problem in the dispatched command itself (a raised exception, a
 non-zero exit, ``sys.exit``, or an argparse usage error from a value that WAS
 schema-valid but the command still rejects) is still a normal tool result
 with ``isError: true``.

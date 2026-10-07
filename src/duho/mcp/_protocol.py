@@ -16,7 +16,11 @@ _LOGGER = _logging.getLogger(__package__)
 #: MCP protocol versions this server understands, newest first. ``initialize``
 #: echoes the client's own ``protocolVersion`` when it is one of these;
 #: otherwise it answers with the first (newest) entry.
-_SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+_SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+
+#: First revision in which input validation failures are tool execution errors
+#: (a result with ``isError: true``) and not JSON-RPC protocol errors.
+_ARGUMENT_ERRORS_AS_RESULTS_FROM = "2025-11-25"
 
 #: Fallback ``serverInfo.name`` (:func:`_server_info`) when the served app's own
 #: name comes up empty.
@@ -81,7 +85,16 @@ def _server_info(root_cls: _ty.Union[type, _ServerCore]) -> dict:
     }
 
 
-def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
+def _arguments_are_results(session: _ty.Optional[dict]) -> bool:
+    """Whether the session's negotiated revision reports bad arguments as results."""
+    negotiated = session.get("protocolVersion") if session else None
+    # Revisions are ISO dates, so string order is chronological order.
+    return negotiated is not None and negotiated >= _ARGUMENT_ERRORS_AS_RESULTS_FROM
+
+
+def _handle_request(
+    root_cls: type[_Cmd], request: object, session: _ty.Optional[dict] = None
+) -> dict | None:
     """Dispatch one decoded JSON-RPC request; return the response dict, or ``None``.
 
     ``None`` means no response: a notification (no ``id``), a client's reply,
@@ -92,6 +105,13 @@ def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
     gets an error response instead of ending :func:`serve`: ``-32600`` for a
     bad request shape, ``-32601`` for an unknown method, ``-32602`` for an
     unknown tool or invalid arguments, ``-32603`` for any other exception.
+
+    ``session`` is the per-connection state :func:`serve` owns: ``initialize``
+    records the negotiated ``protocolVersion`` in it. From revision
+    2025-11-25 on, arguments that fail the tool's schema are answered with an
+    ``isError`` tool result instead of ``-32602``; an unknown tool, a
+    non-object ``arguments`` and any request before ``initialize`` (or with no
+    ``session``) keep the JSON-RPC error.
     """
     if not isinstance(request, dict):
         return _error_response(None, -32600, "invalid request: expected a JSON object")
@@ -144,6 +164,8 @@ def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
         negotiated = (
             requested if requested in _SUPPORTED_VERSIONS else _SUPPORTED_VERSIONS[0]
         )
+        if session is not None:
+            session["protocolVersion"] = negotiated
         result = {
             "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
@@ -173,7 +195,17 @@ def _handle_request(root_cls: type[_Cmd], request: object) -> dict | None:
         try:
             result = call_tool(root_cls, tool_name, tool_arguments)
         except (UnknownToolError, InvalidArgumentsError) as exc:
-            return _error_response(req_id, exc.code, str(exc)) if has_id else None
+            if (
+                isinstance(exc, InvalidArgumentsError)
+                and (tool_arguments is None or isinstance(tool_arguments, dict))
+                and _arguments_are_results(session)
+            ):
+                result = {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "isError": True,
+                }
+            else:
+                return _error_response(req_id, exc.code, str(exc)) if has_id else None
         except Exception as exc:  # noqa: BLE001 - see docstring
             _log_exception(
                 _LOGGER,

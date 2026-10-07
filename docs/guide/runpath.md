@@ -65,6 +65,13 @@ keeps calling with just `cmd`, so its own second parameter keeps whatever
 default it declared. `init` raising is **always fatal**, regardless of
 `--rcopts strict` — every step depends on `ctx`.
 
+Any module-level name `init`, `success` or `finally_` in `__main__.py` is a hook, an
+imported one included: `from myapp.hooks import default_init as init` makes that
+function the `init` hook. When the file defines `__all__`, only a listed name is a
+hook, so `from colorama import init` next to `__all__ = ["success"]` does not call
+colorama's `init`. Importing under another name, as in
+`from colorama import init as colorama_init`, also keeps a name from being a hook.
+
 `success` runs *inside* the run, right after the last step and before
 `finally_` — not after it — and only when nothing failed (see "Step outcomes"
 below); a raising `finally_` is logged and swallowed rather than replacing

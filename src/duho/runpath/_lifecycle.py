@@ -19,8 +19,8 @@ class _Lifecycle:
     """The optional ``__main__.py`` lifecycle hooks for one RunPath directory.
 
     Each of ``init``/``success``/``finally_`` is an optional callable read off
-    the ``__main__.py`` module (``getattr(module, name, None)``); a missing hook
-    no-ops (mirrors ``ModuleCommand``'s existing default-hook precedent).
+    the ``__main__.py`` module (limited by its ``__all__`` when it has one); a
+    missing hook no-ops (mirrors ``ModuleCommand``'s existing default-hook precedent).
     """
 
     __slots__ = ("init", "success", "finally_")
@@ -53,8 +53,15 @@ def _load_lifecycle(
     module = _discovery.import_from_path(
         "duho._runpath." + qualname.replace(".", "_") + ".__main__", path
     )
+    # Without `__all__` any module-level name is a hook, an imported one included;
+    # with it, only a listed name is.
+    exported = getattr(module, "__all__", None)
+
+    def hook(name: str) -> _ty.Optional[_ty.Callable[..., object]]:
+        if exported is not None and name not in exported:
+            return None
+        return getattr(module, name, None)
+
     return _Lifecycle(
-        init=getattr(module, "init", None),
-        success=getattr(module, "success", None),
-        finally_=getattr(module, "finally_", None),
+        init=hook("init"), success=hook("success"), finally_=hook("finally_")
     )

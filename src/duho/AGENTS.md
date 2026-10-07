@@ -898,8 +898,11 @@ manipulating a parser tree directly:
   `RunPathCmd`'s `--rcopts/-O` selects/tunes which steps run. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,
-  cmd, logger)` (once, unconditionally) — a step entrypoint written `(cmd, ctx)`
-  (arity-detected) receives `ctx`; `(cmd)` steps are unaffected. Step filenames accept
+  cmd, logger)` (once, unconditionally). Any module-level name `init`/`success`/
+  `finally_` in `__main__.py` is a hook, an imported one included; when the file
+  defines `__all__` only a listed name is (so `from colorama import init` is not the
+  hook beside `__all__ = ["success"]`; importing it under another name works too).
+  A step entrypoint written `(cmd, ctx)` (arity-detected) receives `ctx`; `(cmd)` steps are unaffected. Step filenames accept
   a leading `!` (disable, stripped before the `NN-name` split) plus `:`/`;`-separated
   option tokens (`key`/`!key`/`key=value`; `:` and `;` both work everywhere — `;` is the
   Windows-authorable spelling since `:` is an invalid Windows filename character). Two

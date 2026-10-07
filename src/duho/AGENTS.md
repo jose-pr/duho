@@ -518,9 +518,16 @@ empty when absent).
   source replaces the earlier, `[]` for an empty sequence, and each member keeps the
   empty-source and bare-drive-letter rejections (`ValueError`). A bare string that
   resolves to a directory with no `__init__.py` is scanned like a path (loose files that
-  may import one another); one that names a package is imported as one. A directory is
-  appended to `sys.path` only while it is scanned, so a command file named like an
-  installed module does not shadow it for its siblings (the installed one wins), and a
+  may import one another); one that names a package is imported as one. A command
+  file imports a sibling helper by its bare name (`import _helpers`, `from _helpers
+  import x`), at module level or inside a function: each directory is one private
+  package, so the helper is one module object shared by every command file of that
+  directory for the life of the process (its `__name__` is under
+  `duho._discovered._dir_<tag>`), is never in `sys.modules` under its bare name, and
+  two directories' same-named helpers stay separate. The directory is not put on
+  `sys.path`. The standard library, installed packages and any module already
+  imported win over a same-named file. `importlib.import_module` does not see
+  siblings, and a helper is not reloaded when its file changes. A
   file with an upper-case `.PY` suffix is ignored on every platform. When the scanned
   directory holds the running script (`__main__`), that file is not a command.
   **Resilience**: with `on_error=None`, catches only `(ImportError, NotImplementedError)`

@@ -330,9 +330,16 @@ What gets scanned:
 - A bare string source that names a directory without an `__init__.py` is scanned
   like a path: its files are loose command files that may import one another. A bare
   string that names a package is imported as one.
-- The directory is appended to `sys.path` only while it is scanned, so a command file
-  named like an installed module (`json.py`, `export.py` importing `colorsys`) does
-  not shadow that module for its siblings; the installed module wins.
+- A command file reaches a sibling helper with a plain `import _helpers` or
+  `from _helpers import x`, at the top of the file or inside a function. Each
+  directory has one module per helper, shared by all of its command files and kept
+  for the life of the process, so a base class, a registry list or a cached value in
+  a helper exists once; two directories' same-named helpers stay apart. The
+  directory is not put on `sys.path` and a helper is not importable by its bare name
+  from outside the directory.
+- The standard library, installed packages and anything the application has already
+  imported win over a same-named file in the directory (`json.py`, or `export.py`
+  importing `colorsys`), so a command file does not shadow them for its siblings.
 - A launcher script that lives in the scanned directory is not registered as a
   command, so a script can scan its own directory.
 - A file with an upper-case `.PY` suffix is ignored on every platform.

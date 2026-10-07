@@ -1460,10 +1460,11 @@ a custom `dispatch` passes `adapter` to `run_command` itself.
 `count` positional parameters, for adapting by arity.
 
 **What gets scanned.** A bare string source that names a directory without
-`__init__.py` is scanned like a path, as loose files that may import each other. The
-directory is appended to `sys.path` only during the scan, so a command file named
-like an installed module does not shadow it for its siblings (the installed module
-wins). A launcher script that lives in the scanned directory is not registered as a
+`__init__.py` is scanned like a path, as loose files that may import each other. A
+command file imports a sibling helper (`import _helpers`, also inside a function);
+the helper is one module per directory, shared by its command files, and is not put
+on `sys.path`. The standard library and installed packages win over a same-named
+file. A launcher script that lives in the scanned directory is not registered as a
 command, and a file with an upper-case `.PY` suffix is ignored. A module whose `main`
 is a decorator-wrapped function defined elsewhere is not a command; discovery logs a
 warning on `duho.discovery` naming it, and listing the name in the module's

@@ -88,6 +88,37 @@ All of these are optional and default to the behaviour you already have.
   reads that class's own source instead of parsing the whole file. This
   applies to the first few classes of a file; after that the file is indexed
   once, as before, and a small file is always indexed. Results are the same.
+- A command can end with a message and a status by raising
+  `duho.CommandError(message, code=1)` or `duho.UsageError(message)` (status
+  2). `duho.main` and `duho.app` print `<prog>: error: <message>` to stderr and
+  return the status. A root can map its own exception types the same way with
+  `_errors_ = {ValueError: 2, OSError: 1}`; the default, `None`, catches
+  nothing. With `DUHO_TRACEBACK` set the exception is raised instead.
+- `duho.run(App)` is a program entry: it runs the app, prints what the command
+  returned when that is not a status (a `str` as it is, anything else as
+  JSON) and exits 0, exits with the status otherwise, and ends Ctrl-C (130)
+  and a closed output pipe (1) silently. `duho.main` and `duho.app` still
+  return the command's value unchanged for a caller that wants it.
+- `duho.Result(code, value=..., text=..., is_error=...)` is an exit status
+  that carries an answer. It is an `int`, so `sys.exit(result)` works.
+  `duho.run` prints `value`; an MCP client receives `text`, or `value`, as the
+  result, with `isError` taken from `is_error` (by default, a non-zero code).
+- Over MCP, a `CommandError` is reported as its message, without the
+  exception's type name, and when the root declares the meaning of an exit
+  code in `_exit_codes_`, the result's last line reads
+  `exit code: 1 (<meaning>)`.
+- The MCP server negotiates protocol revision `2025-11-25`. In a connection
+  on that revision, arguments that fail a tool's schema come back as a tool
+  result (`isError: true`, the message as text) that the model can read and
+  correct; on older revisions they stay a JSON-RPC `-32602` error, and an
+  unknown tool is a `-32602` error on every revision.
+- A RunPath `__main__.py` that defines `__all__` has only the `init`,
+  `success` and `finally_` names listed there treated as lifecycle hooks.
+  Without `__all__`, every such name is a hook, an imported one included, as
+  before.
+- `Meta("-n", "--name")`, where flags were given by position and became
+  `help` and `env`, logs one `WARNING` on the `duho.args` logger saying so.
+  The values are used as before.
 
 ### Changed
 
@@ -181,6 +212,15 @@ All of these are optional and default to the behaviour you already have.
   `tomli>=2.0,<3` (Python below 3.11), and building needs `hatchling>=1.27`.
   The package metadata links the changelog and no longer carries the
   `System :: Shells` classifier.
+- An MCP client that asks for a protocol revision the server does not know,
+  or for none, is answered with `2025-11-25`, the newest it supports. It used
+  to be answered `2025-06-18`.
+- A helper module next to the command files of a scanned directory
+  (`_helpers.py`) is loaded once and kept for the life of the process, so
+  re-scanning the directory no longer runs it again. Its `__name__` is a
+  private name under `duho._discovered`, and it is not in `sys.modules` under
+  its bare name. A command file and its helpers see `builtins` as renewed
+  before each command runs.
 
 ### Fixed
 
@@ -299,6 +339,13 @@ All of these are optional and default to the behaviour you already have.
   read signatures at run time work. `duho.run_command` and the `dispatch=`
   callback are typed as returning `Any`, like `duho.main` and `duho.app`: a
   command's return value that is not an `int` passes through.
+- Helper modules of a command directory are one module for the whole
+  directory. Two command files that import the same helper share its state
+  and its classes; a command that inherits flags and help from a base class
+  in a helper shows and parses them; and an `import` of a helper inside a
+  function works when the command runs. Each used to get its own copy of the
+  helper, the base class's flags and help were lost, and the late import
+  raised `ModuleNotFoundError`.
 - The wheel and sdist no longer ship `*.local.*` or `CLAUDE*` files when built
   from a checkout whose path makes hatchling ignore `.gitignore`.
 

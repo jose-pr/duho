@@ -2004,7 +2004,11 @@ named `my-app` with a `Deploy` child → `my-app.deploy`). A node whose own
 subcommand is mandatory — a root or group that only holds subcommands — is never
 listed as a tool: its fields are merged into the input schema of each descendant
 instead, and `call_tool` on its own name raises `UnknownToolError` (`serve`
-answers JSON-RPC error `-32602`). A tool's
+answers JSON-RPC error `-32602`). `serve` supports protocol revisions `2025-11-25`,
+`2025-06-18`, `2025-03-26` and `2024-11-05`. Arguments that fail a tool's schema
+are a JSON-RPC `-32602` error up to `2025-06-18` and, in a session that negotiated
+`2025-11-25`, a tool result with `isError: true` and the message as its text, so the
+model can correct them; an unknown tool is always the JSON-RPC error. A tool's
 `inputSchema` is a real JSON Schema built from the same field declarations that
 already drive your `--help`:
 

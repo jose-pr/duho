@@ -46,6 +46,7 @@ nav:
       - Env: api/env.md
       - Formatters: api/formatters.md
       - Presets: api/presets.md
+      - Config: api/config.md
       - Logging: api/logging.md
       - Agent help: api/agenthelp.md
       - Completion: api/completion.md

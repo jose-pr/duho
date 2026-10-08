@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `duho.config`, a module that reads and writes JSON, TOML, YAML and INI:
+  `ConfigBackend` (the contract), `JSONBackend`, `TOMLBackend`, `YAMLBackend`,
+  `INIBackend`, and `load`, `loads`, `dump`, `dumps`, `backend_for`, `get_backend`
+  and `backend_names`. A `ConfigBackend` subclass that sets `name` registers
+  itself; `replace=True` takes over a built-in. Its errors are
+  `ConfigError` (with `path`, `lineno`, `colno` and no document text),
+  `UnsupportedFormatError` and `ConfigDependencyError`, in `duho.exceptions`.
+- `duho.ConfigArgs`, a preset that adds `--config`/`-c FILE` and reads the file it
+  names. The path must exist, or the command line is a usage error.
+- `_config_backends_` on a root class, to limit the formats a config file may be
+  in, or to read them under other names and suffixes; the module functions take the
+  same set as `backends=`.
+- The `yaml` extra (`PyYAML`), and `tomli-w` in the `config` extra, for writing TOML.
+
+### Changed
+
+- A config path ending `.yaml`, `.yml`, `.ini` or `.cfg` is read as that format; it
+  was read as TOML. A name no format claims is still TOML.
+- A class gets the reversible `--no-*` form of its `bool` fields when any of
+  `_config_`, `_config_env_` or `_config_field_` is set; it was only `_config_`.
+
 ## [0.7.1] - 2026-10-07
 
 ### Added

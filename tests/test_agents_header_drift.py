@@ -37,6 +37,7 @@ _SUBMODULES = (
     "duho.logging",
     "duho.agenthelp",
     "duho.completion",
+    "duho.config",
     "duho.text",
     "duho.qualname",
     "duho.fanout",

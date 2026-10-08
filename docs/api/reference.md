@@ -20,7 +20,10 @@ Generated from docstrings, organized by area:
   (append `(default: X)`), `ColorHelpFormatter` (ANSI), and `ColorDefaultsFormatter`
   (both), selected via a class's `_help_formatter_`.
 - **[Presets](presets.md)** — `LoggingArgs`, the ready-made verbosity/log-level
-  mixin.
+  mixin, and `ConfigArgs`, the `--config`/`-c` mixin.
+- **[Config](config.md)** *(opt-in, `import duho.config`)* — `ConfigBackend`, the
+  JSON/TOML/YAML/INI backends, and `load`/`loads`/`dump`/`dumps`; see the
+  [configuration guide](../guide/config.md).
 - **[Logging](logging.md)** — colored formatting, custom levels, and stderr
   setup helpers.
 - **[Agent help](agenthelp.md)** — the machine-readable `--help` document

@@ -12,19 +12,20 @@ in a section heading below; import them from there (`from duho import Cmd, main`
 the private `_*.py` submodules inside the `args`, `completion`, `discovery`, `mcp`,
 `runpath` and `runtime` packages, are not API.
 
-Install with `pip install duho`; it has no required dependencies. Two extras add optional
+Install with `pip install duho`; it has no required dependencies. Three extras add optional
 integrations: `pip install duho[colorama]` (`colorama>=0.4.6,<0.5`) resolves named log colors and
-patches a legacy Windows console for ANSI output (log color itself needs no extra), and
-`pip install duho[config]` (`tomli>=2.0,<3`, only below Python 3.11) reads TOML config
-files on Python 3.9 and 3.10 (3.11+ has `tomllib`; JSON config files need nothing).
+patches a legacy Windows console for ANSI output (log color itself needs no extra),
+`pip install duho[config]` (`tomli>=2.0,<3`, only below Python 3.11, and `tomli-w>=1.0,<2`)
+reads TOML config files on Python 3.9 and 3.10 (3.11+ has `tomllib`) and writes TOML, and
+`pip install duho[yaml]` (`PyYAML>=6.0,<7`) reads and writes YAML. JSON and INI need nothing.
 
 `duho.__version__` is the package's own version as a string.
 
 The package is typed (it ships `py.typed`), and every annotation on a public callable
 resolves with `typing.get_type_hints` on every supported Python, 3.9 included.
 
-`import duho` never eagerly imports `json`, `importlib.metadata`, `duho.completion`,
-`shlex`, `duho.agenthelp`, `importlib.util`, or `pkgutil` (a tested contract) — each
+`import duho` never eagerly imports `json`, `configparser`, `importlib.metadata`,
+`duho.completion`, `duho.config`, `shlex`, `duho.agenthelp`, `importlib.util`, or `pkgutil` (a tested contract) — each
 loads lazily on first actual use. Keep any addition here that would break that lazy.
 
 ## Module layout
@@ -37,6 +38,8 @@ regardless of which internal module implements it:
   functions (`parse`, `main`, `command`, `print_completion`, ...). `completion/`,
   `discovery/`, `mcp/`, `runpath/` and `runtime/` are likewise packages of private
   `_*.py` submodules whose `__init__` re-exports every name.
+- `config/` — the `duho.config` package (backends, registry, `load`/`dump`); opt-in,
+  see "Config backends".
 - `_fieldspec.py` — the type-to-`ArgumentBuilder` ladder (`int`/`bool`/collections/
   `Enum`/`date`-like/`Literal`/...); exposes `Factory` (a `Callable[[str], T]` type
   alias for a text-to-value converter).
@@ -679,6 +682,70 @@ empty when absent).
   fails that command alone (including its own `--help` and a run that passes the field on
   the command line) while the root `--help` and every sibling command still work.
 
+## Config backends (`duho.config`)
+
+Opt-in (`import duho.config` or `duho.config`; `import duho` does not load it). Reads and
+writes a config document as a plain value. Importing it loads no parser: each backend
+imports its library inside the method that uses it. Deliberately basic: no includes,
+merging, interpolation or templating.
+
+- **`ConfigBackend`** — the contract. Class attributes `name: str`,
+  `aliases: tuple[str, ...] = ()`, `suffixes: tuple[str, ...] = ()` (all lowercase, a
+  suffix carries its dot; the suffix `""` matches any file name) and
+  `extra: str | None = None` (the pip extra of its library).
+  `ConfigBackend(*, name=None, aliases=None, suffixes=None)` makes an instance whose own
+  values replace the class's. Methods: `loads(text) -> Any` and `dumps(data) -> str` (both
+  raise `NotImplementedError` naming the class until a subclass implements them),
+  `load(source) -> Any` (a path, `~` expanded, or a file object; strict UTF-8, one leading
+  BOM dropped) and `dump(data, target) -> None` (a path, written as UTF-8 with no newline
+  translation, or a text file object; `dumps` runs first, so a failure leaves an existing
+  file as it was).
+- **Registering.** A subclass whose own body sets `name` is registered when the class
+  statement runs; there is no `register()`. A name, alias or suffix another registered
+  backend holds is a `ValueError` unless the statement passes `replace=True`
+  (`class Mine(ConfigBackend, replace=True)`), which removes the clashing classes from the
+  registry whole. A subclass that sets no `name` of its own is not registered.
+- **Module functions**, each taking `backends=None` by keyword:
+  `backend_names() -> tuple[str, ...]` (primary names, sorted);
+  `get_backend(name) -> ConfigBackend` (a name or alias, any case; unknown is
+  `UnsupportedFormatError`);
+  `backend_for(path, format=None, *, default=None) -> ConfigBackend` (the explicit
+  `format`, else the longest suffix the file name ends with, ignoring case, else
+  `default`, else `UnsupportedFormatError` listing the accepted suffixes);
+  `loads(text, format)`, `load(source, format=None)` (a file object with no `format` uses
+  its `.name`), `dumps(data, format) -> str` and `dump(data, target, format=None)`.
+- **Choosing a set.** `backends=None` is every registered backend. Otherwise an iterable
+  of registered names, `ConfigBackend` classes and instances: only those are used, a
+  later item wins a name, alias or suffix an earlier one also claims, and a class is
+  used as an instance. An unknown name is `UnsupportedFormatError`; anything else is a
+  `TypeError`. A root class sets `_config_backends_` to the same thing for the config
+  files it reads.
+- **Errors**, all `ValueError` subclasses defined in `duho.exceptions` and importable from
+  `duho.config`: `ConfigError(message, path=None, lineno=None, colno=None)` (attributes of
+  the same names; a read failure reads `duho: invalid NAME in config file PATH: DETAIL`,
+  where DETAIL holds the parser's problem and position and never text of the document),
+  `UnsupportedFormatError` (no backend matches) and
+  `ConfigDependencyError(message, extra=None, path=None)` (the library is not installed;
+  `.extra` names the extra).
+- **Built in:**
+
+| Class | `name` | aliases | suffixes | extra | reads | writes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `JSONBackend` | `json` | | `.json` | | `json` | `json`, indent 2, non-ASCII kept, trailing newline |
+| `TOMLBackend` | `toml` | | `.toml` | `config` | `tomllib`, else `tomli` | `tomli_w` |
+| `YAMLBackend` | `yaml` | `yml` | `.yaml`, `.yml` | `yaml` | `yaml.safe_load` | `yaml.safe_dump`, key order kept |
+| `INIBackend` | `ini` | | `.ini`, `.cfg` | | `configparser` | `configparser` |
+
+- **The INI dialect.** The keys of `[DEFAULT]` are the top level (root fields); every other
+  section is a table one level deep; sections do not inherit `[DEFAULT]`; key case is kept;
+  `%` is plain text; every value is a string (duho converts it with the field's type).
+  Writing puts scalars (`true`/`false` for a bool) at the top level or in a section, and
+  raises `ConfigError` naming the key for a list, a deeper table or `None`.
+- A config file duho reads goes through
+  `backend_for(path, default="toml", backends=_config_backends_)`: with `_config_backends_`
+  unset a name no suffix matches is TOML (as before); with it set there is no default and
+  such a name is a usage error. A `_config_loader_` still outranks all of it.
+
 ## Logging (`duho.logging`)
 
 `duho.logging` is a superset of stdlib `logging`: every public (non-underscore) stdlib
@@ -1050,6 +1117,10 @@ manipulating a parser tree directly:
   unsupported MCP transport, a `duho.expand` range format with braces or one a member
   rejects, a different `add_logging_level` number for a registered name, and a
   `generate_launchers` argument with unsafe characters.
+- **`duho.exceptions.ConfigError`** (`ValueError`, with `path`, `lineno`, `colno`),
+  **`UnsupportedFormatError`** and **`ConfigDependencyError`** (both `ConfigError`; the
+  latter has `.extra`) — see "Config backends". Under `main`/`parse`/`app` a config file's
+  failure is a usage error, exit `2`, never one of these.
 - **`FileNotFoundError`** — a config path chosen by `config=`, `_config_env_` or
   `_config_field_` that does not exist.
 - **`RuntimeError`** — `duho.mcp.serve_running_app` called outside a `main`/`app` dispatch.
@@ -1071,7 +1142,7 @@ manipulating a parser tree directly:
   `--version` is also accepted.
 - **Flags duho adds to an app** — `--version` (when `_version_` or a class `__version__`
   resolves), `--print-completion {bash,zsh,fish,powershell}` (`_completion_ = True`),
-  `--help-agents` (`_agent_help_ = True`), `-v/--verbose`, `-q/--quiet` and `--loglevel`
+  `--help-agents` (`_agent_help_ = True`), `--config/-c FILE` (`ConfigArgs`), `-v/--verbose`, `-q/--quiet` and `--loglevel`
   (`LoggingArgs`), `--rcopts/-O` (`duho.runpath.RunPathCmd`) and `--transport {stdio}`
   (`duho.mcp.McpCmd`).
 

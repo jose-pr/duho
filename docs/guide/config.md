@@ -1,7 +1,7 @@
 # Configuration layers
 
 Beyond CLI arguments, duho can pull defaults from **environment variables** and a
-**TOML config file**. The full precedence ladder, highest first:
+**config file** in JSON, TOML, YAML or INI. The full precedence ladder, highest first:
 
 ```
 CLI args  >  instance values  >  env var  >  config file  >  class default
@@ -74,6 +74,34 @@ instead of raising — a class attribute is allowed to point at a file an app
 hasn't written yet. An explicit `config=` argument stays strict: a missing
 file passed that way still raises, since you named it directly.
 
+### The `--config` flag: `ConfigArgs`
+
+Most tools let the user name the file. `ConfigArgs` is a mixin that adds
+`--config FILE` (`-c`) and reads the file it names, with no other attribute to set:
+
+<!-- runnable -->
+```python
+from duho import Cli, ConfigArgs, LoggingArgs
+
+class Deploy(ConfigArgs, LoggingArgs, Cli):
+    """Deploy the app."""
+
+    port: int = 8000
+    "Port to listen on"
+```
+
+```bash
+$ deploy -c prod.yaml          # port comes from prod.yaml
+$ deploy -c prod.yaml --port 1 # the command line wins
+$ deploy -c missing.yaml       # deploy: error: argument --config/-c: no such file: missing.yaml
+```
+
+The path has `~` expanded and must be a file, so a mistyped path is a usage error
+(exit status 2) with no traceback. List `ConfigArgs` before `Cli`: `Cli` declares
+`_config_field_ = None`, and `class Deploy(Cli, ConfigArgs)` is a `TypeError` naming the
+class. Because the class names a config source, `--help` lists the reversible `--no-*`
+form of its `bool` fields whether or not a file was given.
+
 ### Choosing the config file at run time
 
 `_config_` fixes the path in the class. To let the user or the environment choose it,
@@ -114,75 +142,184 @@ An env var set to the empty string is treated as unset (falls through to
 config/class default) for every field except a bare `str` field, which keeps
 the empty string as its value.
 
-### TOML support
+### Formats
 
-Reading TOML uses the standard library's `tomllib` on Python 3.11+. On 3.9 and
-3.10 it falls back to the third-party `tomli` package:
+The file's suffix picks the reader, from the `duho.config` backends:
 
-```bash
-pip install duho[config]
+| Format | Suffixes | Reads with | Writes with | Needs |
+| --- | --- | --- | --- | --- |
+| JSON | `.json` | `json` | `json` | nothing |
+| TOML | `.toml` | `tomllib` (3.11+), else `tomli` | `tomli_w` | `pip install duho[config]` on 3.9 and 3.10, and to write |
+| YAML | `.yaml`, `.yml` | `yaml.safe_load` | `yaml.safe_dump` | `pip install duho[yaml]` |
+| INI | `.ini`, `.cfg` | `configparser` | `configparser` | nothing |
+
+A name no backend claims (`app.conf`, or no suffix at all) is read as TOML. Every
+format gives the same nested shape: top-level keys map to the root command's fields and a
+table (object, mapping, section) named for a subcommand maps to that subcommand's fields.
+
+```yaml
+# deploy.yaml
+token: abc123
+verbose: true
+install:
+  target: prod
 ```
 
-duho stays zero-dependency by default — you only need this extra (`tomli>=2.0,<3`,
-installed only below Python 3.11) if you actually use `_config_` / `config=` on an
-older interpreter. If neither backend is available, reading a `.toml` config is a
-usage error naming the extra (exit status 2); `--help` and `--version` still work.
+An INI file is plain text: the keys of `[DEFAULT]` are the top level, every other
+section is a table, sections do not inherit `[DEFAULT]`, key case is kept, `%` is not
+special, and every value is a string that duho converts with the field's type.
 
-### JSON support
+```ini
+; deploy.ini
+[DEFAULT]
+token = abc123
+verbose = true
 
-A config path ending in `.json` is parsed as JSON using the standard library —
-no extra dependency. JSON produces the same nested-dict shape as TOML, so
-top-level keys map to the root and a nested object named for a subcommand maps to
-that subcommand's fields:
-
-```json
-{
-  "token": "abc123",
-  "verbose": true,
-  "install": { "target": "prod" }
-}
+[install]
+target = prod
 ```
 
-`json` is imported lazily (only when a `.json` config is actually loaded).
+duho stays zero-dependency by default: a parser library is imported only when a file of
+its format is read. If it is missing, reading that file is a usage error naming the extra
+(`duho[yaml]`, `duho[config]`), exit status 2; `--help` and `--version` still work.
 
 ### Malformed config files
 
-A malformed JSON or TOML file, or one whose top level is not a table/object, is a
-usage error naming the file, with exit status 2 — under `duho.main`, `duho.parse` and
-`duho.app` alike, not a raised exception:
+A malformed file, or one whose top level is not a table, is a usage error naming the
+file and the format, with exit status 2 under `duho.main`, `duho.parse` and `duho.app`
+alike, not a raised exception. The message carries the parser's problem and position and
+never text of the document, so a secret in a bad file is not echoed:
 
 ```text
 app: error: duho: invalid JSON in config file /etc/app.json: Expecting property name ...
+app: error: duho: invalid YAML in config file /etc/app.yaml: found character '\t' ... (at line 2, column 1)
 app: error: duho: config file /etc/app.json must contain a table/object at the top level, got list
 ```
 
-### Any other format: `_config_loader_`
+## Reading and writing files yourself: `duho.config`
 
-To read a format duho does not ship (YAML, INI, …) **without adding a
-dependency**, set a class-level `_config_loader_` — a `Callable[[Path], dict]`
-that duho calls *instead of* the built-in JSON/TOML dispatch. You bring the
-parser; duho never imports it:
+The backends are public. `load` and `dump` pick a backend by the file name, or by a format
+name you pass; `loads` and `dumps` work on text:
 
+<!-- runnable -->
 ```python
-import yaml  # your dependency, not duho's
+from duho import config
 
-class Deploy(duho.Cli):
-    _config_ = "./deploy.yaml"
-    _config_loader_ = staticmethod(
-        lambda path: yaml.safe_load(path.read_text()) or {}
-    )
+config.dump({"port": 8000, "install": {"target": "prod"}}, "deploy.json")
+settings = config.load("deploy.json")           # {"port": 8000, "install": {...}}
+
+text = config.dumps(settings, "ini")            # "[DEFAULT]\nport = 8000\n..."
+same = config.loads(text, "ini")                # every INI value is a string
 ```
 
-The hook receives the expanded `Path` and must return the config `dict`; the
-layering, precedence, and subcommand-table rules are identical to the built-in
-loaders. This keeps duho's zero-runtime-dependency contract while supporting any
-config format you like.
+`dump` builds the whole document before it touches the file, writes UTF-8, and leaves an
+existing file as it was when the data cannot be written (an INI file cannot hold a list or
+a table nested two deep). `config.backend_names()` lists the formats and
+`config.backend_for(path)` returns the backend a file name selects. Failures are
+`duho.config.ConfigError` (a `ValueError` with `path`, `lineno` and `colno`),
+`UnsupportedFormatError` and `ConfigDependencyError` (with `.extra`).
 
-Errors raised inside the loader propagate to the caller unchanged: duho does not
-convert them, so the application reports them its own way. Only the built-in JSON and
-TOML readers, and the check that the loaded value is a mapping, report through the
-parser: a loader that returns something that is not a mapping is a usage error naming
-the file.
+### Adding a format
+
+Subclass `ConfigBackend`, set `name`, and implement `loads` and `dumps`. Defining the
+class registers it, so `config.load("a.hocon")`, and a `_config_` path ending `.hocon`,
+use it:
+
+<!-- runnable -->
+```python
+from duho import config
+
+class KeyValueBackend(config.ConfigBackend):
+    name = "kv"
+    aliases = ("keyvalue",)
+    suffixes = (".kv",)
+
+    def loads(self, text):
+        try:
+            return dict(line.split("=", 1) for line in text.splitlines() if line)
+        except ValueError:
+            raise config.ConfigError("a line without '='") from None
+
+    def dumps(self, data):
+        return "".join(f"{key}={value}\n" for key, value in data.items())
+
+assert config.loads("a=1\nb=2\n", "kv") == {"a": "1", "b": "2"}
+```
+
+A name, alias or suffix a registered backend already holds is a `ValueError`. To take over
+a built-in format, pass `replace=True` in the class statement
+(`class MyYaml(config.ConfigBackend, replace=True)` with `name = "yaml"`). A subclass that
+sets no `name` of its own, such as `class Loud(config.JSONBackend)`, is not registered; use
+it in a set, below.
+
+### Choosing which formats a tool reads
+
+By default a tool reads every registered format. Set `_config_backends_` on the root to
+limit it to the ones you list, as registered names, backend classes or instances. A file
+whose name no listed suffix matches is then a usage error that lists the accepted
+suffixes:
+
+<!-- runnable -->
+```python
+from duho import Cli, ConfigArgs
+
+class Deploy(ConfigArgs, Cli):
+    _config_backends_ = ["toml", "json"]   # no YAML, no INI
+```
+
+### Changing a backend's names and suffixes
+
+An instance may carry other `name`, `aliases` and `suffixes` than its class, which is how
+a tool reads `.conf` files as INI, or a suffix-less file as YAML. The suffix `""` matches
+any file name, and always loses to a longer suffix:
+
+<!-- runnable -->
+```python
+from duho import Cli, ConfigArgs, config
+
+class Deploy(ConfigArgs, Cli):
+    _config_backends_ = [
+        "json",
+        config.INIBackend(suffixes=(".conf", ".ini")),
+        config.YAMLBackend(suffixes=(".yaml", "")),
+    ]
+```
+
+A later item in the list wins a name or suffix an earlier one also claims, so a subclass
+placed last replaces a built-in for this tool only, leaving the registry alone:
+
+```python
+class StrictJSON(config.JSONBackend):
+    def loads(self, text):
+        data = super().loads(text)
+        if not isinstance(data, dict):
+            raise config.ConfigError("the top level must be an object")
+        return data
+
+class Deploy(ConfigArgs, Cli):
+    _config_backends_ = [StrictJSON, "toml"]
+```
+
+The same `backends=` keyword is accepted by `config.load`, `loads`, `dump`, `dumps`,
+`backend_for`, `get_backend` and `backend_names`.
+
+### A format with no backend: `_config_loader_`
+
+For a one-off, set a class-level `_config_loader_`: a `Callable[[Path], dict]` that duho
+calls *instead of* the backends. It receives the expanded `Path` and returns the config
+`dict`; the layering, precedence and subcommand-table rules are the same.
+
+```python
+class Deploy(duho.Cli):
+    _config_ = "./deploy.hjson"
+    _config_loader_ = staticmethod(lambda path: my_hjson.loads(path.read_text()))
+```
+
+Errors raised inside the loader propagate to the caller unchanged: duho does not convert
+them, so the application reports them its own way. Only the backends, and the check that
+the loaded value is a mapping, report through the parser: a loader that returns something
+that is not a mapping is a usage error naming the file. For anything you would use
+twice, a `ConfigBackend` subclass is the better home.
 
 ## Where did this value come from?
 

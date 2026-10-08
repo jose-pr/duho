@@ -9,8 +9,8 @@ duho is the **foundation** from which you command your application.
 
 It has zero required runtime dependencies. Colored logging works without one;
 `colorama` is an optional extra that resolves named colors and patches a legacy
-Windows console, and TOML config on Python 3.9/3.10 (`tomli`) is the other.
-Both are imported only when used.
+Windows console, TOML config on Python 3.9/3.10 (`tomli`) and TOML writing are
+the second, and YAML config files are the third. Each is imported only when used.
 
 ## Why duho
 
@@ -22,7 +22,7 @@ Both are imported only when used.
   `add_argument` keyword is reachable via `Arg[T, Meta(...)]`, and you can take the
   parser and do whatever you want with it.
 - **Layered defaults.** CLI args override environment variables, which override a
-  TOML config file, which overrides class defaults — with a helper that tells you
+  config file, which overrides class defaults (JSON, TOML, YAML or INI) — with a helper that tells you
   which layer won.
 - **Batteries included.** Verbosity flags, `--version`, and static shell
   completion are one attribute each.
@@ -37,7 +37,8 @@ Optional extras:
 
 ```bash
 pip install duho[colorama]   # named log colors; legacy Windows consoles
-pip install duho[config]     # TOML config files on Python 3.9/3.10
+pip install duho[config]     # TOML config files on Python 3.9/3.10; writing TOML
+pip install duho[yaml]       # YAML config files
 ```
 
 ## A first CLI

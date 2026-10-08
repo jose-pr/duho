@@ -19,7 +19,7 @@ Named after the sacred Taíno ceremonial stool—a symbol of power and authority
 - **Logging**: Integrated colored logging with configurable verbosity levels
 - **Subcommands**: Easily compose multi-command CLI applications
 - **Extensible**: Customize argument behavior with protocols and builders
-- **Layered defaults**: Environment variables and TOML or JSON config files sit under the command line, and `duho.value_sources` reports which layer supplied each value
+- **Layered defaults**: Environment variables and JSON, TOML, YAML or INI config files sit under the command line, with a ready-made `--config`/`-c` flag (`ConfigArgs`), and `duho.value_sources` reports which layer supplied each value
 - **Shell completion**: Static bash, zsh, fish and PowerShell completion scripts, generated from the same declarations
 - **Agent help**: A machine-readable `--help` document, and the same classes served as MCP tools
 - **Discovery**: Commands from loose files, packages or installed entry points, plus ordered step directories (RunPath)
@@ -36,7 +36,8 @@ duho has no required runtime dependencies. Each extra adds one optional integrat
 | Extra | Install | Adds |
 | --- | --- | --- |
 | `colorama` | `pip install duho[colorama]` | `colorama>=0.4.6,<0.5`: named log colors (`color="red"`) and ANSI rendering on a legacy Windows console; log color itself needs no extra |
-| `config` | `pip install duho[config]` | `tomli>=2.0,<3` on Python below 3.11, to read TOML config files on 3.9 and 3.10 (3.11+ has `tomllib`); JSON config needs nothing |
+| `config` | `pip install duho[config]` | `tomli>=2.0,<3` on Python below 3.11, to read TOML config files on 3.9 and 3.10 (3.11+ has `tomllib`), and `tomli-w>=1.0,<2` to write TOML; JSON and INI config need nothing |
+| `yaml` | `pip install duho[yaml]` | `PyYAML>=6.0,<7`, to read and write YAML config files |
 
 ### Optional Dependencies
 
@@ -219,7 +220,8 @@ modules are imported by name. The full reference is on the
 | `duho.env` | `Env`, the prefixed, typed environment accessor |
 | `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
 | `duho.formatters` | `DefaultsFormatter`, `ColorHelpFormatter`, `ColorDefaultsFormatter` for `_help_formatter_` |
-| `duho.presets` | `LoggingArgs`, the `-v`/`-q`/`--loglevel` mixin |
+| `duho.presets` | `LoggingArgs`, the `-v`/`-q`/`--loglevel` mixin, and `ConfigArgs`, the `--config`/`-c` mixin |
+| `duho.config` | `ConfigBackend`, the JSON/TOML/YAML/INI backends, `load`, `loads`, `dump`, `dumps` |
 | `duho.agenthelp` | The machine-readable `--help` document (`describe`, `print_agent_help`) |
 | `duho.completion` | bash, zsh, fish and PowerShell completion-script generation |
 | `duho.text` | `expand`, `pysafe`, `camelcase`, `snakecase`, `kebabcase` |
@@ -868,8 +870,8 @@ duho[config]`) — duho stays zero-runtime-dependency by default, so this
 extra is only needed if you actually use `_config_`/`config=` on an older
 interpreter.
 
-**A malformed config file** (invalid JSON or TOML, a TOML file with no TOML reader
-installed, or a file whose top level is not a table/object) is a usage error naming
+**A malformed config file** (invalid JSON, TOML, YAML or INI, a file whose parser library
+is not installed, or a file whose top level is not a table/object) is a usage error naming
 the file, exit status 2, under `main`, `parse` and `app` alike; `--help` and
 `--version` still work.
 
@@ -881,18 +883,30 @@ map to the root, a nested object named for a subcommand maps to that subcommand:
 { "verbose": true, "install": { "target": "prod" } }
 ```
 
-**Any other format via `_config_loader_`**: set a class-level
-`_config_loader_ = Callable[[Path], dict]` and duho calls it *instead of* the
-built-in JSON/TOML dispatch. This is the zero-dependency escape hatch for a
-format duho does not ship — e.g. YAML, plugged with your own `yaml.safe_load`,
-without duho ever importing or depending on it:
+**YAML and INI config**: a `.yaml`/`.yml` path is read as YAML (`pip install
+duho[yaml]`) and a `.ini`/`.cfg` path as INI (stdlib; the keys of `[DEFAULT]` are the top
+level, every other section is a table). A name no format claims is read as TOML.
+
+**The `--config` flag**: `ConfigArgs` adds `--config FILE` (`-c`) and reads the file it
+names; the path must exist, or the command line is a usage error:
 
 ```python
-import yaml
+class Deploy(duho.ConfigArgs, duho.LoggingArgs, duho.Cli):
+    port: int = 8000
+```
 
+**Other formats**: `duho.config` holds the backends (`ConfigBackend`, `load`, `dump`).
+Subclass `ConfigBackend` and set `name` to add a format, or set `_config_backends_` on
+a class to limit or rename the formats it reads; see the configuration guide.
+
+**One-off format via `_config_loader_`**: set a class-level
+`_config_loader_ = Callable[[Path], dict]` and duho calls it *instead of* the
+backends:
+
+```python
 class Deploy(duho.Cli):
-    _config_ = "./deploy.yaml"
-    _config_loader_ = staticmethod(lambda path: yaml.safe_load(path.read_text()) or {})
+    _config_ = "./deploy.hjson"
+    _config_loader_ = staticmethod(lambda path: my_hjson.loads(path.read_text()))
 ```
 
 An exception your loader raises propagates to the caller unchanged, so the

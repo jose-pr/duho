@@ -8,6 +8,25 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+A config file may now be JSON, TOML, YAML or INI, chosen by its suffix, and a tool can
+ask for the file with one mixin.
+
+- `duho.config` holds the readers and writers as `ConfigBackend` classes with a
+  registry; defining a subclass that sets `name` adds a format. `load`, `loads`, `dump`
+  and `dumps` use it directly. It is deliberately basic: no includes, merging,
+  interpolation or templating.
+- `ConfigArgs` adds `--config`/`-c FILE` and layers the named file under the command
+  line; `class App(ConfigArgs, LoggingArgs, Cli)`.
+- `_config_backends_` limits or renames the formats a tool reads.
+
+### Upgrade notes
+
+- A `.yaml`, `.yml`, `.ini` or `.cfg` config path was read as TOML and is now read as
+  its own format. A tool that kept TOML in a file with one of those names sets
+  `_config_backends_` with a `TOMLBackend` instance given that suffix.
+- A class with only `_config_env_` or `_config_field_` set now shows `--no-NAME` for its
+  `bool` fields in `--help`, as a class with `_config_` already did.
+
 ---
 
 ## [0.7.1] — 2026-10-07

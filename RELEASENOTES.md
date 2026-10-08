@@ -8,6 +8,10 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.2] — 2026-10-09
+
 A config file may now be JSON, TOML, YAML or INI, chosen by its suffix, and a tool can
 ask for the file with one mixin.
 
@@ -26,6 +30,30 @@ ask for the file with one mixin.
   `_config_backends_` with a `TOMLBackend` instance given that suffix.
 - A class with only `_config_env_` or `_config_field_` set now shows `--no-NAME` for its
   `bool` fields in `--help`, as a class with `_config_` already did.
+
+### Performance
+
+No performance claim is made. The CI regression gate passed on Python 3.9,
+3.13 and 3.14 against the same baseline as 0.7.1. `import duho` loads neither
+`duho.config` nor any parser library, which a test asserts.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (2918 passed, 44 skipped) and
+  3.14 (2932 passed, 30 skipped); Linux (WSL) Python 3.14 (2936 passed, 26
+  skipped). The skip counts are those of 0.7.1.
+- CI: all 17 jobs green at the change (run
+  [37820916869](https://github.com/jose-pr/duho/actions/runs/37820916869)), and
+  the same workflow ran at the release commit before tagging. Every leg
+  installs PyYAML and tomli-w, and the floors job installs each at its lowest
+  declared version.
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits (one README line and two lines of
+  `examples/dotagents.py`, whose subject is that directory).
+- The suites of nine projects that use duho were run against this tree. Seven
+  pass with the same counts as against their installed duho. The other two pin
+  `duho<0.7` and stop at collection on `from duho import NS`, which 0.7.0
+  removed; nothing in this release reaches them.
 
 ---
 

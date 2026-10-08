@@ -297,7 +297,7 @@ class StrictJSON(config.JSONBackend):
         return data
 
 class Deploy(ConfigArgs, Cli):
-    _config_backends_ = [StrictJSON, "toml"]
+    _config_backends_ = ["json", "toml", StrictJSON]   # StrictJSON reads .json
 ```
 
 The same `backends=` keyword is accepted by `config.load`, `loads`, `dump`, `dumps`,

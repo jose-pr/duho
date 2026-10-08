@@ -58,8 +58,13 @@ class INIBackend(ConfigBackend):
         if parser.has_section(_TOP):
             result.update(parser.items(_TOP))
         for section in parser.sections():
-            if section != _TOP:
-                result[section] = dict(parser.items(section))
+            if section == _TOP:
+                continue
+            if section in result:
+                raise ConfigError(
+                    f"{_plain(section)!r} is both a key of [{_TOP}] and a section"
+                )
+            result[section] = dict(parser.items(section))
         return result
 
     def dumps(self, data: _ty.Any) -> str:

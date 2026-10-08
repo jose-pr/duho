@@ -126,7 +126,7 @@ class ConfigBackend:
                     f"not valid UTF-8 (byte offset {exc.start})",
                     path=shown,
                 ) from None
-        text = raw[1:] if raw.startswith("﻿") else raw
+        text = raw[1:] if raw.startswith("\ufeff") else raw
         try:
             return self.loads(text)
         except ConfigDependencyError:

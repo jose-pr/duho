@@ -50,5 +50,8 @@ class YAMLBackend(ConfigBackend):
         yaml = _module()
         try:
             return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
-        except yaml.YAMLError as exc:
-            raise ConfigError(f"cannot write as YAML: {_plain(str(exc))}") from None
+        except yaml.YAMLError:
+            # PyYAML's own text quotes the value it could not represent.
+            raise ConfigError(
+                "cannot write as YAML: a value is not a plain YAML type"
+            ) from None

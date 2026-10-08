@@ -738,7 +738,8 @@ merging, interpolation or templating.
 
 - **The INI dialect.** The keys of `[DEFAULT]` are the top level (root fields); every other
   section is a table one level deep; sections do not inherit `[DEFAULT]`; key case is kept;
-  `%` is plain text; every value is a string (duho converts it with the field's type).
+  `%` is plain text; every value is a string (duho converts it with the field's type); a
+  `[DEFAULT]` key with the name of a section is a `ConfigError`.
   Writing puts scalars (`true`/`false` for a bool) at the top level or in a section, and
   raises `ConfigError` naming the key for a list, a deeper table or `None`.
 - A config file duho reads goes through

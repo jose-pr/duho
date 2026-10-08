@@ -124,6 +124,13 @@ def test_the_class_body_may_set_the_field_itself():
     assert Explicit._config_field_ == "config"
 
 
+def test_a_class_may_turn_the_field_off():
+    class Off(ConfigArgs, Cli):
+        _config_field_ = None
+
+    assert Off._config_field_ is None
+
+
 def test_the_preset_alone_names_the_field():
     class Plain(ConfigArgs):
         pass

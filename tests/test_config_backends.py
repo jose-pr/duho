@@ -86,6 +86,23 @@ def test_ini_shape():
     assert config.loads(text, "ini")["web"] == {"Host": "a%b"}
 
 
+def test_ini_refuses_a_top_level_key_that_is_also_a_section():
+    with pytest.raises(ConfigError, match="web"):
+        config.loads("[DEFAULT]\nweb = 1\n\n[web]\nhost = a\n", "ini")
+
+
+def test_yaml_dump_does_not_quote_a_value_it_cannot_write():
+    pytest.importorskip("yaml")
+
+    class Odd:
+        def __repr__(self):
+            return SECRET
+
+    with pytest.raises(ConfigError) as info:
+        config.dumps({"key": Odd()}, "yaml")
+    assert SECRET not in str(info.value)
+
+
 def test_ini_dump_scalars_and_errors():
     text = config.dumps({"flag": True, "n": 3, "web": {"off": False}}, "ini")
     assert "flag = true" in text and "off = false" in text and "n = 3" in text

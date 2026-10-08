@@ -234,7 +234,8 @@ class ConfigArgs(Args):
 
     def __init_subclass__(cls, **kwargs: _ty.Any) -> None:
         super().__init_subclass__(**kwargs)
-        if getattr(cls, "_config_field_", None) is None:
+        # A class that sets `_config_field_ = None` itself turned the flag off.
+        if cls._config_field_ is None and "_config_field_" not in vars(cls):
             raise TypeError(
                 f"{cls.__qualname__}: ConfigArgs must come before Cli in the base "
                 "classes, or Cli's _config_field_ = None hides the --config field"

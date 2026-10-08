@@ -191,7 +191,8 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_distribution_` | `str \| None` | `None` | root | distribution name for `AUTO` when it differs from the import package |
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |
-| `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in JSON/TOML dispatch; its own exceptions propagate unchanged, a non-mapping result is a usage error naming the file |
+| `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a usage error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
+| `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; its own exceptions propagate unchanged, a non-mapping result is a usage error naming the file |
 | `_config_env_` | `str \| None` | `None` | root | name of an environment variable holding the config file's path; outranks `_config_`, and the file must exist; not applied to a tree served over MCP |
 | `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist; not applied to a tree served over MCP |
 | `_help_formatter_` | `type \| None` | `None` | root, command | argparse `formatter_class`; a root's value propagates to its subcommands |
@@ -627,16 +628,17 @@ empty when absent).
   class default**; a value from any layer also un-requires a field with no class default.
 - **Config files** — `_config_` on a class (a path; `~` is expanded) or `config=` on
   `parse`/`parse_globals`/`main`/`app` (wins over the attribute) names a file whose values
-  become defaults. A path ending `.json` is read as JSON; any other path is read as TOML
-  (stdlib `tomllib` on Python 3.11+; on 3.9/3.10 it needs `pip install duho[config]`,
-  i.e. `tomli`). Top-level keys map to the root command's fields, and a table (TOML) or
+  become defaults. The suffix picks the format: `.json` JSON, `.toml` TOML, `.yaml`/`.yml` YAML
+  (`pip install duho[yaml]`), `.ini`/`.cfg` INI; any other name is read as TOML (stdlib
+  `tomllib` on Python 3.11+; on 3.9/3.10 it needs `pip install duho[config]`, i.e.
+  `tomli`). `_config_backends_` changes the set. Top-level keys map to the root command's fields, and a table (TOML) or
   object (JSON) named after a subcommand's `_parsername_` maps to that subcommand's
   fields (`verbose = true` plus `[install]` with `target = "prod"`). Unknown keys are
   ignored. Every entry point layers env and the class's `_config_` the same way:
   `parse`, `main`, `parse_globals`, `app` and a parser from `duho.parser(cls)`.
   A `_config_` path that does not exist yet is skipped; an explicit `config=` path that is
-  missing raises. A malformed JSON or TOML file, a TOML file with no TOML reader
-  installed (3.9/3.10 without `tomli`), and a file whose top level is not a table/object
+  missing raises. A malformed config file, a file whose parser library is not installed
+  (TOML on 3.9/3.10 without `tomli`, YAML without PyYAML), and a file whose top level is not a table/object
   are usage errors (message naming the file, exit `2`) under `main`, `parse` and `app`
   alike; `--help` and `--version` still work. `_config_loader_` (`Callable[[Path], dict]`)
   replaces the built-in reader, for any other format; it is not called for a skipped file.

@@ -55,22 +55,21 @@ def _raw_env_values(cls, env=None) -> dict[str, object]:
     return resolved
 
 
-class _TomlBackendMissing(RuntimeError):
-    """No TOML reader (``tomllib``/``tomli``) is importable."""
-
-
 def _load_config(
     path: str | _pathlib.Path,
     loader: _ty.Callable[[_pathlib.Path], dict] | None = None,
+    backends: _ty.Any = None,
 ) -> dict:
     """Read a config file into a plain dict.
 
     A `loader` (``_config_loader_``) is called with the expanded path and its
-    result used verbatim. Otherwise ``.json`` goes through ``json`` (a parse
-    error becomes a ``ValueError`` naming the file) and anything else through
-    ``tomllib`` or ``tomli``; with neither importable it raises
-    ``_TomlBackendMissing``. Both formats give the same nested-dict shape: top
-    keys are root fields, a table named for a subcommand holds its fields.
+    result used verbatim. Otherwise the file goes through ``duho.config``: the
+    backend whose suffix the name ends with, among `backends`
+    (``_config_backends_``; ``None`` is every registered one, and then a name
+    matching no suffix is TOML). A parse error is a ``ConfigError`` naming the
+    file, a missing parser library a ``ConfigDependencyError``. Every format
+    gives the same nested-dict shape: top keys are root fields, a table named
+    for a subcommand holds its fields.
     """
     p = _pathlib.Path(path).expanduser()
 
@@ -86,37 +85,10 @@ def _load_config(
                 pass
             raise
 
-    if p.suffix.lower() == ".json":
-        import json as _json  # lazy: only a JSON config pays json's import cost
+    from .config import backend_for  # lazy: `import duho` does not load it
 
-        with p.open("rb") as f:
-            try:
-                return _json.load(f)
-            except ValueError as exc:  # JSONDecodeError is a ValueError subclass
-                raise ValueError(
-                    f"duho: invalid JSON in config file {_os.fspath(p)}: {exc}"
-                ) from None
-
-    try:
-        import tomllib as _toml  # type: ignore[import-not-found]
-    except ImportError:
-        try:
-            import tomli as _toml  # type: ignore[import-not-found,no-redef]
-        except ImportError:
-            raise _TomlBackendMissing(
-                "duho: reading a config file requires a TOML backend. "
-                "Python 3.11+ has one built in (tomllib); on earlier "
-                "versions, install the optional 'tomli' package "
-                "(e.g. `pip install tomli` or `pip install duho[config]`)."
-            ) from None
-
-    with p.open("rb") as f:
-        try:
-            return _toml.load(f)
-        except _toml.TOMLDecodeError as exc:
-            raise ValueError(
-                f"duho: invalid TOML in config file {_os.fspath(p)}: {exc}"
-            ) from None
+    default = "toml" if backends is None else None
+    return backend_for(p, default=default, backends=backends).load(p)
 
 
 def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
@@ -156,10 +128,11 @@ def _resolve_config_dict(
         return {}
     p = _pathlib.Path(path).expanduser()
     loader = getattr(cls, "_config_loader_", None)
+    backends = getattr(cls, "_config_backends_", None)
     if not explicit and not p.exists():
         _LOGGER.debug("duho: class config %s not found; skipping config layer", p)
         return {}
-    raw = _load_config(p, loader)
+    raw = _load_config(p, loader, backends)
     if raw is None:
         raw = {}
     if not isinstance(raw, _ty.Mapping):
@@ -177,13 +150,15 @@ def _resolve_config_or_error(
     config through ``parser.error`` (usage line, exit 2).
 
     A ``ValueError`` from the class's own ``_config_loader_`` propagates
-    unchanged. A missing TOML backend is held on the parser and reported by
+    unchanged. A missing parser library is held on the parser and reported by
     :func:`_finalize_layers`, so ``--help`` and ``--version`` still work.
     """
+    from .exceptions import ConfigDependencyError
+
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
     try:
         return _resolve_config_dict(cls, config)
-    except _TomlBackendMissing as exc:
+    except ConfigDependencyError as exc:
         parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
         return {}
     except ValueError as exc:

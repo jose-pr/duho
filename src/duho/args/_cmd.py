@@ -156,8 +156,9 @@ class Cli(Cmd):
     _completion_: bool = False
 
     #: Path to a config file whose values become layered defaults (precedence
-    #: CLI > env > config > class default). ``None`` disables it. A ``.json`` file
-    #: is parsed as JSON, any other suffix (``.toml``/unspecified) as TOML. A
+    #: CLI > env > config > class default). ``None`` disables it. The file's
+    #: suffix picks the format (see ``_config_backends_``); a name no backend
+    #: claims is TOML. A
     #: path that does not exist YET is treated as no config at all (skipped,
     #: logged at debug) rather than raising -- an explicit ``config=`` kwarg to
     #: ``duho.main``/``duho.parse``/``duho.app`` stays strict. Read by
@@ -176,10 +177,16 @@ class Cli(Cmd):
     #: is not a declared field is a ``ValueError`` naming the class.
     _config_field_: _ty.Optional[str] = None
 
+    #: The formats a config file may be in: ``None`` (every registered
+    #: ``duho.config`` backend) or an iterable of registered names, backend
+    #: classes and instances; only those are read, a later item winning a name
+    #: or suffix an earlier one also claims. Ignored when ``_config_loader_`` is
+    #: set. Read by ``_load_config``.
+    _config_backends_: _ty.Optional[_ty.Iterable[_ty.Any]] = None
+
     #: Optional custom config loader ``Callable[[Path], dict]``. When set it
-    #: is used INSTEAD of duho's built-in JSON/TOML dispatch, so a user can plug a
-    #: format duho does not ship (e.g. YAML via their own ``yaml.safe_load``)
-    #: WITHOUT duho depending on it -- keeping the zero-runtime-deps contract.
+    #: is used INSTEAD of duho's built-in format dispatch, for a format no
+    #: ``duho.config`` backend reads.
     #: Read by ``_load_config`` via ``_resolve_config_dict`` /
     #: ``duho.app``.
     _config_loader_: _ty.Optional[_ty.Callable[[_pathlib.Path], dict]] = None

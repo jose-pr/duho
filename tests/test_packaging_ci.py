@@ -441,7 +441,7 @@ def test_build_backend_declares_the_hatchling_floor_the_license_fields_need():
     assert 'requires = ["hatchling>=1.27"]' in _read(_PYPROJECT)
 
 
-@pytest.mark.parametrize("extra", ["colorama", "config"])
+@pytest.mark.parametrize("extra", ["colorama", "config", "yaml"])
 def test_each_feature_extra_declares_a_floor_and_a_ceiling(extra):
     text = _read(_PYPROJECT)
     line = next(ln for ln in text.splitlines() if ln.startswith(f"{extra} = ["))

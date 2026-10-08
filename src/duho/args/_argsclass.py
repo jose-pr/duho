@@ -99,6 +99,15 @@ def _drop_sidecars(ns: dict) -> None:
     ns.pop("_duho_command_", None)
 
 
+def _names_config_source(cls: type) -> bool:
+    """Whether ``cls`` can name a config file: ``_config_``, ``_config_env_`` or
+    ``_config_field_`` is set. A bool field then needs its ``--no-*`` form."""
+    return any(
+        getattr(cls, name, None) is not None
+        for name in ("_config_", "_config_env_", "_config_field_")
+    )
+
+
 def _add_fields(
     parser: _argparse.ArgumentParser,
     cls: type,
@@ -149,7 +158,7 @@ def _add_fields(
     # the command line (`ArgumentBuilder._kwargs`'s `layered`). `env=` is per
     # field; a config source is per class: `cls._config_`, or `config_hint` (a
     # root's `_config_`, or a `config=` kwarg known only at the call site).
-    _has_config_source = getattr(cls, "_config_", None) is not None or config_hint
+    _has_config_source = _names_config_source(cls) or config_hint
 
     # Titled argument groups (Meta(group="...")), created lazily per title.
     # Persisted on the parser so a parents=[...] merge / subclass override can
@@ -418,7 +427,7 @@ class Args(_argparse.Namespace):
         )
         # Threaded down like `agent_root_cls`: a caller that will pass `config=`
         # records it so every node can react (`_initparser_`'s `external_config`).
-        external_config = bool(_inherited_config_hint_)
+        external_config = bool(_inherited_config_hint_) or _names_config_source(cls)
         if subparser:
             kwargs.setdefault(
                 "help",
@@ -521,10 +530,8 @@ class Args(_argparse.Namespace):
                     n: b._effective_default_() for n, b in root_builders.items()
                 }
                 # A config table reaches every subcommand's slice, so propagate
-                # the hint: from `config=`, or this class's own `_config_`.
-                propagated_config_hint = external_config or (
-                    getattr(cls, "_config_", None) is not None
-                )
+                # the hint: from `config=`, or this class's own config source.
+                propagated_config_hint = external_config
                 for sub in subcommands:
                     child = sub._parser_(
                         subparsers,

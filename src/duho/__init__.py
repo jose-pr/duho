@@ -63,7 +63,7 @@ from .logging import (
     parse_loglevels,
 )
 from .parsers import command_name
-from .presets import LoggingArgs
+from .presets import ConfigArgs, LoggingArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run, run_command
 from .text import (
@@ -138,6 +138,7 @@ __all__ = [
     "Command",
     "completion",
     "config",
+    "ConfigArgs",
     "Const",
     "Count",
     "DefaultsFormatter",

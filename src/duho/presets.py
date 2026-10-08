@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse as _argparse
 import logging as _logging
+import os as _os
+import pathlib as _pathlib
 import typing as _ty
 
 from . import logging as _duho_logging
@@ -199,4 +201,44 @@ class LoggingArgs(Args):
         return _logging.getLogger(_logger_name_for(self))
 
 
-__all__ = ["LoggingArgs"]
+def _config_path(text: str) -> _pathlib.Path:
+    """The ``--config`` value: ``~`` expanded, and a file that exists."""
+    path = _pathlib.Path(_os.path.expanduser(text))
+    if not path.is_file():
+        raise _argparse.ArgumentTypeError(f"no such file: {text}")
+    return path
+
+
+class ConfigArgs(Args):
+    """A data mixin that adds ``--config FILE`` (``-c``) and reads that file.
+
+    The file's values become defaults under the command line, and its format is
+    chosen by its suffix (see ``duho.config``). ``ConfigArgs`` sets
+    ``_config_field_``, so list it BEFORE ``Cli``, which declares that name as
+    ``None``: ``class App(ConfigArgs, LoggingArgs, Cli)``.
+    """
+
+    _duho_constants_: dict = {}
+
+    config: _ty.Annotated[
+        _ty.Optional[_pathlib.Path],
+        Meta(
+            type=_config_path,
+            flags=("--config", "-c"),
+            metavar="FILE",
+            help="Configuration file",
+        ),
+    ] = None
+
+    _config_field_ = "config"
+
+    def __init_subclass__(cls, **kwargs: _ty.Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if getattr(cls, "_config_field_", None) is None:
+            raise TypeError(
+                f"{cls.__qualname__}: ConfigArgs must come before Cli in the base "
+                "classes, or Cli's _config_field_ = None hides the --config field"
+            )
+
+
+__all__ = ["ConfigArgs", "LoggingArgs"]

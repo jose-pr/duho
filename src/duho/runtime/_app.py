@@ -10,6 +10,7 @@ from .. import parsers as _parsers
 from .._outcome import _guard_dispatch
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
+from ..args._argsclass import _names_config_source as _names_config_source
 from ..args._entry import _class_config_location as _class_config_location
 from ..args._entry import _setup_instance_logging as _setup_instance_logging
 from ..discovery import Command as _Command, ModuleCommand as _ModuleCommand
@@ -362,7 +363,7 @@ def app(
         root_cls,
         prepass_args,
         cmds_path_overridden,
-        inherited_config_hint=config is not None,
+        inherited_config_hint=config is not None or _names_config_source(root_cls),
         on_error=on_error,
     )
 
@@ -480,7 +481,7 @@ def _build_app_core(
         root_cls,
         prepass_args,
         cmds_path_overridden,
-        inherited_config_hint=config is not None,
+        inherited_config_hint=config is not None or _names_config_source(root_cls),
         on_error=on_error,
     )
 

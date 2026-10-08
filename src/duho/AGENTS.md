@@ -658,6 +658,16 @@ empty when absent).
   `_config_field_` naming no declared field is a `ValueError` naming the class, raised by
   `main`/`parse`/`parse_globals`/`app` before parsing. Neither attribute is applied to a
   tree served over MCP.
+- **`ConfigArgs`** (`from duho import ConfigArgs`) — data mixin like `LoggingArgs`: one
+  field `config: Optional[Path]` with flags `--config`/`-c` (metavar `FILE`, help
+  "Configuration file") and `_config_field_ = "config"`, so the named file layers under
+  the command line with no other attribute. The value is `~`-expanded and must be a file:
+  anything else is a usage error `no such file: TEXT` (exit `2`). List it BEFORE `Cli`:
+  `class App(ConfigArgs, LoggingArgs, Cli)`; `class App(Cli, ConfigArgs)` is a `TypeError`
+  naming the class (Cli's `_config_field_ = None` would hide it) unless the class body
+  sets `_config_field_`. A class counts as having a config source when ANY of `_config_`,
+  `_config_env_` or `_config_field_` is set, so a bool field gets its `--no-*` form in
+  `--help` whether or not a file was named.
 - **`value_sources(parsed) -> dict[str, str]`** — introspect where each field's value
   came from: `"cli"`, `"env"`, `"config"`, `"instance"` (a field that came from an
   instance passed to `duho.parse`), or `"default"`.

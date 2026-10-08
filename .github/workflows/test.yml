@@ -84,7 +84,7 @@ jobs:
       - name: Install package with all extras
         # Install every extra that has tests depending on it, or those tests
         # silently skip (pytest.importorskip) instead of actually running.
-        run: python -m pip install -e ".[dev,colorama,config]"
+        run: python -m pip install -e ".[dev,colorama,config,yaml]"
       - name: Install shells for completion tests (Linux)
         # zsh/fish drive the T3 completion syntax-check tests; without them the
         # tests skipif-out instead of exercising the generated scripts. Linux
@@ -147,7 +147,7 @@ jobs:
           open("floors.txt", "w").write("\n".join(pins) + "\n")
           print("\n".join(pins) or "(no floors declared)")
       - name: Install at the floors
-        run: python -m pip install -c floors.txt -e ".[dev,colorama,config]"
+        run: python -m pip install -c floors.txt -e ".[dev,colorama,config,yaml]"
       - name: Run tests
         run: python -m pytest -q
 
@@ -182,7 +182,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install package with all extras
-        run: python -m pip install -e ".[dev,colorama,config]"
+        run: python -m pip install -e ".[dev,colorama,config,yaml]"
       - name: Install shells for completion tests
         run: sudo apt-get update && sudo apt-get install -y zsh fish
       - name: Run tests with coverage gate
@@ -209,7 +209,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package
-        run: python -m pip install -e ".[dev,colorama,config]"
+        run: python -m pip install -e ".[dev,colorama,config,yaml]"
       - name: Run benchmarks
         run: python benchmarks/run.py --cold --save --json benchmarks/results/warm-py${{ matrix.python-version }}.json --name "duho-ci-py${{ matrix.python-version }}"
       - name: Fresh-process startup benchmarks
@@ -248,6 +248,6 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install package with docs tooling
-        run: python -m pip install -e ".[dev,docs,colorama,config]"
+        run: python -m pip install -e ".[dev,docs,colorama,config,yaml]"
       - name: Build docs
         run: mkdocs build --strict

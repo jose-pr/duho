@@ -97,17 +97,17 @@ def parser(cls: type[_A], *args: object, **kwargs: object) -> _Parser[_A]:
 def __getattr__(name):
     """Lazily import a feature submodule on first attribute access (PEP 562).
 
-    ``duho.agenthelp`` and ``duho.completion`` are feature modules only touched
-    when their feature actually fires (agent help's ``AGENT_HELP`` trigger /
+    ``duho.agenthelp``, ``duho.completion`` and ``duho.config`` are feature
+    modules only touched when their feature actually fires (agent help's ``AGENT_HELP`` trigger /
     ``--help-agents`` flag / ``print_agent_help``; completion's
-    ``--print-completion`` action / ``print_completion()``) -- both already
-    import lazily at call time internally. Keeping them OUT of ``import duho``
+    ``--print-completion`` action / ``print_completion()``; config's
+    parsers) -- the first two already import lazily at call time internally. Keeping them OUT of ``import duho``
     means a plain import resolves no extra submodule (and, for ``completion``,
     no extra ``shlex`` import) and pays no extra import cost, while
     ``duho.agenthelp``/``duho.completion`` (and ``import duho.agenthelp``/
     ``import duho.completion``) still work on demand.
     """
-    if name in ("agenthelp", "completion"):
+    if name in ("agenthelp", "completion", "config"):
         import importlib
 
         module = importlib.import_module("." + name, __name__)
@@ -137,6 +137,7 @@ __all__ = [
     "CommandError",
     "Command",
     "completion",
+    "config",
     "Const",
     "Count",
     "DefaultsFormatter",

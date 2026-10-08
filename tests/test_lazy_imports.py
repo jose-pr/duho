@@ -76,7 +76,7 @@ def test_plain_import_duho_does_not_load_discovery_import_helpers():
 
 
 def test_plain_import_duho_does_not_load_the_opt_in_modules():
-    names = ["testing", "mcp", "runpath", "completion", "fanout", "scaffold"]
+    names = ["testing", "mcp", "runpath", "completion", "fanout", "scaffold", "config"]
     code = (
         "import sys, duho\n"
         f"for name in {names!r}:\n"
@@ -90,3 +90,11 @@ def test_duho_testing_imports_on_demand():
     code = "import sys, duho.testing; print('duho.testing' in sys.modules)"
     out = subprocess.check_output([sys.executable, "-c", code], text=True)
     assert out.strip() == "True"
+
+
+def test_plain_import_duho_does_not_load_configparser():
+    code = "import sys, duho; print('configparser' in sys.modules)"
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], text=True, env=subprocess_env()
+    )
+    assert out.strip() == "False"

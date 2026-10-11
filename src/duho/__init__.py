@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import typing as _ty
 
-from ._compat import utf8_stdio
+from ._compat import in_tool_call, utf8_stdio
 from .args import (
     Append,
+    app_name,
     Args,
     Arg,
     Argument,
@@ -121,6 +122,7 @@ __all__ = [
     "agenthelp",
     "Append",
     "app",
+    "app_name",
     "Args",
     "Arg",
     "Argument",
@@ -151,6 +153,7 @@ __all__ = [
     "finish_parse",
     "gettext",
     "import_from_path",
+    "in_tool_call",
     "is_class_command",
     "is_module_command",
     "kebabcase",

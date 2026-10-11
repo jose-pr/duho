@@ -8,6 +8,7 @@ import re as _re
 import sys as _sys
 import typing as _ty
 
+from .. import _compat
 from ..logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .._outcome import Result as _Result
 from .._outcome import _error_status, _render
@@ -437,10 +438,13 @@ def call_tool(
                             % (name, actual_desc),
                             is_error=True,
                         )
+                    flag = _compat._IN_TOOL_CALL.set(True)
                     try:
                         result = core.dispatch(target, instance)
                     except SystemExit as exc:
                         return _systemexit_result(exc, out.getvalue(), err.getvalue())
+                    finally:
+                        _compat._IN_TOOL_CALL.reset(flag)
             finally:
                 _sys.stdin = old_stdin
     except (

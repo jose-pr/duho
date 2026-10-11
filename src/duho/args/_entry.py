@@ -46,6 +46,23 @@ def _logger_name_for(instance, root_cls: type | None = None) -> str:
     return _app_name(root_cls or type(instance))
 
 
+def app_name(obj: object) -> str:
+    """The name the application goes by: its ``prog``, the same on every surface.
+
+    For an instance a parser produced (a root or a subcommand), the root
+    parser's ``prog``, which is ``app(name=...)`` when given. For a class, or an
+    instance built directly, the application name of the class: its own
+    ``_parsername_``, else its top-level import package, else its kebab-case
+    class name.
+    """
+    if isinstance(obj, type):
+        return _app_name(obj)
+    parser = _duho_instance_last_parser_.get(id(obj))
+    if parser is not None:
+        return parser.prog
+    return _app_name(type(obj))
+
+
 def _setup_instance_logging(
     instance, setup_logging: bool, root_cls: type | None = None
 ) -> None:

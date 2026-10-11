@@ -122,6 +122,7 @@ from ._mcptrigger import (
     _maybe_serve_mcp_trigger,
 )
 from ._entry import (
+    app_name,
     _logger_name_for,
     _setup_instance_logging,
     _maybe_await,
@@ -136,6 +137,7 @@ if _ty.TYPE_CHECKING:
 
 __all__ = [
     "Append",
+    "app_name",
     "Argument",
     "ArgumentBuilder",
     "ArgumentMeta",

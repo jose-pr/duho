@@ -28,6 +28,21 @@ _MCP_CONTEXT: _contextvars.ContextVar = _contextvars.ContextVar(
     "duho_mcp_context", default=None
 )
 
+#: True while an MCP tool call is dispatching a command; set by ``duho.mcp``.
+_IN_TOOL_CALL: _contextvars.ContextVar = _contextvars.ContextVar(
+    "duho_in_tool_call", default=False
+)
+
+
+def in_tool_call() -> bool:
+    """Whether the command running now was started by an MCP tool call.
+
+    ``True`` while ``duho.mcp.call_tool`` dispatches a command (inside an
+    ``async`` command too) and ``False`` otherwise, so a command can tell a
+    tool call from a command-line run without inspecting standard output.
+    """
+    return _IN_TOOL_CALL.get()
+
 
 # The one truthy/falsy token table lives in ``duho.text``; re-bound here for the
 # internal readers.
@@ -169,6 +184,7 @@ __all__ = [
     "BOOL_TRUE",
     "BOOL_FALSE",
     "get_level_names_mapping",
+    "in_tool_call",
     "iter_entry_points",
     "utf8_stdio",
     "write_machine",

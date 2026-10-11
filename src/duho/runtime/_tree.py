@@ -17,7 +17,11 @@ from ..discovery import (
 )
 from ..args._naming import _command_name as _command_name
 
-from ._parser import _apply_app_config_layers, _deregister_subparser
+from ._parser import (
+    _apply_app_config_layers,
+    _deregister_subparser,
+    _validate_app_config,
+)
 from ._register import _register_class_command, _register_module_command
 from ._resolve import _full_names
 
@@ -250,5 +254,6 @@ def _finalize_command_tree(
     # app() resolves commands outside `root._subcommands_`, so env/config
     # defaults are layered against the parsers built here.
     _apply_app_config_layers(root_cls, subparsers, registry, raw_config)
+    _validate_app_config(parser, root_cls, subparsers, registry, raw_config)
 
     return required_root_actions

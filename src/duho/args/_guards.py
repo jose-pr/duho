@@ -25,6 +25,7 @@ _KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
         "_config_env_",
         "_config_field_",
         "_config_loader_",
+        "_config_validate_",
         "_default_subcommand_",
         "_distribution_",
         "_effective_default_",

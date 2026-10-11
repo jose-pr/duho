@@ -10,8 +10,12 @@ from .. import logging as _duho_logging
 from ..args import Args as _Args
 from .._layers import (
     _apply_default_layers_one as _apply_default_layers_one,
+    _config_validate_policy as _config_validate_policy,
+    _enforce_config_validate as _enforce_config_validate,
     _resolve_config_or_error as _resolve_config_or_error,
     _stash_layer_state as _stash_layer_state,
+    _unknown_config_keys as _unknown_config_keys,
+    _unknown_in_table as _unknown_in_table,
 )
 from ..discovery import (
     Command as _Command,
@@ -151,6 +155,41 @@ def _apply_app_config_layers(
         _agenthelp._install_help_redaction(sub_parser)
 
 
+def _validate_app_config(
+    parser: _argparse.ArgumentParser,
+    root_cls: type,
+    subparsers: _argparse._SubParsersAction,
+    registry: dict[str, tuple[str, object]],
+    raw_config: dict,
+) -> None:
+    """Apply the root's ``_config_validate_`` to the file ``app`` read.
+
+    A key is known when :func:`_apply_app_config_layers` would apply it: a root
+    field, or a table named for a registered command holding that command's
+    fields (a module command without ``Args`` has none).
+    """
+
+    def unknown() -> list[str]:
+        choices = subparsers.choices or {}
+        children: dict[str, _ty.Callable[[dict, str], list[str]]] = {}
+        for name, (kind, command) in registry.items():
+            sub_parser = choices.get(name)
+            if sub_parser is None:
+                continue
+            if kind == "class":
+                children[name] = lambda t, p, sp=sub_parser, c=command: (
+                    _unknown_config_keys(sp, c, t, p)
+                )
+                continue
+            args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
+            fields = {b.name for b in args_cls._getargs_()} if args_cls else set()
+            children[name] = lambda t, p, f=fields: _unknown_in_table(t, f, {}, p)
+        root_fields = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+        return _unknown_in_table(raw_config, root_fields, children, "")
+
+    _enforce_config_validate(parser, root_cls, raw_config, unknown)
+
+
 @_contextlib.contextmanager
 def _unrequired_options(parser: _argparse.ArgumentParser, root_cls: type):
     """Treat the root's required options as optional for the duration.
@@ -187,6 +226,7 @@ def _prepare_app_parser(
     it happens before any command is registered; the prepass runs only when a
     resolved command is a module command.
     """
+    _config_validate_policy(root if root is not None else _Args)
     parser, base_parser, root_cls = _build_parser(root, name, description, config)
 
     # Resolve the config table once and stash the root's slice before the

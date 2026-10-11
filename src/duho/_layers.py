@@ -108,6 +108,32 @@ def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
     return resolved
 
 
+def _read_config(
+    cls, config: str | _pathlib.Path | None
+) -> tuple[dict, _pathlib.Path | None]:
+    """:func:`_resolve_config_dict` for `cls`, plus the expanded path of the file
+    actually read (``None`` when there was no file to read)."""
+    explicit = config is not None
+    path = config if explicit else getattr(cls, "_config_", None)
+    if path is None:
+        return {}, None
+    p = _pathlib.Path(path).expanduser()
+    loader = getattr(cls, "_config_loader_", None)
+    backends = getattr(cls, "_config_backends_", None)
+    if not explicit and not p.exists():
+        _LOGGER.debug("duho: class config %s not found; skipping config layer", p)
+        return {}, None
+    raw = _load_config(p, loader, backends)
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, _ty.Mapping):
+        raise ValueError(
+            f"duho: config file {_os.fspath(p)} must contain a table/object "
+            f"at the top level, got {type(raw).__name__}"
+        )
+    return raw, p
+
+
 def _resolve_config_dict(
     cls, config: str | _pathlib.Path | None, *, loaded: dict | None = None
 ) -> dict:
@@ -122,25 +148,7 @@ def _resolve_config_dict(
     """
     if loaded is not None:
         return loaded
-    explicit = config is not None
-    path = config if explicit else getattr(cls, "_config_", None)
-    if path is None:
-        return {}
-    p = _pathlib.Path(path).expanduser()
-    loader = getattr(cls, "_config_loader_", None)
-    backends = getattr(cls, "_config_backends_", None)
-    if not explicit and not p.exists():
-        _LOGGER.debug("duho: class config %s not found; skipping config layer", p)
-        return {}
-    raw = _load_config(p, loader, backends)
-    if raw is None:
-        raw = {}
-    if not isinstance(raw, _ty.Mapping):
-        raise ValueError(
-            f"duho: config file {_os.fspath(p)} must contain a table/object "
-            f"at the top level, got {type(raw).__name__}"
-        )
-    return raw
+    return _read_config(cls, config)[0]
 
 
 def _resolve_config_or_error(
@@ -156,8 +164,11 @@ def _resolve_config_or_error(
     from .exceptions import ConfigDependencyError
 
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
+    parser._duho_config_path_ = None  # type: ignore[attr-defined]
     try:
-        return _resolve_config_dict(cls, config)
+        raw, path = _read_config(cls, config)
+        parser._duho_config_path_ = path  # type: ignore[attr-defined]
+        return raw
     except ConfigDependencyError as exc:
         parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
         return {}
@@ -166,6 +177,107 @@ def _resolve_config_or_error(
             raise
         parser.error(str(exc))
         raise  # pragma: no cover - parser.error always raises SystemExit
+
+
+_VALIDATE_MODES = ("ignore", "warn", "strict")
+
+
+def _config_validate_policy(cls) -> object:
+    """``cls._config_validate_``: ``None``, one of the mode strings, or a callable.
+
+    Anything else is a ``ValueError`` naming the class, raised before a parse so
+    it does not depend on a file existing.
+    """
+    value = getattr(cls, "_config_validate_", None)
+    if value is None or callable(value):
+        return value
+    if isinstance(value, str) and value in _VALIDATE_MODES:
+        return value
+    raise ValueError(
+        f"{cls.__qualname__}._config_validate_ = {value!r} must be None, "
+        f"'ignore', 'warn', 'strict' or a callable"
+    )
+
+
+def _unknown_in_table(
+    table: _ty.Mapping,
+    fields: _ty.Container[str],
+    children: dict[str, _ty.Callable[[dict, str], list[str]]],
+    prefix: str,
+) -> list[str]:
+    """The dotted paths in `table` that nothing applies: neither a field of this
+    level nor a dict handed to a command (`children`, name -> checker)."""
+    unknown: list[str] = []
+    for key, value in table.items():
+        if key in fields:
+            continue
+        child = children.get(key)
+        if child is not None and isinstance(value, dict):
+            unknown.extend(child(value, f"{prefix}{key}."))
+        else:
+            unknown.append(f"{prefix}{key}")
+    return unknown
+
+
+def _unknown_config_keys(
+    parser: _argparse.ArgumentParser, cls, table: _ty.Mapping, prefix: str = ""
+) -> list[str]:
+    """The unknown dotted paths of `table` under `cls`'s static ``_subcommands_``
+    tree, paired with the parser's choices exactly as `_stash_layer_state` does."""
+    children: dict[str, _ty.Callable[[dict, str], list[str]]] = {}
+    subcommands = getattr(cls, "_subcommands_", None)
+    subparsers_action = _parsers.find_subparsers(parser) if subcommands else None
+    if subparsers_action is not None:
+        from .args._naming import _command_name  # lazy: see `_stash_layer_state`
+
+        choices = subparsers_action.choices or {}
+        for sub in subcommands:
+            sub_name = _command_name(sub)
+            sub_parser = choices.get(sub_name)
+            if sub_parser is not None:
+                children[sub_name] = lambda t, p, sp=sub_parser, c=sub: (
+                    _unknown_config_keys(sp, c, t, p)
+                )
+    fields = {b.name for b in cls._getargs_()}
+    return _unknown_in_table(table, fields, children, prefix)
+
+
+def _enforce_config_validate(
+    parser: _argparse.ArgumentParser,
+    cls,
+    config: _ty.Mapping,
+    unknown: _ty.Callable[[], list[str]],
+) -> None:
+    """Apply ``cls._config_validate_`` to the file `parser` read, if it read one.
+
+    `unknown` computes the dotted paths lazily. ``warn`` logs; ``strict`` and a
+    callable's ``ValueError`` are held on the parser for the root's finalize to
+    report, so ``--help`` and ``--version`` still work. Never replaces a held error.
+    """
+    path = getattr(parser, "_duho_config_path_", None)
+    policy = _config_validate_policy(cls)
+    if path is None or policy in (None, "ignore"):
+        return
+    if getattr(parser, "_duho_config_error_", None):
+        return
+    where = f"duho: config file {_os.fspath(path)}: "
+    paths = tuple(unknown())
+    if callable(policy):
+        try:
+            policy(config, paths)
+        except ValueError as exc:
+            if not str(exc):
+                raise
+            parser._duho_config_error_ = where + str(exc)  # type: ignore[attr-defined]
+        return
+    if not paths:
+        return
+    names = ", ".join(repr(p) for p in paths)
+    message = where + ("unknown key " if len(paths) == 1 else "unknown keys: ") + names
+    if policy == "strict":
+        parser._duho_config_error_ = message  # type: ignore[attr-defined]
+    else:
+        _logging.getLogger("duho.config").warning("%s", message)
 
 
 class _LayeredDefault:
@@ -625,6 +737,7 @@ def _apply_layers(
     `env`, across `cls`'s static ``_subcommands_`` tree; conversion is deferred.
     Returns the resolved config dict so `duho.app` need not load it twice.
     """
+    _config_validate_policy(cls)
     raw_config = (
         config
         if isinstance(config, _ty.Mapping)
@@ -634,6 +747,13 @@ def _apply_layers(
     if instance is not None:
         overrides = _instance_overrides(instance)
     _stash_layer_state(parser, cls, raw_config, overrides, env)
+    if not isinstance(config, _ty.Mapping):
+        _enforce_config_validate(
+            parser,
+            cls,
+            raw_config,
+            lambda: _unknown_config_keys(parser, cls, raw_config),
+        )
     return raw_config
 
 

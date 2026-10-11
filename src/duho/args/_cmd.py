@@ -184,6 +184,15 @@ class Cli(Cmd):
     #: set. Read by ``_load_config``.
     _config_backends_: _ty.Optional[_ty.Iterable[_ty.Any]] = None
 
+    #: What to do with a key of the config file that nothing applies: ``None``
+    #: or ``"ignore"`` (the default) skips it, ``"warn"`` logs one warning on
+    #: ``duho.config``, ``"strict"`` is a usage error, and a callable
+    #: ``f(config, unknown)`` is called with the loaded mapping and a tuple of
+    #: dotted key paths (a ``ValueError`` from it is a usage error). Runs only
+    #: when a file was read. Any other value is a ``ValueError``. Read by
+    #: ``_enforce_config_validate``.
+    _config_validate_: _ty.Optional[_ty.Union[str, _ty.Callable[..., None]]] = None
+
     #: Optional custom config loader ``Callable[[Path], dict]``. When set it
     #: is used INSTEAD of duho's built-in format dispatch, for a format no
     #: ``duho.config`` backend reads.

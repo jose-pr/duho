@@ -461,14 +461,15 @@ Given a command a parser produced, a subcommand included, it returns the root pa
 `prog`, which is `duho.app(name=...)` when that was given. Given a class, or an instance
 built directly, it returns the class's application name.
 
-`duho.in_tool_call()` is `True` while `duho.mcp.call_tool` is running a command, an `async`
-one included, and `False` otherwise. A command that prints for a person can answer a tool
-call differently without looking at what standard output is:
+`duho.running_mode()` says how the command running now was started: `"mcp"` while
+`duho.mcp.call_tool` is running it, an `async` command included, and `"cli"` otherwise.
+A command that prints for a person can answer a tool call differently without looking
+at what standard output is:
 
 ```python
 class Report(duho.Cmd):
     def __call__(self):
-        if duho.in_tool_call():
+        if duho.running_mode() == "mcp":
             return {"name": duho.app_name(self), "ok": True}
         print(f"{duho.app_name(self)}: ok")
 ```

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import typing as _ty
 
-from ._compat import in_tool_call, utf8_stdio
+from ._compat import running_mode, utf8_stdio
 from .args import (
     Append,
     app_name,
@@ -153,7 +153,6 @@ __all__ = [
     "finish_parse",
     "gettext",
     "import_from_path",
-    "in_tool_call",
     "is_class_command",
     "is_module_command",
     "kebabcase",
@@ -175,6 +174,7 @@ __all__ = [
     "register_command_provider",
     "run",
     "run_command",
+    "running_mode",
     "snakecase",
     "subcommand",
     "unregister_command_provider",

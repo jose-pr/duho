@@ -36,8 +36,8 @@ path came from.
   user's configuration directory (`APPDATA` on Windows, `XDG_CONFIG_HOME` elsewhere,
   with the usual fallbacks), looked up when the file is read and not when the class is
   defined.
-- `duho.app_name(obj)` returns the name an application goes by, and `duho.in_tool_call()`
-  says whether a command was started by an MCP tool call.
+- `duho.app_name(obj)` returns the name an application goes by, and `duho.running_mode()`
+  says how a command was started: `"cli"`, or `"mcp"` for a tool call.
 
 ---
 

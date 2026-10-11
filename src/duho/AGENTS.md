@@ -400,8 +400,10 @@ just its annotation.
 - **`app_name(obj) -> str`** — the name the application goes by: for an instance a parser
   produced (a root or a subcommand) the root parser's `prog` (so `app(name=...)` shows),
   for a class or an instance built directly the class's application name.
-- **`in_tool_call() -> bool`** — `True` while `duho.mcp.call_tool` dispatches a command
-  (an `async` one too), `False` otherwise, including after the call or one that raised.
+- **`running_mode() -> str`** — how the command running now was started: `"mcp"` while
+  `duho.mcp.call_tool` dispatches a command (an `async` one too), `"cli"` otherwise,
+  including after the call or one that raised. Compare with `==`: a further way of
+  running a command would be a further value.
 - **`main(cls, argv=None, *, setup_logging=True, config=None, utf8_stdio=None) -> Any`** —
   build → parse → optional logging setup → run the selected command. Return type is `Any`,
   not `int`: a `None` command result maps to exit code `0`, but any other value the

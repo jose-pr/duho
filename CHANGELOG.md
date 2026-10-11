@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `duho.config.user_path(app, *names)`, a path in the user's configuration directory
   that is resolved each time it is used, so `_config_ = user_path("tool", "config.toml")`
   follows `APPDATA` or `XDG_CONFIG_HOME` as they are when the file is read.
-- `duho.app_name(obj)`, the name an application goes by, and `duho.in_tool_call()`,
-  which is true while `duho.mcp.call_tool` is running a command.
+- `duho.app_name(obj)`, the name an application goes by, and `duho.running_mode()`,
+  which is `"mcp"` while `duho.mcp.call_tool` is running a command and `"cli"` otherwise.
 
 ### Changed
 

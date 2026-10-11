@@ -438,13 +438,13 @@ def call_tool(
                             % (name, actual_desc),
                             is_error=True,
                         )
-                    flag = _compat._IN_TOOL_CALL.set(True)
+                    mode = _compat._RUNNING_MODE.set("mcp")
                     try:
                         result = core.dispatch(target, instance)
                     except SystemExit as exc:
                         return _systemexit_result(exc, out.getvalue(), err.getvalue())
                     finally:
-                        _compat._IN_TOOL_CALL.reset(flag)
+                        _compat._RUNNING_MODE.reset(mode)
             finally:
                 _sys.stdin = old_stdin
     except (

@@ -677,7 +677,8 @@ empty when absent).
   `duho: config file PATH: unknown key 'a'` (or `unknown keys: 'a', 'install.b'`) and
   `duho: config file PATH: ` plus the function's text; they hold key names and the path,
   never a value. Nothing runs, a function included, unless a file was actually read (a
-  skipped `_config_`, `config={}` or no config does not count). The check runs once the
+  skipped `_config_`, `config={}` or no config does not count), and `parse_globals`
+  never runs it: the commands `app` registers later are not known to it. The check runs once the
   whole command tree is built, for `parse`, `main` and `app` alike. Any other value is a
   `ValueError` naming the class, raised before parsing.
 - **`ConfigArgs`** (`from duho import ConfigArgs`) — data mixin like `LoggingArgs`: one

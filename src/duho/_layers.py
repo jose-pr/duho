@@ -728,6 +728,7 @@ def _apply_layers(
     env: _ty.Mapping[str, str] | None = None,
     config: str | _pathlib.Path | dict | None = None,
     instance: object = None,
+    validate: bool = True,
 ) -> dict:
     """The one layering entry point, used by `duho.main`, `duho.parse`,
     `duho.parse_globals` and `duho.app`.
@@ -736,6 +737,8 @@ def _apply_layers(
     `instance`'s overrides (`_instance_overrides`) and stashes both, plus
     `env`, across `cls`'s static ``_subcommands_`` tree; conversion is deferred.
     Returns the resolved config dict so `duho.app` need not load it twice.
+    `validate=False` skips ``_config_validate_``, for a caller whose command
+    tree is not complete yet.
     """
     _config_validate_policy(cls)
     raw_config = (
@@ -747,7 +750,7 @@ def _apply_layers(
     if instance is not None:
         overrides = _instance_overrides(instance)
     _stash_layer_state(parser, cls, raw_config, overrides, env)
-    if not isinstance(config, _ty.Mapping):
+    if validate and not isinstance(config, _ty.Mapping):
         _enforce_config_validate(
             parser,
             cls,

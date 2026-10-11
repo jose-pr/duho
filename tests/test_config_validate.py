@@ -463,3 +463,23 @@ def test_app_source_alone_registers_its_commands(tmp_path, source_dir):
         setup_logging=False,
     )
     assert seen == [("sourced.zzz",)]
+
+
+def test_parse_globals_does_not_judge_the_file(tmp_path):
+    # The command that owns the table is registered by `app`, after this call.
+    path = _write(tmp_path, {"port": 4, "klass": {"name": "x"}})
+    seen = []
+    cls = _app_root(lambda config, unknown: seen.append(unknown))
+    assert duho.parse_globals(cls, [], config=path).port == 4
+    assert seen == []
+    assert duho.parse_globals(_app_root("strict"), [], config=path).port == 4
+    assert (
+        duho.app(
+            _app_root("strict"),
+            commands=[_Klass],
+            argv=["klass"],
+            config=path,
+            setup_logging=False,
+        )
+        == 0
+    )

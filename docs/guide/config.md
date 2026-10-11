@@ -132,6 +132,8 @@ yet is skipped, and so is the check. `--help` and `--version` work whatever the 
 holds. Any other value for `_config_validate_` is a `ValueError` naming the class.
 The attribute is read on the root class, and applies whichever way the file was
 chosen and whichever format or `_config_loader_` read it.
+`duho.parse_globals` reads the file but does not run the check, because the commands
+`duho.app` registers afterwards are not known to it yet.
 
 ### The `--config` flag: `ConfigArgs`
 

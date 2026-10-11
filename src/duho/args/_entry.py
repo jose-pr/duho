@@ -392,7 +392,9 @@ def parse_globals(
     if config is None:
         config = _class_config_location(cls, argv)
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
-    _apply_layers(parser, cls, config=config)
+    # Commands `app` registers later are not in this parser, so their tables
+    # would read as unknown keys: the full parse judges the file.
+    _apply_layers(parser, cls, config=config, validate=False)
     # A static tree's real parse hands everything after the subcommand name to
     # the subcommand, so a root option written there is not a global.
     argv = _argv_before_subcommand(

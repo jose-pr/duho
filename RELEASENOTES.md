@@ -8,6 +8,16 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+A tool can now be told about the keys in its config file that nothing reads.
+
+- `_config_validate_` on a root class takes `"ignore"` (the default, unchanged),
+  `"warn"`, `"strict"` or a function. Unknown keys are reported as dotted paths, a
+  table inside a command's table as `command.key`, with the file's path and no values.
+  `"strict"` is a usage error that leaves `--help` and `--version` working; a function
+  is called with the loaded mapping and the unknown paths, and nothing runs when no
+  config file was read. A key counts as known exactly when duho would apply it, under
+  `main`, `parse` and `app`, for class commands and module commands alike.
+
 ---
 
 ## [0.7.2] — 2026-10-09

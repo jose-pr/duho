@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `_config_validate_` on a root class, to decide what happens to a key in the config
+  file that nothing applies: `"warn"` logs one warning, `"strict"` is a usage error,
+  and a function `f(config, unknown)` can check the file itself. The default still
+  ignores such keys.
+
 ## [0.7.2] - 2026-10-09
 
 ### Added

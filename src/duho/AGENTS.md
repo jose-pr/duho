@@ -638,7 +638,7 @@ empty when absent).
   `tomli`). `_config_backends_` changes the set. Top-level keys map to the root command's fields, and a table (TOML) or
   object (JSON) named after a subcommand's `_parsername_` maps to that subcommand's
   fields (`verbose = true` plus `[install]` with `target = "prod"`). Unknown keys are
-  ignored. Every entry point layers env and the class's `_config_` the same way:
+  ignored by default; see "Unknown config keys" below. Every entry point layers env and the class's `_config_` the same way:
   `parse`, `main`, `parse_globals`, `app` and a parser from `duho.parser(cls)`.
   A `_config_` path that does not exist yet is skipped; an explicit `config=` path that is
   missing raises. A malformed config file, a file whose parser library is not installed
@@ -662,6 +662,24 @@ empty when absent).
   `_config_field_` naming no declared field is a `ValueError` naming the class, raised by
   `main`/`parse`/`parse_globals`/`app` before parsing. Neither attribute is applied to a
   tree served over MCP.
+- **Unknown config keys** — a key in the config file that nothing applies: at each level,
+  one that is neither a field of that command nor a dict-valued table named for one of its
+  registered subcommands (a table named for an alias, or holding a non-table value, is
+  unknown; a root field inside a command's table is unknown unless that command declares
+  it; a module command with no `Args` has no fields). It is reported as a dotted path
+  (`install.targte`), in file order. The root's `_config_validate_` decides what happens:
+  `None` or `"ignore"` (the default, today's behaviour: skipped with a DEBUG line),
+  `"warn"` (one WARNING on logger `duho.config`), `"strict"` (a usage error, exit `2`,
+  held so `--help` and `--version` still work), or a function `f(config, unknown)` called
+  with the loaded mapping and a tuple of the dotted paths (empty when none; it is called
+  even then). A `ValueError` it raises with a non-empty message becomes the same usage
+  error; any other exception propagates. The messages are
+  `duho: config file PATH: unknown key 'a'` (or `unknown keys: 'a', 'install.b'`) and
+  `duho: config file PATH: ` plus the function's text; they hold key names and the path,
+  never a value. Nothing runs, a function included, unless a file was actually read (a
+  skipped `_config_`, `config={}` or no config does not count). The check runs once the
+  whole command tree is built, for `parse`, `main` and `app` alike. Any other value is a
+  `ValueError` naming the class, raised before parsing.
 - **`ConfigArgs`** (`from duho import ConfigArgs`) — data mixin like `LoggingArgs`: one
   field `config: Optional[Path]` with flags `--config`/`-c` (metavar `FILE`, help
   "Configuration file") and `_config_field_ = "config"`, so the named file layers under
@@ -1115,7 +1133,7 @@ manipulating a parser tree directly:
   `print_completion`, a `finish_parse` namespace with no duho subparser, an invalid
   `_mcp_command_` or `_completion_command_` name or collision, an unknown or misplaced
   `_default_subcommand_`, a `_config_field_` naming no field, an invalid `_base_loglevel_`,
-  an invalid `enum_by` or `literal_value` use, an `adapter=` combined with `dispatch=`, an
+  an invalid `_config_validate_`, an invalid `enum_by` or `literal_value` use, an `adapter=` combined with `dispatch=`, an
   unsupported MCP transport, a `duho.expand` range format with braces or one a member
   rejects, a different `add_logging_level` number for a registered name, and a
   `generate_launchers` argument with unsafe characters.

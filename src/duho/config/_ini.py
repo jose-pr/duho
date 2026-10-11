@@ -34,23 +34,19 @@ class INIBackend(ConfigBackend):
         try:
             parser.read_string(text)
         except configparser.MissingSectionHeaderError as exc:
-            raise ConfigError(
-                "no section header before the first key", lineno=exc.lineno
-            ) from None
+            raise _at("no section header before the first key", exc.lineno) from None
         except configparser.ParsingError as exc:
             errors = getattr(exc, "errors", None) or []
-            raise ConfigError(
-                "not a key and value", lineno=errors[0][0] if errors else None
-            ) from None
+            raise _at("not a key and value", errors[0][0] if errors else None) from None
         except configparser.DuplicateSectionError as exc:
-            raise ConfigError(
-                f"section [{_plain(exc.section)}] is defined twice", lineno=exc.lineno
+            raise _at(
+                f"section [{_plain(exc.section)}] is defined twice", exc.lineno
             ) from None
         except configparser.DuplicateOptionError as exc:
-            raise ConfigError(
+            raise _at(
                 f"key {_plain(exc.option)!r} is defined twice in "
                 f"[{_plain(exc.section)}]",
-                lineno=exc.lineno,
+                exc.lineno,
             ) from None
         except configparser.Error:
             raise ConfigError("not valid INI") from None
@@ -87,6 +83,13 @@ class INIBackend(ConfigBackend):
         out = io.StringIO()
         parser.write(out)
         return out.getvalue()
+
+
+def _at(detail: str, lineno: _ty.Optional[int]) -> ConfigError:
+    """A read error whose message states its line, as the other formats do."""
+    if lineno is not None:
+        detail += f" (at line {lineno})"
+    return ConfigError(detail, lineno=lineno)
 
 
 def _scalar(where: str, value: _ty.Any) -> str:

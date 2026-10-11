@@ -347,3 +347,10 @@ def test_importing_duho_config_loads_no_parser():
 def test_the_attribute_is_lazy_on_the_root_package():
     assert duho.config is config
     assert "config" in duho.__all__
+
+
+def test_an_ini_error_states_its_line_in_the_message():
+    with pytest.raises(ConfigError) as caught:
+        config.loads("[a]\nkey = 1\nnot a pair\n", "ini")
+    assert caught.value.lineno == 3
+    assert str(caught.value) == "not a key and value (at line 3)"

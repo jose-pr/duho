@@ -219,6 +219,7 @@ def _prepare_app_parser(
     config: str | _Path | None,
     argv: _ty.Sequence[str] | None,
     resolved_commands: list[_Command],
+    config_source: str | None = None,
 ) -> tuple[_argparse.ArgumentParser, _argparse.ArgumentParser, type, dict, object]:
     """Build :func:`app`'s top-level parser and run its advisory prepass.
 
@@ -232,7 +233,7 @@ def _prepare_app_parser(
     # Resolve the config table once and stash the root's slice before the
     # prepass, so a required global supplied by config/env does not hard-exit.
     # `_apply_app_config_layers` re-stashes it (idempotent) after registration.
-    raw_config: dict = _resolve_config_or_error(parser, root_cls, config)
+    raw_config: dict = _resolve_config_or_error(parser, root_cls, config, config_source)
     _stash_layer_state(parser, root_cls, raw_config)
 
     # Offers module `register` hooks the parsed globals, best effort.

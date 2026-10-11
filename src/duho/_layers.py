@@ -57,13 +57,15 @@ def _raw_env_values(cls, env=None) -> dict[str, object]:
 
 def _load_config(
     path: str | _pathlib.Path,
-    loader: _ty.Callable[[_pathlib.Path], dict] | None = None,
+    loader: _ty.Callable[..., dict] | None = None,
     backends: _ty.Any = None,
+    source: str = "argument",
 ) -> dict:
     """Read a config file into a plain dict.
 
-    A `loader` (``_config_loader_``) is called with the expanded path and its
-    result used verbatim. Otherwise the file goes through ``duho.config``: the
+    A `loader` (``_config_loader_``) is called with the expanded path, and also
+    with `source` (``"argument"``, ``"field"``, ``"env"`` or ``"default"``) when
+    it can take two arguments; its result is used verbatim. Otherwise the file goes through ``duho.config``: the
     backend whose suffix the name ends with, among `backends`
     (``_config_backends_``; ``None`` is every registered one, and then a name
     matching no suffix is TOML). A parse error is a ``ConfigError`` naming the
@@ -74,8 +76,10 @@ def _load_config(
     p = _pathlib.Path(path).expanduser()
 
     if loader is not None:
+        from .runtime._arity import accepts_positional  # lazy: runtime imports this
+
         try:
-            return loader(p)
+            return loader(p, source) if accepts_positional(loader, 2) else loader(p)
         except ValueError as exc:
             # The application's own loader, the application's own error: marked
             # so `_resolve_config_or_error` lets it through unchanged.
@@ -109,11 +113,13 @@ def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
 
 
 def _read_config(
-    cls, config: str | _pathlib.Path | None
+    cls, config: str | _pathlib.Path | None, source: str | None = None
 ) -> tuple[dict, _pathlib.Path | None]:
     """:func:`_resolve_config_dict` for `cls`, plus the expanded path of the file
     actually read (``None`` when there was no file to read). An empty `config`
-    string is "no file": nothing is read and no loader runs."""
+    string is "no file": nothing is read and no loader runs. `source` says where
+    an explicit `config` came from (``"argument"`` when ``None``); a path taken
+    from ``_config_`` is ``"default"``."""
     if isinstance(config, str) and config == "":
         return {}, None  # an empty path names no file, `_config_` included
     explicit = config is not None
@@ -126,7 +132,9 @@ def _read_config(
     if not explicit and not p.exists():
         _LOGGER.debug("duho: class config %s not found; skipping config layer", p)
         return {}, None
-    raw = _load_config(p, loader, backends)
+    raw = _load_config(
+        p, loader, backends, (source or "argument") if explicit else "default"
+    )
     if raw is None:
         raw = {}
     if not isinstance(raw, _ty.Mapping):
@@ -155,7 +163,10 @@ def _resolve_config_dict(
 
 
 def _resolve_config_or_error(
-    parser: _argparse.ArgumentParser, cls, config: str | _pathlib.Path | None
+    parser: _argparse.ArgumentParser,
+    cls,
+    config: str | _pathlib.Path | None,
+    source: str | None = None,
 ) -> dict:
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
     config through ``parser.error`` (usage line, exit 2).
@@ -169,7 +180,7 @@ def _resolve_config_or_error(
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
     parser._duho_config_path_ = None  # type: ignore[attr-defined]
     try:
-        raw, path = _read_config(cls, config)
+        raw, path = _read_config(cls, config, source)
         parser._duho_config_path_ = path  # type: ignore[attr-defined]
         return raw
     except ConfigDependencyError as exc:
@@ -759,11 +770,13 @@ def _apply_layers(
     config: str | _pathlib.Path | dict | None = None,
     instance: object = None,
     validate: bool = True,
+    config_source: str | None = None,
 ) -> dict:
     """The one layering entry point, used by `duho.main`, `duho.parse`,
     `duho.parse_globals` and `duho.app`.
 
-    Resolves `config` once (a path or None, or an already-loaded dict), takes
+    Resolves `config` once (a path or None, or an already-loaded dict; with
+    `config_source` saying where the path came from, see :func:`_read_config`), takes
     `instance`'s overrides (`_instance_overrides`) and stashes both, plus
     `env`, across `cls`'s static ``_subcommands_`` tree; conversion is deferred.
     Returns the resolved config dict so `duho.app` need not load it twice.
@@ -774,7 +787,7 @@ def _apply_layers(
     raw_config = (
         config
         if isinstance(config, _ty.Mapping)
-        else _resolve_config_or_error(parser, cls, config)
+        else _resolve_config_or_error(parser, cls, config, config_source)
     )
     overrides = None
     if instance is not None:

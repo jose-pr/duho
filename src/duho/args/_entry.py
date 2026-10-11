@@ -239,8 +239,9 @@ def main(
     if served is not None:
         return served
 
+    config_source = None
     if config is None:
-        config = _class_config_location(cls, argv)[0]
+        config, config_source = _class_config_location(cls, argv)
 
     root_cls = cls
     extra_cmds: list[type] = []
@@ -292,7 +293,7 @@ def main(
             completion_cls._completion_tree_ = root_cls
 
     parser = root_cls._parser_(_inherited_config_hint_=config is not None)
-    _apply_layers(parser, root_cls, config=config)
+    _apply_layers(parser, root_cls, config=config, config_source=config_source)
     instance = parser.parse_args(argv)
 
     _setup_instance_logging(instance, setup_logging, cls)
@@ -347,21 +348,24 @@ def parse(
     chosen subcommand's class need not derive from it.
     """
     parser_kwargs = parser_kwargs or {}
+    config_source = None
     if config is None:
-        config = _class_config_location(
+        config, config_source = _class_config_location(
             spec if isinstance(spec, type) else type(spec), argv
-        )[0]
+        )
     if isinstance(spec, type):
         cls = spec
         parser = cls._parser_(
             **parser_kwargs, _inherited_config_hint_=config is not None
         )
-        _apply_layers(parser, cls, config=config)
+        _apply_layers(parser, cls, config=config, config_source=config_source)
         return parser.parse_args(argv)
 
     cls = type(spec)
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
-    _apply_layers(parser, cls, config=config, instance=spec)
+    _apply_layers(
+        parser, cls, config=config, instance=spec, config_source=config_source
+    )
     return parser.parse_args(argv)
 
 
@@ -401,12 +405,15 @@ def parse_globals(
     """
     from ..parsers import prerun_parse as _prerun_parse
 
+    config_source = None
     if config is None:
-        config = _class_config_location(cls, argv)[0]
+        config, config_source = _class_config_location(cls, argv)
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     # Commands `app` registers later are not in this parser, so their tables
     # would read as unknown keys: the full parse judges the file.
-    _apply_layers(parser, cls, config=config, validate=False)
+    _apply_layers(
+        parser, cls, config=config, validate=False, config_source=config_source
+    )
     # A static tree's real parse hands everything after the subcommand name to
     # the subcommand, so a root option written there is not a global.
     argv = _argv_before_subcommand(

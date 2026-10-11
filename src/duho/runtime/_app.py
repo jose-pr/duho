@@ -315,8 +315,9 @@ def app(
         if served is not None:
             return served
 
+    config_source = None
     if config is None and root is not None:
-        config = _class_config_location(root, argv)[0]
+        config, config_source = _class_config_location(root, argv)
 
     run = _default_run(dispatch, adapter)
     # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also
@@ -352,7 +353,7 @@ def app(
         resolved_commands = list(resolved_commands) + [completion_cls]
 
     parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
-        root, name, description, config, argv, resolved_commands
+        root, name, description, config, argv, resolved_commands, config_source
     )
 
     subparsers, registry, notices = _register_commands(

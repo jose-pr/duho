@@ -197,10 +197,13 @@ class Cli(Cmd):
 
     #: Optional custom config loader ``Callable[[Path], dict]``. When set it
     #: is used INSTEAD of duho's built-in format dispatch, for a format no
-    #: ``duho.config`` backend reads.
+    #: ``duho.config`` backend reads. A loader that takes two positional
+    #: arguments is also told where the path came from: ``"argument"``
+    #: (``config=``), ``"field"`` (``_config_field_``), ``"env"``
+    #: (``_config_env_``) or ``"default"`` (``_config_``).
     #: Read by ``_load_config`` via ``_resolve_config_dict`` /
     #: ``duho.app``.
-    _config_loader_: _ty.Optional[_ty.Callable[[_pathlib.Path], dict]] = None
+    _config_loader_: _ty.Optional[_ty.Callable[..., dict]] = None
 
     #: Opt-in argparse help ``formatter_class``. ``None`` (default) uses
     #: argparse's plain formatter; set it to ``duho.DefaultsFormatter``,

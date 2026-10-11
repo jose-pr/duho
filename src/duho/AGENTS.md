@@ -196,7 +196,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |
 | `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a usage error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
 | `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; its own exceptions propagate unchanged, a non-mapping result is a usage error naming the file |
-| `_config_validate_` | `str \| Callable[[Mapping, tuple[str, ...]], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a usage error, a callable `f(config, unknown)` gets the loaded mapping and a tuple of dotted key paths (its `ValueError` is a usage error); runs only when a file was read; any other value is a `ValueError` naming the class |
+| `_config_validate_` | `str \| Callable[[Args, Mapping, tuple[str, ...]], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a usage error, a callable `f(args, config, unknown)` validates the whole file after the parse, given the parsed instance, the loaded mapping and a tuple of dotted key paths (its `ValueError` is a usage error); runs only when a file was read; any other value is a `ValueError` naming the class |
 | `_config_env_` | `str \| None` | `None` | root | name of an environment variable holding the config file's path; outranks `_config_`, and the file must exist; not applied to a tree served over MCP |
 | `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist; not applied to a tree served over MCP |
 | `_help_formatter_` | `type \| None` | `None` | root, command | argparse `formatter_class`; a root's value propagates to its subcommands |
@@ -670,15 +670,18 @@ empty when absent).
   (`install.targte`), in file order. The root's `_config_validate_` decides what happens:
   `None` or `"ignore"` (the default, today's behaviour: skipped with a DEBUG line),
   `"warn"` (one WARNING on logger `duho.config`), `"strict"` (a usage error, exit `2`,
-  held so `--help` and `--version` still work), or a function `f(config, unknown)` called
-  with the loaded mapping and a tuple of the dotted paths (empty when none; it is called
-  even then). A `ValueError` it raises with a non-empty message becomes the same usage
-  error; any other exception propagates. The messages are
+  held so `--help` and `--version` still work), or a function `f(args, config, unknown)`
+  that validates the whole file. It is called at the end of a successful parse (not for
+  `--help`, `--version` or a command line argparse refuses, and not when arguments are
+  left over) with the parsed instance of the selected command (the one `parse` returns,
+  file and command-line values applied), the loaded mapping and a tuple of the dotted
+  paths (empty when none; it is called even then). A `ValueError` it raises with a
+  non-empty message becomes a usage error (exit `2`); any other exception propagates. The messages are
   `duho: config file PATH: unknown key 'a'` (or `unknown keys: 'a', 'install.b'`) and
   `duho: config file PATH: ` plus the function's text; they hold key names and the path,
   never a value. Nothing runs, a function included, unless a file was actually read (a
   skipped `_config_`, `config={}` or no config does not count), and `parse_globals`
-  never runs it: the commands `app` registers later are not known to it. The check runs once the
+  never runs it: the commands `app` registers later are not known to it. Unknown keys are worked out once the
   whole command tree is built, for `parse`, `main` and `app` alike. Any other value is a
   `ValueError` naming the class, raised before parsing.
 - **`ConfigArgs`** (`from duho import ConfigArgs`) — data mixin like `LoggingArgs`: one

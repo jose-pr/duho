@@ -56,7 +56,7 @@ def _names(unknown):
 
 def test_static_tree_reports_the_three_kinds_together(tmp_path):
     seen = []
-    cls = _root(lambda config, unknown: seen.append((config, unknown)))
+    cls = _root(lambda args, config, unknown: seen.append((config, unknown)))
     duho.parse(cls, ["install"], config=_write(tmp_path, STATIC_FILE))
     ((config, unknown),) = seen
     assert unknown == STATIC_UNKNOWN
@@ -65,7 +65,7 @@ def test_static_tree_reports_the_three_kinds_together(tmp_path):
 
 def test_known_keys_are_not_reported(tmp_path):
     seen = []
-    cls = _root(lambda config, unknown: seen.append(unknown))
+    cls = _root(lambda args, config, unknown: seen.append(unknown))
     duho.parse(
         cls,
         ["install"],
@@ -76,7 +76,7 @@ def test_known_keys_are_not_reported(tmp_path):
 
 def test_a_non_table_under_a_command_name_is_unknown(tmp_path):
     seen = []
-    cls = _root(lambda config, unknown: seen.append(unknown))
+    cls = _root(lambda args, config, unknown: seen.append(unknown))
     duho.parse(cls, ["install"], config=_write(tmp_path, {"install": 5}))
     assert seen == [("install",)]
 
@@ -161,7 +161,7 @@ def test_no_value_reaches_any_message(tmp_path, caplog, capsys):
 
 
 def test_a_function_value_error_is_a_usage_error(tmp_path, capsys):
-    def check(config, unknown):
+    def check(args, config, unknown):
         raise ValueError("port must be above 1024")
 
     path = _write(tmp_path, {"port": 2})
@@ -175,13 +175,13 @@ def test_a_function_value_error_is_a_usage_error(tmp_path, capsys):
 
 def test_a_function_is_called_even_with_nothing_unknown(tmp_path):
     seen = []
-    cls = _root(lambda config, unknown: seen.append(unknown))
+    cls = _root(lambda args, config, unknown: seen.append(unknown))
     duho.parse(cls, ["install"], config=_write(tmp_path, {"port": 2}))
     assert seen == [()]
 
 
 def test_a_function_other_exception_propagates(tmp_path):
-    def check(config, unknown):
+    def check(args, config, unknown):
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -189,7 +189,7 @@ def test_a_function_other_exception_propagates(tmp_path):
 
 
 def test_a_function_empty_value_error_propagates(tmp_path):
-    def check(config, unknown):
+    def check(args, config, unknown):
         raise ValueError()
 
     with pytest.raises(ValueError):
@@ -199,12 +199,12 @@ def test_a_function_empty_value_error_propagates(tmp_path):
 def test_nothing_runs_without_a_file(tmp_path):
     seen = []
     cls = _root(
-        lambda config, unknown: seen.append(1),
+        lambda args, config, unknown: seen.append(1),
         _config_=str(tmp_path / "missing.json"),
     )
     duho.parse(cls, ["install"])
     assert seen == []
-    assert duho.parse(_root(lambda c, u: seen.append(1)), ["install"]).port == 1
+    assert duho.parse(_root(lambda a, c, u: seen.append(1)), ["install"]).port == 1
     assert seen == []
 
 
@@ -213,7 +213,9 @@ def test_the_prepass_of_a_config_field_validates_nothing(tmp_path):
 
     class WithField(Root):
         _config_field_ = "settings"
-        _config_validate_ = lambda config, unknown: seen.append(unknown)  # noqa: E731
+        _config_validate_ = lambda args, config, unknown: seen.append(
+            unknown
+        )  # noqa: E731
         settings: str = ""
         ("--settings",)
 
@@ -362,7 +364,7 @@ def _run_app(policy, source_dir, tmp_path, argv, obj=APP_FILE):
 def test_app_reports_every_kind_of_command(tmp_path, source_dir):
     seen = []
     _run_app(
-        lambda config, unknown: seen.append(unknown),
+        lambda args, config, unknown: seen.append(unknown),
         source_dir,
         tmp_path,
         ["klass"],
@@ -381,7 +383,7 @@ def test_app_known_keys_alone_are_not_reported(tmp_path, source_dir):
         "sourced": {"name": "y"},
     }
     _run_app(
-        lambda config, unknown: seen.append(unknown),
+        lambda args, config, unknown: seen.append(unknown),
         source_dir,
         tmp_path,
         ["klass"],
@@ -425,7 +427,7 @@ def test_app_default_and_ignore_are_silent(tmp_path, source_dir, caplog, policy)
 
 
 def test_app_function_value_error_is_a_usage_error(tmp_path, source_dir, capsys):
-    def check(config, unknown):
+    def check(args, config, unknown):
         raise ValueError("no good")
 
     with pytest.raises(SystemExit) as info:
@@ -436,14 +438,14 @@ def test_app_function_value_error_is_a_usage_error(tmp_path, source_dir, capsys)
 
 def test_app_function_is_not_called_without_a_file(tmp_path, source_dir):
     seen = []
-    root = _app_root(lambda config, unknown: seen.append(1))
+    root = _app_root(lambda args, config, unknown: seen.append(1))
     assert duho.app(root, commands=[_Klass], argv=["klass"], setup_logging=False) == 0
     assert seen == []
 
 
 def test_app_a_class_root_with_a_static_tree(tmp_path):
     seen = []
-    cls = _root(lambda config, unknown: seen.append(unknown))
+    cls = _root(lambda args, config, unknown: seen.append(unknown))
     duho.app(
         cls,
         argv=["install"],
@@ -456,7 +458,7 @@ def test_app_a_class_root_with_a_static_tree(tmp_path):
 def test_app_source_alone_registers_its_commands(tmp_path, source_dir):
     seen = []
     duho.app(
-        _app_root(lambda config, unknown: seen.append(unknown)),
+        _app_root(lambda args, config, unknown: seen.append(unknown)),
         source=source_dir,
         argv=["plain"],
         config=_write(tmp_path, {"sourced": {"zzz": 1}, "withargs": {"level": 1}}),
@@ -469,7 +471,7 @@ def test_parse_globals_does_not_judge_the_file(tmp_path):
     # The command that owns the table is registered by `app`, after this call.
     path = _write(tmp_path, {"port": 4, "klass": {"name": "x"}})
     seen = []
-    cls = _app_root(lambda config, unknown: seen.append(unknown))
+    cls = _app_root(lambda args, config, unknown: seen.append(unknown))
     assert duho.parse_globals(cls, [], config=path).port == 4
     assert seen == []
     assert duho.parse_globals(_app_root("strict"), [], config=path).port == 4
@@ -483,3 +485,41 @@ def test_parse_globals_does_not_judge_the_file(tmp_path):
         )
         == 0
     )
+
+
+def test_a_function_gets_the_parsed_instance_of_the_selected_command(tmp_path):
+    seen = []
+    cls = _root(lambda args, config, unknown: seen.append((args, config)))
+    path = _write(tmp_path, {"port": 7, "install": {"target": "from-file"}})
+    parsed = duho.parse(cls, ["install", "--target", "from-cli"], config=path)
+    ((args, config),) = seen
+    assert args is parsed
+    assert type(args) is Install
+    # The command line and the file are both applied before the function runs.
+    assert (args.port, args.target) == (7, "from-cli")
+    assert config["install"]["target"] == "from-file"
+
+
+def test_a_function_is_not_called_for_help_or_a_bad_command_line(tmp_path, capsys):
+    seen = []
+    cls = _root(lambda args, config, unknown: seen.append(1))
+    path = _write(tmp_path, {"port": 7})
+    for argv in (["--help"], ["install", "--no-such-flag"], ["--port", "x", "install"]):
+        with pytest.raises(SystemExit):
+            duho.parse(cls, argv, config=path)
+    capsys.readouterr()
+    assert seen == []
+
+
+def test_app_a_function_gets_the_parsed_instance(tmp_path):
+    seen = []
+    root = _app_root(lambda args, config, unknown: seen.append(args))
+    path = _write(tmp_path, {"port": 5, "klass": {"name": "x"}})
+    assert (
+        duho.app(
+            root, commands=[_Klass], argv=["klass"], config=path, setup_logging=False
+        )
+        == 0
+    )
+    (args,) = seen
+    assert (args.port, args.name) == (5, "x")

@@ -187,9 +187,10 @@ class Cli(Cmd):
     #: What to do with a key of the config file that nothing applies: ``None``
     #: or ``"ignore"`` (the default) skips it, ``"warn"`` logs one warning on
     #: ``duho.config``, ``"strict"`` is a usage error, and a callable
-    #: ``f(config, unknown)`` is called with the loaded mapping and a tuple of
-    #: dotted key paths (a ``ValueError`` from it is a usage error). Runs only
-    #: when a file was read. Any other value is a ``ValueError``. Read by
+    #: ``f(args, config, unknown)`` is called after the parse with the parsed
+    #: instance, the loaded mapping and a tuple of dotted key paths (a
+    #: ``ValueError`` from it is a usage error). Runs only when a file was
+    #: read. Any other value is a ``ValueError``. Read by
     #: ``_enforce_config_validate``.
     _config_validate_: _ty.Optional[_ty.Union[str, _ty.Callable[..., None]]] = None
 

@@ -250,10 +250,12 @@ def _enforce_config_validate(
 ) -> None:
     """Apply ``cls._config_validate_`` to the file `parser` read, if it read one.
 
-    `unknown` computes the dotted paths lazily. ``warn`` logs; ``strict`` and a
-    callable's ``ValueError`` are held on the parser for the root's finalize to
-    report, so ``--help`` and ``--version`` still work. Never replaces a held error.
+    `unknown` computes the dotted paths lazily. ``warn`` logs; ``strict`` is
+    held on the parser for the root's finalize to report, so ``--help`` and
+    ``--version`` still work, and never replaces a held error. A callable is
+    armed for :func:`_run_config_validator`, which needs the parsed instance.
     """
+    parser._duho_config_validator_ = None  # type: ignore[attr-defined]
     path = getattr(parser, "_duho_config_path_", None)
     policy = _config_validate_policy(cls)
     if path is None or policy in (None, "ignore"):
@@ -263,12 +265,12 @@ def _enforce_config_validate(
     where = f"duho: config file {_os.fspath(path)}: "
     paths = tuple(unknown())
     if callable(policy):
-        try:
-            policy(config, paths)
-        except ValueError as exc:
-            if not str(exc):
-                raise
-            parser._duho_config_error_ = where + str(exc)  # type: ignore[attr-defined]
+        parser._duho_config_validator_ = (  # type: ignore[attr-defined]
+            policy,
+            config,
+            paths,
+            where,
+        )
         return
     if not paths:
         return
@@ -278,6 +280,27 @@ def _enforce_config_validate(
         parser._duho_config_error_ = message  # type: ignore[attr-defined]
     else:
         _logging.getLogger("duho.config").warning("%s", message)
+
+
+def _run_config_validator(parser: _argparse.ArgumentParser, instance: object) -> None:
+    """Call the root's ``_config_validate_`` function, armed on `parser` by
+    :func:`_enforce_config_validate`, with the instance this parse built.
+
+    A ``ValueError`` with a message is a usage error naming the file; raised
+    outside the ``except`` so the original is not chained onto ``SystemExit``.
+    """
+    pending = getattr(parser, "_duho_config_validator_", None)
+    if pending is None:
+        return
+    policy, config, paths, where = pending
+    try:
+        policy(instance, config, paths)
+        return
+    except ValueError as exc:
+        text = str(exc)
+        if not text:
+            raise
+    parser.error(where + text)
 
 
 class _LayeredDefault:

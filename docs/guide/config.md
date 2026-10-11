@@ -89,7 +89,7 @@ names no command is reported as the table's name.
 | `None` or `"ignore"` | the default: unknown keys are skipped |
 | `"warn"` | one warning on the `duho.config` logger naming the file and the keys |
 | `"strict"` | a usage error (exit status 2, no traceback) naming the file and the keys |
-| a function | called as `f(config, unknown)`; see below |
+| a function | called as `f(args, config, unknown)` to check the whole file; see below |
 
 ```python
 from duho import Cli
@@ -106,18 +106,22 @@ $ deploy
 deploy: error: duho: config file deploy.toml: unknown keys: 'prot', 'install.targte'
 ```
 
-A function receives the loaded mapping and a tuple of the unknown paths (empty when
-there are none), so it can check more than names. A `ValueError` it raises with a
-message becomes the same usage error; any other exception propagates.
+A function checks the whole file, not only its names. It is called once the command
+line is parsed, with the parsed instance of the selected command (what `__call__`
+gets as `self`), the loaded mapping, and a tuple of the unknown paths (empty when
+there are none). A `ValueError` it raises with a message becomes the same usage
+error; any other exception propagates.
 
 ```python
 from duho import Cli
 
-def check(config, unknown):
+def check(args, config, unknown):
     if unknown:
         raise ValueError("unknown keys " + ", ".join(unknown))
-    if config.get("port", 1024) < 1024:
+    if args.port < 1024:                 # the value after the file AND the command line
         raise ValueError("port must be 1024 or above")
+    if "tls" in config and "cert" not in config["tls"]:
+        raise ValueError("[tls] needs a cert")
 
 class Deploy(Cli):
     _config_ = "deploy.toml"
@@ -129,7 +133,8 @@ class Deploy(Cli):
 The error and the warning name keys and the file, never a value from it. Nothing
 runs, a function included, unless a file was read: a `_config_` that does not exist
 yet is skipped, and so is the check. `--help` and `--version` work whatever the file
-holds. Any other value for `_config_validate_` is a `ValueError` naming the class.
+holds, and a function is not called for them or for a command line argparse refuses.
+Any other value for `_config_validate_` is a `ValueError` naming the class.
 The attribute is read on the root class, and applies whichever way the file was
 chosen and whichever format or `_config_loader_` read it.
 `duho.parse_globals` reads the file but does not run the check, because the commands

@@ -10,6 +10,7 @@ import weakref as _weakref
 from .. import _introspect as _introspect
 from .._layers import _finalize_layers as _finalize_layers
 from .._layers import _merge_layers_upward as _merge_layers_upward
+from .._layers import _run_config_validator as _run_config_validator
 from .._layers import _stage_layers as _stage_layers
 
 from ._actions import (
@@ -678,6 +679,10 @@ class Args(_argparse.Namespace):
                 )
             except TypeError:
                 pass
+            # Last, and only for a command line read in full: leftover arguments
+            # are about to be refused by `parse_args`.
+            if not unk:
+                _run_config_validator(parser, instance)
             return instance, unk
 
         parser.parse_known_args = parse_known_args  # type: ignore

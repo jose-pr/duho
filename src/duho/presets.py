@@ -230,7 +230,8 @@ class ConfigArgs(Args):
         ),
     ] = None
 
-    _config_field_ = "config"
+    # Typed as on `Cli`, so the two bases agree for a type checker.
+    _config_field_: _ty.Optional[str] = "config"
 
     def __init_subclass__(cls, **kwargs: _ty.Any) -> None:
         super().__init_subclass__(**kwargs)

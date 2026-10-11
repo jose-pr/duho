@@ -68,7 +68,8 @@ CONSUMER_SOURCE = textwrap.dedent("""
 
     import duho
     import duho.mcp as dmcp
-    from duho import Arg, Cli, Cmd, Extend, InitParserKwargs, Meta
+    from duho import Arg, Cli, Cmd, ConfigArgs, Extend, InitParserKwargs
+    from duho import LoggingArgs, Meta
 
 
     class Deploy(Cmd):
@@ -99,6 +100,10 @@ CONSUMER_SOURCE = textwrap.dedent("""
 
     class App(Cli):
         _version_ = "1.0.0"
+
+
+    class Configured(ConfigArgs, LoggingArgs, Cli):
+        _config_validate_ = "strict"
 
 
     @App.subcommand

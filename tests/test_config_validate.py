@@ -523,3 +523,45 @@ def test_app_a_function_gets_the_parsed_instance(tmp_path):
     )
     (args,) = seen
     assert (args.port, args.name) == (5, "x")
+
+
+def test_a_two_argument_function_is_called_without_the_unknown_paths(tmp_path):
+    seen = []
+
+    def check(args, config):
+        seen.append((type(args), config))
+
+    # With unknown keys in the file, and with none: called either way.
+    for data in (STATIC_FILE, {"port": 2}):
+        duho.parse(_root(check), ["install"], config=_write(tmp_path, data))
+    assert seen == [(Install, STATIC_FILE), (Install, {"port": 2})]
+
+
+def test_a_two_argument_function_value_error_is_a_usage_error(tmp_path, capsys):
+    def check(args, config):
+        raise ValueError("no [tls] table")
+
+    path = _write(tmp_path, {"port": 2})
+    with pytest.raises(SystemExit) as info:
+        duho.parse(_root(check), ["install"], config=path)
+    assert info.value.code == 2
+    assert f"duho: config file {path}: no [tls] table" in capsys.readouterr().err
+
+
+def test_a_function_taking_any_number_of_arguments_gets_all_three(tmp_path):
+    seen = []
+    cls = _root(lambda *got: seen.append(len(got)))
+    duho.parse(cls, ["install"], config=_write(tmp_path, {"port": 2}))
+    assert seen == [3]
+
+
+def test_a_method_form_counts_its_own_arguments_only(tmp_path):
+    seen = []
+
+    class Checked(Root):
+        @classmethod
+        def _config_validate_(cls, args, config):
+            seen.append(cls)
+
+    duho.parse(Checked, ["install"], config=_write(tmp_path, {"port": 2}))
+    assert seen == [Checked]

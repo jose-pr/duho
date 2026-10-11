@@ -293,8 +293,12 @@ def _run_config_validator(parser: _argparse.ArgumentParser, instance: object) ->
     if pending is None:
         return
     policy, config, paths, where = pending
+    from .runtime._arity import accepts_positional  # lazy: runtime imports this module
+
+    # `f(args, config)` is the same check without the unknown paths.
+    extra = (paths,) if accepts_positional(policy, 3) else ()
     try:
-        policy(instance, config, paths)
+        policy(instance, config, *extra)
         return
     except ValueError as exc:
         text = str(exc)

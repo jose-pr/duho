@@ -89,7 +89,7 @@ names no command is reported as the table's name.
 | `None` or `"ignore"` | the default: unknown keys are skipped |
 | `"warn"` | one warning on the `duho.config` logger naming the file and the keys |
 | `"strict"` | a usage error (exit status 2, no traceback) naming the file and the keys |
-| a function | called as `f(args, config, unknown)` to check the whole file; see below |
+| a function | called as `f(args, config, unknown)` or `f(args, config)` to check the whole file; see below |
 
 ```python
 from duho import Cli
@@ -109,8 +109,10 @@ deploy: error: duho: config file deploy.toml: unknown keys: 'prot', 'install.tar
 A function checks the whole file, not only its names. It is called once the command
 line is parsed, with the parsed instance of the selected command (what `__call__`
 gets as `self`), the loaded mapping, and a tuple of the unknown paths (empty when
-there are none). A `ValueError` it raises with a message becomes the same usage
-error; any other exception propagates.
+there are none). A function that takes only two arguments, `f(args, config)`, is
+called the same way without the unknown paths, which are then ignored as by default.
+Either form is called whether or not the file has unknown keys. A `ValueError` it
+raises with a message becomes the same usage error; any other exception propagates.
 
 ```python
 from duho import Cli

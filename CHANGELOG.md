@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `_config_validate_` on a root class, to decide what happens to a key in the config
   file that nothing applies: `"warn"` logs one warning, `"strict"` is a usage error,
-  and a function `f(args, config, unknown)` validates the whole file once the
-  command line is parsed. The default still ignores such keys.
+  and a function `f(args, config, unknown)` or `f(args, config)` validates the
+  whole file once the command line is parsed. The default still ignores such keys.
 
 ## [0.7.2] - 2026-10-09
 

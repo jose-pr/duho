@@ -188,7 +188,8 @@ class Cli(Cmd):
     #: or ``"ignore"`` (the default) skips it, ``"warn"`` logs one warning on
     #: ``duho.config``, ``"strict"`` is a usage error, and a callable
     #: ``f(args, config, unknown)`` is called after the parse with the parsed
-    #: instance, the loaded mapping and a tuple of dotted key paths (a
+    #: instance, the loaded mapping and a tuple of dotted key paths, or as
+    #: ``f(args, config)`` when it takes only two arguments (a
     #: ``ValueError`` from it is a usage error). Runs only when a file was
     #: read. Any other value is a ``ValueError``. Read by
     #: ``_enforce_config_validate``.

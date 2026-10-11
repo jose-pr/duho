@@ -316,7 +316,7 @@ def app(
             return served
 
     if config is None and root is not None:
-        config = _class_config_location(root, argv)
+        config = _class_config_location(root, argv)[0]
 
     run = _default_run(dispatch, adapter)
     # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also

@@ -201,8 +201,13 @@ class LoggingArgs(Args):
         return _logging.getLogger(_logger_name_for(self))
 
 
-def _config_path(text: str) -> _pathlib.Path:
-    """The ``--config`` value: ``~`` expanded, and a file that exists."""
+def _config_path(text: str) -> _ty.Optional[_pathlib.Path]:
+    """The ``--config`` value: ``~`` expanded, and a file that exists.
+
+    Empty text is ``None``: no file, and the class's ``_config_`` is not read.
+    """
+    if text == "":
+        return None
     path = _pathlib.Path(_os.path.expanduser(text))
     if not path.is_file():
         raise _argparse.ArgumentTypeError(f"no such file: {text}")

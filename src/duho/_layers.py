@@ -112,7 +112,10 @@ def _read_config(
     cls, config: str | _pathlib.Path | None
 ) -> tuple[dict, _pathlib.Path | None]:
     """:func:`_resolve_config_dict` for `cls`, plus the expanded path of the file
-    actually read (``None`` when there was no file to read)."""
+    actually read (``None`` when there was no file to read). An empty `config`
+    string is "no file": nothing is read and no loader runs."""
+    if isinstance(config, str) and config == "":
+        return {}, None  # an empty path names no file, `_config_` included
     explicit = config is not None
     path = config if explicit else getattr(cls, "_config_", None)
     if path is None:

@@ -11,13 +11,17 @@ from .. import _compat as _compat
 from .. import logging as _duho_logging
 from .._outcome import _guard_dispatch
 from .._layers import _apply_layers as _apply_layers
-from .._layers import value_sources as _value_sources
+from .._layers import _LayeredDefault as _LayeredDefault
 
 from ._argsclass import Args, _drop_sidecars, _duho_instance_last_parser_
 from ._mcptrigger import _maybe_serve_mcp_trigger
 from ._meta import _A
 from ._naming import _app_name
 from ._parserfix import _argv_before_subcommand
+
+# Default planted on the config field in the prepass: still there after the parse
+# means the user did not give it.
+_ABSENT = object()
 
 
 def _logger_name_for(instance, root_cls: type | None = None) -> str:
@@ -126,22 +130,24 @@ def _maybe_await(result):
 
 def _class_config_location(
     cls: type, argv: _ty.Optional[_ty.Sequence[str]]
-) -> _ty.Union[str, _pathlib.Path, None]:
-    """The config path ``cls`` names through ``_config_field_`` or ``_config_env_``.
+) -> tuple[_ty.Union[str, _pathlib.Path, None], _ty.Optional[str]]:
+    """The config path ``cls`` names, and where it came from: ``(path, source)``.
 
     Order: the ``_config_field_`` field when the user gave it on the command
     line or through its own environment variable (read with the same globals
-    prepass :func:`parse_globals` runs, with no config layer), then the
-    non-empty ``_config_env_`` variable. ``None`` means neither applied and
-    ``_config_`` is used. A ``_config_field_`` naming no declared field is a
-    ``ValueError`` naming ``cls``.
+    prepass :func:`parse_globals` runs, with no config layer; source
+    ``"field"``), then the ``_config_env_`` variable when set (``"env"``).
+    ``(None, None)`` means neither applied and ``_config_`` is used. An empty
+    path, given or set empty, is returned as ``""``: it means no file. A
+    ``_config_field_`` naming no declared field is a ``ValueError`` naming ``cls``.
     """
     field = getattr(cls, "_config_field_", None)
     env_name = getattr(cls, "_config_env_", None)
     if field is None and not env_name:
-        return None
+        return None, None
     if field is not None:
-        if field not in {b.name for b in cls._getargs_()}:
+        builders = {b.name: b for b in cls._getargs_()}
+        if field not in builders:
             raise ValueError(
                 f"{cls.__qualname__}._config_field_ = {field!r} names no declared field"
             )
@@ -149,19 +155,25 @@ def _class_config_location(
 
         parser = cls._parser_(_inherited_config_hint_=True)
         _apply_layers(parser, cls, config={})
+        # An absent field must stay distinguishable from one given empty, which
+        # a typed field turns into None; a layered default is left alone.
+        for action in parser._actions:
+            if action.dest == field and not isinstance(action.default, _LayeredDefault):
+                action.default = _ABSENT
         tokens = _argv_before_subcommand(
             parser, list(_sys.argv[1:] if argv is None else argv)
         )
-        parsed = _prerun_parse(parser, tokens)
-        if _value_sources(parsed).get(field) in ("cli", "env"):
-            value = getattr(parsed, field, None)
-            if value is not None and str(value) != "":
-                return value
+        value = getattr(_prerun_parse(parser, tokens), field, _ABSENT)
+        if value is not _ABSENT:
+            return ("" if value is None else value), "field"
+        var = builders[field].env
+        if var and _os.environ.get(var) == "":
+            return "", "field"
     if env_name:
-        value = _os.environ.get(env_name, "")
-        if value:
-            return value
-    return None
+        value = _os.environ.get(env_name)
+        if value is not None:
+            return value, "env"
+    return None, None
 
 
 def main(
@@ -228,7 +240,7 @@ def main(
         return served
 
     if config is None:
-        config = _class_config_location(cls, argv)
+        config = _class_config_location(cls, argv)[0]
 
     root_cls = cls
     extra_cmds: list[type] = []
@@ -338,7 +350,7 @@ def parse(
     if config is None:
         config = _class_config_location(
             spec if isinstance(spec, type) else type(spec), argv
-        )
+        )[0]
     if isinstance(spec, type):
         cls = spec
         parser = cls._parser_(
@@ -390,7 +402,7 @@ def parse_globals(
     from ..parsers import prerun_parse as _prerun_parse
 
     if config is None:
-        config = _class_config_location(cls, argv)
+        config = _class_config_location(cls, argv)[0]
     parser = cls._parser_(**parser_kwargs, _inherited_config_hint_=config is not None)
     # Commands `app` registers later are not in this parser, so their tables
     # would read as unknown keys: the full parse judges the file.

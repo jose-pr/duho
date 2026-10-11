@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pathlib as _pathlib
+import os as _os
 import sys as _sys
 import typing as _ty
 
@@ -156,14 +156,15 @@ class Cli(Cmd):
     _completion_: bool = False
 
     #: Path to a config file whose values become layered defaults (precedence
-    #: CLI > env > config > class default). ``None`` disables it. The file's
+    #: CLI > env > config > class default). ``None`` disables it. Any path-like
+    #: works, ``duho.config.user_path`` among them. The file's
     #: suffix picks the format (see ``_config_backends_``); a name no backend
     #: claims is TOML. A
     #: path that does not exist YET is treated as no config at all (skipped,
     #: logged at debug) rather than raising -- an explicit ``config=`` kwarg to
     #: ``duho.main``/``duho.parse``/``duho.app`` stays strict. Read by
     #: ``_resolve_config_dict`` via ``_apply_layers``.
-    _config_: _ty.Optional[_ty.Union[str, _pathlib.Path]] = None
+    _config_: _ty.Optional[_ty.Union[str, _os.PathLike[str]]] = None
 
     #: Name of an environment variable holding the config file's path. A
     #: non-empty value outranks ``_config_`` (an explicit ``config=`` and

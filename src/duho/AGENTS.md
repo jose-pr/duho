@@ -741,6 +741,11 @@ merging, interpolation or templating.
   `default`, else `UnsupportedFormatError` listing the accepted suffixes);
   `loads(text, format)`, `load(source, format=None)` (a file object with no `format` uses
   its `.name`), `dumps(data, format) -> str` and `dump(data, target, format=None)`.
+- **`user_path(app, *names) -> os.PathLike[str]`** — the per-user config location
+  `<config dir>/<app>/<names...>`, resolved each time it is used as a path (so it is safe as
+  `_config_ = user_path("tool", "config.toml")`). The config dir is `APPDATA` (else
+  `~/AppData/Roaming`) on Windows, `XDG_CONFIG_HOME` when absolute (else `~/.config`)
+  elsewhere. An empty `app` is a `ValueError`.
 - **Choosing a set.** `backends=None` is every registered backend. Otherwise an iterable
   of registered names, `ConfigBackend` classes and instances: only those are used, a
   later item wins a name, alias or suffix an earlier one also claims, and a class is

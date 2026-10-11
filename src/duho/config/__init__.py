@@ -24,6 +24,7 @@ from ._backend import (
 )
 from ._ini import INIBackend
 from ._json import JSONBackend
+from ._paths import user_path
 from ._toml import TOMLBackend
 from ._yaml import YAMLBackend
 
@@ -43,4 +44,5 @@ __all__ = [
     "get_backend",
     "load",
     "loads",
+    "user_path",
 ]

@@ -20,6 +20,25 @@ A tool can now be told about the keys in its config file that nothing reads.
   config file was read, and `parse_globals` never runs it. A key counts as known exactly when duho would apply it, under
   `main`, `parse` and `app`, for class commands and module commands alike.
 
+A tool with a default config file can now be run without it, and can tell where a
+path came from.
+
+- An empty path means no file. `config=""`, `--config ""` (and `--config=`), a
+  `--config` environment variable set to the empty string and a `_config_env_` variable set
+  to the empty string all read nothing: not the file `_config_` names, not through a
+  loader, and `_config_validate_` does not run. This changes one thing: an empty
+  `_config_env_` variable used to be skipped, so `_config_` was read.
+- A `_config_loader_` that takes two positional arguments is called as
+  `loader(path, source)`, where `source` is `"argument"` (`config=`), `"field"`
+  (`_config_field_`), `"env"` (`_config_env_`) or `"default"` (`_config_`, also for a
+  tree served over MCP). A loader of one argument is called as before.
+- `duho.config.user_path(app, *names)` is `<config dir>/<app>/<names...>` in the
+  user's configuration directory (`APPDATA` on Windows, `XDG_CONFIG_HOME` elsewhere,
+  with the usual fallbacks), looked up when the file is read and not when the class is
+  defined.
+- `duho.app_name(obj)` returns the name an application goes by, and `duho.in_tool_call()`
+  says whether a command was started by an MCP tool call.
+
 ---
 
 ## [0.7.2] — 2026-10-09

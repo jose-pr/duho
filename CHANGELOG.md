@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   file that nothing applies: `"warn"` logs one warning, `"strict"` is a usage error,
   and a function `f(args, config, unknown)` or `f(args, config)` validates the
   whole file once the command line is parsed. The default still ignores such keys.
+- An empty config path means no file is read: `config=""`, `--config ""` (or
+  `--config=`), and a `_config_env_` or `--config` variable set to the empty string.
+  `_config_`, a loader and `_config_validate_` are all skipped then.
+- A `_config_loader_` that takes two arguments is called as `loader(path, source)`;
+  `source` is `"argument"`, `"field"`, `"env"` or `"default"`, the place the path
+  came from.
+- `duho.config.user_path(app, *names)`, a path in the user's configuration directory
+  that is resolved each time it is used, so `_config_ = user_path("tool", "config.toml")`
+  follows `APPDATA` or `XDG_CONFIG_HOME` as they are when the file is read.
+- `duho.app_name(obj)`, the name an application goes by, and `duho.in_tool_call()`,
+  which is true while `duho.mcp.call_tool` is running a command.
+
+### Changed
+
+- A `_config_env_` variable set to the empty string now means no file, where it was
+  skipped and `_config_` was read.
 
 ## [0.7.2] - 2026-10-09
 

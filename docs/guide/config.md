@@ -197,8 +197,16 @@ Highest first:
 1. an explicit `config=` argument to `main`/`parse`/`parse_globals`/`app`;
 2. the `_config_field_` field, when the user gave it on the command line or through its
    own env var (its class default does not count);
-3. the `_config_env_` variable, when it is set and not empty;
+3. the `_config_env_` variable, when it is set;
 4. `_config_`.
+
+An empty path means no file, wherever a path can be given: `config=""`, the
+`_config_field_` field given empty (`--config ""` or `--config=`, or its own env var set
+to the empty string) and a `_config_env_` variable set to the empty string. Nothing is read
+then, `_config_` included, and no `_config_loader_` or `_config_validate_` function runs.
+With `ConfigArgs`, `--config ""` leaves `config` as `None`. It is how a user runs a tool
+whose `_config_` names a file with none of that file's values. An unset variable still
+falls through to `_config_`, and a non-empty path that does not exist is still an error.
 
 A path chosen by the field or the variable is strict, like `config=`: a missing file
 raises `FileNotFoundError`, where a missing `_config_` is skipped. A `_config_field_`
@@ -209,7 +217,23 @@ before parsing. A tree served over
 
 An env var set to the empty string is treated as unset (falls through to
 config/class default) for every field except a bare `str` field, which keeps
-the empty string as its value.
+the empty string as its value. The variable that names the config file itself is the
+exception: empty there means no file, as above.
+
+### A default location in the user's config directory
+
+`duho.config.user_path(app, *names)` is the path `<config dir>/<app>/<names...>`, where the
+config dir is `APPDATA` (else `~/AppData/Roaming`) on Windows and `XDG_CONFIG_HOME` (when it
+is an absolute path, else `~/.config`) elsewhere. It resolves each time duho looks for the
+file, not when the class is defined, so it is safe as a class attribute:
+
+```python
+class Tool(duho.Cli):
+    _config_ = duho.config.user_path("tool", "config.toml")
+```
+
+`str(path)` is the resolved path and `repr` shows the call. An empty `app` is a
+`ValueError`. Like any `_config_`, the file is skipped when it does not exist.
 
 ### Formats
 
@@ -382,6 +406,26 @@ calls *instead of* the backends. It receives the expanded `Path` and returns the
 class Deploy(duho.Cli):
     _config_ = "./deploy.hjson"
     _config_loader_ = staticmethod(lambda path: my_hjson.loads(path.read_text()))
+```
+
+A loader that takes two positional arguments is also told where its path came from, as a
+second argument: `"argument"` (`config=`), `"field"` (the `_config_field_` field),
+`"env"` (the `_config_env_` variable) or `"default"` (`_config_`, also for a tree served
+over MCP). A program can then check a file it found on its own differently from one the
+user named. A loader of one argument is called as before.
+
+```python
+def load(path, source):
+    try:
+        return my_hjson.loads(path.read_text())
+    except ValueError:
+        if source == "default":
+            return {}  # a stale default file is ignored; a named one is an error
+        raise
+
+class Deploy(duho.Cli):
+    _config_ = "./deploy.hjson"
+    _config_loader_ = staticmethod(load)
 ```
 
 Errors raised inside the loader propagate to the caller unchanged: duho does not convert

@@ -453,6 +453,26 @@ A directory with **no** `__init__.py` whose files are instead named
 `NN-name.py` (numbered steps) is a different, opt-in shape entirely — see
 [RunPath: ordered step directories](runpath.md).
 
+## The application's name, and tool calls
+
+`duho.app_name(obj)` is the name the application goes by, the one the usage line shows
+(see [The application's name](https://github.com/jose-pr/duho/#the-applications-name)).
+Given a command a parser produced, a subcommand included, it returns the root parser's
+`prog`, which is `duho.app(name=...)` when that was given. Given a class, or an instance
+built directly, it returns the class's application name.
+
+`duho.in_tool_call()` is `True` while `duho.mcp.call_tool` is running a command, an `async`
+one included, and `False` otherwise. A command that prints for a person can answer a tool
+call differently without looking at what standard output is:
+
+```python
+class Report(duho.Cmd):
+    def __call__(self):
+        if duho.in_tool_call():
+            return {"name": duho.app_name(self), "ok": True}
+        print(f"{duho.app_name(self)}: ok")
+```
+
 ## Version flag
 
 Set `_version_` and duho adds a `--version` flag that prints

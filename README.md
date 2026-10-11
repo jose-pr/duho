@@ -695,7 +695,8 @@ root of every MCP tool name (`NAME.command`) and the default logger that
 `-v`/`-q` raise. It is, in order: `duho.app(name=...)`, the root class's own
 `_parsername_`, the top-level package the root class is defined in (the `pkg`
 of `pkg.cli.Root`, also under `python -m pkg`), then the kebab-case of the class
-name. A script run directly has no package, so it is named after its class. The
+name. `duho.app_name(obj)` returns it for a class or an instance. A script run
+directly has no package, so it is named after its class. The
 name never comes from the script's file name, so `python app.py`, `python tools/run.py`,
 `python -m pkg` and a console script all agree. Declare `_parsername_` to fix
 the name wherever the class lives. A subcommand's name is its own

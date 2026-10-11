@@ -772,7 +772,9 @@ merging, interpolation or templating.
 - **Errors**, all `ValueError` subclasses defined in `duho.exceptions` and importable from
   `duho.config`: `ConfigError(message, path=None, lineno=None, colno=None)` (attributes of
   the same names; a read failure reads `duho: invalid NAME in config file PATH: DETAIL`,
-  where DETAIL holds the parser's problem and position and never text of the document),
+  where DETAIL holds the parser's problem and position. It never holds a VALUE from the
+  document. It may hold a NAME from it, cut to 120 characters with whitespace collapsed:
+  a key or a section (INI, TOML), or a YAML alias, anchor or tag),
   `UnsupportedFormatError` (no backend matches) and
   `ConfigDependencyError(message, extra=None, path=None)` (the library is not installed;
   `.extra` names the extra).

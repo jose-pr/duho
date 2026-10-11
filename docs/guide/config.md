@@ -281,7 +281,8 @@ its format is read. If it is missing, reading that file is a usage error naming 
 A malformed file, or one whose top level is not a table, is a usage error naming the
 file and the format, with exit status 2 under `duho.main`, `duho.parse` and `duho.app`
 alike, not a raised exception. The message carries the parser's problem and position and
-never text of the document, so a secret in a bad file is not echoed:
+never a value from the document, so a secret in a bad file is not echoed. It can name
+a key, a section, or a YAML alias or tag, cut to 120 characters:
 
 ```text
 app: error: duho: invalid JSON in config file /etc/app.json: Expecting property name ...

@@ -39,7 +39,8 @@ class UsageError(CommandError):
 class ConfigError(ValueError):
     """A configuration document could not be read or written.
 
-    ``str(exc)`` is the message and never holds text of the document.
+    ``str(exc)`` is the message. It never holds a value of the document; it
+    may name a key, a section, or a YAML alias or tag, cut to a bounded length.
     ``path``, ``lineno`` and ``colno`` locate the problem when known.
     """
 

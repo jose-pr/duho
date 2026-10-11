@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A `_config_env_` variable set to the empty string now means no file, where it was
   skipped and `_config_` was read.
 
+### Fixed
+
+- The documentation said a `ConfigError` message never holds text of the document.
+  It never holds a value; it can name a key, a section, or a YAML alias or tag, cut
+  to 120 characters. The messages themselves are unchanged.
+
 ## [0.7.2] - 2026-10-09
 
 ### Added

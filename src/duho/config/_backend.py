@@ -94,7 +94,7 @@ class ConfigBackend:
         return f"{type(self).__name__}(name={self.name!r})"
 
     def loads(self, text: str) -> _ty.Any:
-        """Parse ``text``; a bad document raises ``ConfigError`` with no document text."""
+        """Parse ``text``; a bad document raises ``ConfigError`` holding none of its values."""
         raise NotImplementedError(f"{type(self).__name__} does not implement loads()")
 
     def dumps(self, data: _ty.Any) -> str:

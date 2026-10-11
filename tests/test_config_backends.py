@@ -354,3 +354,25 @@ def test_an_ini_error_states_its_line_in_the_message():
         config.loads("[a]\nkey = 1\nnot a pair\n", "ini")
     assert caught.value.lineno == 3
     assert str(caught.value) == "not a key and value (at line 3)"
+
+
+@pytest.mark.parametrize(
+    "name, text",
+    [
+        ("yaml", "a: *{name}"),
+        ("yaml", "a: !{name} b"),
+        ("ini", "[{name}]\na = 1\n[{name}]\nb = 2\n"),
+        ("ini", "[s]\n{name} = 1\n{name} = 2\n"),
+        ("ini", "[DEFAULT]\n{name} = 1\n[{name}]\na = 1\n"),
+    ],
+)
+def test_a_name_from_the_document_is_cut_and_a_value_never_appears(name, text):
+    _need(name)
+    long_name = "n" * 500
+    with pytest.raises(ConfigError) as caught:
+        config.loads(text.format(name=long_name) + f"\nvalue: {SECRET}\n", name)
+    message = str(caught.value)
+    assert SECRET not in message
+    # The name is quoted, but never more than the bound of it.
+    assert "n" * 10 in message
+    assert "n" * (_backend._PROBLEM_LIMIT + 1) not in message

@@ -193,7 +193,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_version_` | `str \| duho.AUTO \| None` | `None` | root | adds `--version`; `AUTO` reads installed package metadata; with `_version_` unset, a class-level `__version__` string is used instead |
 | `_distribution_` | `str \| None` | `None` | root | distribution name for `AUTO` when it differs from the import package |
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
-| `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped |
+| `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped; also read by a tree served over MCP |
 | `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a usage error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
 | `_config_loader_` | `Callable[[Path], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; its own exceptions propagate unchanged, a non-mapping result is a usage error naming the file |
 | `_config_validate_` | `str \| Callable[[Args, Mapping, tuple[str, ...]], None] \| Callable[[Args, Mapping], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a usage error, a callable `f(args, config, unknown)` or `f(args, config)` validates the whole file after the parse, given the parsed instance, the loaded mapping and, in the three-argument form, a tuple of dotted key paths (its `ValueError` is a usage error); runs only when a file was read; any other value is a `ValueError` naming the class |
@@ -660,8 +660,9 @@ empty when absent).
   `_config_`. A path chosen by the field or the variable is strict like `config=`: a
   missing file raises `FileNotFoundError`, unlike a missing `_config_`. A
   `_config_field_` naming no declared field is a `ValueError` naming the class, raised by
-  `main`/`parse`/`parse_globals`/`app` before parsing. Neither attribute is applied to a
-  tree served over MCP.
+  `main`/`parse`/`parse_globals`/`app` before parsing. A tree served over MCP reads the
+  file `_config_` names, like any other parse, but applies neither `_config_field_` nor
+  `_config_env_`: no command line or per-call variable chooses a server's file.
 - **Unknown config keys** — a key in the config file that nothing applies: at each level,
   one that is neither a field of that command nor a dict-valued table named for one of its
   registered subcommands (a table named for an alias, or holding a non-table value, is

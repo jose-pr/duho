@@ -203,8 +203,9 @@ Highest first:
 A path chosen by the field or the variable is strict, like `config=`: a missing file
 raises `FileNotFoundError`, where a missing `_config_` is skipped. A `_config_field_`
 naming a field the class does not declare is a `ValueError` naming the class, raised
-before parsing. Neither attribute is applied to a tree served over
-[MCP](https://github.com/jose-pr/duho/#mcp-tool-surface-duhomcp-opt-in).
+before parsing. A tree served over
+[MCP](https://github.com/jose-pr/duho/#mcp-tool-surface-duhomcp-opt-in) reads the file
+`_config_` names but applies neither of these two attributes.
 
 An env var set to the empty string is treated as unset (falls through to
 config/class default) for every field except a bare `str` field, which keeps

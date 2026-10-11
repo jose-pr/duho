@@ -18,7 +18,7 @@ def _posix(path, **environ):
 
 
 def _nt(path, **environ):
-    return os.fspath(_UserPath(path, nt=True, environ=environ, home="C:/Users/ann"))
+    return os.fspath(_UserPath(path, nt=True, environ=environ, home="D:/home/ann"))
 
 
 def test_xdg_config_home_is_used_when_absolute(tmp_path):
@@ -42,7 +42,7 @@ def test_windows_uses_appdata_then_roaming():
     )
     for environ in ({}, {"APPDATA": ""}):
         assert _nt(("tool", "c.toml"), **environ) == os.path.join(
-            "C:/Users/ann", "AppData", "Roaming", "tool", "c.toml"
+            "D:/home/ann", "AppData", "Roaming", "tool", "c.toml"
         )
 
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-12
+
 ### Added
 
 - `_config_validate_` on a root class, to decide what happens to a key in the config
@@ -14,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and a function `f(args, config, unknown)` or `f(args, config)` validates the
   whole file once the command line is parsed. The default still ignores such keys.
 - An empty config path means no file is read: `config=""`, `--config ""` (or
-  `--config=`), and a `_config_env_` or `--config` variable set to the empty string.
+  `--config=`), and the `_config_env_` variable or the field's own variable set to the
+  empty string.
   `_config_`, a loader and `_config_validate_` are all skipped then.
 - A `_config_loader_` that takes two arguments is called as `loader(path, source)`;
   `source` is `"argument"`, `"field"`, `"env"` or `"default"`, the place the path
@@ -26,8 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which is `"mcp"` while `duho.mcp.call_tool` is running a command and `"cli"` otherwise.
 - An MCP tool can write output that is not UTF-8. The server sends it to file
   descriptor 3 when it was started with that open, or to what the launch variable plus
-  `_OUTPUT` (`TOOL_MCP_OUTPUT`) holds: a descriptor number, or the name of a file or of a pipe that the server
-  opens for appending. The tool's result says how many bytes went where and at what
+  `_OUTPUT` (`TOOL_MCP_OUTPUT`) holds: a descriptor number (3 or above), or the name of
+  a file or of a pipe that the server opens for appending. The tool's result says how many bytes went where and at what
   offset. With no target the call fails with a message that says how to give one; a bad
   variable stops the server with status 2. `call_tool` takes `output_fd`, `output_var`
   and `output_path`, and `serve` takes `output_var`. Output that is UTF-8 is returned as
@@ -50,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The documentation said a `ConfigError` message never holds text of the document.
   It never holds a value; it can name a key, a section, or a YAML alias or tag, cut
   to 120 characters. The messages themselves are unchanged.
+- `class App(ConfigArgs, LoggingArgs, Cli)` type-checks: `ConfigArgs` declares
+  `_config_field_` with the type `Cli` gives it.
+- An INI read error states its line in the message (`not a key and value (at line
+  3)`), as the other formats do; it was only in `lineno`.
+- The documentation said that neither `_config_field_` nor `_config_env_` is applied
+  to a tree served over MCP, and left out that the file `_config_` names is read
+  there. It now says so.
 
 ## [0.7.2] - 2026-10-09
 
@@ -2152,7 +2162,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/jose-pr/duho/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/jose-pr/duho/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/jose-pr/duho/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jose-pr/duho/compare/v0.6.5...v0.7.0

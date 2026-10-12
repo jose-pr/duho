@@ -8,6 +8,10 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.3] — 2026-10-12
+
 A tool can now be told about the keys in its config file that nothing reads.
 
 - `_config_validate_` on a root class takes `"ignore"` (the default, unchanged),
@@ -24,8 +28,8 @@ A tool with a default config file can now be run without it, and can tell where 
 path came from.
 
 - An empty path means no file. `config=""`, `--config ""` (and `--config=`), a
-  `--config` environment variable set to the empty string and a `_config_env_` variable set
-  to the empty string all read nothing: not the file `_config_` names, not through a
+  variable of the `--config` field set to the empty string and a `_config_env_` variable
+  set to the empty string all read nothing: not the file `_config_` names, not through a
   loader, and `_config_validate_` does not run. This changes one thing: an empty
   `_config_env_` variable used to be skipped, so `_config_` was read.
 - A `_config_loader_` that takes two positional arguments is called as
@@ -61,8 +65,50 @@ An MCP tool can now write bytes that are not text.
   returns everything in the result, bytes that are not text as one embedded resource
   (`duho://output/<tool name>`, base64), and never touches the target. Any other value is
   a `ValueError` naming the command.
-- Upgrade note: a program that told a tool call by `sys.stdout` having no `buffer` uses
-  `duho.running_mode()`.
+Small fixes: `class App(ConfigArgs, LoggingArgs, Cli)` type-checks; an INI read error
+states its line in the message; and the documentation now says what a `ConfigError`
+message may hold (a key, a section, a YAML alias or tag, cut to 120 characters, never
+a value) and that a tree served over MCP reads the file `_config_` names.
+
+### Upgrade notes
+
+- In an MCP tool call `sys.stdout` now has a `buffer`. A program that told a tool call
+  by its absence no longer sees one: use `duho.running_mode() == "mcp"`. A check built
+  on the old signal does not fail loudly, it stops applying, so make this change
+  before taking this version.
+- A `_config_env_` variable set to the empty string now means "no file". It used to
+  be skipped, and the file `_config_` names was read.
+- A command that wrote bytes through `sys.stdout.buffer` in a tool call raised
+  `AttributeError`. It now succeeds when the bytes are valid UTF-8 (they are the
+  tool's text) and otherwise needs an output target or `_mcp_output_ = "result"`.
+
+### Performance
+
+No performance claim is made. The CI regression gate passed on Python 3.9,
+3.13 and 3.14 against the same baseline as 0.7.2. `import duho` loads no new module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3076 passed, 49 skipped) and
+  3.14 (3092 passed, 34 skipped); Linux (WSL) Python 3.14 (3099 passed, 27
+  skipped). Five more tests skip on Windows than at 0.7.2 (an inherited descriptor
+  and a FIFO need POSIX) and one more on Linux (a Windows named pipe); the 3.14
+  Windows count also moved because the type-checking test now runs there.
+- CI: all 17 jobs green at the change (run
+  [38203732267](https://github.com/jose-pr/duho/actions/runs/38203732267)), and
+  the same workflow ran at the release commit before tagging. The Windows legs
+  run the named pipe test, the Ubuntu and macOS legs the descriptor and FIFO
+  tests, and every leg from 3.10 up checks the embedded resource against the MCP
+  SDK's client.
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits (one README line and two lines of
+  `examples/dotagents.py`, whose subject is that directory).
+- The suites of ten projects that use duho were run against this tree. Seven pass
+  with the same counts as against their installed duho. Two pin `duho<0.7` and
+  stop at collection on `from duho import NS`, which 0.7.0 removed. One, not yet
+  released, tells a tool call by `sys.stdout` having no `buffer`: its test of a
+  refused tool call hangs against this tree, which is the first upgrade note
+  above, measured.
 
 ---
 

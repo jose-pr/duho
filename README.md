@@ -2130,7 +2130,7 @@ $ MYAPP_MCP=stdio MYAPP_MCP_OUTPUT=out.bin myapp   # a file, opened for appendin
 
 The result then says how many bytes went where and at what offset. With neither, such a
 call is an error result that says so. A value of only digits is a descriptor number
-(it must be open and inherited); anything else is the name of a file or of a pipe (a Windows named pipe
+(3 or above, open and inherited); anything else is the name of a file or of a pipe (a Windows named pipe
 `\\.\pipe\NAME` that something is already reading, or a FIFO), and one that cannot
 be opened stops the server with status `2`.
 

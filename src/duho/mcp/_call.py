@@ -402,7 +402,7 @@ class _OutputStream(_io.RawIOBase):
         # A pipe has no position: its offset counts what this server wrote.
         where = "" if _is_regular(target.fd) else " of this server's output"
         return (
-            "%d bytes of output that is not text were written to file descriptor "
+            "%d bytes of output were written to file descriptor "
             "%d%s, at offset %d%s"
             % (grown, target.fd, " (%s)" % path if path else "", self._start, where)
         )
@@ -422,15 +422,16 @@ class _Stdout(_ty.NamedTuple):
 def _no_descriptor(count: int, output_var: _ty.Optional[str]) -> dict:
     return _text_result(
         "the command wrote %d bytes of output that is not text, and this "
-        "server has no output descriptor: start it with file descriptor 3 "
-        "open, or name an open one in %s" % (count, output_var or "<NAME>_MCP_OUTPUT"),
+        "server has no output target: start it with file descriptor 3 open, or "
+        "name a descriptor, a file or a pipe in %s"
+        % (count, output_var or "<NAME>_MCP_OUTPUT"),
         is_error=True,
     )
 
 
 def _write_failure(fd: int, exc: OSError) -> dict:
     return _text_result(
-        "could not write the command's output that is not text to file "
+        "could not write the command's output to file "
         "descriptor %d: %s" % (fd, exc.strerror or exc),
         is_error=True,
     )
@@ -661,8 +662,8 @@ def call_tool(
     if mode == "stream" and output_fd is None:
         return _text_result(
             "this tool sends its output to the server's output target, and this "
-            "server has none: start it with file descriptor 3 open, or name an "
-            "open one in %s" % (output_var or "<NAME>_MCP_OUTPUT"),
+            "server has none: start it with file descriptor 3 open, or name a "
+            "descriptor, a file or a pipe in %s" % (output_var or "<NAME>_MCP_OUTPUT"),
             is_error=True,
         )
     target = (

@@ -1096,7 +1096,7 @@ manipulating a parser tree directly:
   `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
   stderr and the message, no `Type:` prefix, not logged as a broken command; any other
   value → success with its JSON. By the command's `_mcp_output_`: `"stream"` puts the
-  `N bytes of output that is not text were written to ...` line where the stdout text goes
+  `N bytes of output were written to ...` line where the stdout text goes
   (so a clean run's text is only that line; the exit-code line, a `Result`'s text and
   `isError` are as above), and with no output target fails before the command runs;
   `"result"` never touches the target and, for bytes that are not valid UTF-8, answers
@@ -1123,7 +1123,7 @@ manipulating a parser tree directly:
   The target is descriptor 3 when it is open and inheritable (handed to the process, not
   opened by it: `os.get_inheritable`), or what the variable named `output_var` holds (default:
   the root's launch variable plus `_OUTPUT`): all digits is a descriptor number that must be
-  open and inheritable, anything else is the name of a file or of a pipe (`~` expanded) that the server opens
+  3 or above (0 to 2 are the server's own standard streams), open and inheritable, anything else is the name of a file or of a pipe (`~` expanded) that the server opens
   for appending, creating a file, and closes when the loop ends (a Windows named pipe
   `\\.\pipe\NAME` must already exist; a FIFO needs a reader). A value that does not qualify or a
   file that cannot be opened ends `serve` with status `2` and one stderr line naming the

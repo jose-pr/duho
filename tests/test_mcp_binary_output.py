@@ -183,15 +183,17 @@ def test_bytes_with_no_descriptor_are_an_error_and_written_nowhere(capfd):
     assert result["isError"] is True
     assert _text(result) == (
         "the command wrote 10 bytes of output that is not text, and this server "
-        "has no output descriptor: start it with file descriptor 3 open, or "
-        "name an open one in <NAME>_MCP_OUTPUT"
+        "has no output target: start it with file descriptor 3 open, or "
+        "name a descriptor, a file or a pipe in <NAME>_MCP_OUTPUT"
     )
     assert capfd.readouterr() == ("", "")
 
 
 def test_the_error_names_the_variable_it_was_given():
     result = _call("write-bytes", output_var="BIN_MCP_OUTPUT")
-    assert _text(result).endswith("name an open one in BIN_MCP_OUTPUT")
+    assert _text(result).endswith(
+        "name a descriptor, a file or a pipe in BIN_MCP_OUTPUT"
+    )
 
 
 def test_bytes_go_to_the_descriptor_unchanged():
@@ -201,7 +203,7 @@ def test_bytes_go_to_the_descriptor_unchanged():
         fd = pipe.write_fd
     assert "isError" not in result
     assert _text(result) == (
-        "10 bytes of output that is not text were written to file descriptor "
+        "10 bytes of output were written to file descriptor "
         "%d, at offset 0 of this server's output" % fd
     )
 
@@ -240,7 +242,7 @@ def test_text_and_bytes_in_one_call_go_whole_to_the_descriptor(tmp_path):
     finally:
         os.close(fd)
     assert path.read_bytes() == b"head\xfftail"
-    assert _text(result).startswith("9 bytes of output that is not text were written")
+    assert _text(result).startswith("9 bytes of output were written")
 
 
 def test_a_pipe_counts_the_bytes_this_process_wrote():
@@ -259,8 +261,7 @@ def test_a_closed_descriptor_is_an_error_result():
     assert result["isError"] is True
     message = _text(result)
     assert message.startswith(
-        "could not write the command's output that is not text to file "
-        "descriptor %d: " % fd
+        "could not write the command's output to file " "descriptor %d: " % fd
     )
     assert "binary" not in message
 
@@ -270,7 +271,7 @@ def test_bytes_replace_the_text_in_a_failing_result():
         result = _call("bytes-then-fail", output_fd=pipe.write_fd)
     assert result["isError"] is True
     lines = _text(result).split("\n")
-    assert lines[0].startswith("10 bytes of output that is not text were written")
+    assert lines[0].startswith("10 bytes of output were written")
     assert lines[1:] == ["exit code: 4"]
 
 
@@ -286,7 +287,7 @@ def test_bytes_before_a_returned_value_are_sent_and_the_value_follows():
     with _Pipe() as pipe:
         result = _call("bytes-then-value", output_fd=pipe.write_fd)
     first, rest = _text(result).split("\n", 1)
-    assert first.startswith("10 bytes of output that is not text were written")
+    assert first.startswith("10 bytes of output were written")
     assert '"ok": true' in rest
 
 
@@ -369,7 +370,7 @@ def test_fileno_with_a_target_sends_what_is_held_first(tmp_path):
         os.close(fd)
     assert path.read_bytes() == b"held-direct"
     assert _text(result) == (
-        "11 bytes of output that is not text were written to file descriptor "
+        "11 bytes of output were written to file descriptor "
         "%d (%s), at offset 0" % (fd, path)
     )
 
@@ -528,7 +529,7 @@ def test_serve_appends_to_a_named_file_across_calls_and_names_it(tmp_path, monke
     first, second = _serve("bin.write-bytes", "bin.write-bytes")
     assert path.read_bytes() == b"0123" + BLOB + BLOB
     assert first["result"]["content"][0]["text"] == (
-        "10 bytes of output that is not text were written to file descriptor "
+        "10 bytes of output were written to file descriptor "
         "%d (%s), at offset 4" % (_fd_in(first), path)
     )
     assert second["result"]["content"][0]["text"].endswith("(%s), at offset 14" % path)
@@ -633,7 +634,7 @@ def test_a_real_server_started_with_a_file_name_writes_the_file(tmp_path):
     assert done.returncode == 0, done.stderr
     assert target.read_bytes() == b"\xff\x00data"
     text = json.loads(done.stdout.splitlines()[1])["result"]["content"][0]["text"]
-    assert text.startswith("6 bytes of output that is not text were written to file")
+    assert text.startswith("6 bytes of output were written to file")
     assert "(%s), at offset 0" % target in text
 
 
@@ -652,9 +653,7 @@ def test_a_real_server_started_with_descriptor_3_writes_the_file(tmp_path):
     assert done.returncode == 0, done.stderr
     assert target.read_bytes() == b"\xff\x00data"
     text = json.loads(done.stdout.splitlines()[1])["result"]["content"][0]["text"]
-    assert text.startswith(
-        "6 bytes of output that is not text were written to file descriptor 3"
-    )
+    assert text.startswith("6 bytes of output were written to file descriptor 3")
     if sys.platform.startswith("linux"):
         assert "(%s)" % os.path.realpath(str(target)) in text
     assert text.endswith(", at offset 0")
@@ -675,7 +674,7 @@ def test_a_real_server_with_no_descriptor_answers_the_error(tmp_path):
     reply = json.loads(done.stdout.splitlines()[1])
     assert reply["result"]["isError"] is True
     assert reply["result"]["content"][0]["text"].endswith(
-        "name an open one in TOOL_MCP_OUTPUT"
+        "name a descriptor, a file or a pipe in TOOL_MCP_OUTPUT"
     )
 
 
@@ -738,7 +737,7 @@ def test_a_windows_named_pipe_receives_the_bytes_and_the_real_count(monkeypatch)
         _winapi.CloseHandle(handle)
     assert not reader.is_alive()
     assert b"".join(received) == BLOB + BLOB
-    assert first.startswith("10 bytes of output that is not text were written")
+    assert first.startswith("10 bytes of output were written")
     assert "(%s), at offset 0 of this server's output" % name in first
     assert second.startswith("10 bytes")
     assert second.endswith(", at offset 10 of this server's output")
@@ -764,7 +763,7 @@ def test_a_fifo_receives_the_bytes_and_the_real_count(tmp_path, monkeypatch):
         os.close(reader_fd)
     assert not reader.is_alive()
     assert b"".join(received) == BLOB + BLOB
-    assert first.startswith("10 bytes of output that is not text were written")
+    assert first.startswith("10 bytes of output were written")
     assert first.endswith("(%s), at offset 0 of this server's output" % fifo)
     assert second.endswith(", at offset 10 of this server's output")
 
@@ -786,3 +785,10 @@ def test_a_named_pipe_that_does_not_exist_stops_the_server(tmp_path):
     done = _run_server(tmp_path, extra_env={"TOOL_MCP_OUTPUT": target})
     assert done.returncode == 2
     assert "TOOL_MCP_OUTPUT" in done.stderr
+
+
+@pytest.mark.parametrize("number", ["0", "1", "2"])
+def test_a_variable_naming_a_standard_stream_raises(number):
+    with pytest.raises(ValueError, match="standard streams") as caught:
+        _resolve_output_target({"BIN_MCP_OUTPUT": number}, "BIN_MCP_OUTPUT")
+    assert "BIN_MCP_OUTPUT" in str(caught.value)

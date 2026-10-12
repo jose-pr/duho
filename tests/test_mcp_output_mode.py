@@ -145,7 +145,7 @@ def test_stream_sends_text_only_to_the_target_and_not_to_the_result(tmp_path):
         "content": [
             {
                 "type": "text",
-                "text": "20 bytes of output that is not text were written to file "
+                "text": "20 bytes of output were written to file "
                 "descriptor %d (%s), at offset 0" % (fd, path),
             }
         ]
@@ -160,7 +160,7 @@ def test_stream_reports_the_exit_code_after_the_line(tmp_path):
         os.close(fd)
     assert result["isError"] is True
     lines = _texts(result)[0].split("\n")
-    assert lines[0].startswith("2 bytes of output that is not text were written")
+    assert lines[0].startswith("2 bytes of output were written")
     assert lines[1:] == ["exit code: 3"]
 
 
@@ -171,8 +171,8 @@ def test_stream_with_bytes_and_no_target_does_not_run_the_command():
     assert RAN == []
     assert _texts(result) == [
         "this tool sends its output to the server's output target, and this "
-        "server has none: start it with file descriptor 3 open, or name an open "
-        "one in MODES_MCP_OUTPUT"
+        "server has none: start it with file descriptor 3 open, or name a "
+        "descriptor, a file or a pipe in MODES_MCP_OUTPUT"
     ]
 
 
@@ -365,7 +365,7 @@ def test_module_command_stream(tmp_path):
     finally:
         os.close(fd)
     assert path.read_bytes() == b"module text\n"
-    assert _texts(result)[0].startswith("12 bytes of output that is not text")
+    assert _texts(result)[0].startswith("12 bytes of output were written")
     assert no_target["isError"] is True
     assert "sends its output to the server's output target" in _texts(no_target)[0]
 

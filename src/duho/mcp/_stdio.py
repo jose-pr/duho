@@ -15,7 +15,7 @@ from ._protocol import (
     _handle_request,
     _line_nesting_exceeds,
 )
-from ._call import _OutputTarget
+from ._call import _OutputTarget, _WRITTEN
 from ._tree import _ServerCore, _core_for_class, _walk_tree
 
 _LOGGER = _logging.getLogger(__package__)
@@ -57,6 +57,12 @@ def _resolve_output_target(
         return _OutputTarget(default) if _fd_is_open_and_inheritable(default) else None
     if all(ch in "0123456789" for ch in raw):
         fd = int(raw)
+        if fd < 3:
+            # 0 and 1 carry the protocol and 2 the server's own messages.
+            raise ValueError(
+                "%s names file descriptor %d, one of the server's own standard "
+                "streams" % (var_name, fd)
+            )
         if not _fd_is_open_and_inheritable(fd):
             raise ValueError(
                 "%s names file descriptor %d, which is not open and inheritable"
@@ -238,6 +244,9 @@ def serve(
     except ValueError as exc:
         _compat.write_human(str(exc) + "\n", _sys.stderr)
         return 2
+    if target is not None:
+        # Offsets on a target that has no position count from this server's start.
+        _WRITTEN.pop(target.fd, None)
     session: dict = {
         "output_fd": None if target is None else target.fd,
         "output_path": None if target is None else target.path,

@@ -202,7 +202,7 @@ def test_bytes_go_to_the_descriptor_unchanged():
     assert "isError" not in result
     assert _text(result) == (
         "10 bytes of output that is not text were written to file descriptor "
-        "%d, at offset 0" % fd
+        "%d, at offset 0 of this server's output" % fd
     )
 
 
@@ -247,8 +247,8 @@ def test_a_pipe_counts_the_bytes_this_process_wrote():
     with _Pipe() as pipe:
         first = _text(_call("write-bytes", output_fd=pipe.write_fd))
         second = _text(_call("write-bytes", output_fd=pipe.write_fd))
-    assert first.endswith(", at offset 0")
-    assert second.endswith(", at offset 10")
+    assert first.endswith(", at offset 0 of this server's output")
+    assert second.endswith(", at offset 10 of this server's output")
 
 
 def test_a_closed_descriptor_is_an_error_result():
@@ -677,3 +677,112 @@ def test_a_real_server_with_no_descriptor_answers_the_error(tmp_path):
     assert reply["result"]["content"][0]["text"].endswith(
         "name an open one in TOOL_MCP_OUTPUT"
     )
+
+
+# --------------------------------------------------------------------------
+# A named file that is a pipe
+# --------------------------------------------------------------------------
+
+import threading
+import uuid
+
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows named pipes")
+
+
+def _drain(read_once, sink):
+    while True:
+        try:
+            chunk = read_once()
+        except OSError:
+            return
+        if not chunk:
+            return
+        sink.append(chunk)
+
+
+def _two_calls_text(monkeypatch, name):
+    monkeypatch.setenv("BIN_MCP_OUTPUT", name)
+    first, second = _serve("bin.write-bytes", "bin.write-bytes")
+    return (
+        first["result"]["content"][0]["text"],
+        second["result"]["content"][0]["text"],
+    )
+
+
+@WINDOWS_ONLY
+def test_a_windows_named_pipe_receives_the_bytes_and_the_real_count(monkeypatch):
+    import _winapi
+
+    bs = chr(92)
+    name = "%s%s.%spipe%sduho_%d_%s" % (bs, bs, bs, bs, os.getpid(), uuid.uuid4().hex)
+    assert name.startswith(bs + bs + "." + bs + "pipe" + bs)
+    handle = _winapi.CreateNamedPipe(
+        name, _winapi.PIPE_ACCESS_INBOUND, 0, 1, 65536, 65536, 0, 0
+    )
+    received = []
+
+    def read():
+        try:
+            _winapi.ConnectNamedPipe(handle, overlapped=False)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 535:
+                return
+        _drain(lambda: _winapi.ReadFile(handle, 65536)[0], received)
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    try:
+        first, second = _two_calls_text(monkeypatch, name)
+    finally:
+        reader.join(30)
+        _winapi.CloseHandle(handle)
+    assert not reader.is_alive()
+    assert b"".join(received) == BLOB + BLOB
+    assert first.startswith("10 bytes of output that is not text were written")
+    assert "(%s), at offset 0 of this server's output" % name in first
+    assert second.startswith("10 bytes")
+    assert second.endswith(", at offset 10 of this server's output")
+
+
+@NOT_POSIX
+def test_a_fifo_receives_the_bytes_and_the_real_count(tmp_path, monkeypatch):
+    fifo = str(tmp_path / "out.fifo")
+    os.mkfifo(fifo)
+    reader_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    os.set_blocking(reader_fd, True)
+    keep_open = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+    received = []
+    reader = threading.Thread(
+        target=_drain, args=(lambda: os.read(reader_fd, 65536), received)
+    )
+    reader.start()
+    try:
+        first, second = _two_calls_text(monkeypatch, fifo)
+    finally:
+        os.close(keep_open)
+        reader.join(30)
+        os.close(reader_fd)
+    assert not reader.is_alive()
+    assert b"".join(received) == BLOB + BLOB
+    assert first.startswith("10 bytes of output that is not text were written")
+    assert first.endswith("(%s), at offset 0 of this server's output" % fifo)
+    assert second.endswith(", at offset 10 of this server's output")
+
+
+@NOT_POSIX
+def test_a_fifo_with_no_reader_stops_the_server_instead_of_hanging(tmp_path):
+    fifo = tmp_path / "noreader.fifo"
+    os.mkfifo(str(fifo))
+    done = _run_server(tmp_path, extra_env={"TOOL_MCP_OUTPUT": str(fifo)})
+    assert done.returncode == 2
+    assert done.stdout == ""
+    assert "TOOL_MCP_OUTPUT" in done.stderr
+
+
+def test_a_named_pipe_that_does_not_exist_stops_the_server(tmp_path):
+    bs = chr(92)
+    name = "%s%s.%spipe%sduho_missing_%s" % (bs, bs, bs, bs, uuid.uuid4().hex)
+    target = name if os.name == "nt" else str(tmp_path / "no" / "pipe")
+    done = _run_server(tmp_path, extra_env={"TOOL_MCP_OUTPUT": target})
+    assert done.returncode == 2
+    assert "TOOL_MCP_OUTPUT" in done.stderr

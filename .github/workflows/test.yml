@@ -45,35 +45,35 @@ jobs:
           # Ubuntu full matrix over every supported version
           - os: ubuntu-latest
             python-version: "3.9"
-            max-skips: 31
+            max-skips: 32
           - os: ubuntu-latest
             python-version: "3.10"
-            max-skips: 27
+            max-skips: 28
           - os: ubuntu-latest
             python-version: "3.11"
-            max-skips: 27
+            max-skips: 28
           - os: ubuntu-latest
             python-version: "3.12"
-            max-skips: 24
+            max-skips: 25
           - os: ubuntu-latest
             python-version: "3.13"
-            max-skips: 19
+            max-skips: 20
           - os: ubuntu-latest
             python-version: "3.14"
-            max-skips: 17
+            max-skips: 18
           # Windows/macOS matrix edges (oldest + newest supported)
           - os: windows-latest
             python-version: "3.9"
-            max-skips: 48
+            max-skips: 50
           - os: windows-latest
             python-version: "3.14"
-            max-skips: 34
+            max-skips: 36
           - os: macos-latest
             python-version: "3.9"
-            max-skips: 41
+            max-skips: 42
           - os: macos-latest
             python-version: "3.14"
-            max-skips: 27
+            max-skips: 28
     steps:
       - uses: actions/checkout@v7
         with:

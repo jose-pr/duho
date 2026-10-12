@@ -64,9 +64,14 @@ def _resolve_output_target(
             )
         return _OutputTarget(fd)
     path = _os.path.abspath(_os.path.expanduser(raw))
+    # O_NONBLOCK keeps a FIFO with no reader from hanging the start (ENXIO).
+    nonblock = getattr(_os, "O_NONBLOCK", 0)
     flags = _os.O_WRONLY | _os.O_CREAT | _os.O_APPEND | getattr(_os, "O_BINARY", 0)
     try:
-        return _OutputTarget(_os.open(path, flags, 0o666), path)
+        fd = _os.open(path, flags | nonblock, 0o666)
+        if nonblock:
+            _os.set_blocking(fd, True)
+        return _OutputTarget(fd, path)
     except OSError as exc:
         raise ValueError(
             "%s names a file that cannot be opened: %s"

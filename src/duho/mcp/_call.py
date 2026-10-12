@@ -381,10 +381,12 @@ class _OutputStream(_io.RawIOBase):
         if grown <= 0:
             grown = _WRITTEN.get(target.fd, 0) - self._start
         path = target.path or _descriptor_path(target.fd)
+        # A pipe has no position: its offset counts what this server wrote.
+        where = "" if _is_regular(target.fd) else " of this server's output"
         return (
             "%d bytes of output that is not text were written to file descriptor "
-            "%d%s, at offset %d"
-            % (grown, target.fd, " (%s)" % path if path else "", self._start)
+            "%d%s, at offset %d%s"
+            % (grown, target.fd, " (%s)" % path if path else "", self._start, where)
         )
 
 

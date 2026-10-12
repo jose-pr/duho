@@ -75,6 +75,13 @@ mapped to ``isError: true`` with the exception's ``type: message`` text.
 ``KeyboardInterrupt`` (and any other non-``SystemExit`` ``BaseException``) is
 deliberately NOT caught, so it still stops the server.
 
+**Output that is not text**: ``sys.stdout`` has a ``buffer``. Output that is
+valid UTF-8 is the text above; from the first bytes that are not, all of it goes
+to the server's output target (descriptor 3, or what the ``<NAME>_MCP_OUTPUT``
+variable names: a descriptor number or a file or pipe name), or the call fails
+when there is none. A command's ``_mcp_output_`` (``"auto"``, ``"stream"`` or
+``"result"``) changes that; see :func:`call_tool`.
+
 **Malformed requests are a different kind of failure than a broken command**:
 :func:`call_tool` raises :class:`UnknownToolError` for a tool name that does
 not resolve (or names a namespace node -- see above), and

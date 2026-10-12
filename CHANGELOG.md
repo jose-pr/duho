@@ -24,9 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   follows `APPDATA` or `XDG_CONFIG_HOME` as they are when the file is read.
 - `duho.app_name(obj)`, the name an application goes by, and `duho.running_mode()`,
   which is `"mcp"` while `duho.mcp.call_tool` is running a command and `"cli"` otherwise.
+- An MCP tool can write output that is not UTF-8. The server sends it to file
+  descriptor 3 when it was started with that open, or to what the launch variable plus
+  `_OUTPUT` (`TOOL_MCP_OUTPUT`) holds: a descriptor number, or the name of a file or of a pipe that the server
+  opens for appending. The tool's result says how many bytes went where and at what
+  offset. With no target the call fails with a message that says how to give one; a bad
+  variable stops the server with status 2. `call_tool` takes `output_fd`, `output_var`
+  and `output_path`, and `serve` takes `output_var`. Output that is UTF-8 is returned as
+  before.
+- `_mcp_output_` on a command (a module-level name for a module command) chooses where its
+  standard output goes as an MCP tool: `"auto"` (the default), `"stream"` (all of it to the
+  output target as written) or `"result"` (all of it in the result, bytes that are not text
+  as an embedded base64 resource).
 
 ### Changed
 
+- In an MCP tool call `sys.stdout` now has a `buffer`, so a command can write bytes. A
+  program that told a tool call by `sys.stdout` having no `buffer` uses
+  `duho.running_mode()`.
 - A `_config_env_` variable set to the empty string now means no file, where it was
   skipped and `_config_` was read.
 

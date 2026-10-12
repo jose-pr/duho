@@ -2118,6 +2118,31 @@ disable it with a root class attribute `_mcp_ = False` (on a `Cli`) or
 commands are discovered or registered (module imports, `register` hooks) goes to
 stderr, not the protocol stream.
 
+A tool's standard output comes back as text. A command that writes bytes that are not
+UTF-8 (`sys.stdout.buffer.write(...)`) needs somewhere to put them, and the server does
+not open anything on its own: start it with file descriptor 3 open, or name a
+descriptor, a file or a pipe in the launch variable plus `_OUTPUT`.
+
+```console
+$ MYAPP_MCP=stdio myapp 3>out.bin            # descriptor 3
+$ MYAPP_MCP=stdio MYAPP_MCP_OUTPUT=out.bin myapp   # a file, opened for appending
+```
+
+The result then says how many bytes went where and at what offset. With neither, such a
+call is an error result that says so. A value of only digits is a descriptor number
+(it must be open and inherited); anything else is the name of a file or of a pipe (a Windows named pipe
+`\\.\pipe\NAME` that something is already reading, or a FIFO), and one that cannot
+be opened stops the server with status `2`.
+
+A command can choose where its output goes with `_mcp_output_` (a module-level name for a
+module command): `"auto"` (the default, also `None`) is what is described above; `"stream"`
+sends all of its standard output, text included, to the target as it is written, and the
+result only says how many bytes went where (a server with no target refuses the call
+before the command runs); `"result"` returns all of it in the result and never uses the
+target, bytes that are not text as one embedded base64 resource
+(`duho://output/<tool name>`). Any other value is a `ValueError` naming the command. For a pipe the offset in the result counts
+what this server has written to it.
+
 Prefer a real subcommand instead of an env var? `duho.mcp.McpCmd` is a ready `Cmd`
 (`--transport {stdio}`) that serves the CLI it was dispatched from — register it
 under any name, or let the class attribute do it for you under **either**

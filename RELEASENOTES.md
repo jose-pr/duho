@@ -39,6 +39,31 @@ path came from.
 - `duho.app_name(obj)` returns the name an application goes by, and `duho.running_mode()`
   says how a command was started: `"cli"`, or `"mcp"` for a tool call.
 
+An MCP tool can now write bytes that are not text.
+
+- In a tool call `sys.stdout` is a stream with a `buffer`. Output that is valid UTF-8 is
+  held and returned as the tool's text, exactly as before. From the first bytes that are
+  not valid UTF-8, everything held and everything later is written to the server's
+  output target as the command writes it, and the result says how many bytes went to
+  which descriptor (and which file, when it is known) at what offset. `sys.stdout.fileno()`
+  is the target's descriptor when there is one, so a child process given `sys.stdout`
+  writes to the same place.
+- The target is chosen when the server starts: file descriptor 3 if it was started with
+  that open (`myapp 3>out.bin`), or what the launch variable plus `_OUTPUT`
+  (`TOOL_MCP_OUTPUT`) holds, a descriptor number or the name of a file or of a pipe that the server opens for
+  appending. A descriptor counts only if it is open and was inherited, never one the
+  program opened itself. A bad value stops the server with status 2 naming the variable.
+  With no target, a call that writes output that is not text fails and says how to give
+  the server one.
+- A command can choose with `_mcp_output_` (a module-level name for a module command):
+  `"auto"` is the above; `"stream"` sends all of its output, text too, to the target as it
+  is written and fails the call before it runs when the server has no target; `"result"`
+  returns everything in the result, bytes that are not text as one embedded resource
+  (`duho://output/<tool name>`, base64), and never touches the target. Any other value is
+  a `ValueError` naming the command.
+- Upgrade note: a program that told a tool call by `sys.stdout` having no `buffer` uses
+  `duho.running_mode()`.
+
 ---
 
 ## [0.7.2] — 2026-10-09

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse as _argparse
+import base64 as _base64
 import codecs as _codecs
 import contextlib as _contextlib
 import io as _io
@@ -271,9 +272,11 @@ class _OutputStream(_io.RawIOBase):
     memory stays bounded either way.
     """
 
-    def __init__(self, target: _ty.Optional[_OutputTarget]) -> None:
+    def __init__(self, target: _ty.Optional[_OutputTarget], mode: str = "auto") -> None:
         super().__init__()
         self._target = target
+        # "result" keeps everything, bytes that are not text included.
+        self._keep = mode == "result"
         self._held = bytearray()
         self._decoder = _codecs.getincrementaldecoder("utf-8")("strict")
         self._count = 0
@@ -281,6 +284,8 @@ class _OutputStream(_io.RawIOBase):
         self._dropping = False
         self._start = 0
         self.error: _ty.Optional[OSError] = None
+        if mode == "stream":
+            self._begin_sending()
 
     def writable(self) -> bool:
         return True
@@ -297,7 +302,9 @@ class _OutputStream(_io.RawIOBase):
     def write(self, data) -> int:  # type: ignore[override]
         chunk = bytes(data)
         self._count += len(chunk)
-        if self._sending:
+        if self._keep:
+            self._held += chunk
+        elif self._sending:
             self._send(chunk)
         elif not self._dropping:
             try:
@@ -352,6 +359,17 @@ class _OutputStream(_io.RawIOBase):
         target = self._target
         if self.error is not None:
             return _Stdout("", error=_write_failure(target.fd, self.error))
+        if self._keep:
+            data = bytes(self._held)
+            try:
+                return _Stdout(data.decode("utf-8"))
+            except UnicodeDecodeError:
+                return _Stdout(
+                    "%d bytes of output that is not text follow as a base64 resource"
+                    % len(data),
+                    wrote=True,
+                    blob=data,
+                )
         if not (self._sending or self._dropping):
             try:
                 self._decoder.decode(b"", final=True)
@@ -398,6 +416,7 @@ class _Stdout(_ty.NamedTuple):
     text: str
     wrote: bool = False
     error: _ty.Optional[dict] = None
+    blob: _ty.Optional[bytes] = None
 
 
 def _no_descriptor(count: int, output_var: _ty.Optional[str]) -> dict:
@@ -424,8 +443,8 @@ class _StdoutCapture:
     order and byte-for-byte as written, on every platform.
     """
 
-    def __init__(self, target: _ty.Optional[_OutputTarget]) -> None:
-        self.raw = _OutputStream(target)
+    def __init__(self, target: _ty.Optional[_OutputTarget], mode: str = "auto") -> None:
+        self.raw = _OutputStream(target, mode)
         self.text = _io.TextIOWrapper(
             self.raw,
             encoding="utf-8",
@@ -437,6 +456,23 @@ class _StdoutCapture:
     def finish(self, output_var: _ty.Optional[str]) -> _Stdout:
         self.text.flush()
         return self.raw.finish(output_var)
+
+
+def _with_blob(result: dict, taken: "_Stdout", tool_name: object) -> dict:
+    """Add the captured bytes that are not text to ``result`` as an embedded
+    resource, the protocol's way to carry bytes."""
+    if taken.blob is not None:
+        result["content"].append(
+            {
+                "type": "resource",
+                "resource": {
+                    "uri": "duho://output/%s" % (tool_name,),
+                    "mimeType": "application/octet-stream",
+                    "blob": _base64.b64encode(taken.blob).decode("ascii"),
+                },
+            }
+        )
+    return result
 
 
 def call_tool(
@@ -532,6 +568,12 @@ def call_tool(
     ``isError`` result instead. ``output_path`` is the file ``output_fd`` was
     opened on, named in the result; ``output_var`` is the variable that names
     the target, quoted in the error.
+
+    A command's ``_mcp_output_`` changes this. ``"stream"``: all output, text
+    included, goes to ``output_fd`` as written, the result says how many bytes
+    went where, and with no ``output_fd`` the call fails before the command runs.
+    ``"result"``: the target is not used; text is the text item and bytes that
+    are not text follow it as one embedded base64 resource.
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
@@ -615,9 +657,20 @@ def call_tool(
                 "prefix character that argparse would read as a file" % (token,)
             )
 
-    capture = _StdoutCapture(
-        None if output_fd is None else _OutputTarget(output_fd, output_path)
+    mode = node.output
+    if mode == "stream" and output_fd is None:
+        return _text_result(
+            "this tool sends its output to the server's output target, and this "
+            "server has none: start it with file descriptor 3 open, or name an "
+            "open one in %s" % (output_var or "<NAME>_MCP_OUTPUT"),
+            is_error=True,
+        )
+    target = (
+        None
+        if output_fd is None or mode == "result"
+        else _OutputTarget(output_fd, output_path)
     )
+    capture = _StdoutCapture(target, mode)
     out = capture.text
     err = _io.StringIO()
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
@@ -672,7 +725,11 @@ def call_tool(
                         taken = capture.finish(output_var)
                         if taken.error is not None:
                             return taken.error
-                        return _systemexit_result(exc, taken.text, err.getvalue())
+                        return _with_blob(
+                            _systemexit_result(exc, taken.text, err.getvalue()),
+                            taken,
+                            name,
+                        )
                     finally:
                         _compat._RUNNING_MODE.reset(mode)
             finally:
@@ -688,7 +745,11 @@ def call_tool(
             if taken.error is not None:
                 return taken.error
             parts = [taken.text, err.getvalue().strip(), str(exc)]
-            return _text_result("\n".join(p for p in parts if p), is_error=True)
+            return _with_blob(
+                _text_result("\n".join(p for p in parts if p), is_error=True),
+                taken,
+                name,
+            )
         # The client only ever sees "Type: message"; the stack that says WHERE
         # the command broke exists nowhere else, so log it server-side too
         # (traceback under DUHO_TRACEBACK=1).
@@ -706,28 +767,32 @@ def call_tool(
         return taken.error
     stdout_text = taken.text
 
-    if isinstance(result, _Result) and (
-        result.text is not None or result.value is not None
-    ):
-        words = result.text if result.text is not None else _render(result.value)
-        parts = [stdout_text, words]
-        return _text_result(
-            "\n".join(part for part in parts if part), is_error=result.is_error
-        )
+    def _result_for_stdout() -> dict:
 
-    if isinstance(result, int):
-        if result == 0:
-            return _text_result(stdout_text, is_error=_is_error_flag(result))
-        trailing = "exit code: %d" % result
-        meaning = _declared_exit_meaning(core.root_cls, int(result))
-        if meaning is not None:
-            trailing += " (%s)" % meaning
-        parts = [
-            part for part in (stdout_text, err.getvalue().strip(), trailing) if part
-        ]
-        return _text_result("\n".join(parts), is_error=_is_error_flag(result, True))
+        if isinstance(result, _Result) and (
+            result.text is not None or result.value is not None
+        ):
+            words = result.text if result.text is not None else _render(result.value)
+            parts = [stdout_text, words]
+            return _text_result(
+                "\n".join(part for part in parts if part), is_error=result.is_error
+            )
 
-    rendered = _render(result)
-    if taken.wrote:
-        rendered = stdout_text + "\n" + rendered
-    return _text_result(rendered)
+        if isinstance(result, int):
+            if result == 0:
+                return _text_result(stdout_text, is_error=_is_error_flag(result))
+            trailing = "exit code: %d" % result
+            meaning = _declared_exit_meaning(core.root_cls, int(result))
+            if meaning is not None:
+                trailing += " (%s)" % meaning
+            parts = [
+                part for part in (stdout_text, err.getvalue().strip(), trailing) if part
+            ]
+            return _text_result("\n".join(parts), is_error=_is_error_flag(result, True))
+
+        rendered = _render(result)
+        if taken.wrote:
+            rendered = stdout_text + "\n" + rendered
+        return _text_result(rendered)
+
+    return _with_blob(_result_for_stdout(), taken, name)

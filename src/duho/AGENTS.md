@@ -211,6 +211,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
+| `_mcp_output_` | `str \| None` | `None` | command | where the command's standard output goes as an MCP tool: `"auto"` (or `None`) text in the result and output that is not UTF-8 to the server's output target; `"stream"` all of it to the target as written (no target: the call fails before the command runs); `"result"` all of it in the result, bytes that are not text as a base64 embedded resource; anything else is a `ValueError` naming the command when the tool tree is built; a module command sets it at module level |
 | `_completion_command_` | `str \| bool` | `False` | root | registers a subcommand that prints a shell completion script (`True` → `completion`, a string → that name; no whitespace, not starting with `-`); its one required positional is the shell (`bash`, `zsh`, `fish`, `powershell`) and the script goes to stdout; needs another subcommand and a free name, else `ValueError` naming the attribute; never an MCP tool; read by `main` and `app` (no kwarg) |
 | `_parsername_` | `str` | kebab-case class name | command | the subcommand name (and the application's name on a root) |
 | `_parseraliases_` | `Sequence[str]` | none | command | extra subcommand names |
@@ -1084,7 +1085,9 @@ manipulating a parser tree directly:
   opened on, when given), in place of the text. With `output_fd=None` the call is an
   `isError` result instead (`output_var`, the variable that names the target, is quoted in
   it). `sys.stdout.fileno()` is the descriptor when there is one, else it raises
-  `io.UnsupportedOperation`.
+  `io.UnsupportedOperation`. On a target that is not a regular file the offset in the result
+  is what this server has written to it so far (`at offset K of this server's output`). A write that fails is an `isError` result with the system's
+  reason, never the bytes.
   Return mapping of `call_tool`: `0`/`None` → success with the captured stdout; a
   `Result` with `text` or `value` → stdout then `text` (else the rendered `value`),
   `isError` is `result.is_error`; a non-zero int (or a `Result` with neither) →
@@ -1092,7 +1095,15 @@ manipulating a parser tree directly:
   own `_exit_codes_` declares that code (the built-in 0/1/2 table is not used); a
   `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
   stderr and the message, no `Type:` prefix, not logged as a broken command; any other
-  value → success with its JSON.
+  value → success with its JSON. By the command's `_mcp_output_`: `"stream"` puts the
+  `N bytes of output that is not text were written to ...` line where the stdout text goes
+  (so a clean run's text is only that line; the exit-code line, a `Result`'s text and
+  `isError` are as above), and with no output target fails before the command runs;
+  `"result"` never touches the target and, for bytes that are not valid UTF-8, answers
+  with the text item (`N bytes of output that is not text follow as a base64 resource`,
+  with the exit-code line or the `Result`'s text) followed by one item
+  `{"type": "resource", "resource": {"uri": "duho://output/<tool name>", "mimeType":
+  "application/octet-stream", "blob": <base64>}}`.
   **`serve(root_cls, *, stdin=None, stdout=None, output_var=None)`** (a `ping` request is
   answered directly; `output_var` names the variable that holds the output target, by
   default the root's `<NAME>_MCP` variable plus `_OUTPUT`), **`input_schema_for_command(cls) -> dict`**,
@@ -1107,7 +1118,17 @@ manipulating a parser tree directly:
   hand-made subparsers' own options are not served. **`UnknownToolError`** /
   **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
   unresolvable tool name and for arguments that are not a JSON object or fail the
-  tool's schema, respectively. `initialize`'s `serverInfo` reports the served APP's own
+  tool's schema, respectively. **Output that is not text**: `serve` (every way a server starts)
+  decides the output target once, before the first request, and gives it to every `tools/call`.
+  The target is descriptor 3 when it is open and inheritable (handed to the process, not
+  opened by it: `os.get_inheritable`), or what the variable named `output_var` holds (default:
+  the root's launch variable plus `_OUTPUT`): all digits is a descriptor number that must be
+  open and inheritable, anything else is the name of a file or of a pipe (`~` expanded) that the server opens
+  for appending, creating a file, and closes when the loop ends (a Windows named pipe
+  `\\.\pipe\NAME` must already exist; a FIFO needs a reader). A value that does not qualify or a
+  file that cannot be opened ends `serve` with status `2` and one stderr line naming the
+  variable. With no target a call whose output is not text fails; the result names the bytes'
+  count, never the bytes. `initialize`'s `serverInfo` reports the served APP's own
   identity, not a fixed placeholder: `name` is the application's name, the same root
   tool-name segment every tool name uses, and `version` is the app's own `_version_` when it resolves to a
   string, else the empty string -- duho's own version is NEVER reported as the served
@@ -1189,8 +1210,9 @@ manipulating a parser tree directly:
   error).
 - **Exit status `2`** (raised as `SystemExit`) — a bad CLI, env or config value, a malformed or
   non-table config file, a `--` tail given to a command with `_allow_passthrough_ = False`,
-  an `app` with no commands and a non-runnable root, and an unsupported `<NAME>_MCP`
-  transport. Other exit codes are the command's own return value.
+  an `app` with no commands and a non-runnable root, an unsupported `<NAME>_MCP`
+  transport, and a bad `<NAME>_MCP_OUTPUT` (a number that is not an open inherited
+  descriptor, or a file that cannot be opened). Other exit codes are the command's own return value.
 
 ## Command line
 
@@ -1221,6 +1243,13 @@ manipulating a parser tree directly:
   unsupported transport. The variable is removed from `os.environ` as soon as it is
   seen, so a served command's child processes never inherit it. A root `_mcp_ = False`
   or `app(..., mcp=False)` disables the check and leaves the variable alone.
+- **`<PREFIX>MCP_OUTPUT`** / **`<NAME>_MCP_OUTPUT`** — the launch variable's name plus
+  `_OUTPUT` (`TOOL_MCP_OUTPUT` for an app named `tool` or `Env("tool")`; read, never
+  removed). Where a served tool's output that is not valid UTF-8 goes: a descriptor number
+  (all digits; open and inheritable) in place of 3, or the name of a file or of a pipe that the server
+  opens for appending when it starts. Empty is unset. Anything else wrong exits `2` naming the variable.
+  Servers started through `serve_running_app` or `python -m duho.mcp` derive the name from
+  the app's name, the `<NAME>` form.
 - **`DUHO_TRACEBACK`** — truthy enables a full traceback (`exc_info`) on an exception
   duho itself logs-and-swallows at a resilient boundary (discovery skipping a bad
   command source, a non-strict RunPath step failure, `app`'s advisory `register`

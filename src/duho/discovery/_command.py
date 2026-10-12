@@ -238,6 +238,7 @@ class ModuleCommand:
         # A module-level `_mcp_ = False` excludes this command from the MCP
         # tool surface; `duho.mcp` reads this attribute, never the module.
         self._mcp_ = getattr(module, "_mcp_", True)
+        self._mcp_output_ = getattr(module, "_mcp_output_", None)
 
         entry = entrypoint if entrypoint is not None else _module_entrypoint(module)
         if entry is None:

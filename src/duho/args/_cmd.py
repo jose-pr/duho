@@ -274,6 +274,14 @@ class Cli(Cmd):
     #: excluded.
     _mcp_: bool = True
 
+    #: Where a command's standard output goes when it is run as an MCP tool.
+    #: ``"auto"`` (or ``None``, the default): text comes back in the result, output
+    #: that is not UTF-8 goes to the server's output target. ``"stream"``: all of
+    #: it goes to that target as it is written. ``"result"``: all of it comes back
+    #: in the result, bytes that are not text as a base64 resource. A module
+    #: command uses a module-level ``_mcp_output_``.
+    _mcp_output_: _ty.Optional[str] = None
+
     #: Opt-in built-in subcommand that serves this CLI as an MCP server, read by
     #: ``duho.main`` and ``duho.app``. ``False`` (default): none. ``True``:
     #: ``duho.mcp.McpCmd`` under the name ``"mcp"``. A non-empty ``str``: under

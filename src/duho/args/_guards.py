@@ -41,6 +41,7 @@ _KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
         "_logger_name_",
         "_mcp_",
         "_mcp_command_",
+        "_mcp_output_",
         "_parser_",
         "_parseraliases_",
         "_parsername_",

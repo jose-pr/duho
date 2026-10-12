@@ -44,6 +44,7 @@ class _Node:
         "module_command",
         "args_cls",
         "excluded",
+        "output",
     )
 
     def __init__(
@@ -56,6 +57,7 @@ class _Node:
         module_command=None,
         args_cls=None,
         excluded=False,
+        output="auto",
     ):
         self.dotted_name = dotted_name
         self.own_name = own_name
@@ -65,6 +67,24 @@ class _Node:
         self.module_command = module_command
         self.args_cls = args_cls
         self.excluded = excluded
+        self.output = output
+
+
+_OUTPUT_MODES = ("auto", "stream", "result")
+
+
+def _output_mode(source: object, dotted_name: str) -> str:
+    """The command's ``_mcp_output_``: ``"auto"`` (also ``None``), ``"stream"`` or
+    ``"result"``; anything else is a ``ValueError`` naming the command."""
+    value = getattr(source, "_mcp_output_", None)
+    if value is None:
+        return "auto"
+    if not isinstance(value, str) or value not in _OUTPUT_MODES:
+        raise ValueError(
+            "command %r: _mcp_output_ must be 'auto', 'stream', 'result' or None, got %r"
+            % (dotted_name, value)
+        )
+    return value
 
 
 def _effective_cls(node_or_step: _Node) -> _ty.Optional[type]:
@@ -142,6 +162,8 @@ def _walk_tree(
             elif module_command is not None:
                 own_mcp_disabled = not getattr(module_command, "_mcp_", True)
         excluded = parent_excluded or own_mcp_disabled
+        dotted_name = ".".join(dotted_parts)
+        output = _output_mode(cls if cls is not None else module_command, dotted_name)
         node = _Node(
             ".".join(dotted_parts),
             own_name,
@@ -151,6 +173,7 @@ def _walk_tree(
             module_command=module_command,
             args_cls=args_cls,
             excluded=excluded,
+            output=output,
         )
         nodes[node.dotted_name] = node
         if excluded:

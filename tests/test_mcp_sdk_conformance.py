@@ -134,3 +134,54 @@ def test_duho_mcp_server_satisfies_the_official_sdk_client(tmp_path):
                     await session.call_tool("root.does-not-exist", {})
 
     asyncio.run(drive())
+
+
+_BYTES_RUNNER = '''\
+import sys
+from duho import Cli, Cmd
+from duho.runtime import app
+
+
+class Dump(Cmd):
+    """Write bytes that are not text."""
+
+    _mcp_output_ = "result"
+
+    def __call__(self):
+        sys.stdout.buffer.write(bytes([255, 254, 0, 1]))
+        return 0
+
+
+class Root(Cli):
+    """SDK conformance test root."""
+
+    _subcommands_ = [Dump]
+
+
+if __name__ == "__main__":
+    sys.exit(app(Root, argv=sys.argv[1:]))
+'''
+
+
+def test_the_sdk_client_accepts_bytes_as_an_embedded_resource(tmp_path):
+    runner = _write(tmp_path, "bytes_runner.py", _BYTES_RUNNER)
+    env = subprocess_env()
+    env["ROOT_MCP"] = "stdio"
+
+    async def drive():
+        params = StdioServerParameters(
+            command=sys.executable, args=[str(runner)], env=env
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("root.dump", {})
+                assert result.is_error is not True
+                kinds = [c.type for c in result.content]
+                assert kinds == ["text", "resource"]
+                resource = result.content[1].resource
+                assert str(resource.uri) == "duho://output/root.dump"
+                assert resource.mime_type == "application/octet-stream"
+                assert resource.blob == "//4AAQ=="
+
+    asyncio.run(drive())

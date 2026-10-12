@@ -64,10 +64,10 @@ jobs:
           # Windows/macOS matrix edges (oldest + newest supported)
           - os: windows-latest
             python-version: "3.9"
-            max-skips: 45
+            max-skips: 48
           - os: windows-latest
             python-version: "3.14"
-            max-skips: 31
+            max-skips: 34
           - os: macos-latest
             python-version: "3.9"
             max-skips: 41

@@ -193,7 +193,14 @@ def _handle_request(
         tool_name = params.get("name")
         tool_arguments = params.get("arguments")
         try:
-            result = call_tool(root_cls, tool_name, tool_arguments)
+            result = call_tool(
+                root_cls,
+                tool_name,
+                tool_arguments,
+                output_fd=(session or {}).get("output_fd"),
+                output_var=(session or {}).get("output_var"),
+                output_path=(session or {}).get("output_path"),
+            )
         except (UnknownToolError, InvalidArgumentsError) as exc:
             if (
                 isinstance(exc, InvalidArgumentsError)

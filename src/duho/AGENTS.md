@@ -1076,12 +1076,15 @@ manipulating a parser tree directly:
   list[dict]`** — one tool per leaf/runnable command; a "namespace" node (a
   mandatory-subcommand parent with no runnable body of its own) is never
   listed as its own tool — its fields merge into each descendant's own input
-  schema instead. **`call_tool(root_cls, name, arguments, *, output_fd=None, output_var=None) -> dict`**,
-  Standard output is captured as bytes (`sys.stdout.buffer` exists). Output that is valid
-  UTF-8 is the text below; output that is not is written to descriptor `output_fd`, and the
-  result says how many bytes went to which descriptor, in place of the text. With
-  `output_fd=None` the call is an `isError` result instead (`output_var`, the variable
-  that names the descriptor, is quoted in it).
+  schema instead. **`call_tool(root_cls, name, arguments, *, output_fd=None, output_var=None, output_path=None) -> dict`**,
+  Standard output is a stream (`sys.stdout.buffer` exists). It holds what is written while
+  all of it is valid UTF-8, and that is the text below. At the first bytes that are not,
+  everything held and everything later goes straight to descriptor `output_fd`, and the
+  result says how many bytes went to which descriptor (and `output_path`, the file it was
+  opened on, when given), in place of the text. With `output_fd=None` the call is an
+  `isError` result instead (`output_var`, the variable that names the target, is quoted in
+  it). `sys.stdout.fileno()` is the descriptor when there is one, else it raises
+  `io.UnsupportedOperation`.
   Return mapping of `call_tool`: `0`/`None` → success with the captured stdout; a
   `Result` with `text` or `value` → stdout then `text` (else the rendered `value`),
   `isError` is `result.is_error`; a non-zero int (or a `Result` with neither) →
@@ -1090,8 +1093,9 @@ manipulating a parser tree directly:
   `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
   stderr and the message, no `Type:` prefix, not logged as a broken command; any other
   value → success with its JSON.
-  **`serve(root_cls, *, stdin=None, stdout=None)`** (a `ping` request is
-  answered directly), **`input_schema_for_command(cls) -> dict`**,
+  **`serve(root_cls, *, stdin=None, stdout=None, output_var=None)`** (a `ping` request is
+  answered directly; `output_var` names the variable that holds the output target, by
+  default the root's `<NAME>_MCP` variable plus `_OUTPUT`), **`input_schema_for_command(cls) -> dict`**,
   **`json_schema_for_field(decl, builder) -> tuple[dict, bool]`** (per-field JSON Schema fragment), **`main(argv=None)
   -> int`** — CLI entry point: `python -m duho.mcp <app>` (`<app>` a `module:ClassName`
   or dotted `module.ClassName` path to a root `Cmd`/`Cli`). Pass a `Cmd`/`Cli` class as

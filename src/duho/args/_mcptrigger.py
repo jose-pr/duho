@@ -81,4 +81,6 @@ def _maybe_serve_mcp_trigger(
     # protocol stream.
     stream_in, stream_out = _mcp._real_stdio_streams()
     core = core_factory() if core_factory is not None else _mcp._core_for_class(cls)
-    return _mcp.serve(core, stdin=stream_in, stdout=stream_out)
+    return _mcp.serve(
+        core, stdin=stream_in, stdout=stream_out, output_var=env_name + "_OUTPUT"
+    )

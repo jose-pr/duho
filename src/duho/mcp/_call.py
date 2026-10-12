@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse as _argparse
+import codecs as _codecs
 import contextlib as _contextlib
 import io as _io
 import logging as _logging
@@ -232,40 +233,16 @@ def _rebound_stderr_logging(active_stream: object, idle_stream: object):
             handler.setStream(idle_stream)
 
 
-class _StdoutCapture:
-    """A text stream over an in-memory byte buffer, standing in for ``sys.stdout``.
+class _OutputTarget(_ty.NamedTuple):
+    """Where a server sends output that is not text: an open descriptor and,
+    when the server opened a file for it, that file's path."""
 
-    ``write_through`` and ``newline=""`` keep text and ``.buffer`` writes in
-    order and byte-for-byte as written, on every platform.
-    """
-
-    def __init__(self) -> None:
-        self.raw = _io.BytesIO()
-        self.text = _io.TextIOWrapper(
-            self.raw,
-            encoding="utf-8",
-            errors="backslashreplace",
-            newline="",
-            write_through=True,
-        )
-
-    def value(self) -> bytes:
-        self.text.flush()
-        return self.raw.getvalue()
+    fd: int
+    path: _ty.Optional[str] = None
 
 
-class _Stdout(_ty.NamedTuple):
-    """What a call's standard output became: ``text`` to put in the result
-    (the output itself, or a notice that it went to a descriptor), or ``error``,
-    the result to return instead."""
-
-    text: str
-    wrote: bool = False
-    error: _ty.Optional[dict] = None
-
-
-# Bytes this process has written to each descriptor, the offset reported for one
-# that cannot seek (a pipe).
+# Bytes this process has written to each descriptor: the offset reported for one
+# that cannot tell its position (a pipe), and across calls.
 _WRITTEN: dict[int, int] = {}
 
 
@@ -278,67 +255,186 @@ def _descriptor_path(fd: int) -> _ty.Optional[str]:
     return path if _os.path.isabs(path) else None
 
 
-def _write_to_descriptor(fd: int, data: bytes) -> str:
-    """Write all of ``data`` to ``fd`` and return the notice for the result.
-
-    Raises ``OSError`` if the descriptor cannot be written.
-    """
-    # Windows reports offset 0 for a pipe instead of failing, so only a regular
-    # file is asked; anything else gets the count this process has written.
+def _is_regular(fd: int) -> bool:
     try:
-        seekable = _stat.S_ISREG(_os.fstat(fd).st_mode)
-        offset = _os.lseek(fd, 0, _os.SEEK_CUR) if seekable else _WRITTEN.get(fd, 0)
+        return _stat.S_ISREG(_os.fstat(fd).st_mode)
     except OSError:
-        offset = _WRITTEN.get(fd, 0)
-    view = memoryview(data)
-    while view:
-        written = _os.write(fd, view)
-        _WRITTEN[fd] = _WRITTEN.get(fd, 0) + written
-        view = view[written:]
-    path = _descriptor_path(fd)
-    return (
-        "%d bytes of output that is not text were written to file descriptor %d%s, at offset %d"
-        % (
-            len(data),
-            fd,
-            " (%s)" % path if path else "",
-            offset,
+        return False
+
+
+class _OutputStream(_io.RawIOBase):
+    """The binary stream under ``sys.stdout`` during a tool call.
+
+    It holds what is written while all of it is valid UTF-8. At the first bytes
+    that are not, it sends everything held to the target and passes each later
+    write straight through; with no target it stops holding and only counts, so
+    memory stays bounded either way.
+    """
+
+    def __init__(self, target: _ty.Optional[_OutputTarget]) -> None:
+        super().__init__()
+        self._target = target
+        self._held = bytearray()
+        self._decoder = _codecs.getincrementaldecoder("utf-8")("strict")
+        self._count = 0
+        self._sending = False
+        self._dropping = False
+        self._start = 0
+        self.error: _ty.Optional[OSError] = None
+
+    def writable(self) -> bool:
+        return True
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        if self._target is None:
+            raise _io.UnsupportedOperation("fileno")
+        self._begin_sending()
+        return self._target.fd
+
+    def write(self, data) -> int:  # type: ignore[override]
+        chunk = bytes(data)
+        self._count += len(chunk)
+        if self._sending:
+            self._send(chunk)
+        elif not self._dropping:
+            try:
+                self._decoder.decode(chunk)
+            except UnicodeDecodeError:
+                if self._target is None:
+                    self._held.clear()
+                    self._dropping = True
+                else:
+                    self._begin_sending()
+                    self._send(chunk)
+            else:
+                self._held += chunk
+        return len(chunk)
+
+    def _position(self, whence: int) -> int:
+        return _os.lseek(self._target.fd, 0, whence)
+
+    def _begin_sending(self) -> None:
+        if self._sending:
+            return
+        target = self._target
+        try:
+            if _is_regular(target.fd):
+                # A file the server opened for appending reports where the
+                # next byte lands only at its end.
+                self._start = self._position(
+                    _os.SEEK_END if target.path else _os.SEEK_CUR
+                )
+            else:
+                self._start = _WRITTEN.get(target.fd, 0)
+        except OSError:
+            self._start = _WRITTEN.get(target.fd, 0)
+        self._sending = True
+        held, self._held = bytes(self._held), bytearray()
+        self._send(held)
+
+    def _send(self, data: bytes) -> None:
+        fd = self._target.fd
+        view = memoryview(data)
+        try:
+            while view:
+                written = _os.write(fd, view)
+                _WRITTEN[fd] = _WRITTEN.get(fd, 0) + written
+                view = view[written:]
+        except OSError as exc:
+            self.error = exc
+            raise
+
+    def finish(self, output_var: _ty.Optional[str]) -> "_Stdout":
+        """What the captured output became, once the command has ended."""
+        target = self._target
+        if self.error is not None:
+            return _Stdout("", error=_write_failure(target.fd, self.error))
+        if not (self._sending or self._dropping):
+            try:
+                self._decoder.decode(b"", final=True)
+            except UnicodeDecodeError:
+                if target is None:
+                    self._held.clear()
+                    self._dropping = True
+                else:
+                    try:
+                        self._begin_sending()
+                    except OSError as exc:
+                        return _Stdout("", error=_write_failure(target.fd, exc))
+        if self._sending:
+            return _Stdout(self._notice(), wrote=True)
+        if self._dropping:
+            return _Stdout("", error=_no_descriptor(self._count, output_var))
+        return _Stdout(bytes(self._held).decode("utf-8"))
+
+    def _notice(self) -> str:
+        target = self._target
+        grown = 0
+        try:
+            if _is_regular(target.fd):
+                grown = self._position(_os.SEEK_CUR) - self._start
+        except OSError:
+            grown = 0
+        if grown <= 0:
+            grown = _WRITTEN.get(target.fd, 0) - self._start
+        path = target.path or _descriptor_path(target.fd)
+        return (
+            "%d bytes of output that is not text were written to file descriptor "
+            "%d%s, at offset %d"
+            % (grown, target.fd, " (%s)" % path if path else "", self._start)
         )
+
+
+class _Stdout(_ty.NamedTuple):
+    """What a call's standard output became: ``text`` to put in the result
+    (the output itself, or a notice that it went to the target), or ``error``,
+    the result to return instead."""
+
+    text: str
+    wrote: bool = False
+    error: _ty.Optional[dict] = None
+
+
+def _no_descriptor(count: int, output_var: _ty.Optional[str]) -> dict:
+    return _text_result(
+        "the command wrote %d bytes of output that is not text, and this "
+        "server has no output descriptor: start it with file descriptor 3 "
+        "open, or name an open one in %s" % (count, output_var or "<NAME>_MCP_OUTPUT"),
+        is_error=True,
     )
 
 
-def _take_stdout(
-    capture: _StdoutCapture, output_fd: _ty.Optional[int], output_var: _ty.Optional[str]
-) -> _Stdout:
-    """Decode the captured output as text, or send bytes that are not text to
-    ``output_fd``; with no descriptor, or a failed write, ``error`` is set."""
-    data = capture.value()
-    try:
-        return _Stdout(data.decode("utf-8"))
-    except UnicodeDecodeError:
-        pass
-    if output_fd is None:
-        return _Stdout(
-            "",
-            error=_text_result(
-                "the command wrote %d bytes of output that is not text, and this "
-                "server has no output descriptor: start it with file descriptor 3 "
-                "open, or name an open one in %s"
-                % (len(data), output_var or "<NAME>_MCP_OUTPUT"),
-                is_error=True,
-            ),
+def _write_failure(fd: int, exc: OSError) -> dict:
+    return _text_result(
+        "could not write the command's output that is not text to file "
+        "descriptor %d: %s" % (fd, exc.strerror or exc),
+        is_error=True,
+    )
+
+
+class _StdoutCapture:
+    """``sys.stdout`` for a tool call: UTF-8 text over an :class:`_OutputStream`.
+
+    ``write_through`` and ``newline=""`` keep text and ``.buffer`` writes in
+    order and byte-for-byte as written, on every platform.
+    """
+
+    def __init__(self, target: _ty.Optional[_OutputTarget]) -> None:
+        self.raw = _OutputStream(target)
+        self.text = _io.TextIOWrapper(
+            self.raw,
+            encoding="utf-8",
+            errors="backslashreplace",
+            newline="",
+            write_through=True,
         )
-    try:
-        return _Stdout(_write_to_descriptor(output_fd, data), wrote=True)
-    except OSError as exc:
-        return _Stdout(
-            "",
-            error=_text_result(
-                "could not write the command's output that is not text to file "
-                "descriptor %d: %s" % (output_fd, exc.strerror or exc),
-                is_error=True,
-            ),
-        )
+
+    def finish(self, output_var: _ty.Optional[str]) -> _Stdout:
+        self.text.flush()
+        return self.raw.finish(output_var)
 
 
 def call_tool(
@@ -348,6 +444,7 @@ def call_tool(
     *,
     output_fd: _ty.Optional[int] = None,
     output_var: _ty.Optional[str] = None,
+    output_path: _ty.Optional[str] = None,
 ) -> dict:
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
@@ -425,12 +522,14 @@ def call_tool(
     during dispatch -> ``isError: true`` with the exception's ``type:
     message`` text. ``KeyboardInterrupt`` is not caught and still propagates.
 
-    Standard output is captured as bytes (``sys.stdout.buffer`` exists). Output
-    that is valid UTF-8 is the text above. Output that is not is written to
-    file descriptor ``output_fd`` and the result says how many bytes went where
-    and at what offset, in place of the text; with ``output_fd`` ``None`` the
-    call is an ``isError`` result instead. ``output_var`` is the variable that
-    names the descriptor, quoted in that error.
+    Standard output is a stream (``sys.stdout.buffer`` exists). Output that is
+    valid UTF-8 is held and is the text above. At the first bytes that are not,
+    everything held and everything later goes straight to file descriptor
+    ``output_fd``, and the result says how many bytes went where and at what
+    offset, in place of the text; with ``output_fd`` ``None`` the call is an
+    ``isError`` result instead. ``output_path`` is the file ``output_fd`` was
+    opened on, named in the result; ``output_var`` is the variable that names
+    the target, quoted in the error.
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
@@ -514,7 +613,9 @@ def call_tool(
                 "prefix character that argparse would read as a file" % (token,)
             )
 
-    capture = _StdoutCapture()
+    capture = _StdoutCapture(
+        None if output_fd is None else _OutputTarget(output_fd, output_path)
+    )
     out = capture.text
     err = _io.StringIO()
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
@@ -566,7 +667,7 @@ def call_tool(
                     try:
                         result = core.dispatch(target, instance)
                     except SystemExit as exc:
-                        taken = _take_stdout(capture, output_fd, output_var)
+                        taken = capture.finish(output_var)
                         if taken.error is not None:
                             return taken.error
                         return _systemexit_result(exc, taken.text, err.getvalue())
@@ -577,9 +678,11 @@ def call_tool(
     except (
         Exception
     ) as exc:  # noqa: BLE001 - one broken command must not crash the server
+        if capture.raw.error is not None:
+            return _write_failure(output_fd, capture.raw.error)
         if _error_status(exc, core.root_cls) is not None:
             # An error the command meant to end with: its words, not a crash.
-            taken = _take_stdout(capture, output_fd, output_var)
+            taken = capture.finish(output_var)
             if taken.error is not None:
                 return taken.error
             parts = [taken.text, err.getvalue().strip(), str(exc)]
@@ -596,7 +699,7 @@ def call_tool(
         )
         return _text_result("%s: %s" % (type(exc).__name__, exc), is_error=True)
 
-    taken = _take_stdout(capture, output_fd, output_var)
+    taken = capture.finish(output_var)
     if taken.error is not None:
         return taken.error
     stdout_text = taken.text

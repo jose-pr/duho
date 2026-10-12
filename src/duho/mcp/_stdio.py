@@ -6,6 +6,7 @@ import sys as _sys
 import typing as _ty
 
 from .. import _compat as _compat
+from ..args._mcptrigger import _mcp_env_var_name
 from ..logging import log_exception as _log_exception
 
 from ._protocol import (
@@ -14,9 +15,63 @@ from ._protocol import (
     _handle_request,
     _line_nesting_exceeds,
 )
+from ._call import _OutputTarget
 from ._tree import _ServerCore, _core_for_class, _walk_tree
 
 _LOGGER = _logging.getLogger(__package__)
+
+
+#: The descriptor a server writes a tool's non-text output to unless its variable
+#: names another.
+_DEFAULT_OUTPUT_FD = 3
+
+
+def _fd_is_open_and_inheritable(fd: int) -> bool:
+    """Whether ``fd`` is open and was handed to this process.
+
+    Python opens its own files non-inheritable (PEP 446), so a descriptor that
+    is inheritable came from the parent across ``exec``, not from this program.
+    """
+    try:
+        _os.fstat(fd)
+        return _os.get_inheritable(fd)
+    except (OSError, OverflowError):
+        return False
+
+
+def _resolve_output_target(
+    environ: _ty.Mapping[str, str],
+    var_name: str,
+    default: int = _DEFAULT_OUTPUT_FD,
+) -> _ty.Optional[_OutputTarget]:
+    """Where a server sends a tool's output that is not text, or ``None``.
+
+    ``environ[var_name]`` (empty counts as unset) is a descriptor number, used in
+    place of ``default``, or any other value, a file name (``~`` expanded) opened
+    here for appending. A number that is not an open, inheritable descriptor, or
+    a file that cannot be opened, raises ``ValueError`` naming the variable. With
+    the variable unset, ``default`` is used if it is open and inheritable.
+    """
+    raw = environ.get(var_name, "").strip()
+    if not raw:
+        return _OutputTarget(default) if _fd_is_open_and_inheritable(default) else None
+    if all(ch in "0123456789" for ch in raw):
+        fd = int(raw)
+        if not _fd_is_open_and_inheritable(fd):
+            raise ValueError(
+                "%s names file descriptor %d, which is not open and inheritable"
+                % (var_name, fd)
+            )
+        return _OutputTarget(fd)
+    path = _os.path.abspath(_os.path.expanduser(raw))
+    flags = _os.O_WRONLY | _os.O_CREAT | _os.O_APPEND | getattr(_os, "O_BINARY", 0)
+    try:
+        return _OutputTarget(_os.open(path, flags, 0o666), path)
+    except OSError as exc:
+        raise ValueError(
+            "%s names a file that cannot be opened: %s"
+            % (var_name, exc.strerror or exc)
+        ) from None
 
 
 def serve_running_app(transport: str = "stdio") -> int:
@@ -56,11 +111,13 @@ def serve_running_app(transport: str = "stdio") -> int:
     kind = ctx[0]
     if kind == "class":
         core = _core_for_class(ctx[1])
+        output_var = None
     else:
         _, parser, root_cls, dispatch = ctx
         nodes = _walk_tree(parser, root_cls, parser.prog)
         core = _ServerCore(parser, nodes, dispatch, root_cls)
-    return serve(core)
+        output_var = _mcp_env_var_name(root_cls, name=parser.prog) + "_OUTPUT"
+    return serve(core, output_var=output_var)
 
 
 def _reject_constant(name: str) -> _ty.NoReturn:
@@ -121,6 +178,7 @@ def serve(
     *,
     stdin: _ty.Optional[_ty.TextIO] = None,
     stdout: _ty.Optional[_ty.TextIO] = None,
+    output_var: _ty.Optional[str] = None,
 ) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
 
@@ -159,7 +217,36 @@ def serve(
     separate MCP "shutdown" method to wait for). ``stdin``/``stdout`` are
     injectable so tests can drive the loop over in-memory TEXT streams
     instead of real pipes.
+
+    Before the first request it resolves where a tool's output that is not text
+    goes (see :func:`_resolve_output_target`): descriptor 3 when open and
+    inherited, or what the variable ``output_var`` names (default: the root's
+    ``<NAME>_MCP`` variable plus ``_OUTPUT``), a descriptor number or a file
+    name opened for appending and closed when the loop ends. A bad variable
+    writes one line to stderr and returns ``2``.
     """
+    core_root = root_cls.root_cls if isinstance(root_cls, _ServerCore) else root_cls
+    if output_var is None:
+        output_var = _mcp_env_var_name(core_root) + "_OUTPUT"
+    try:
+        target = _resolve_output_target(_os.environ, output_var)
+    except ValueError as exc:
+        _compat.write_human(str(exc) + "\n", _sys.stderr)
+        return 2
+    session: dict = {
+        "output_fd": None if target is None else target.fd,
+        "output_path": None if target is None else target.path,
+        "output_var": output_var,
+    }
+    try:
+        return _serve_stream(root_cls, stdin, stdout, session)
+    finally:
+        if target is not None and target.path is not None:
+            _os.close(target.fd)
+
+
+def _serve_stream(root_cls, stdin, stdout, session: dict) -> int:
+    """The JSON-RPC loop of :func:`serve`, with the session's output target."""
     import json
 
     if stdin is None and stdout is None:
@@ -167,8 +254,6 @@ def serve(
     else:
         stream_in = stdin if stdin is not None else _sys.stdin
         stream_out = stdout if stdout is not None else _sys.stdout
-
-    session: dict = {}
 
     def _safe_handle(request):
         """`_handle_request`, with any unexpected exception mapped to a

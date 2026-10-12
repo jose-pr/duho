@@ -1076,7 +1076,12 @@ manipulating a parser tree directly:
   list[dict]`** — one tool per leaf/runnable command; a "namespace" node (a
   mandatory-subcommand parent with no runnable body of its own) is never
   listed as its own tool — its fields merge into each descendant's own input
-  schema instead. **`call_tool(root_cls, name, arguments) -> dict`**,
+  schema instead. **`call_tool(root_cls, name, arguments, *, output_fd=None, output_var=None) -> dict`**,
+  Standard output is captured as bytes (`sys.stdout.buffer` exists). Output that is valid
+  UTF-8 is the text below; output that is not is written to descriptor `output_fd`, and the
+  result says how many bytes went to which descriptor, in place of the text. With
+  `output_fd=None` the call is an `isError` result instead (`output_var`, the variable
+  that names the descriptor, is quoted in it).
   Return mapping of `call_tool`: `0`/`None` → success with the captured stdout; a
   `Result` with `text` or `value` → stdout then `text` (else the rendered `value`),
   `isError` is `result.is_error`; a non-zero int (or a `Result` with neither) →

@@ -4,7 +4,9 @@ import argparse as _argparse
 import contextlib as _contextlib
 import io as _io
 import logging as _logging
+import os as _os
 import re as _re
+import stat as _stat
 import sys as _sys
 import typing as _ty
 
@@ -230,8 +232,122 @@ def _rebound_stderr_logging(active_stream: object, idle_stream: object):
             handler.setStream(idle_stream)
 
 
+class _StdoutCapture:
+    """A text stream over an in-memory byte buffer, standing in for ``sys.stdout``.
+
+    ``write_through`` and ``newline=""`` keep text and ``.buffer`` writes in
+    order and byte-for-byte as written, on every platform.
+    """
+
+    def __init__(self) -> None:
+        self.raw = _io.BytesIO()
+        self.text = _io.TextIOWrapper(
+            self.raw,
+            encoding="utf-8",
+            errors="backslashreplace",
+            newline="",
+            write_through=True,
+        )
+
+    def value(self) -> bytes:
+        self.text.flush()
+        return self.raw.getvalue()
+
+
+class _Stdout(_ty.NamedTuple):
+    """What a call's standard output became: ``text`` to put in the result
+    (the output itself, or a notice that it went to a descriptor), or ``error``,
+    the result to return instead."""
+
+    text: str
+    wrote: bool = False
+    error: _ty.Optional[dict] = None
+
+
+# Bytes this process has written to each descriptor, the offset reported for one
+# that cannot seek (a pipe).
+_WRITTEN: dict[int, int] = {}
+
+
+def _descriptor_path(fd: int) -> _ty.Optional[str]:
+    """The file a descriptor names, where the platform can tell (Linux)."""
+    try:
+        path = _os.readlink("/proc/self/fd/%d" % fd)
+    except (OSError, ValueError):
+        return None
+    return path if _os.path.isabs(path) else None
+
+
+def _write_to_descriptor(fd: int, data: bytes) -> str:
+    """Write all of ``data`` to ``fd`` and return the notice for the result.
+
+    Raises ``OSError`` if the descriptor cannot be written.
+    """
+    # Windows reports offset 0 for a pipe instead of failing, so only a regular
+    # file is asked; anything else gets the count this process has written.
+    try:
+        seekable = _stat.S_ISREG(_os.fstat(fd).st_mode)
+        offset = _os.lseek(fd, 0, _os.SEEK_CUR) if seekable else _WRITTEN.get(fd, 0)
+    except OSError:
+        offset = _WRITTEN.get(fd, 0)
+    view = memoryview(data)
+    while view:
+        written = _os.write(fd, view)
+        _WRITTEN[fd] = _WRITTEN.get(fd, 0) + written
+        view = view[written:]
+    path = _descriptor_path(fd)
+    return (
+        "%d bytes of output that is not text were written to file descriptor %d%s, at offset %d"
+        % (
+            len(data),
+            fd,
+            " (%s)" % path if path else "",
+            offset,
+        )
+    )
+
+
+def _take_stdout(
+    capture: _StdoutCapture, output_fd: _ty.Optional[int], output_var: _ty.Optional[str]
+) -> _Stdout:
+    """Decode the captured output as text, or send bytes that are not text to
+    ``output_fd``; with no descriptor, or a failed write, ``error`` is set."""
+    data = capture.value()
+    try:
+        return _Stdout(data.decode("utf-8"))
+    except UnicodeDecodeError:
+        pass
+    if output_fd is None:
+        return _Stdout(
+            "",
+            error=_text_result(
+                "the command wrote %d bytes of output that is not text, and this "
+                "server has no output descriptor: start it with file descriptor 3 "
+                "open, or name an open one in %s"
+                % (len(data), output_var or "<NAME>_MCP_OUTPUT"),
+                is_error=True,
+            ),
+        )
+    try:
+        return _Stdout(_write_to_descriptor(output_fd, data), wrote=True)
+    except OSError as exc:
+        return _Stdout(
+            "",
+            error=_text_result(
+                "could not write the command's output that is not text to file "
+                "descriptor %d: %s" % (output_fd, exc.strerror or exc),
+                is_error=True,
+            ),
+        )
+
+
 def call_tool(
-    root_cls: _ty.Union[type, _ServerCore], name: object, arguments: object
+    root_cls: _ty.Union[type, _ServerCore],
+    name: object,
+    arguments: object,
+    *,
+    output_fd: _ty.Optional[int] = None,
+    output_var: _ty.Optional[str] = None,
 ) -> dict:
     """Dispatch one MCP ``tools/call`` against ``root_cls``'s tree.
 
@@ -308,6 +424,13 @@ def call_tool(
     instead of escaping and killing the server. Any OTHER raised exception
     during dispatch -> ``isError: true`` with the exception's ``type:
     message`` text. ``KeyboardInterrupt`` is not caught and still propagates.
+
+    Standard output is captured as bytes (``sys.stdout.buffer`` exists). Output
+    that is valid UTF-8 is the text above. Output that is not is written to
+    file descriptor ``output_fd`` and the result says how many bytes went where
+    and at what offset, in place of the text; with ``output_fd`` ``None`` the
+    call is an ``isError`` result instead. ``output_var`` is the variable that
+    names the descriptor, quoted in that error.
     """
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
@@ -391,7 +514,8 @@ def call_tool(
                 "prefix character that argparse would read as a file" % (token,)
             )
 
-    out = _io.StringIO()
+    capture = _StdoutCapture()
+    out = capture.text
     err = _io.StringIO()
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
     real_stderr = _sys.stderr
@@ -442,7 +566,10 @@ def call_tool(
                     try:
                         result = core.dispatch(target, instance)
                     except SystemExit as exc:
-                        return _systemexit_result(exc, out.getvalue(), err.getvalue())
+                        taken = _take_stdout(capture, output_fd, output_var)
+                        if taken.error is not None:
+                            return taken.error
+                        return _systemexit_result(exc, taken.text, err.getvalue())
                     finally:
                         _compat._RUNNING_MODE.reset(mode)
             finally:
@@ -452,7 +579,10 @@ def call_tool(
     ) as exc:  # noqa: BLE001 - one broken command must not crash the server
         if _error_status(exc, core.root_cls) is not None:
             # An error the command meant to end with: its words, not a crash.
-            parts = [out.getvalue(), err.getvalue().strip(), str(exc)]
+            taken = _take_stdout(capture, output_fd, output_var)
+            if taken.error is not None:
+                return taken.error
+            parts = [taken.text, err.getvalue().strip(), str(exc)]
             return _text_result("\n".join(p for p in parts if p), is_error=True)
         # The client only ever sees "Type: message"; the stack that says WHERE
         # the command broke exists nowhere else, so log it server-side too
@@ -466,7 +596,10 @@ def call_tool(
         )
         return _text_result("%s: %s" % (type(exc).__name__, exc), is_error=True)
 
-    stdout_text = out.getvalue()
+    taken = _take_stdout(capture, output_fd, output_var)
+    if taken.error is not None:
+        return taken.error
+    stdout_text = taken.text
 
     if isinstance(result, _Result) and (
         result.text is not None or result.value is not None
@@ -489,4 +622,7 @@ def call_tool(
         ]
         return _text_result("\n".join(parts), is_error=_is_error_flag(result, True))
 
-    return _text_result(_render(result))
+    rendered = _render(result)
+    if taken.wrote:
+        rendered = stdout_text + "\n" + rendered
+    return _text_result(rendered)

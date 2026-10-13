@@ -111,6 +111,7 @@ from ._register import (
     _module_args_cls,
     _add_module_declared_fields,
     _register_module_command,
+    build_command_parser,
 )
 from ._parser import (
     _build_parser,
@@ -130,4 +131,4 @@ from ._app import (
     _build_app_core,
 )
 
-__all__ = ["run_command", "app", "run", "accepts_positional"]
+__all__ = ["run_command", "app", "run", "accepts_positional", "build_command_parser"]

@@ -179,6 +179,7 @@ def discover_commands(
     *,
     on_error: _ty.Optional[_ty.Callable[[object, BaseException], object]] = None,
     providers: bool = False,
+    sort: bool = True,
 ) -> list[Command]:
     """Discover commands from a package name or a directory, resiliently.
 
@@ -186,6 +187,11 @@ def discover_commands(
     own, a command of the same name in a later source replaces the earlier one,
     and the merged result is sorted by name as below. An empty sequence gives
     ``[]``. Each member goes through the same checks as a single source.
+
+    ``sort=False`` keeps discovery order instead of sorting: the sources as
+    given; within a directory or package, files by name; within a file,
+    definition order. A later command of the same name takes the place of the
+    earlier one.
 
     ``on_error(source, exc)``, when given, replaces the resilience rule below:
     it is called for any exception (``SystemExit`` included) raised while
@@ -254,10 +260,14 @@ def discover_commands(
         merged: dict[str, Command] = {}
         for member in source:
             for command in discover_commands(
-                member, on_error=on_error, providers=providers
+                member, on_error=on_error, providers=providers, sort=sort
             ):
                 merged[_command_name(command)] = command
-        return sorted(merged.values(), key=_command_name)
+        return (
+            sorted(merged.values(), key=_command_name)
+            if sort
+            else list(merged.values())
+        )
     if _is_empty_source(source):
         raise ValueError(
             "discover_commands(): an empty source is never valid -- it would "
@@ -288,7 +298,7 @@ def discover_commands(
         )
     else:
         commands = _discover_from_package(str(source), on_error=on_error)
-    return sorted(commands, key=_command_name)
+    return sorted(commands, key=_command_name) if sort else commands
 
 
 def _discover_from_package(

@@ -248,6 +248,7 @@ PEP-604 ``|`` operator, so a ``RunPathCmd`` parser builds on Python 3.9.
 
 from __future__ import annotations
 
+import contextlib as _contextlib
 import fnmatch as _fnmatch
 import heapq as _heapq
 import inspect as _inspect
@@ -305,7 +306,13 @@ from ._command import (
     RunPathCmd,
 )
 
-__all__ = ["RunPathCmd", "register", "unregister", "is_runpath_dir"]
+__all__ = [
+    "RunPathCmd",
+    "register",
+    "unregister",
+    "preserve_registration",
+    "is_runpath_dir",
+]
 
 
 #: App-supplied hook that rewrites a step's entrypoint before it is called;
@@ -449,6 +456,30 @@ def unregister() -> None:
         return
     _discovery.unregister_command_provider(*_REGISTERED)
     _REGISTERED = None
+
+
+@_contextlib.contextmanager
+def preserve_registration() -> _ty.Iterator[None]:
+    """Put the registration back as it was on entry, whatever ``register`` and
+    ``unregister`` did inside: the base, the step adapter, and whether the
+    provider is registered.
+
+    For a test or a tool that changes the registration for a while::
+
+        with preserve_registration():
+            register(base=MyRoot, step_adapter=adapter)
+            ...
+    """
+    global _BASE, _ADAPTER
+    base, adapter, registered = _BASE, _ADAPTER, _REGISTERED is not None
+    try:
+        yield
+    finally:
+        _BASE, _ADAPTER = base, adapter
+        if registered:
+            register()
+        else:
+            unregister()
 
 
 # Auto-register on import: importing ``duho.runpath`` is the opt-in activation.

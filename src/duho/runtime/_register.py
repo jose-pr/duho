@@ -4,6 +4,7 @@ import argparse as _argparse
 import inspect as _inspect
 import typing as _ty
 
+from ..args import Args as _Args
 from ..args._argsclass import _add_fields as _add_fields
 from ..args._helptext import (
     _escape_description as _escape_description,
@@ -13,7 +14,12 @@ from ..args._parserfix import (
     _keep_attached_double_dash as _keep_attached_double_dash,
     _patch_parser_for_reorder as _patch_parser_for_reorder,
 )
-from ..discovery import ModuleCommand as _ModuleCommand
+from ..discovery import (
+    Command as _Command,
+    ModuleCommand as _ModuleCommand,
+    is_class_command as _is_class_command,
+    is_module_command as _is_module_command,
+)
 from ..discovery._command import _noop as _discovery_noop
 from ._arity import accepts_positional as _accepts_positional
 
@@ -211,3 +217,34 @@ def _register_module_command(
     # flag-between-positionals reorder fix; patch it once all fields are in place.
     _patch_parser_for_reorder(parser)
     _keep_attached_double_dash(parser)
+
+
+def build_command_parser(
+    command: _Command, root: _ty.Optional[type] = None
+) -> _argparse.ArgumentParser:
+    """Build the subparser :func:`app` would build for one resolved command.
+
+    ``command`` is a ``Cmd`` subclass or a :class:`~duho.discovery.ModuleCommand`;
+    ``root`` is the app's root class, whose options the subparser inherits (a bare
+    ``Args`` when ``None``). The parser is built into a throwaway parent, and a
+    module command's ``register`` hook runs with ``None`` for the parsed globals.
+    Whatever the build raises propagates, so a caller can drop a command that
+    cannot build; ``TypeError`` for anything that is not a command.
+    """
+    root_cls = root if root is not None else _Args
+    base_parser = root_cls._parser_(  # type: ignore[attr-defined]
+        add_help=False, _skip_subcommands_=True
+    )
+    subparsers = _argparse.ArgumentParser(add_help=False).add_subparsers()
+    if _is_class_command(command):
+        return _register_class_command(subparsers, _ty.cast(type, command), base_parser)
+    if _is_module_command(command):
+        module_command = _ty.cast(_ModuleCommand, command)
+        _register_module_command(
+            subparsers, module_command, base_parser, None, root_cls
+        )
+        return subparsers.choices[module_command._parsername_]
+    raise TypeError(
+        f"build_command_parser(): expected a Cmd subclass or a discovered "
+        f"ModuleCommand, got {command!r} ({type(command).__name__})"
+    )

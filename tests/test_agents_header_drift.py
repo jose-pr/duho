@@ -42,6 +42,7 @@ _SUBMODULES = (
     "duho.qualname",
     "duho.fanout",
     "duho.runpath",
+    "duho.runtime",
     "duho.scaffold",
     "duho.mcp",
     "duho.testing",

@@ -521,6 +521,13 @@ just its annotation.
   `*args`; keyword-only parameters do not count. Read from the callable's own signature
   (a `functools.wraps` wrapper is not unwrapped); an unreadable signature gives `False`.
   For writing an `adapter` that adapts by arity.
+- **`build_command_parser(command, root=None) -> argparse.ArgumentParser`**
+  (`duho.runtime`) — the subparser `app` would build for one resolved command (a `Cmd`
+  subclass or a `ModuleCommand`) under `root`, whose options it inherits (a bare `Args`
+  when `None`). It is built into a throwaway parser, and a module command's `register`
+  hook runs with `None` for the parsed globals. Whatever the build raises propagates
+  (so a caller can drop a command that cannot build); anything that is not a command is
+  a `TypeError`.
 - **`finish_parse(namespace) -> Args`** — for the manual-subparsers recipe (a duho
   `_parser_(subparsers, name=...)` attached to a hand-built, plain
   `argparse.ArgumentParser()` root): that plain root's `parse_args()` returns a raw
@@ -577,10 +584,12 @@ empty when absent).
 - **`import_from_path(base_name, path) -> ModuleType`** — import a `.py` file under a
   `sys.modules` key derived from `base_name` (uniquified), reusing a cached module on a
   repeat import of the same file (matched by resolved path + mtime).
-- **`discover_commands(source, *, on_error=None, providers=False) -> list[Command]`** —
+- **`discover_commands(source, *, on_error=None, providers=False, sort=True) -> list[Command]`** —
   walk a package or directory; collects
   both class commands (module-boundary deduped) and one `ModuleCommand` per entrypoint
-  module. Result sorted by subcommand name. `source` is a package name, a directory, or
+  module. Result sorted by subcommand name; `sort=False` keeps discovery order instead
+  (the sources as given; within a directory or package, files by name; within a file,
+  definition order; a later command of the same name takes the earlier one's place). `source` is a package name, a directory, or
   a list/tuple of them: each is discovered on its own, a same-named command in a later
   source replaces the earlier, `[]` for an empty sequence, and each member keeps the
   empty-source and bare-drive-letter rejections (`ValueError`). A bare string that
@@ -1049,6 +1058,9 @@ manipulating a parser tree directly:
   app can accept step signatures of its own without a decorator in every step file; the
   ADAPTED callable is what arity detection inspects. `None` clears it; unlike `base` it
   applies per step run, so it affects already-built commands too.
+  **`preserve_registration()`** is a context manager that puts the registration back as
+  it was on entry whatever `register`/`unregister` did inside: the base, the step adapter
+  and whether the provider is registered.
   `RunPathCmd`'s `--rcopts/-O` selects/tunes which steps run. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,

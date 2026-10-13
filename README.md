@@ -217,6 +217,7 @@ modules are imported by name. The full reference is on the
 | --- | --- |
 | `duho` | `Args`, `Cmd`, `Cli`, the `Arg`/`Meta` field helpers, `parser`, `parse`, `main`, `app`, `run_command`, `command`, `subcommand`, `value_sources`, `parse_bool`, `utf8_stdio`, `AUTO` |
 | `duho.discovery` | `discover_commands`, `discover_entry_points`, `CmdBuilder`, `ModuleCommand`, `register_command_provider` |
+| `duho.runtime` | `app`, `run`, `run_command`, `build_command_parser` |
 | `duho.env` | `Env`, the prefixed, typed environment accessor |
 | `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
 | `duho.formatters` | `DefaultsFormatter`, `ColorHelpFormatter`, `ColorDefaultsFormatter` for `_help_formatter_` |
@@ -579,7 +580,8 @@ instead, for a caller that wants it (`raise SystemExit(main(Greet))` is the same
 program minus the printing). The return contract, once: `None` or an `int` is the
 exit status; anything else is an answer, which `run` prints to stdout (a `str` as
 it is, other values as JSON) with status 0 and an MCP client receives as the tool
-result. A command that wants both a status and an answer returns `duho.Result`;
+result. `duho.run(root, argv, exit=False)` does the same and returns the status instead
+of exiting, for a program whose own `main(argv)` calls it. A command that wants both a status and an answer returns `duho.Result`;
 one that fails with a message raises `duho.CommandError` (the
 running guide covers both).
 
@@ -872,9 +874,9 @@ extra is only needed if you actually use `_config_`/`config=` on an older
 interpreter.
 
 **A malformed config file** (invalid JSON, TOML, YAML or INI, a file whose parser library
-is not installed, or a file whose top level is not a table/object) is a usage error naming
-the file, exit status 2, under `main`, `parse` and `app` alike; `--help` and
-`--version` still work.
+is not installed, or a file whose top level is not a table/object) is one line,
+`PROG: error: MESSAGE`, naming the file, exit status 2 and no usage lines, under `main`,
+`parse` and `app` alike; `--help` and `--version` still work.
 
 **JSON config**: a config path ending in `.json` is parsed as JSON (stdlib, no
 extra dependency), producing the same nested-dict shape as TOML — top-level keys
@@ -912,7 +914,7 @@ class Deploy(duho.Cli):
 
 An exception your loader raises propagates to the caller unchanged, so the
 application reports it its own way; a loader that returns something that is not a
-mapping is a usage error naming the file.
+mapping is a one-line error naming the file.
 
 **Choosing the config file at run time.** Beyond `_config_` and `config=`, the root
 can name where the path comes from: `_config_env_ = "MYAPP_CONFIG"` reads it from
@@ -922,7 +924,8 @@ var. Highest first: an explicit `config=` argument, the `_config_field_` field, 
 `_config_env_` variable, then `_config_`. A path chosen by the field or the variable
 must exist (a missing file raises `FileNotFoundError`), unlike a `_config_` that does
 not exist yet. A `_config_field_` naming no declared field is a `ValueError` naming
-the class. Neither is applied to a tree served over MCP.
+the class. Neither is applied to a tree served over MCP, which reads the `_config_` file
+once, at the first call in the process, and keeps it.
 
 ```python
 class Tool(duho.Cmd):
@@ -1464,7 +1467,9 @@ surfaces so you can fix it.
 
 **Several sources, your own error policy.** `source=` (and `discover_commands`)
 takes a list or tuple: each source is discovered on its own, a command of the same
-name in a later source replaces the earlier, and the result is sorted by name.
+name in a later source replaces the earlier, and the result is sorted by name
+(`discover_commands(..., sort=False)` keeps discovery order instead: the sources as
+given, files by name, definitions in order).
 `on_error(source, exc)` replaces the rule above: it is called for any exception
 (`SystemExit` too) raised importing one file (`source` is its `Path`), importing a
 package module (the dotted name), or building a command; returning skips it,

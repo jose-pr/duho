@@ -59,9 +59,13 @@ raise SystemExit(duho.main(Deploy))
 
 ### Errors and exit status
 
-`duho.run(root, argv=None)` is the program entry. It calls `duho.main`, prints
-the command's answer and exits with the status; `duho.main` returns the status
-for a caller that wants it. `None` or an `int` is the exit status; any other
+`duho.run(root, argv=None, *, exit=True)` is the program entry. It calls `duho.main`,
+prints the command's answer and exits with the status; `duho.main` returns the status
+for a caller that wants it. `duho.run(root, argv, exit=False)` does everything `run`
+does and returns the status as an `int` instead of exiting, in every case: a
+`SystemExit` becomes its status (`None` is 0, an `int` itself, anything else is printed
+to standard error and is 1), Ctrl-C is 130 and a broken pipe is 1. A program that has
+its own `main(argv) -> int` for a console script and its tests can call it from there. `None` or an `int` is the exit status; any other
 value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
 with status 0. A `KeyboardInterrupt` exits 130 and a closed pipe exits 1, both
 silently, unless `DUHO_TRACEBACK` is set.
@@ -70,6 +74,19 @@ Raise `duho.CommandError(message, code=1)` from a command to fail with a message
 `main` and `app` print `<prog>: error: <message>` to stderr and return the code
 (`duho.UsageError` is the same with code 2). Under `DUHO_TRACEBACK` the
 exception propagates. Over MCP the message becomes the error result's text.
+
+A program with its own way of reporting an error, a logger or a format, sets
+`_report_error_` on the root class: a function called in place of the default line
+for every error `main`, `app` or `run` catch, a `CommandError` or an `_errors_`
+exception. It is called as `f(message, code)`, or as `f(message, code, error)` when it
+can take three positional arguments (`error` is the exception), and also for an empty
+message. The status returned is the same, `DUHO_TRACEBACK` still re-raises first, and an
+MCP tool call does not use it:
+
+```python
+class App(duho.Cli):
+    _report_error_ = staticmethod(lambda message, code: log.error(message))
+```
 
 <!-- runnable: commands -->
 ```python

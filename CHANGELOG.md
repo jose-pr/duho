@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `duho.run(root, argv, exit=False)` returns the status as an `int` instead of exiting,
+  in every case: a `SystemExit` becomes its status, Ctrl-C is 130 and a broken pipe is 1.
+  The default still exits.
+- `_report_error_` on a root class: a function called in place of the default
+  `PROG: error: MESSAGE` line when `main`, `app` or `run` catch a `CommandError` or an
+  `_errors_` exception, as `f(message, code)` or `f(message, code, error)`. The status
+  is unchanged.
+- `discover_commands(..., sort=False)` keeps discovery order instead of sorting by name.
+- `duho.runtime.build_command_parser(command, root=None)` builds the subparser `app`
+  would build for one resolved command.
+- `duho.runpath.preserve_registration()`, a context manager that restores the base, the
+  step adapter and whether the provider is registered.
+- `call_tool(output_path=...)` without `output_fd` is a `ValueError`: the path opens
+  nothing.
+
+### Changed
+
+- A config file that cannot be read, is not a table, has no backend or parser library, or
+  trips `"strict"` or a `_config_validate_` function now ends with one line,
+  `PROG: error: MESSAGE`, and status 2, without the usage lines. A value that fails to
+  convert for a field keeps the usage form.
+- The strict unknown-key line cuts each key to 120 characters, escapes it, and shows at
+  most 20 followed by `and N more`. A `_config_validate_` function still gets every path.
+- The field `_config_field_` names (`config` with `ConfigArgs`) is never a settings key: a
+  key of that name in the file is not applied and counts as unknown.
+- On Windows a relative `APPDATA` is ignored by `user_path`, as a relative
+  `XDG_CONFIG_HOME` is elsewhere.
+
 ## [0.7.3] - 2026-10-12
 
 ### Added

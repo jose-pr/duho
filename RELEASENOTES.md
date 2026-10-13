@@ -8,6 +8,21 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+A tool whose entry point, error style or config file is its own can use more of duho.
+
+- `duho.run(..., exit=False)` returns the status, so a program's own `main(argv) -> int`
+  can call `run` and keep its console script and its tests. A `SystemExit` raised by
+  argparse or by a command becomes its status; the default is unchanged.
+- `_report_error_` on a root class replaces the default error line for an error `main`,
+  `app` or `run` catch, so a program can report through its logger or in its own format
+  and keep duho's status. An MCP tool call does not use it.
+- A config file error is one line without usage, as a program whose every failure is one
+  line expects; a value that fails to convert keeps argparse's usage form. The strict
+  line is bounded and escaped. `ConfigArgs` with `_config_field_ = None` in the class
+  body is documented as the option without duho's reading of the file.
+- `discover_commands(sort=False)`, `duho.runtime.build_command_parser` and
+  `duho.runpath.preserve_registration` replace three uses of private names.
+
 ---
 
 ## [0.7.3] — 2026-10-12

@@ -73,8 +73,9 @@ that would rather catch a misspelled key can say so; see
 
 A `_config_` path that does not exist yet is skipped (with a debug log)
 instead of raising — a class attribute is allowed to point at a file an app
-hasn't written yet. An explicit `config=` argument stays strict: a missing
-file passed that way still raises, since you named it directly.
+hasn't written yet. A path you name yourself stays strict: an explicit `config=`
+argument, `--config` and the `_config_env_` variable must exist, since you named
+the file directly.
 
 ### Unknown keys
 
@@ -88,7 +89,7 @@ names no command is reported as the table's name.
 | --- | --- |
 | `None` or `"ignore"` | the default: unknown keys are skipped |
 | `"warn"` | one warning on the `duho.config` logger naming the file and the keys |
-| `"strict"` | a usage error (exit status 2, no traceback) naming the file and the keys |
+| `"strict"` | a one-line error (exit status 2, no usage lines, no traceback) naming the file and the keys |
 | a function | called as `f(args, config, unknown)` or `f(args, config)` to check the whole file; see below |
 
 ```python
@@ -112,7 +113,7 @@ gets as `self`), the loaded mapping, and a tuple of the unknown paths (empty whe
 there are none). A function that takes only two arguments, `f(args, config)`, is
 called the same way without the unknown paths, which are then ignored as by default.
 Either form is called whether or not the file has unknown keys. A `ValueError` it
-raises with a message becomes the same usage error; any other exception propagates.
+raises with a message becomes the same one-line error; any other exception propagates.
 
 ```python
 from duho import Cli
@@ -165,7 +166,15 @@ $ deploy -c missing.yaml       # deploy: error: argument --config/-c: no such fi
 ```
 
 The path has `~` expanded and must be a file, so a mistyped path is a usage error
-(exit status 2) with no traceback. List `ConfigArgs` before `Cli`: `Cli` declares
+(exit status 2) with no traceback. The field named by `_config_field_` is the file's
+own path, so it is never a settings key: a `config` key inside the file is not applied,
+and `_config_validate_` counts it as unknown.
+
+A tool that reads its `--config` file itself, with its own loader or its own idea of
+what the file holds, can keep the option and turn duho's reading off: set
+`_config_field_ = None` in the class body (`class Deploy(ConfigArgs, LoggingArgs, Cli)`
+with `_config_field_ = None`). The field is still parsed and checked to be a file, and
+the program reads it. List `ConfigArgs` before `Cli`: `Cli` declares
 `_config_field_ = None`, and `class Deploy(Cli, ConfigArgs)` is a `TypeError` naming the
 class. Because the class names a config source, `--help` lists the reversible `--no-*`
 form of its `bool` fields whether or not a file was given.
@@ -213,7 +222,10 @@ raises `FileNotFoundError`, where a missing `_config_` is skipped. A `_config_fi
 naming a field the class does not declare is a `ValueError` naming the class, raised
 before parsing. A tree served over
 [MCP](https://github.com/jose-pr/duho/#mcp-tool-surface-duhomcp-opt-in) reads the file
-`_config_` names but applies neither of these two attributes.
+`_config_` names but applies neither of these two attributes. It reads that file once,
+at the first call in the process, and keeps it: a later change to the file, or to the
+variable that locates it, is not seen until the process restarts, so an in-process test
+cannot vary the default file between calls.
 
 An env var set to the empty string is treated as unset (falls through to
 config/class default) for every field except a bare `str` field, which keeps
@@ -223,8 +235,8 @@ exception: empty there means no file, as above.
 ### A default location in the user's config directory
 
 `duho.config.user_path(app, *names)` is the path `<config dir>/<app>/<names...>`, where the
-config dir is `APPDATA` (else `~/AppData/Roaming`) on Windows and `XDG_CONFIG_HOME` (when it
-is an absolute path, else `~/.config`) elsewhere. It resolves each time duho looks for the
+config dir is `APPDATA` (when it is an absolute path, else `~/AppData/Roaming`) on
+Windows and `XDG_CONFIG_HOME` (when it is an absolute path, else `~/.config`) elsewhere. It resolves each time duho looks for the
 file, not when the class is defined, so it is safe as a class attribute:
 
 ```python
@@ -273,14 +285,15 @@ target = prod
 ```
 
 duho stays zero-dependency by default: a parser library is imported only when a file of
-its format is read. If it is missing, reading that file is a usage error naming the extra
+its format is read. If it is missing, reading that file is a one-line error naming the extra
 (`duho[yaml]`, `duho[config]`), exit status 2; `--help` and `--version` still work.
 
 ### Malformed config files
 
-A malformed file, or one whose top level is not a table, is a usage error naming the
-file and the format, with exit status 2 under `duho.main`, `duho.parse` and `duho.app`
-alike, not a raised exception. The message carries the parser's problem and position and
+A malformed file, or one whose top level is not a table, is one line, `PROG: error:
+MESSAGE`, naming the file and the format, with exit status 2 and no usage lines under
+`duho.main`, `duho.parse` and `duho.app` alike, not a raised exception. A value in the
+file that fails to convert for its field is still an argparse usage error. The message carries the parser's problem and position and
 never a value from the document, so a secret in a bad file is not echoed. It can name
 a key, a section, or a YAML alias or tag, cut to 120 characters:
 
@@ -350,7 +363,7 @@ it in a set, below.
 
 By default a tool reads every registered format. Set `_config_backends_` on the root to
 limit it to the ones you list, as registered names, backend classes or instances. A file
-whose name no listed suffix matches is then a usage error that lists the accepted
+whose name no listed suffix matches is then a one-line error that lists the accepted
 suffixes:
 
 <!-- runnable -->
@@ -432,7 +445,7 @@ class Deploy(duho.Cli):
 Errors raised inside the loader propagate to the caller unchanged: duho does not convert
 them, so the application reports them its own way. Only the backends, and the check that
 the loaded value is a mapping, report through the parser: a loader that returns something
-that is not a mapping is a usage error naming the file. For anything you would use
+that is not a mapping is a one-line error naming the file. For anything you would use
 twice, a `ConfigBackend` subclass is the better home.
 
 ## Where did this value come from?

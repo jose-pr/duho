@@ -76,6 +76,10 @@ override — it.
 discovered on its own, a command of the same name in a later source replaces the
 earlier one, and the merged result is sorted by name. An empty sequence gives `[]`,
 and each member keeps the empty-source and bare-drive-letter checks (`ValueError`).
+`sort=False` keeps discovery order instead: the sources as given, files by name within a
+directory or package, definitions in order within a file, and a later command of the same
+name takes the earlier one's place. A program that lists its built-in commands first and
+an extra directory's after them asks for it.
 
 By default discovery skips a command that raises `ImportError` or
 `NotImplementedError` (with a warning) and lets anything else, such as a
@@ -113,7 +117,11 @@ assert commands[0].entrypoint(None) == 2      # site/hello.py replaced base/hell
 
 `duho.app` passes the same `on_error` to discovery for `source=` and `CMDS_PATH`, and
 also calls it, with `(command, exc)`, when building one command's parser or running its
-`register` hook raises; that command is dropped.
+`register` hook raises; that command is dropped. To ask the same of one command yourself,
+for instance to drop a module command that cannot build as soon as it is discovered,
+`duho.runtime.build_command_parser(command, root=None)` builds the subparser `app` would
+build for it, under `root`'s options, running a module command's `register` hook with
+`None` for the parsed globals, and raises whatever the build raises.
 
 With `providers=True` (filesystem sources only, off by default) the source directory
 itself, then each child directory whose name does not start with `_` or `.`, is

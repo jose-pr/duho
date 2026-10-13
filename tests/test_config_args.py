@@ -184,3 +184,21 @@ def test_an_args_root_with_the_preset_parses_a_file(tmp_path):
     path.write_text('{"port": 4}')
     assert duho.parse(Flat, ["-c", str(path)]).port == 4
     assert issubclass(Flat, Args)
+
+
+def test_config_field_none_gives_the_option_alone(tmp_path, capsys):
+    class OptionOnly(ConfigArgs, LoggingArgs, Cli):
+        _parsername_ = "option-only"
+        _config_field_ = None
+        _subcommands_ = [Leaf]
+        port: int = 1
+        ("--port",)
+
+    path = _write(tmp_path, "json")
+    parsed = duho.parse(OptionOnly, ["-c", str(path), "leaf"])
+    assert parsed.config == path
+    assert parsed.port == 1
+    with pytest.raises(SystemExit) as info:
+        duho.parse(OptionOnly, ["-c", str(tmp_path / "missing.json"), "leaf"])
+    assert info.value.code == 2
+    assert "no such file" in capsys.readouterr().err

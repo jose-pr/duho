@@ -194,11 +194,11 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_distribution_` | `str \| None` | `None` | root | distribution name for `AUTO` when it differs from the import package |
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped; also read by a tree served over MCP |
-| `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a usage error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
-| `_config_loader_` | `Callable[[Path], dict] \| Callable[[Path, str], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; a loader that takes two positional arguments is also given where the path came from (`"argument"`, `"field"`, `"env"` or `"default"`); its own exceptions propagate unchanged, a non-mapping result is a usage error naming the file |
-| `_config_validate_` | `str \| Callable[[Args, Mapping, tuple[str, ...]], None] \| Callable[[Args, Mapping], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a usage error, a callable `f(args, config, unknown)` or `f(args, config)` validates the whole file after the parse, given the parsed instance, the loaded mapping and, in the three-argument form, a tuple of dotted key paths (its `ValueError` is a usage error); runs only when a file was read; any other value is a `ValueError` naming the class |
+| `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a one-line error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
+| `_config_loader_` | `Callable[[Path], dict] \| Callable[[Path, str], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; a loader that takes two positional arguments is also given where the path came from (`"argument"`, `"field"`, `"env"` or `"default"`); its own exceptions propagate unchanged, a non-mapping result is a one-line error naming the file |
+| `_config_validate_` | `str \| Callable[[Args, Mapping, tuple[str, ...]], None] \| Callable[[Args, Mapping], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a one-line error, a callable `f(args, config, unknown)` or `f(args, config)` validates the whole file after the parse, given the parsed instance, the loaded mapping and, in the three-argument form, a tuple of dotted key paths (its `ValueError` is a one-line error); the field `_config_field_` names counts as unknown; runs only when a file was read; any other value is a `ValueError` naming the class |
 | `_config_env_` | `str \| None` | `None` | root | name of an environment variable holding the config file's path; outranks `_config_`, and the file must exist; not applied to a tree served over MCP |
-| `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist; not applied to a tree served over MCP |
+| `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist; never itself a settings key (a key of that name in the file is not applied and is unknown to `_config_validate_`); not applied to a tree served over MCP |
 | `_help_formatter_` | `type \| None` | `None` | root, command | argparse `formatter_class`; a root's value propagates to its subcommands |
 | `_subcommands_` | `Sequence[type[Cmd]] \| None` | `None` | root, command | the static subcommand tree; nests |
 | `_default_subcommand_` | `str \| None` | `None` | root, command | the subcommand inserted when the first token after the group's own options names none of its subcommands; a `ValueError` naming the class at build for an unknown name or a class with no subcommands (see "Declaring commands") |
@@ -279,7 +279,9 @@ just its annotation.
   or any other object with attributes, such as an `argparse.Namespace`, whose public
   attributes are its keys. The keys duho knows are used; the rest are ignored with the
   warning above. An object with a str `.documentation` (PEP 727) gives the help text. A
-  class, a bare string and an object with no attributes are ignored.
+  class, a bare string and an object with no attributes are ignored. The name `NS`, removed in
+  0.7.0, was `argparse.Namespace`: a class that subclassed it subclasses `argparse.Namespace`
+  and keeps working as the permissive form.
 - **`argparse.SUPPRESS`** — placed anywhere in a field's metadata (`Arg[str, argparse.SUPPRESS]`)
   it hides the field from the command line entirely: no flag, no parsed value.
 - **`Choice(*choices, **kw)`** — restrict accepted values to `choices`.
@@ -481,7 +483,7 @@ just its annotation.
   unset or its default), or the root's defaults instance when a global fails to convert;
   `args` is `None` only if the root cannot be built without arguments. The real parse
   still enforces the required options. A malformed or unreadable built-in config file is a
-  usage error here as under `main` (see "Env / config").
+  one-line error here as under `main` (see "Env / config"), printed once.
   `app` catches errors the same way `main` does, around its `dispatch=` step too.
 - **`run(root, argv=None, *, exit=True, **app_kwargs) -> NoReturn`** — the program entry:
   `if __name__ == "__main__": duho.run(App)`. Calls `main(root, argv)`, or
@@ -662,11 +664,15 @@ empty when absent).
   fields (`verbose = true` plus `[install]` with `target = "prod"`). Unknown keys are
   ignored by default; see "Unknown config keys" below. Every entry point layers env and the class's `_config_` the same way:
   `parse`, `main`, `parse_globals`, `app` and a parser from `duho.parser(cls)`.
-  A `_config_` path that does not exist yet is skipped; an explicit `config=` path that is
-  missing raises. A malformed config file, a file whose parser library is not installed
-  (TOML on 3.9/3.10 without `tomli`, YAML without PyYAML), and a file whose top level is not a table/object
-  are usage errors (message naming the file, exit `2`) under `main`, `parse` and `app`
-  alike; `--help` and `--version` still work. `_config_loader_` (`Callable[[Path], dict]`)
+  A `_config_` path that does not exist yet is skipped, while a path named with `--config`,
+  `_config_env_` or `config=` must exist. A malformed config file, a file whose parser
+  library is not installed (TOML on 3.9/3.10 without `tomli`, YAML without PyYAML), a file
+  no backend reads and a file whose top level is not a table/object end with ONE line,
+  `PROG: error: MESSAGE` (the message names the file), exit `2` and no usage lines, under
+  `main`, `parse` and `app` alike; the strict unknown-key error and a `_config_validate_`
+  function's `ValueError` end the same way. A value that fails to convert for one field,
+  from the file or from a variable, is still an argparse usage error. `--help` and
+  `--version` still work. `_config_loader_` (`Callable[[Path], dict]`)
   replaces the built-in reader, for any other format; it is not called for a skipped file.
   A loader that can take two positional arguments (`loader(path, source)`) is also told
   where the path came from: `"argument"` (`config=`), `"field"` (`_config_field_`),
@@ -674,7 +680,7 @@ empty when absent).
   MCP); a loader of one argument is called as before.
   An exception the loader itself raises propagates to the caller unchanged (the
   application reports it); a loader that returns something that is not a mapping is a
-  usage error naming the file. A `loglevels` table in a config file takes level names or
+  one-line error naming the file. A `loglevels` table in a config file takes level names or
   numbers and is converted to numeric levels. A collection field treats an
   env or TOML *string* as one element and a TOML array element-wise; non-string TOML
   scalars are coerced to the field type.
@@ -694,7 +700,9 @@ empty when absent).
   `_config_field_` naming no declared field is a `ValueError` naming the class, raised by
   `main`/`parse`/`parse_globals`/`app` before parsing. A tree served over MCP reads the
   file `_config_` names, like any other parse, but applies neither `_config_field_` nor
-  `_config_env_`: no command line or per-call variable chooses a server's file.
+  `_config_env_`: no command line or per-call variable chooses a server's file. The file is read
+  once, at the first call in the process, and kept: a later change to it or to the variable
+  that locates it is not seen by `call_tool` until the process restarts.
 - **Unknown config keys** — a key in the config file that nothing applies: at each level,
   one that is neither a field of that command nor a dict-valued table named for one of its
   registered subcommands (a table named for an alias, or holding a non-table value, is
@@ -702,7 +710,7 @@ empty when absent).
   it; a module command with no `Args` has no fields). It is reported as a dotted path
   (`install.targte`), in file order. The root's `_config_validate_` decides what happens:
   `None` or `"ignore"` (the default, today's behaviour: skipped with a DEBUG line),
-  `"warn"` (one WARNING on logger `duho.config`), `"strict"` (a usage error, exit `2`,
+  `"warn"` (one WARNING on logger `duho.config`), `"strict"` (a one-line error, exit `2`,
   held so `--help` and `--version` still work), or a function `f(args, config, unknown)`
   that validates the whole file. It is called at the end of a successful parse (not for
   `--help`, `--version` or a command line argparse refuses, and not when arguments are
@@ -712,10 +720,14 @@ empty when absent).
   positional arguments is called as `f(args, config)` instead, in the same cases, and
   the unknown keys are then skipped as under `"ignore"`; one with `*args` gets all three.
   A `ValueError` it raises with a
-  non-empty message becomes a usage error (exit `2`); any other exception propagates. The messages are
+  non-empty message becomes a one-line error (exit `2`); any other exception propagates. The messages are
   `duho: config file PATH: unknown key 'a'` (or `unknown keys: 'a', 'install.b'`) and
   `duho: config file PATH: ` plus the function's text; they hold key names and the path,
-  never a value. Nothing runs, a function included, unless a file was actually read (a
+  never a value. The unknown paths in the message are bounded: each is cut to 120
+  characters and shown with `repr` (a control character is escaped), at most 20, then
+  `and N more`; a function still gets every path whole. The field `_config_field_` names
+  holds the file's own path, so it is never a settings key: a key of that name in the
+  file is not applied (a DEBUG line, as for any unknown key) and counts as unknown. Nothing runs, a function included, unless a file was actually read (a
   skipped `_config_`, `config={}` or no config does not count), and `parse_globals`
   never runs it: the commands `app` registers later are not known to it. Unknown keys are worked out once the
   whole command tree is built, for `parse`, `main` and `app` alike. Any other value is a
@@ -729,7 +741,9 @@ empty when absent).
   naming the class (Cli's `_config_field_ = None` would hide it) unless the class body
   sets `_config_field_`. A class counts as having a config source when ANY of `_config_`,
   `_config_env_` or `_config_field_` is set, so a bool field gets its `--no-*` form in
-  `--help` whether or not a file was named.
+  `--help` whether or not a file was named. `ConfigArgs` with `_config_field_ = None` in the
+  class body gives the `--config` option alone: the field is parsed and validated and the
+  program reads the file itself.
 - **`value_sources(parsed) -> dict[str, str]`** — introspect where each field's value
   came from: `"cli"`, `"env"`, `"config"`, `"instance"` (a field that came from an
   instance passed to `duho.parse`), or `"default"`.
@@ -775,7 +789,7 @@ merging, interpolation or templating.
   its `.name`), `dumps(data, format) -> str` and `dump(data, target, format=None)`.
 - **`user_path(app, *names) -> os.PathLike[str]`** — the per-user config location
   `<config dir>/<app>/<names...>`, resolved each time it is used as a path (so it is safe as
-  `_config_ = user_path("tool", "config.toml")`). The config dir is `APPDATA` (else
+  `_config_ = user_path("tool", "config.toml")`). The config dir is `APPDATA` when absolute (else
   `~/AppData/Roaming`) on Windows, `XDG_CONFIG_HOME` when absolute (else `~/.config`)
   elsewhere. An empty `app` is a `ValueError`.
 - **Choosing a set.** `backends=None` is every registered backend. Otherwise an iterable
@@ -811,7 +825,7 @@ merging, interpolation or templating.
 - A config file duho reads goes through
   `backend_for(path, default="toml", backends=_config_backends_)`: with `_config_backends_`
   unset a name no suffix matches is TOML (as before); with it set there is no default and
-  such a name is a usage error. A `_config_loader_` still outranks all of it.
+  such a name is a one-line error. A `_config_loader_` still outranks all of it.
 
 ## Logging (`duho.logging`)
 
@@ -1101,7 +1115,8 @@ manipulating a parser tree directly:
   result says how many bytes went to which descriptor (and `output_path`, the file it was
   opened on, when given), in place of the text. With `output_fd=None` the call is an
   `isError` result instead (`output_var`, the variable that names the target, is quoted in
-  it). `sys.stdout.fileno()` is the descriptor when there is one, else it raises
+  it). `output_path` with no `output_fd` is a `ValueError`: the path opens nothing.
+  `sys.stdout.fileno()` is the descriptor when there is one, else it raises
   `io.UnsupportedOperation`. On a target that is not a regular file the offset in the result
   is what this server has written to it so far (`at offset K of this server's output`). A write that fails is an `isError` result with the system's
   reason, never the bytes.
@@ -1219,7 +1234,7 @@ manipulating a parser tree directly:
 - **`duho.exceptions.ConfigError`** (`ValueError`, with `path`, `lineno`, `colno`),
   **`UnsupportedFormatError`** and **`ConfigDependencyError`** (both `ConfigError`; the
   latter has `.extra`) — see "Config backends". Under `main`/`parse`/`app` a config file's
-  failure is a usage error, exit `2`, never one of these.
+  failure is a one-line error, exit `2`, never one of these.
 - **`FileNotFoundError`** — a config path chosen by `config=`, `_config_env_` or
   `_config_field_` that does not exist.
 - **`RuntimeError`** — `duho.mcp.serve_running_app` called outside a `main`/`app` dispatch.

@@ -253,6 +253,14 @@ class Cli(Cmd):
     #: nothing. ``duho.CommandError`` needs no entry.
     _errors_: _ty.Optional[_ty.Mapping[type, int]] = None
 
+    #: On the root: a function that reports a caught ``CommandError`` or
+    #: ``_errors_`` exception in place of the default ``<prog>: error: <message>``
+    #: line, called ``f(message, code)``, or ``f(message, code, error)`` when it
+    #: takes three positional arguments, also for an empty message. The status
+    #: is unchanged. Read by ``duho.main``/``duho.app``/``duho.run``, not by an
+    #: MCP tool call; ``DUHO_TRACEBACK`` re-raises before it.
+    _report_error_: _ty.Optional[_ty.Callable[..., object]] = None
+
     #: When ``True`` (the default), ``duho.main``/``duho.app`` call
     #: :func:`duho.utf8_stdio` first, before the MCP trigger and argv parsing, so
     #: piped stdout/stderr on a non-UTF-8 locale (``cp1252`` on Windows) become

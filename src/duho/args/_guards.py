@@ -47,6 +47,7 @@ _KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
         "_parsername_",
         "_passthrough_",
         "_register_subcmd_",
+        "_report_error_",
         "_runpath_dir_",
         "_runpath_logger_",
         "_set_loglevels_",

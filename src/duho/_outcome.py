@@ -93,6 +93,7 @@ def _guard_dispatch(
 ) -> _ty.Any:
     """Run the dispatch step; turn a caught error into ``prog: error: msg`` and its status.
 
+    The root's ``_report_error_`` writes the report instead when it has one.
     Under ``DUHO_TRACEBACK`` the exception is re-raised. Nothing else is caught.
     """
     try:
@@ -102,6 +103,14 @@ def _guard_dispatch(
         if code is None or _traceback_enabled():
             raise
         message = str(exc)
-        if message:
+        report = getattr(root_cls, "_report_error_", None)
+        if report is not None:
+            from .runtime._arity import accepts_positional  # lazy: runtime imports this
+
+            if accepts_positional(report, 3):
+                report(message, code, exc)
+            else:
+                report(message, code)
+        elif message:
             print("%s: error: %s" % (prog, message), file=_sys.stderr)
         return code

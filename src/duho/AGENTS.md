@@ -208,6 +208,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
 | `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
 | `_errors_` | `Mapping[type, int] \| None` | `None` | root | exception type → exit status for exceptions a command lets escape; matched by `isinstance` in the mapping's order, first match wins; `main`/`app` (and an MCP tool call) catch them like a `CommandError`; `None` catches nothing |
+| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, or `f(message, code, error)` when it can take three positional arguments; also called for an empty message; the status is unchanged; read by `main`/`app`/`run`, not by an MCP tool call; `DUHO_TRACEBACK` re-raises first |
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
@@ -413,7 +414,8 @@ just its annotation.
   type-clean under a strict-mypy consumer. **Caught errors**: while dispatching (never
   while parsing), a `CommandError` or an exception matching the root's `_errors_` is
   caught, `<prog>: error: <message>` goes to stderr (no line for an empty message) and
-  the status is returned; under `DUHO_TRACEBACK` it propagates instead. Nothing else is
+  the status is returned, unless the root's `_report_error_` function writes the report
+  instead; under `DUHO_TRACEBACK` it propagates instead. Nothing else is
   caught. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
@@ -481,7 +483,7 @@ just its annotation.
   still enforces the required options. A malformed or unreadable built-in config file is a
   usage error here as under `main` (see "Env / config").
   `app` catches errors the same way `main` does, around its `dispatch=` step too.
-- **`run(root, argv=None, **app_kwargs) -> NoReturn`** — the program entry:
+- **`run(root, argv=None, *, exit=True, **app_kwargs) -> NoReturn`** — the program entry:
   `if __name__ == "__main__": duho.run(App)`. Calls `main(root, argv)`, or
   `app(root, argv=argv, **app_kwargs)` when keywords are given, then `sys.exit`s. `None` →
   0; a `Result` → its rendered `value` (when not `None`) on stdout, status `int(result)`;
@@ -489,7 +491,10 @@ just its annotation.
   `str` as it is, else `json.dumps(value, indent=2, ensure_ascii=False, default=str)`),
   status 0. `KeyboardInterrupt` → 130 and `BrokenPipeError` (also from its own printing) →
   1, silent (stdout is pointed at the null device first); both propagate under
-  `DUHO_TRACEBACK`. A `SystemExit` passes through. Also `duho.runtime.run`.
+  `DUHO_TRACEBACK`. A `SystemExit` passes through. With `exit=False` it does the same and
+  returns the status as an `int` instead of exiting, in every case, never raising
+  `SystemExit`: a `SystemExit` becomes its status (`None` is 0, an `int` itself, anything
+  else is printed to standard error and is 1). Also `duho.runtime.run`.
 - **`Result(code=0, *, value=None, text=None, is_error=None)`** — an `int` subclass a
   command returns for more than a status. `int(result)` is the exit status (`sys.exit`
   and every int check work); attributes `code`, `value` (the answer: printed by `run`,

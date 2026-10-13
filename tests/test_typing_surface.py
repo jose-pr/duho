@@ -129,12 +129,18 @@ CONSUMER_SOURCE = textwrap.dedent("""
     exit_code = duho.app(root=App, commands=[Deploy, Build])
     reveal_type(exit_code)  # Any -- a command's return passes through unchanged
 
+    status = duho.run(App, [], exit=False)
+    reveal_type(status)  # int, the status instead of an exit
+
     tools = dmcp.describe_tools(App)
     reveal_type(tools)  # list[dict[...]]
 
     # duho.main is typed `-> Any`, not `-> object`, so this must type-check
     # clean under strict mypy: `sys.exit` does not accept `object`.
     sys.exit(duho.main(App, []))
+
+    # `duho.run` exits by default: NoReturn.
+    duho.run(App, [])
     """)
 
 

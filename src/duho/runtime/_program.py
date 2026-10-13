@@ -35,11 +35,47 @@ def _status_of(outcome: object) -> int:
     return 0
 
 
+def _exit_status(code: object) -> int:
+    """The status ``sys.exit(code)`` would end the process with.
+
+    ``None`` is 0 and an ``int`` is itself; anything else is printed to standard
+    error, as the interpreter does, and is 1.
+    """
+    if code is None:
+        return 0
+    if isinstance(code, int):
+        return int(code)
+    print(code, file=_sys.stderr)
+    return 1
+
+
+@_ty.overload
 def run(
     root: type,
     argv: _ty.Optional[_ty.Sequence[str]] = None,
+    *,
+    exit: _ty.Literal[True] = True,
     **app_kwargs: _ty.Any,
-) -> _ty.NoReturn:
+) -> _ty.NoReturn: ...
+
+
+@_ty.overload
+def run(
+    root: type,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
+    *,
+    exit: _ty.Literal[False],
+    **app_kwargs: _ty.Any,
+) -> int: ...
+
+
+def run(
+    root: type,
+    argv: _ty.Optional[_ty.Sequence[str]] = None,
+    *,
+    exit: bool = True,
+    **app_kwargs: _ty.Any,
+) -> int:
     """Run ``root`` as the program: dispatch, print the answer, and exit.
 
     Calls ``duho.main(root, argv)``, or ``duho.app(root, argv=argv, **app_kwargs)``
@@ -49,6 +85,10 @@ def run(
     as it is, else JSON) with status 0. ``KeyboardInterrupt`` exits 130 and a
     ``BrokenPipeError`` exits 1, both silently, unless ``DUHO_TRACEBACK`` is set,
     which re-raises them. A ``SystemExit`` passes through untouched.
+
+    With ``exit=False`` it does all of that and returns the status instead of
+    exiting, in every case: a ``SystemExit`` becomes its status (``None`` is 0,
+    an ``int`` itself, anything else is printed to standard error and is 1).
     """
     try:
         if app_kwargs:
@@ -60,6 +100,10 @@ def run(
 
             outcome = _main(root, argv)
         status = _status_of(outcome)
+    except SystemExit as exc:
+        if exit:
+            raise
+        status = _exit_status(exc.code)
     except KeyboardInterrupt:
         if _traceback_enabled():
             raise
@@ -69,4 +113,6 @@ def run(
             raise
         _silence_stdout()
         status = 1
-    _sys.exit(status)
+    if exit:
+        _sys.exit(status)
+    return status

@@ -95,6 +95,13 @@ def _load_config(
     return backend_for(p, default=default, backends=backends).load(p)
 
 
+def _settings_field_names(cls) -> set[str]:
+    """The names of `cls`'s fields a settings file can set: every declared field
+    except the one ``_config_field_`` names, which holds the file's own path."""
+    skip = getattr(cls, "_config_field_", None)
+    return {b.name for b in cls._getargs_() if b.name != skip}
+
+
 def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
     """The subset of `config_table` naming this class's declared fields,
     unconverted (a native TOML/JSON value keeps its type). Unknown keys are
@@ -103,7 +110,7 @@ def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
     if not config_table:
         return {}
     resolved: dict[str, object] = {}
-    field_names = {b.name for b in cls._getargs_()}
+    field_names = _settings_field_names(cls)
     for key, raw in config_table.items():
         if key not in field_names:
             _LOGGER.debug("duho: ignoring unknown config key %r for %s", key, cls)
@@ -162,6 +169,18 @@ def _resolve_config_dict(
     return _read_config(cls, config)[0]
 
 
+def _config_file_error(parser: _argparse.ArgumentParser, message: str) -> _ty.NoReturn:
+    """End with ``PROG: error: MESSAGE`` and status 2, without the usage lines.
+
+    A parser whose ``error`` was replaced (the silent advisory prepass) is
+    asked instead, so it stays silent.
+    """
+    if "error" in vars(parser):
+        parser.error(message)
+    parser.exit(2, f"{parser.prog}: error: {message}\n")
+    raise AssertionError("parser.exit returned")  # pragma: no cover
+
+
 def _resolve_config_or_error(
     parser: _argparse.ArgumentParser,
     cls,
@@ -169,7 +188,7 @@ def _resolve_config_or_error(
     source: str | None = None,
 ) -> dict:
     """:func:`_resolve_config_dict`, reporting an unreadable or malformed
-    config through ``parser.error`` (usage line, exit 2).
+    config through :func:`_config_file_error` (one line, exit 2).
 
     A ``ValueError`` from the class's own ``_config_loader_`` propagates
     unchanged. A missing parser library is held on the parser and reported by
@@ -189,8 +208,7 @@ def _resolve_config_or_error(
     except ValueError as exc:
         if getattr(exc, "_duho_from_loader_", False):
             raise
-        parser.error(str(exc))
-        raise  # pragma: no cover - parser.error always raises SystemExit
+        _config_file_error(parser, str(exc))
 
 
 _VALIDATE_MODES = ("ignore", "warn", "strict")
@@ -252,8 +270,26 @@ def _unknown_config_keys(
                 children[sub_name] = lambda t, p, sp=sub_parser, c=sub: (
                     _unknown_config_keys(sp, c, t, p)
                 )
-    fields = {b.name for b in cls._getargs_()}
-    return _unknown_in_table(table, fields, children, prefix)
+    return _unknown_in_table(table, _settings_field_names(cls), children, prefix)
+
+
+_UNKNOWN_SHOWN = 20
+_UNKNOWN_KEY_LIMIT = 120
+
+
+def _unknown_keys_text(paths: _ty.Sequence[str]) -> str:
+    """``unknown key 'a'`` or ``unknown keys: 'a', 'b'``: at most 20 dotted paths,
+    each cut to 120 characters and shown with ``repr`` (so a control character is
+    escaped), then ``and N more``."""
+    shown = []
+    for path in paths[:_UNKNOWN_SHOWN]:
+        if len(path) > _UNKNOWN_KEY_LIMIT:
+            path = path[: _UNKNOWN_KEY_LIMIT - 3] + "..."
+        shown.append(repr(path))
+    text = ", ".join(shown)
+    if len(paths) > _UNKNOWN_SHOWN:
+        text += f" and {len(paths) - _UNKNOWN_SHOWN} more"
+    return ("unknown key " if len(paths) == 1 else "unknown keys: ") + text
 
 
 def _enforce_config_validate(
@@ -288,8 +324,7 @@ def _enforce_config_validate(
         return
     if not paths:
         return
-    names = ", ".join(repr(p) for p in paths)
-    message = where + ("unknown key " if len(paths) == 1 else "unknown keys: ") + names
+    message = where + _unknown_keys_text(paths)
     if policy == "strict":
         parser._duho_config_error_ = message  # type: ignore[attr-defined]
     else:
@@ -300,7 +335,7 @@ def _run_config_validator(parser: _argparse.ArgumentParser, instance: object) ->
     """Call the root's ``_config_validate_`` function, armed on `parser` by
     :func:`_enforce_config_validate`, with the instance this parse built.
 
-    A ``ValueError`` with a message is a usage error naming the file; raised
+    A ``ValueError`` with a message is a one-line error naming the file; raised
     outside the ``except`` so the original is not chained onto ``SystemExit``.
     """
     pending = getattr(parser, "_duho_config_validator_", None)
@@ -318,7 +353,7 @@ def _run_config_validator(parser: _argparse.ArgumentParser, instance: object) ->
         text = str(exc)
         if not text:
             raise
-    parser.error(where + text)
+    _config_file_error(parser, where + text)
 
 
 class _LayeredDefault:
@@ -592,7 +627,7 @@ def _finalize_layers(parser: _argparse.ArgumentParser, cls, parsed) -> None:
     """
     config_error = getattr(parser, "_duho_config_error_", None)
     if config_error:
-        parser.error(config_error)
+        _config_file_error(parser, config_error)
     placeholders: dict[str, object] = getattr(parser, "_duho_placeholders_", None) or {}
     if not placeholders:
         return

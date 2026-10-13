@@ -13,6 +13,7 @@ from .._layers import (
     _config_validate_policy as _config_validate_policy,
     _enforce_config_validate as _enforce_config_validate,
     _resolve_config_or_error as _resolve_config_or_error,
+    _settings_field_names as _settings_field_names,
     _stash_layer_state as _stash_layer_state,
     _unknown_config_keys as _unknown_config_keys,
     _unknown_in_table as _unknown_in_table,
@@ -182,9 +183,9 @@ def _validate_app_config(
                 )
                 continue
             args_cls = _module_args_cls(_ty.cast(_ModuleCommand, command), root_cls)
-            fields = {b.name for b in args_cls._getargs_()} if args_cls else set()
+            fields = _settings_field_names(args_cls) if args_cls else set()
             children[name] = lambda t, p, f=fields: _unknown_in_table(t, f, {}, p)
-        root_fields = {b.name for b in root_cls._getargs_()}  # type: ignore[attr-defined]
+        root_fields = _settings_field_names(root_cls)
         return _unknown_in_table(raw_config, root_fields, children, "")
 
     _enforce_config_validate(parser, root_cls, raw_config, unknown)

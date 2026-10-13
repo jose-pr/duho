@@ -375,6 +375,13 @@ def test_fileno_with_a_target_sends_what_is_held_first(tmp_path):
     )
 
 
+def test_output_path_without_output_fd_is_a_value_error(tmp_path):
+    path = tmp_path / "never.bin"
+    with pytest.raises(ValueError, match="output_path.*opens nothing"):
+        _call("uses-fileno", output_path=str(path))
+    assert not path.exists()
+
+
 def test_bytes_reach_the_target_before_the_command_returns(tmp_path):
     path = tmp_path / "early.bin"
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND | BINARY_FLAG)

@@ -568,7 +568,8 @@ def call_tool(
     offset, in place of the text; with ``output_fd`` ``None`` the call is an
     ``isError`` result instead. ``output_path`` is the file ``output_fd`` was
     opened on, named in the result; ``output_var`` is the variable that names
-    the target, quoted in the error.
+    the target, quoted in the error. ``output_path`` with no ``output_fd`` is a
+    ``ValueError``: the path opens nothing.
 
     A command's ``_mcp_output_`` changes this. ``"stream"``: all output, text
     included, goes to ``output_fd`` as written, the result says how many bytes
@@ -576,6 +577,11 @@ def call_tool(
     ``"result"``: the target is not used; text is the text item and bytes that
     are not text follow it as one embedded base64 resource.
     """
+    if output_path is not None and output_fd is None:
+        raise ValueError(
+            "output_path names the file output_fd is open on and opens nothing; "
+            "pass output_fd as well"
+        )
     core = root_cls if isinstance(root_cls, _ServerCore) else _core_for_class(root_cls)
     root_parser, nodes = core.root_parser, core.nodes
     node = nodes.get(name) if isinstance(name, str) else None

@@ -47,7 +47,15 @@ def test_windows_uses_appdata_then_roaming():
 
 
 def test_windows_ignores_xdg():
-    assert _config_home(True, {"XDG_CONFIG_HOME": "/x", "APPDATA": "A"}, "h") == "A"
+    environ = {"XDG_CONFIG_HOME": "/x", "APPDATA": "D:/Roam"}
+    assert _config_home(True, environ, "h") == "D:/Roam"
+
+
+@pytest.mark.parametrize("value", ["relative", "Roaming/dir", "."])
+def test_windows_relative_appdata_falls_back_to_roaming(value):
+    assert _nt(("tool", "c.toml"), APPDATA=value) == os.path.join(
+        "D:/home/ann", "AppData", "Roaming", "tool", "c.toml"
+    )
 
 
 def test_the_live_platform_branch_is_used(monkeypatch, tmp_path):

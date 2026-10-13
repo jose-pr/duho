@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - On Windows a relative `APPDATA` is ignored by `user_path`, as a relative
   `XDG_CONFIG_HOME` is elsewhere.
 
+### Fixed
+
+- `--help` and `--version` work when the config file is malformed, is not a table or
+  is in a format no backend reads, as the documentation said. The error was raised
+  before the command line was read; it is now reported when a command would run. A
+  tree served over MCP with such a file starts, and each tool call returns the error.
+
 ## [0.7.3] - 2026-10-12
 
 ### Added

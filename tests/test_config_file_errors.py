@@ -264,3 +264,40 @@ def test_app_refuses_the_config_field_under_strict(tmp_path, capsys):
         )
     assert info.value.code == 2
     _one_line(capsys, "unknown key 'config'")
+
+
+@pytest.mark.parametrize("flag", ["--help", "--version"])
+@pytest.mark.parametrize(
+    "text, name",
+    [
+        ('{"port": 9', "s.json"),
+        ("port = = 1\n", "s.toml"),
+        ("[1, 2]", "s.json"),
+        ("port = 9\n", "s.nope-format"),
+    ],
+)
+def test_help_and_version_work_whatever_the_file_holds(
+    tmp_path, capsys, flag, text, name
+):
+    cls = _variant("Versioned", _version_="1.2.3", _config_backends_=["json", "toml"])
+    path = _write(tmp_path, text, name)
+    for entry in (
+        lambda: duho.main(cls, ["-c", str(path), flag]),
+        lambda: duho.app(cls, argv=["-c", str(path), flag]),
+    ):
+        with pytest.raises(SystemExit) as stop:
+            entry()
+        assert stop.value.code == 0
+        out, err = capsys.readouterr()
+        assert "error" not in err
+        assert ("1.2.3" in out) if flag == "--version" else ("usage" in out)
+
+
+def test_a_malformed_file_is_still_reported_once_when_a_command_runs(tmp_path, capsys):
+    path = _write(tmp_path, '{"port": 9')
+    with pytest.raises(SystemExit) as stop:
+        duho.main(Tool, ["-c", str(path), "leaf"])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.count("invalid JSON") == 1
+    assert "usage" not in err

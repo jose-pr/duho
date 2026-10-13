@@ -187,28 +187,24 @@ def _resolve_config_or_error(
     config: str | _pathlib.Path | None,
     source: str | None = None,
 ) -> dict:
-    """:func:`_resolve_config_dict`, reporting an unreadable or malformed
-    config through :func:`_config_file_error` (one line, exit 2).
+    """:func:`_resolve_config_dict`, with an unreadable or malformed config
+    held on the parser for :func:`_finalize_layers` to report (one line, exit
+    2), so ``--help`` and ``--version`` work whatever the file holds.
 
     A ``ValueError`` from the class's own ``_config_loader_`` propagates
-    unchanged. A missing parser library is held on the parser and reported by
-    :func:`_finalize_layers`, so ``--help`` and ``--version`` still work.
+    unchanged.
     """
-    from .exceptions import ConfigDependencyError
-
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
     parser._duho_config_path_ = None  # type: ignore[attr-defined]
     try:
         raw, path = _read_config(cls, config, source)
         parser._duho_config_path_ = path  # type: ignore[attr-defined]
         return raw
-    except ConfigDependencyError as exc:
-        parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
-        return {}
     except ValueError as exc:
         if getattr(exc, "_duho_from_loader_", False):
             raise
-        _config_file_error(parser, str(exc))
+        parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
+        return {}
 
 
 _VALIDATE_MODES = ("ignore", "warn", "strict")

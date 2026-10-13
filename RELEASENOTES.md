@@ -8,6 +8,10 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.4] — 2026-10-14
+
 A tool whose entry point, error style or config file is its own can use more of duho.
 
 - `duho.run(..., exit=False)` returns the status, so a program's own `main(argv) -> int`
@@ -22,6 +26,46 @@ A tool whose entry point, error style or config file is its own can use more of 
   body is documented as the option without duho's reading of the file.
 - `discover_commands(sort=False)`, `duho.runtime.build_command_parser` and
   `duho.runpath.preserve_registration` replace three uses of private names.
+- `--help` and `--version` now work when the config file is malformed, is not a table
+  or is in a format no backend reads. The documentation already said so; the error
+  was in fact raised before the command line was read. Every config file error is now
+  held until a command would run.
+
+### Upgrade notes
+
+- A config file error no longer prints the usage lines before it. A test that
+  expects `usage:` ahead of such an error, or more than one line on standard error,
+  needs the new form: one line, `PROG: error: MESSAGE`, status 2. A value that fails
+  to convert for one field is unchanged.
+- A config file error is reported when a command would run, not before the command
+  line is read. A tree served over MCP with a malformed file starts, and each tool
+  call returns the error; it used to fail at start.
+- The field `_config_field_` names (`config` with `ConfigArgs`) is no longer applied
+  from the file and counts as an unknown key, so `"strict"` refuses it.
+- The strict unknown-key line cuts a key at 120 characters and lists at most 20.
+- `user_path` on Windows ignores a relative `APPDATA`.
+
+### Performance
+
+No performance claim is made. The CI regression gate passed on Python 3.9,
+3.13 and 3.14 against the same baseline as 0.7.3. `import duho` loads no new module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3190 passed, 49 skipped) and
+  3.14 (3206 passed, 34 skipped); Linux (WSL) Python 3.14 (3213 passed, 27
+  skipped). The skip counts are those of 0.7.3.
+- CI: all 17 jobs green at the change (run
+  [38449773864](https://github.com/jose-pr/duho/actions/runs/38449773864)), and
+  the same workflow ran at the release commit before tagging.
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits (one README line and two lines of
+  `examples/dotagents.py`, whose subject is that directory).
+- The suites of eleven projects that use duho were run against this tree. Ten pass
+  with the same counts as against duho 0.7.3. In one, fourteen tests fail: each
+  asserts the usage lines ahead of a config file error, which is the first
+  upgrade note above, measured. That project asked for the one-line form; its
+  tests take the new form together with this version as their floor.
 
 ---
 

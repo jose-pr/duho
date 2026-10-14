@@ -93,7 +93,7 @@ def _run_app(
         # `run_command` owns the lifecycle; building the context here would run
         # `init` twice. A custom `dispatch` replaces this step.
         return _guard_dispatch(
-            lambda: run(module_command, instance), parser.prog, root_cls
+            lambda: run(module_command, instance), parser.prog, root_cls, instance
         )
 
     # Class command, or a runnable root: the instance is the deepest selected Cmd.
@@ -111,7 +111,10 @@ def _run_app(
             f"commands"
         )
     return _guard_dispatch(
-        lambda: run(_ty.cast(_Command, type(instance)), instance), parser.prog, root_cls
+        lambda: run(_ty.cast(_Command, type(instance)), instance),
+        parser.prog,
+        root_cls,
+        instance,
     )
 
 

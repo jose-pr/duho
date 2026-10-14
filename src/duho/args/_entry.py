@@ -331,7 +331,9 @@ def main(
     # within a dispatched command.
     token = _compat._MCP_CONTEXT.set(("class", cls))
     try:
-        result = _guard_dispatch(lambda: _maybe_await(run()), parser.prog, cls)
+        result = _guard_dispatch(
+            lambda: _maybe_await(run()), parser.prog, cls, instance
+        )
     finally:
         _compat._MCP_CONTEXT.reset(token)
     return 0 if result is None else result

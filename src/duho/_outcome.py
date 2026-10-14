@@ -89,17 +89,61 @@ def _error_status(
 
 
 def _mark_parser_exit(exc: SystemExit) -> None:
-    """Tag a ``SystemExit`` raised while the command line was parsed."""
-    exc._duho_parser_exit_ = True  # type: ignore[attr-defined]
+    """Tag a ``SystemExit`` raised while parsing, but not a reported command error."""
+    if not getattr(exc, "_duho_reported_", False):
+        exc._duho_parser_exit_ = True  # type: ignore[attr-defined]
+
+
+def _report_caught(
+    exc: Exception,
+    prog: str,
+    root_cls: _ty.Optional[type],
+    command: object = None,
+) -> _ty.Optional[int]:
+    """Report ``exc`` and return its exit status, or ``None`` when it is to propagate.
+
+    ``None`` means ``exc`` is not a ``CommandError`` or an ``_errors_`` match, or
+    ``DUHO_TRACEBACK`` is set and the root has no ``_report_error_``. With the
+    variable set and a hook present, the traceback goes to standard error first.
+    The hook takes ``(message, code, error, command)``, or the first three, or the
+    first two, by how many positional arguments it can take.
+    """
+    code = _error_status(exc, root_cls)
+    if code is None:
+        return None
+    report = getattr(root_cls, "_report_error_", None)
+    if _traceback_enabled():
+        if report is None:
+            return None
+        import traceback  # lazy: only when a traceback is printed
+
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
+    message = str(exc)
+    if report is not None:
+        from .runtime._arity import accepts_positional  # lazy: runtime imports this
+
+        if accepts_positional(report, 4):
+            report(message, code, exc, command)
+        elif accepts_positional(report, 3):
+            report(message, code, exc)
+        else:
+            report(message, code)
+    elif message:
+        print("%s: error: %s" % (prog, message), file=_sys.stderr)
+    return code
 
 
 def _guard_dispatch(
-    call: _ty.Callable[[], _ty.Any], prog: str, root_cls: _ty.Optional[type]
+    call: _ty.Callable[[], _ty.Any],
+    prog: str,
+    root_cls: _ty.Optional[type],
+    command: object = None,
 ) -> _ty.Any:
     """Run the dispatch step; turn a caught error into ``prog: error: msg`` and its status.
 
     The root's ``_report_error_`` writes the report instead when it has one.
-    Under ``DUHO_TRACEBACK`` the exception is re-raised. Nothing else is caught.
+    Under ``DUHO_TRACEBACK`` the exception is re-raised unless the root has a
+    ``_report_error_``. Nothing else is caught.
     """
     try:
         return call()
@@ -108,18 +152,7 @@ def _guard_dispatch(
         vars(exc).pop("_duho_parser_exit_", None)
         raise
     except Exception as exc:
-        code = _error_status(exc, root_cls)
-        if code is None or _traceback_enabled():
+        code = _report_caught(exc, prog, root_cls, command)
+        if code is None:
             raise
-        message = str(exc)
-        report = getattr(root_cls, "_report_error_", None)
-        if report is not None:
-            from .runtime._arity import accepts_positional  # lazy: runtime imports this
-
-            if accepts_positional(report, 3):
-                report(message, code, exc)
-            else:
-                report(message, code)
-        elif message:
-            print("%s: error: %s" % (prog, message), file=_sys.stderr)
         return code

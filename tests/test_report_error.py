@@ -126,11 +126,67 @@ def test_an_unmapped_exception_is_not_reported_and_propagates(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_the_traceback_variable_reraises_before_the_hook(monkeypatch, kind):
+def test_the_traceback_variable_reraises_without_a_hook(monkeypatch, capsys, kind):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     with pytest.raises(CommandError):
-        _via(kind, _root(_two), ["fails"])
+        _via(kind, _root(None), ["fails"])
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_traceback_variable_prints_it_then_calls_the_hook(
+    monkeypatch, capsys, kind
+):
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    assert _via(kind, _root(_three), ["fails"]) == 4
+    ((message, code, error),) = CALLS
+    assert (message, code) == ("it broke", 4) and isinstance(error, CommandError)
+    err = capsys.readouterr().err
+    assert "Traceback (most recent call last)" in err
+    assert "CommandError: it broke" in err
+    assert err.index("Traceback") < err.index("CommandError: it broke")
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_traceback_variable_keeps_the_status_for_a_mapped_error(
+    monkeypatch, capsys, kind
+):
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    assert _via(kind, _root(_two), ["mapped"]) == 66
+    assert CALLS == [("nothing there", 66)]
+    assert "FileNotFoundError: nothing there" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_traceback_variable_still_propagates_an_unmapped_error(monkeypatch, kind):
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    with pytest.raises(ValueError, match="not mapped"):
+        _via(kind, _root(_two), ["unmapped"])
     assert CALLS == []
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_four_argument_hook_gets_the_dispatched_command(capsys, kind):
+    seen = []
+    root = _root(lambda message, code, error, command: seen.append(command))
+    assert _via(kind, root, ["fails"]) == 4
+    assert isinstance(seen[0], Fails)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_catch_all_hook_gets_four_arguments(capsys, kind):
+    seen = []
+    root = _root(lambda *args: seen.append(len(args)))
+    assert _via(kind, root, ["fails"]) == 4
+    assert seen == [4]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_four_argument_hook_with_defaults_gets_the_command(capsys, kind):
+    seen = []
+    root = _root(lambda m, c, e=None, command=None: seen.append(command))
+    assert _via(kind, root, ["fails"]) == 4
+    assert isinstance(seen[0], Fails)
 
 
 def test_a_lambda_with_defaults_takes_three(capsys):

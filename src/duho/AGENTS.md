@@ -208,7 +208,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
 | `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
 | `_errors_` | `Mapping[type, int] \| None` | `None` | root | exception type → exit status for exceptions a command lets escape; matched by `isinstance` in the mapping's order, first match wins; `main`/`app` (and an MCP tool call) catch them like a `CommandError`; `None` catches nothing |
-| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, or `f(message, code, error)` when it can take three positional arguments; also called for an empty message; the status is unchanged; read by `main`/`app`/`run`, not by an MCP tool call; `DUHO_TRACEBACK` re-raises first |
+| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, `f(message, code, error)` when it can take three positional arguments, or `f(message, code, error, command)` when it can take four (`command` is the dispatched instance, `None` for an error raised while the command was built); also called for an empty message; the status is unchanged; read by `main`/`app`/`run`, not by an MCP tool call; under `DUHO_TRACEBACK` a root with a hook gets the traceback on standard error and then the hook, a root without one re-raises |
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
@@ -413,12 +413,15 @@ just its annotation.
   not `int`: a `None` command result maps to exit code `0`, but any other value the
   command returns passes straight through unchanged (an `IntEnum` member works
   directly as a distinct exit code). `Any` (not `object`) keeps `sys.exit(duho.main(...))`
-  type-clean under a strict-mypy consumer. **Caught errors**: while dispatching (never
-  while parsing), a `CommandError` or an exception matching the root's `_errors_` is
-  caught, `<prog>: error: <message>` goes to stderr (no line for an empty message) and
-  the status is returned, unless the root's `_report_error_` function writes the report
-  instead; under `DUHO_TRACEBACK` it propagates instead. Nothing else is
-  caught. Dispatching a bare data `Args` (no `__call__`)
+  type-clean under a strict-mypy consumer. **Caught errors**: while dispatching, or while
+  the selected command is constructed during the parse, a `CommandError` or an exception
+  matching the root's `_errors_` is caught, `<prog>: error: <message>` goes to stderr (no
+  line for an empty message) and the status is returned (an error raised in construction
+  ends the parse with that status as a `SystemExit`), unless the root's `_report_error_`
+  function writes the report instead; under `DUHO_TRACEBACK` it propagates instead, or
+  with a `_report_error_` the traceback is printed to stderr first and the hook is then
+  called. Nothing else is caught: argparse's own exits and any other exception raised by a
+  constructor are untouched. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
   in `LoggingArgs`, logging is still set up under the root's own command name — a

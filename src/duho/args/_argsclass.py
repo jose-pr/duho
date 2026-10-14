@@ -13,6 +13,7 @@ from .._layers import _merge_layers_upward as _merge_layers_upward
 from .._layers import _run_config_validator as _run_config_validator
 from .._layers import _stage_layers as _stage_layers
 
+from .._outcome import _report_caught
 from ._actions import (
     _COMPLETION_SHELLS,
     _PrintCompletionAction,
@@ -660,7 +661,17 @@ class Args(_argparse.Namespace):
                 parser.error(
                     f"{_command_name(_cls)}: arguments after '--' are not accepted"
                 )
-            instance = _cls(**parsed.__dict__)
+            try:
+                instance = _cls(**parsed.__dict__)
+            except Exception as exc:
+                # The command's own constructor, not argparse: report it like an
+                # error raised while the command runs and end the parse with it.
+                status = _report_caught(exc, parser.prog, cls)
+                if status is None:
+                    raise
+                reported = SystemExit(status)
+                reported._duho_reported_ = True  # type: ignore[attr-defined]
+                raise reported from None
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []
             # For duho.value_sources(): `parser` is still the ROOT's and holds

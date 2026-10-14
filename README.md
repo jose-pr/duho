@@ -2075,7 +2075,8 @@ content block; a non-zero return is `isError: true` (stdout + a trailing
 keep working exactly as before. A command that wants to say more returns a
 `duho.Result` (`text`/`value` for the client, `is_error` to choose), or raises a
 `duho.CommandError` (an `isError` result carrying its message, with no `Type:`
-prefix); a root's `_exit_codes_` adds ` (meaning)` to the `exit code: N` line.
+prefix); a root's `_exit_codes_` adds ` (meaning)` to the `exit code: N` line, which a
+`CommandError` with a declared code gets too.
 
 **v1 limitations** (documented, not silently wrong): a custom `action=`/`type=`
 field with no registered override is passed through as a plain string; an

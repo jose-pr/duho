@@ -64,7 +64,12 @@ prints the command's answer and exits with the status; `duho.main` returns the s
 for a caller that wants it. `duho.run(root, argv, exit=False)` does everything `run`
 does and returns the status as an `int` instead of exiting, in every case: a
 `SystemExit` becomes its status (`None` is 0, an `int` itself, anything else is printed
-to standard error and is 1), Ctrl-C is 130 and a broken pipe is 1. A program that has
+to standard error and is 1), Ctrl-C is 130 and a broken pipe is 1. That includes the
+parser's own exits: `--help` and `--version` return 0 and a usage error returns 2, where
+`duho.main` raises `SystemExit`. A program whose public `main(argv)` is documented or
+tested to raise for those three passes `keep_parser_exits=True`: a `SystemExit` raised
+while the command line is parsed then propagates as `main` raises it, and everything else
+is still returned (a command's own `sys.exit(3)` is 3). A program that has
 its own `main(argv) -> int` for a console script and its tests can call it from there. `None` or an `int` is the exit status; any other
 value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
 with status 0. A `KeyboardInterrupt` exits 130 and a closed pipe exits 1, both
@@ -72,16 +77,25 @@ silently, unless `DUHO_TRACEBACK` is set.
 
 Raise `duho.CommandError(message, code=1)` from a command to fail with a message:
 `main` and `app` print `<prog>: error: <message>` to stderr and return the code
-(`duho.UsageError` is the same with code 2). Under `DUHO_TRACEBACK` the
-exception propagates. Over MCP the message becomes the error result's text.
+(`duho.UsageError` is the same with code 2). The same holds for an error raised while
+the command is constructed during the parse (a validating `__init__`): it is reported
+the same way and ends the parse with that code as a `SystemExit`; any other exception
+raised there, and argparse's own errors, are untouched. Under `DUHO_TRACEBACK` the
+exception propagates, unless the root has a `_report_error_` (below). Over MCP the
+message becomes the error result's text, followed by `exit code: N (meaning)` when the
+root's `_exit_codes_` declares that code.
 
 A program with its own way of reporting an error, a logger or a format, sets
 `_report_error_` on the root class: a function called in place of the default line
 for every error `main`, `app` or `run` catch, a `CommandError` or an `_errors_`
-exception. It is called as `f(message, code)`, or as `f(message, code, error)` when it
-can take three positional arguments (`error` is the exception), and also for an empty
-message. The status returned is the same, `DUHO_TRACEBACK` still re-raises first, and an
-MCP tool call does not use it:
+exception. It is called as `f(message, code)`, as `f(message, code, error)` when it
+can take three positional arguments (`error` is the exception), or as
+`f(message, code, error, command)` when it can take four (`command` is the dispatched
+instance, so the hook can read the command's own `-v` flag; `None` for an error raised
+while the command was built). It is also called for an empty message. The status
+returned is the same. Under `DUHO_TRACEBACK` a root with a hook gets the traceback on
+standard error first and then the hook, with the status kept; a root without one
+re-raises. An MCP tool call does not use the hook:
 
 ```python
 class App(duho.Cli):

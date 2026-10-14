@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `RunPathRegistration(base, step_adapter, registered)`.
 - `duho.runpath.step_wants_context(entrypoint)`, the step runner's own test of whether
   a step's entrypoint takes the lifecycle context.
+- `duho.run(root, argv, exit=False, keep_parser_exits=True)` lets a `SystemExit` raised
+  while the command line is parsed (`--help`, `--version`, a usage error) propagate as
+  `duho.main` raises it, and still returns the status for everything else.
+- `_report_error_` may take four positional arguments, `f(message, code, error, command)`;
+  `command` is the dispatched instance, `None` for an error raised while it was built.
+
+### Changed
+
+- A root with a `_report_error_` no longer re-raises under `DUHO_TRACEBACK`: the traceback
+  is printed to standard error, the hook is called and the status is kept. A root without
+  one re-raises as before.
+- A `CommandError`, or an `_errors_` exception, raised while the selected command is
+  constructed during the parse is reported like one raised while it runs, and ends the
+  parse with its status; before, it propagated as a traceback.
+- A tool call's error result for a `CommandError` or an `_errors_` exception adds the
+  `exit code: N (meaning)` line when the root's `_exit_codes_` declares that code.
 
 ## [0.7.4] - 2026-10-14
 

@@ -13,6 +13,20 @@ Two read-only names in `duho.runpath`, so a program's tests need no private one.
 - `registration()` returns what `register` has set, and `step_wants_context` is the
   runner's own answer to whether a step's entrypoint takes the context.
 
+A program can adopt `run(..., exit=False)` and `_report_error_` without giving up its
+error boundary.
+
+- `run(..., exit=False, keep_parser_exits=True)` lets `--help`, `--version` and a usage
+  error raise `SystemExit` as `duho.main` does, for a program whose public `main` is
+  documented to; without it `exit=False` returns 0, 0 and 2.
+- Under `DUHO_TRACEBACK` a root with a `_report_error_` gets the traceback on standard
+  error and then its hook, and keeps its status, instead of a re-raise.
+- A hook that takes four positional arguments also receives the dispatched command.
+- A `CommandError` raised while a command is constructed during the parse is reported
+  like one raised while it runs, with the same status; a tool call's error result for a
+  `CommandError` carries the `exit code: N (meaning)` line the root's `_exit_codes_`
+  declares.
+
 ---
 
 ## [0.7.4] — 2026-10-14

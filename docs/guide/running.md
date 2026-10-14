@@ -67,9 +67,11 @@ does and returns the status as an `int` instead of exiting, in every case: a
 to standard error and is 1), Ctrl-C is 130 and a broken pipe is 1. That includes the
 parser's own exits: `--help` and `--version` return 0 and a usage error returns 2, where
 `duho.main` raises `SystemExit`. A program whose public `main(argv)` is documented or
-tested to raise for those three passes `keep_parser_exits=True`: a `SystemExit` raised
-while the command line is parsed then propagates as `main` raises it, and everything else
-is still returned (a command's own `sys.exit(3)` is 3). A program that has
+tested to raise for those three passes `exit="parse"`: a `SystemExit` raised while the
+command line is parsed then propagates as `main` raises it, and everything else is still
+returned (a command's own `sys.exit(3)` is 3). `exit` may also be a function
+`f(status, error)` returning `True`, `False` or `"parse"`, where `error` is the
+`SystemExit`, `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. A program that has
 its own `main(argv) -> int` for a console script and its tests can call it from there. `None` or an `int` is the exit status; any other
 value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
 with status 0. A `KeyboardInterrupt` exits 130 and a closed pipe exits 1, both

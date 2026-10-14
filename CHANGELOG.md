@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `RunPathRegistration(base, step_adapter, registered)`.
 - `duho.runpath.step_wants_context(entrypoint)`, the step runner's own test of whether
   a step's entrypoint takes the lifecycle context.
-- `duho.run(root, argv, exit=False, keep_parser_exits=True)` lets a `SystemExit` raised
-  while the command line is parsed (`--help`, `--version`, a usage error) propagate as
-  `duho.main` raises it, and still returns the status for everything else.
+- `duho.run(root, argv, exit="parse")` lets a `SystemExit` raised while the command line
+  is parsed (`--help`, `--version`, a usage error) propagate as `duho.main` raises it,
+  and returns the status for everything else. `exit` may also be a function
+  `f(status, error)` that returns `True`, `False` or `"parse"`.
 - `_report_error_` may take four positional arguments, `f(message, code, error, command)`;
   `command` is the dispatched instance, `None` for an error raised while it was built.
 

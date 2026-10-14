@@ -490,7 +490,7 @@ just its annotation.
   still enforces the required options. A malformed or unreadable built-in config file is a
   one-line error here as under `main` (see "Env / config"), printed once.
   `app` catches errors the same way `main` does, around its `dispatch=` step too.
-- **`run(root, argv=None, *, exit=True, keep_parser_exits=False, **app_kwargs) -> NoReturn`** — the program entry:
+- **`run(root, argv=None, *, exit=True, **app_kwargs) -> NoReturn`** — the program entry:
   `if __name__ == "__main__": duho.run(App)`. Calls `main(root, argv)`, or
   `app(root, argv=argv, **app_kwargs)` when keywords are given, then `sys.exit`s. `None` →
   0; a `Result` → its rendered `value` (when not `None`) on stdout, status `int(result)`;
@@ -498,16 +498,16 @@ just its annotation.
   `str` as it is, else `json.dumps(value, indent=2, ensure_ascii=False, default=str)`),
   status 0. `KeyboardInterrupt` → 130 and `BrokenPipeError` (also from its own printing) →
   1, silent (stdout is pointed at the null device first); both propagate under
-  `DUHO_TRACEBACK`. A `SystemExit` passes through. With `exit=False` it does the same and
-  returns the status as an `int` instead of exiting, in every case, never raising
-  `SystemExit`: a `SystemExit` becomes its status (`None` is 0, an `int` itself, anything
-  else is printed to standard error and is 1). That includes the parser's own exits:
-  `--help` and `--version` RETURN 0 and a usage error RETURNS 2, where `duho.main` raises
-  `SystemExit`. `keep_parser_exits=True` (with `exit=False`; `exit=True` ignores it) lets
-  a `SystemExit` raised while the command line is parsed (`--help`, `--version`, a usage
-  error) propagate as `main` raises it, and still returns the status for everything else
-  (a command's own `sys.exit(3)` is 3, Ctrl-C 130, a broken pipe 1). Also
-  `duho.runtime.run`.
+  `DUHO_TRACEBACK`. A `SystemExit` passes through. `exit` says when it ends the process
+  instead of returning the status as an `int`: `True` always; `False` never (`-> int`), so
+  a `SystemExit` becomes its status (`None` is 0, an `int` itself, anything else is
+  printed to standard error and is 1), the parser's own exits included: `--help` and
+  `--version` RETURN 0 and a usage error RETURNS 2, where `duho.main` raises `SystemExit`;
+  `"parse"` only for a `SystemExit` raised while the command line is parsed (`--help`,
+  `--version`, a usage error, as `main` raises them), everything else returned (a
+  command's own `sys.exit(3)` is 3, Ctrl-C 130, a broken pipe 1); a callable
+  `f(status, error) -> True | False | "parse"` decides, `error` being the `SystemExit`,
+  `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. Also `duho.runtime.run`.
 - **`Result(code=0, *, value=None, text=None, is_error=None)`** — an `int` subclass a
   command returns for more than a status. `int(result)` is the exit status (`sys.exit`
   and every int check work); attributes `code`, `value` (the answer: printed by `run`,

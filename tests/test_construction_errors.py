@@ -196,13 +196,9 @@ def test_traceback_variable_with_a_hook_prints_then_reports(monkeypatch, capsys,
     assert "CommandError: unknown format toml" in capsys.readouterr().err
 
 
-def test_kept_parser_exits_do_not_cover_a_reported_construction_error(capsys):
+def test_exit_parse_does_not_cover_a_reported_construction_error(capsys):
     got = duho.run(
-        _root(),
-        ["validates", "--fmt", "toml"],
-        exit=False,
-        keep_parser_exits=True,
-        setup_logging=False,
+        _root(), ["validates", "--fmt", "toml"], exit="parse", setup_logging=False
     )
     assert got == 2
     assert capsys.readouterr().err == "building: error: unknown format toml\n"

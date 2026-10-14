@@ -49,13 +49,21 @@ def _exit_status(code: object) -> int:
     return 1
 
 
+_ExitPolicy = _ty.Union[
+    bool,
+    _ty.Literal["parse"],
+    _ty.Callable[
+        [int, _ty.Optional[BaseException]], _ty.Union[bool, _ty.Literal["parse"]]
+    ],
+]
+
+
 @_ty.overload
 def run(
     root: type,
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     exit: _ty.Literal[True] = True,
-    keep_parser_exits: bool = False,
     **app_kwargs: _ty.Any,
 ) -> _ty.NoReturn: ...
 
@@ -65,8 +73,7 @@ def run(
     root: type,
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
-    exit: _ty.Literal[False],
-    keep_parser_exits: bool = False,
+    exit: _ExitPolicy,
     **app_kwargs: _ty.Any,
 ) -> int: ...
 
@@ -75,8 +82,7 @@ def run(
     root: type,
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
-    exit: bool = True,
-    keep_parser_exits: bool = False,
+    exit: _ExitPolicy = True,
     **app_kwargs: _ty.Any,
 ) -> int:
     """Run ``root`` as the program: dispatch, print the answer, and exit.
@@ -89,15 +95,16 @@ def run(
     ``BrokenPipeError`` exits 1, both silently, unless ``DUHO_TRACEBACK`` is set,
     which re-raises them. A ``SystemExit`` passes through untouched.
 
-    With ``exit=False`` it does all of that and returns the status instead of
-    exiting, in every case: a ``SystemExit`` becomes its status (``None`` is 0,
-    an ``int`` itself, anything else is printed to standard error and is 1). That
-    includes the parser's own exits: ``--help`` and ``--version`` return 0 and a
-    usage error returns 2, where ``duho.main`` raises ``SystemExit``. With
-    ``keep_parser_exits=True`` those three (a ``SystemExit`` raised while the
-    command line is parsed) propagate as ``main`` raises them, and everything
-    else is returned as above; ``exit=True`` ignores the keyword.
+    ``exit`` says when to end the process instead of returning the status:
+    ``True`` always; ``False`` never, so a ``SystemExit`` becomes its status
+    (``None`` is 0, an ``int`` itself, anything else is printed to standard error
+    and is 1), ``--help`` and ``--version`` included; ``"parse"`` only for a
+    ``SystemExit`` raised while the command line is parsed (``--help``,
+    ``--version``, a usage error). A callable is called as ``f(status, error)``,
+    ``error`` being the ``SystemExit``, ``KeyboardInterrupt`` or
+    ``BrokenPipeError`` caught (else ``None``), and returns one of those.
     """
+    error: _ty.Optional[BaseException] = None
     try:
         if app_kwargs:
             from ._app import app as _app
@@ -109,18 +116,21 @@ def run(
             outcome = _main(root, argv)
         status = _status_of(outcome)
     except SystemExit as exc:
-        if exit or (keep_parser_exits and getattr(exc, "_duho_parser_exit_", False)):
+        if exit is True:
             raise
-        status = _exit_status(exc.code)
-    except KeyboardInterrupt:
+        error, status = exc, _exit_status(exc.code)
+    except KeyboardInterrupt as exc:
         if _traceback_enabled():
             raise
-        status = 130
-    except BrokenPipeError:
+        error, status = exc, 130
+    except BrokenPipeError as exc:
         if _traceback_enabled():
             raise
         _silence_stdout()
-        status = 1
-    if exit:
+        error, status = exc, 1
+    policy = exit(status, error) if callable(exit) else exit
+    if policy == "parse":
+        policy = getattr(error, "_duho_parser_exit_", False)
+    if policy is True:
         _sys.exit(status)
     return status

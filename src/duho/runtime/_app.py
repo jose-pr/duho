@@ -7,7 +7,7 @@ from pathlib import Path as _Path
 
 from .. import _compat as _compat
 from .. import parsers as _parsers
-from .._outcome import _guard_dispatch
+from .._outcome import _guard_dispatch, _mark_parser_exit
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
 from ..args._argsclass import _names_config_source as _names_config_source
@@ -43,21 +43,25 @@ def _run_app(
     Covers the real ``parse_args``, the required-global re-check, ``_env_``,
     logging setup, the deferred notices, and running the selected command.
     """
-    instance = parser.parse_args(argv)
+    try:
+        instance = parser.parse_args(argv)
 
-    # A required global un-required earlier must still have a value from the
-    # root, a child, or a config/env layer.
-    missing_required = [
-        a for a in required_root_actions if getattr(instance, a.dest, None) is None
-    ]
-    if missing_required:
-        parser.error(
-            "the following arguments are required: "
-            + ", ".join(
-                a.option_strings[0] if a.option_strings else a.dest
-                for a in missing_required
+        # A required global un-required earlier must still have a value from the
+        # root, a child, or a config/env layer.
+        missing_required = [
+            a for a in required_root_actions if getattr(instance, a.dest, None) is None
+        ]
+        if missing_required:
+            parser.error(
+                "the following arguments are required: "
+                + ", ".join(
+                    a.option_strings[0] if a.option_strings else a.dest
+                    for a in missing_required
+                )
             )
-        )
+    except SystemExit as exc:
+        _mark_parser_exit(exc)
+        raise
 
     # The app-wide `Env` is reachable as `self._env_` (never a user field);
     # `None` when no env was passed.

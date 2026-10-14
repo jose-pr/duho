@@ -88,6 +88,11 @@ def _error_status(
     return None
 
 
+def _mark_parser_exit(exc: SystemExit) -> None:
+    """Tag a ``SystemExit`` raised while the command line was parsed."""
+    exc._duho_parser_exit_ = True  # type: ignore[attr-defined]
+
+
 def _guard_dispatch(
     call: _ty.Callable[[], _ty.Any], prog: str, root_cls: _ty.Optional[type]
 ) -> _ty.Any:
@@ -98,6 +103,10 @@ def _guard_dispatch(
     """
     try:
         return call()
+    except SystemExit as exc:
+        # An exit from a nested program's parse is not this program's parse.
+        vars(exc).pop("_duho_parser_exit_", None)
+        raise
     except Exception as exc:
         code = _error_status(exc, root_cls)
         if code is None or _traceback_enabled():

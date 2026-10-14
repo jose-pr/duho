@@ -9,7 +9,7 @@ import typing as _ty
 
 from .. import _compat as _compat
 from .. import logging as _duho_logging
-from .._outcome import _guard_dispatch
+from .._outcome import _guard_dispatch, _mark_parser_exit
 from .._layers import _apply_layers as _apply_layers
 from .._layers import _LayeredDefault as _LayeredDefault
 
@@ -311,7 +311,11 @@ def main(
 
     parser = root_cls._parser_(_inherited_config_hint_=config is not None)
     _apply_layers(parser, root_cls, config=config, config_source=config_source)
-    instance = parser.parse_args(argv)
+    try:
+        instance = parser.parse_args(argv)
+    except SystemExit as exc:
+        _mark_parser_exit(exc)
+        raise
 
     _setup_instance_logging(instance, setup_logging, cls)
 

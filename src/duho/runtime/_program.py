@@ -55,6 +55,7 @@ def run(
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     exit: _ty.Literal[True] = True,
+    keep_parser_exits: bool = False,
     **app_kwargs: _ty.Any,
 ) -> _ty.NoReturn: ...
 
@@ -65,6 +66,7 @@ def run(
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     exit: _ty.Literal[False],
+    keep_parser_exits: bool = False,
     **app_kwargs: _ty.Any,
 ) -> int: ...
 
@@ -74,6 +76,7 @@ def run(
     argv: _ty.Optional[_ty.Sequence[str]] = None,
     *,
     exit: bool = True,
+    keep_parser_exits: bool = False,
     **app_kwargs: _ty.Any,
 ) -> int:
     """Run ``root`` as the program: dispatch, print the answer, and exit.
@@ -88,7 +91,12 @@ def run(
 
     With ``exit=False`` it does all of that and returns the status instead of
     exiting, in every case: a ``SystemExit`` becomes its status (``None`` is 0,
-    an ``int`` itself, anything else is printed to standard error and is 1).
+    an ``int`` itself, anything else is printed to standard error and is 1). That
+    includes the parser's own exits: ``--help`` and ``--version`` return 0 and a
+    usage error returns 2, where ``duho.main`` raises ``SystemExit``. With
+    ``keep_parser_exits=True`` those three (a ``SystemExit`` raised while the
+    command line is parsed) propagate as ``main`` raises them, and everything
+    else is returned as above; ``exit=True`` ignores the keyword.
     """
     try:
         if app_kwargs:
@@ -101,7 +109,7 @@ def run(
             outcome = _main(root, argv)
         status = _status_of(outcome)
     except SystemExit as exc:
-        if exit:
+        if exit or (keep_parser_exits and getattr(exc, "_duho_parser_exit_", False)):
             raise
         status = _exit_status(exc.code)
     except KeyboardInterrupt:

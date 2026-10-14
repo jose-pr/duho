@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-14
+
 ### Added
 
 - `duho.runpath.registration()` returns the registration as a named tuple,
@@ -33,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   including in its constructor, as well as while it runs.
 - A tool call's error result for a `CommandError` or an `_errors_` exception adds the
   `exit code: N (meaning)` line when the root's `_exit_codes_` declares that code.
+- A `_report_error_` declared with `*args` receives four arguments, the command last.
 
 ## [0.7.4] - 2026-10-14
 
@@ -2228,7 +2231,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/jose-pr/duho/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/jose-pr/duho/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/jose-pr/duho/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/jose-pr/duho/compare/v0.7.1...v0.7.2

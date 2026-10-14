@@ -8,6 +8,10 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.5] — 2026-10-14
+
 Two read-only names in `duho.runpath`, so a program's tests need no private one.
 
 - `registration()` returns what `register` has set, and `step_wants_context` is the
@@ -27,6 +31,39 @@ error boundary.
   like one raised while it runs, with the same status; a tool call's error result for a
   `CommandError` carries the `exit code: N (meaning)` line the root's `_exit_codes_`
   declares.
+
+### Upgrade notes
+
+- A root with a `_report_error_` no longer re-raises under `DUHO_TRACEBACK`; a test that
+  expects the exception to propagate with a hook set now sees the traceback on standard
+  error, the hook's report and the status.
+- A `_report_error_` declared with `*args` now receives the command as a fourth
+  argument.
+- A `CommandError` or an `_errors_` exception raised by a command's constructor ends the
+  parse with its status and one line (or the hook) instead of a traceback.
+- A tool call's error result gains an `exit code: N (meaning)` line only where the
+  root's `_exit_codes_` declares the code; other results are byte-identical.
+- `duho.running_mode()` is `"mcp"` in a command's constructor during a tool call.
+
+### Performance
+
+No performance claim is made. `import duho` loads no new module; `traceback` is
+imported only when a traceback is printed for a hook.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3288 passed, 49 skipped) and
+  3.14 (3304 passed, 34 skipped); Linux (WSL) Python 3.14 (3311 passed, 27
+  skipped). The skip counts are those of 0.7.4.
+- CI: all 17 jobs green at the change (run
+  [38555745528](https://github.com/jose-pr/duho/actions/runs/38555745528)), and
+  the same workflow ran at the release commit before tagging.
+- `black --check` and `mkdocs build --strict` pass. The leak check exits 1 with
+  exactly its three known hits.
+- The suites of twelve projects that use duho were run against this tree. Eleven pass
+  with the same counts as against duho 0.7.4. In one, one test fails: it asserts that
+  under `DUHO_TRACEBACK` an error propagates from a root with a `_report_error_`, which
+  is the first upgrade note above, measured.
 
 ---
 

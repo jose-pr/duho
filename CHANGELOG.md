@@ -26,7 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   one re-raises as before.
 - A `CommandError`, or an `_errors_` exception, raised while the selected command is
   constructed during the parse is reported like one raised while it runs, and ends the
-  parse with its status; before, it propagated as a traceback.
+  parse with its status; before, it propagated as a traceback. In an MCP tool call it is
+  reported as one raised while the command runs, as before.
+- `duho.running_mode()` is `"mcp"` while a tool call parses the command's arguments,
+  including in its constructor, as well as while it runs.
 - A tool call's error result for a `CommandError` or an `_errors_` exception adds the
   `exit code: N (meaning)` line when the root's `_exit_codes_` declares that code.
 

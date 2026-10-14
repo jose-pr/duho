@@ -1,4 +1,4 @@
-"""``duho.running_mode``: ``"mcp"`` only while a tool call dispatches a command."""
+"""``duho.running_mode``: ``"mcp"`` only while a tool call parses and runs a command."""
 
 import pytest
 
@@ -33,9 +33,20 @@ class Boom(Cmd):
         raise RuntimeError("broke")
 
 
+class Builds(Cmd):
+    _parsername_ = "builds"
+
+    def __init__(self, *args, **kwargs):
+        seen.append(duho.running_mode())
+        super().__init__(*args, **kwargs)
+
+    def __call__(self):
+        return 0
+
+
 class Root(Cli):
     _parsername_ = "tool-call-root"
-    _subcommands_ = [Probe, AsyncProbe, Boom]
+    _subcommands_ = [Probe, AsyncProbe, Boom, Builds]
 
 
 @pytest.fixture(autouse=True)
@@ -75,3 +86,10 @@ def test_cli_again_after_a_call_that_raised():
 
 def test_it_is_a_root_export():
     assert "running_mode" in duho.__all__
+
+
+def test_mcp_inside_a_constructor_run_by_call_tool():
+    result = call_tool(Root, "tool-call-root.builds", {})
+    assert result.get("isError") is not True
+    assert seen == ["mcp"]
+    assert duho.running_mode() == "cli"

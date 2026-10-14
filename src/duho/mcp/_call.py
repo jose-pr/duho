@@ -686,6 +686,8 @@ def call_tool(
         with _contextlib.redirect_stdout(out), _contextlib.redirect_stderr(err):
             old_stdin = _sys.stdin
             _sys.stdin = _io.StringIO("")
+            # The parse is part of the call: a command's constructor sees "mcp" too.
+            running = _compat._RUNNING_MODE.set("mcp")
             try:
                 with (
                     _muted_color(all_parsers),
@@ -725,7 +727,6 @@ def call_tool(
                             % (name, actual_desc),
                             is_error=True,
                         )
-                    mode = _compat._RUNNING_MODE.set("mcp")
                     try:
                         result = core.dispatch(target, instance)
                     except SystemExit as exc:
@@ -737,9 +738,8 @@ def call_tool(
                             taken,
                             name,
                         )
-                    finally:
-                        _compat._RUNNING_MODE.reset(mode)
             finally:
+                _compat._RUNNING_MODE.reset(running)
                 _sys.stdin = old_stdin
     except (
         Exception

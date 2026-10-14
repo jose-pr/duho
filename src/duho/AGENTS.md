@@ -405,7 +405,8 @@ just its annotation.
   produced (a root or a subcommand) the root parser's `prog` (so `app(name=...)` shows),
   for a class or an instance built directly the class's application name.
 - **`running_mode() -> str`** — how the command running now was started: `"mcp"` while
-  `duho.mcp.call_tool` dispatches a command (an `async` one too), `"cli"` otherwise,
+  `duho.mcp.call_tool` parses and dispatches a command (its constructor and an `async`
+  command too), `"cli"` otherwise,
   including after the call or one that raised. Compare with `==`: a further way of
   running a command would be a further value.
 - **`main(cls, argv=None, *, setup_logging=True, config=None, utf8_stdio=None) -> Any`** —
@@ -421,7 +422,8 @@ just its annotation.
   function writes the report instead; under `DUHO_TRACEBACK` it propagates instead, or
   with a `_report_error_` the traceback is printed to stderr first and the hook is then
   called. Nothing else is caught: argparse's own exits and any other exception raised by a
-  constructor are untouched. Dispatching a bare data `Args` (no `__call__`)
+  constructor are untouched. In an MCP tool call a constructor's error is left to the
+  tool call, which reports it as it does one raised while dispatching. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
   `_set_loglevels_` of its own but `cls` (the root `main`/`app` was called with) mixes
   in `LoggingArgs`, logging is still set up under the root's own command name — a

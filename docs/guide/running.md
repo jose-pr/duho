@@ -493,7 +493,8 @@ Given a command a parser produced, a subcommand included, it returns the root pa
 built directly, it returns the class's application name.
 
 `duho.running_mode()` says how the command running now was started: `"mcp"` while
-`duho.mcp.call_tool` is running it, an `async` command included, and `"cli"` otherwise.
+`duho.mcp.call_tool` is running it, its constructor and an `async` command included, and
+`"cli"` otherwise.
 A command that prints for a person can answer a tool call differently without looking
 at what standard output is:
 

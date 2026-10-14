@@ -7,6 +7,7 @@ import threading as _threading
 import typing as _ty
 import weakref as _weakref
 
+from .. import _compat as _compat
 from .. import _introspect as _introspect
 from .._layers import _finalize_layers as _finalize_layers
 from .._layers import _merge_layers_upward as _merge_layers_upward
@@ -666,6 +667,9 @@ class Args(_argparse.Namespace):
             except Exception as exc:
                 # The command's own constructor, not argparse: report it like an
                 # error raised while the command runs and end the parse with it.
+                # A tool call reports it itself, as it does an error from dispatch.
+                if _compat._RUNNING_MODE.get() == "mcp":
+                    raise
                 status = _report_caught(exc, parser.prog, cls)
                 if status is None:
                     raise

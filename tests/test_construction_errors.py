@@ -206,3 +206,18 @@ def test_kept_parser_exits_do_not_cover_a_reported_construction_error(capsys):
     )
     assert got == 2
     assert capsys.readouterr().err == "building: error: unknown format toml\n"
+
+
+def test_a_tool_call_reports_it_as_it_reports_a_dispatch_error():
+    from duho.mcp import call_tool
+
+    root = _root(_four)
+    root._exit_codes_ = {2: "bad input"}
+    result = call_tool(root, "building.validates", {"fmt": "toml"})
+    assert result == {
+        "content": [
+            {"type": "text", "text": "unknown format toml\nexit code: 2 (bad input)"}
+        ],
+        "isError": True,
+    }
+    assert CALLS == []

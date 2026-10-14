@@ -8,6 +8,11 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+Two read-only names in `duho.runpath`, so a program's tests need no private one.
+
+- `registration()` returns what `register` has set, and `step_wants_context` is the
+  runner's own answer to whether a step's entrypoint takes the context.
+
 ---
 
 ## [0.7.4] — 2026-10-14

@@ -75,3 +75,43 @@ def test_the_names_stay_assignable():
 
 def test_it_is_public():
     assert "preserve_registration" in runpath.__all__
+
+
+def test_registration_reads_the_base_the_adapter_and_the_provider():
+    with runpath.preserve_registration():
+        runpath.unregister()
+        runpath.register(base=_Base, step_adapter=_adapt)
+        assert runpath.registration() == (_Base, _adapt, True)
+        runpath.unregister()
+        now = runpath.registration()
+        assert (now.base, now.step_adapter, now.registered) == (_Base, _adapt, False)
+        runpath.register(step_adapter=None)
+        assert runpath.registration().step_adapter is None
+
+
+def test_step_wants_context_is_the_runners_own_answer():
+    import functools
+
+    def one(cmd):
+        pass
+
+    def two(cmd, ctx):
+        pass
+
+    def any_number(*args):
+        pass
+
+    @functools.wraps(two)
+    def passthrough(*args, **kwargs):
+        return two(*args, **kwargs)
+
+    assert runpath.step_wants_context(one) is False
+    assert runpath.step_wants_context(two) is True
+    assert runpath.step_wants_context(any_number) is True
+    assert runpath.step_wants_context(passthrough) is True
+    assert runpath.step_wants_context is runpath._step_wants_ctx
+
+
+def test_the_new_names_are_public():
+    for name in ("registration", "RunPathRegistration", "step_wants_context"):
+        assert name in runpath.__all__

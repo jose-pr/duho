@@ -1074,7 +1074,12 @@ manipulating a parser tree directly:
   applies per step run, so it affects already-built commands too.
   **`preserve_registration()`** is a context manager that puts the registration back as
   it was on entry whatever `register`/`unregister` did inside: the base, the step adapter
-  and whether the provider is registered.
+  and whether the provider is registered. **`registration() -> RunPathRegistration`**
+  reads it: a named tuple `(base, step_adapter, registered)`.
+  **`step_wants_context(entrypoint) -> bool`** is the step runner's own test of whether
+  a step's entrypoint takes the lifecycle context as a second positional argument
+  (`*args` counts; the entrypoint's own signature is read, not the one a
+  `functools.wraps` wrapper points to, except for a bare `(*args, **kwargs)` wrapper).
   `RunPathCmd`'s `--rcopts/-O` selects/tunes which steps run. Optional per-directory
   `__main__.py` lifecycle: `init(cmd, logger) -> ctx` (once, before any step; raising is
   always fatal), `success(ctx, cmd, logger)` (once, on a clean run), `finally_(ctx,

@@ -111,7 +111,9 @@ is `None`: steps are called exactly as written.
 `register` and `unregister` change process-wide state. A test or a tool that changes it
 for a while wraps the change in `duho.runpath.preserve_registration()`, which puts the
 base, the step adapter and whether the provider is registered back as they were on
-entry, whatever happened inside.
+entry, whatever happened inside. `duho.runpath.registration()` reads the three as a
+named tuple, and `duho.runpath.step_wants_context(entrypoint)` answers, as the runner
+does, whether a step's entrypoint takes the context.
 
 ## Ordering and dependencies
 

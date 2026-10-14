@@ -308,11 +308,18 @@ from ._command import (
 
 __all__ = [
     "RunPathCmd",
+    "RunPathRegistration",
     "register",
     "unregister",
+    "registration",
     "preserve_registration",
+    "step_wants_context",
     "is_runpath_dir",
 ]
+
+#: Whether a step's entrypoint takes the lifecycle context as a second
+#: positional argument, as the step runner itself decides it.
+step_wants_context = _step_wants_ctx
 
 
 #: App-supplied hook that rewrites a step's entrypoint before it is called;
@@ -456,6 +463,21 @@ def unregister() -> None:
         return
     _discovery.unregister_command_provider(*_REGISTERED)
     _REGISTERED = None
+
+
+class RunPathRegistration(_ty.NamedTuple):
+    """What :func:`register` has set: the base every built command inherits,
+    the step adapter (``None`` when there is none), and whether the provider
+    is registered."""
+
+    base: type
+    step_adapter: _ty.Optional[_ty.Callable[..., object]]
+    registered: bool
+
+
+def registration() -> RunPathRegistration:
+    """The registration as it is now. Read-only: change it with ``register``."""
+    return RunPathRegistration(_BASE, _ADAPTER, _REGISTERED is not None)
 
 
 @_contextlib.contextmanager

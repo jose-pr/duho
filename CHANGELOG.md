@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `duho.runpath.registration()` returns the registration as a named tuple,
+  `RunPathRegistration(base, step_adapter, registered)`.
+- `duho.runpath.step_wants_context(entrypoint)`, the step runner's own test of whether
+  a step's entrypoint takes the lifecycle context.
+
 ## [0.7.4] - 2026-10-14
 
 ### Added

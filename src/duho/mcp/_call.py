@@ -746,12 +746,16 @@ def call_tool(
     ) as exc:  # noqa: BLE001 - one broken command must not crash the server
         if capture.raw.error is not None:
             return _write_failure(output_fd, capture.raw.error)
-        if _error_status(exc, core.root_cls) is not None:
+        error_code = _error_status(exc, core.root_cls)
+        if error_code is not None:
             # An error the command meant to end with: its words, not a crash.
             taken = capture.finish(output_var)
             if taken.error is not None:
                 return taken.error
             parts = [taken.text, err.getvalue().strip(), str(exc)]
+            meaning = _declared_exit_meaning(core.root_cls, error_code)
+            if meaning is not None:
+                parts.append("exit code: %d (%s)" % (error_code, meaning))
             return _with_blob(
                 _text_result("\n".join(p for p in parts if p), is_error=True),
                 taken,

@@ -1140,7 +1140,9 @@ manipulating a parser tree directly:
   `isError` with stdout, stderr and `exit code: N`, plus ` (<meaning>)` when the root's
   own `_exit_codes_` declares that code (the built-in 0/1/2 table is not used); a
   `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
-  stderr and the message, no `Type:` prefix, not logged as a broken command; any other
+  stderr and the message, no `Type:` prefix, not logged as a broken command, plus an
+  `exit code: N (<meaning>)` line when the root's own `_exit_codes_` declares the error's
+  code (no line otherwise); any other
   value → success with its JSON. By the command's `_mcp_output_`: `"stream"` puts the
   `N bytes of output were written to ...` line where the stdout text goes
   (so a clean run's text is only that line; the exit-code line, a `Result`'s text and

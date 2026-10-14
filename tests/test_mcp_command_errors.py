@@ -36,6 +36,21 @@ class RaisesPlain(Cmd):
         raise RuntimeError("kaboom")
 
 
+class RaisesFour(Cmd):
+    _parsername_ = "raises-four"
+
+    def __call__(self):
+        print("partial out")
+        raise CommandError("x", 4)
+
+
+class RaisesBare(Cmd):
+    _parsername_ = "raises-bare"
+
+    def __call__(self):
+        raise CommandError(code=4)
+
+
 class Words(Cmd):
     _parsername_ = "words"
 
@@ -99,6 +114,8 @@ _TREE = [
     SilentOk,
     Plain4,
     Plain1,
+    RaisesFour,
+    RaisesBare,
 ]
 
 
@@ -205,3 +222,28 @@ def test_builtin_exit_code_defaults_are_not_used():
         _exit_codes_ = {4: "something"}
 
     assert _text(_call(OnlyFour, "plain1")) == "exit code: 1"
+
+
+def test_command_error_code_gets_its_declared_meaning():
+    result = _call(Declared, "raises-four")
+    assert result["isError"] is True
+    assert _text(result) == "partial out\n\nx\nexit code: 4 (no match)"
+    assert _text(_call(Declared, "raises-bare")) == "exit code: 4 (no match)"
+
+
+def test_command_error_without_a_declared_meaning_is_unchanged():
+    assert _text(_call(Undeclared, "raises-four")) == "partial out\n\nx"
+    # Declared, but not for code 1 -> 66 (mapped) or an undeclared code.
+    assert _text(_call(Declared, "raises-mapped")) == "gone"
+
+
+def test_mapped_exception_status_gets_its_declared_meaning():
+    class Mapped(Cli):
+        _parsername_ = "mapped"
+        _subcommands_ = [RaisesMapped]
+        _errors_ = {FileNotFoundError: 66}
+        _exit_codes_ = {66: "missing input"}
+
+    assert (
+        _text(_call(Mapped, "raises-mapped")) == "gone\nexit code: 66 (missing input)"
+    )

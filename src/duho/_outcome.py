@@ -114,8 +114,8 @@ def _report_caught(
     """Report ``exc`` and return its exit status, or ``None`` when it is to propagate.
 
     ``None`` means ``exc`` is not a ``CommandError`` or an ``_errors_`` match, or
-    ``DUHO_TRACEBACK`` is set and the root has no ``_report_error_``. With the
-    variable set and a hook present, the traceback goes to standard error first.
+    ``DUHO_TRACEBACK`` is set and the root has no ``_report_error_``. A hook is
+    called the same with or without the variable and prints any traceback itself.
     The hook takes ``(message, code, error, command)``, or the first three, or the
     first two, by how many positional arguments it can take.
     """
@@ -123,12 +123,8 @@ def _report_caught(
     if code is None:
         return None
     report = getattr(root_cls, "_report_error_", None)
-    if _traceback_enabled():
-        if report is None:
-            return None
-        import traceback  # lazy: only when a traceback is printed
-
-        traceback.print_exception(type(exc), exc, exc.__traceback__)
+    if report is None and _traceback_enabled():
+        return None
     message = str(exc)
     if report is not None:
         from .runtime._arity import accepts_positional  # lazy: runtime imports this

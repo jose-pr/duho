@@ -188,12 +188,14 @@ def test_traceback_variable_without_a_hook_propagates(monkeypatch, capsys, kind)
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_traceback_variable_with_a_hook_prints_then_reports(monkeypatch, capsys, kind):
+def test_traceback_variable_with_a_hook_leaves_the_report_to_it(
+    monkeypatch, capsys, kind
+):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     got = _via(kind, _root(_four), ["validates", "--fmt", "toml"])
     assert got == _expect(kind, 2)
     assert len(CALLS) == 1
-    assert "CommandError: unknown format toml" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 def test_exit_parse_does_not_cover_a_reported_construction_error(capsys):

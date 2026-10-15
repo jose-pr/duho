@@ -134,17 +134,27 @@ def test_the_traceback_variable_reraises_without_a_hook(monkeypatch, capsys, kin
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_the_traceback_variable_prints_it_then_calls_the_hook(
+def test_the_traceback_variable_leaves_the_report_to_the_hook(
     monkeypatch, capsys, kind
 ):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     assert _via(kind, _root(_three), ["fails"]) == 4
     ((message, code, error),) = CALLS
     assert (message, code) == ("it broke", 4) and isinstance(error, CommandError)
-    err = capsys.readouterr().err
-    assert "Traceback (most recent call last)" in err
-    assert "CommandError: it broke" in err
-    assert err.index("Traceback") < err.index("CommandError: it broke")
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_hook_prints_only_what_it_writes_under_the_traceback_variable(
+    monkeypatch, capsys, kind
+):
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+
+    def hook(message, code):
+        print("custom: %s" % message, file=sys.stderr)
+
+    assert _via(kind, _root(hook), ["fails"]) == 4
+    assert capsys.readouterr().err == "custom: it broke\n"
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -154,7 +164,7 @@ def test_the_traceback_variable_keeps_the_status_for_a_mapped_error(
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     assert _via(kind, _root(_two), ["mapped"]) == 66
     assert CALLS == [("nothing there", 66)]
-    assert "FileNotFoundError: nothing there" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("kind", KINDS)

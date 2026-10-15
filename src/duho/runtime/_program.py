@@ -82,7 +82,8 @@ def run(
     code; any other ``int`` is the status; any other value is printed (a ``str``
     as it is, else JSON) with status 0. ``KeyboardInterrupt`` exits 130, silently
     unless ``DUHO_TRACEBACK`` is set, which re-raises it; a ``BrokenPipeError``,
-    from the command or from printing, exits 1 silently either way. A ``SystemExit`` passes through untouched.
+    from the command or from printing, exits 1 silently either way. A
+    ``SystemExit`` passes through untouched.
 
     ``exit`` says when to end the process instead of returning the status:
     ``True`` always; ``False`` never, so a ``SystemExit`` becomes its status

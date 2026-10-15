@@ -15,7 +15,7 @@ import typing as _ty
 from .. import _compat
 from ..logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .._outcome import Result as _Result
-from .._outcome import _error_status, _render
+from .._outcome import _call_report, _error_status, _render
 from ..logging import log_exception as _log_exception
 
 from ._argv import _sibling_names, _synthesize_step_argv
@@ -476,6 +476,40 @@ def _with_blob(result: dict, taken: "_Stdout", tool_name: object) -> dict:
     return result
 
 
+def _run_report_hook(
+    root_cls: object,
+    exc: Exception,
+    code: int,
+    command: object,
+    capture: _StdoutCapture,
+    err: _io.StringIO,
+    idle_stderr: object,
+) -> bool:
+    """Call the root's ``_report_error_`` with the call's redirects back in place.
+
+    Its standard output joins the call's, its standard error and log lines go to
+    ``err``, and ``running_mode()`` is ``"mcp"``. True when it wrote to ``err``;
+    a hook that raises is logged and counts as writing nothing.
+    """
+    report = getattr(root_cls, "_report_error_", None)
+    if report is None:
+        return False
+    before = len(err.getvalue())
+    running = _compat._RUNNING_MODE.set("mcp")
+    try:
+        with (
+            _contextlib.redirect_stdout(capture.text),
+            _contextlib.redirect_stderr(err),
+            _rebound_stderr_logging(err, idle_stderr),
+        ):
+            _call_report(report, str(exc), code, exc, command)
+    except Exception:  # noqa: BLE001 - a failing hook must not crash the server
+        _LOGGER.exception("_report_error_ raised in a tool call")
+    finally:
+        _compat._RUNNING_MODE.reset(running)
+    return bool(err.getvalue()[before:].strip())
+
+
 def call_tool(
     root_cls: _ty.Union[type, _ServerCore],
     name: object,
@@ -680,6 +714,7 @@ def call_tool(
     capture = _StdoutCapture(target, mode)
     out = capture.text
     err = _io.StringIO()
+    dispatched: object = None
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
     real_stderr = _sys.stderr
     try:
@@ -703,6 +738,7 @@ def call_tool(
                             err.getvalue().strip(), hidden
                         ) or ("argument error (exit code %r)" % (exc.code,))
                         return _text_result(message, is_error=True)
+                    dispatched = instance
                     # Popped, as `runtime._run_app` does, so the markers never
                     # reach a command's `vars(instance)`.
                     actual_path = vars(instance).pop("_duho_mcp_path_", None)
@@ -749,10 +785,15 @@ def call_tool(
         error_code = _error_status(exc, core.root_cls)
         if error_code is not None:
             # An error the command meant to end with: its words, not a crash.
+            reported = _run_report_hook(
+                core.root_cls, exc, error_code, dispatched, capture, err, real_stderr
+            )
             taken = capture.finish(output_var)
             if taken.error is not None:
                 return taken.error
-            parts = [taken.text, err.getvalue().strip(), str(exc)]
+            parts = [taken.text, err.getvalue().strip()]
+            if not reported:
+                parts.append(str(exc))
             meaning = _declared_exit_meaning(core.root_cls, error_code)
             if meaning is not None:
                 parts.append("exit code: %d (%s)" % (error_code, meaning))

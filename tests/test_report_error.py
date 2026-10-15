@@ -206,12 +206,12 @@ def test_a_lambda_with_defaults_takes_three(capsys):
     assert isinstance(seen[0][1], CommandError)
 
 
-def test_a_tool_call_does_not_use_the_hook():
+def test_a_tool_call_calls_the_hook_and_keeps_the_message_when_it_is_silent():
     root = _root(_two)
     result = call_tool(root, "reporting.fails", {})
     assert result["isError"] is True
     assert "it broke" in result["content"][0]["text"]
-    assert CALLS == []
+    assert CALLS == [("it broke", 4)]
 
 
 def test_the_attribute_is_a_known_name(caplog):

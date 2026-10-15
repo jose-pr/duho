@@ -247,3 +247,98 @@ def test_mapped_exception_status_gets_its_declared_meaning():
     assert (
         _text(_call(Mapped, "raises-mapped")) == "gone\nexit code: 66 (missing input)"
     )
+
+
+SEEN = []
+
+
+class Builds(Cmd):
+    _parsername_ = "builds"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        raise CommandError("cannot build", 3)
+
+    def __call__(self):
+        return 0
+
+
+def _reporting(report, **extra):
+    attrs = {
+        "_parsername_": "reporting",
+        "_subcommands_": [RaisesError, RaisesMapped, RaisesBare, Builds],
+        "_errors_": {FileNotFoundError: 66},
+        "_report_error_": staticmethod(report),
+    }
+    attrs.update(extra)
+    return type("Reporting", (Cli,), attrs)
+
+
+def _prints(message, code):
+    print("custom: %s" % message, file=sys.stderr)
+
+
+def test_a_hook_that_prints_gives_its_output_as_the_error_text():
+    result = _call(_reporting(_prints), "raises-error")
+    assert result["isError"] is True
+    assert _text(result) == "partial out\n\npartial err\ncustom: no value for KEY"
+
+
+def test_a_hook_that_logs_gives_the_logged_line():
+    import logging
+
+    from duho.logging import init_stderr_logging
+
+    init_stderr_logging("hooked")
+
+    def logs(message, code):
+        logging.getLogger("hooked").error("logged: %s", message)
+
+    result = _call(_reporting(logs), "raises-mapped")
+    assert _text(result).endswith("logged: gone")
+    assert _text(result) != "gone"
+
+
+def test_a_hook_that_writes_nothing_gives_the_bare_message():
+    result = _call(_reporting(lambda message, code: None), "raises-mapped")
+    assert _text(result) == "gone"
+
+
+def test_the_exit_code_line_follows_the_hooks_output():
+    root = _reporting(_prints, _exit_codes_={66: "missing input"})
+    assert _text(_call(root, "raises-mapped")) == (
+        "custom: gone\nexit code: 66 (missing input)"
+    )
+
+
+def test_the_hook_runs_in_mcp_mode_and_a_four_argument_hook_gets_the_instance():
+    import duho
+
+    def hook(message, code, error, command):
+        SEEN.append((duho.running_mode(), type(command), error))
+
+    SEEN.clear()
+    _call(_reporting(hook), "raises-error")
+    ((mode, kind, error),) = SEEN
+    assert (mode, kind) == ("mcp", RaisesError)
+    assert isinstance(error, CommandError)
+    assert duho.running_mode() == "cli"
+
+
+def test_a_constructors_error_reaches_the_hook_without_a_command():
+    SEEN.clear()
+
+    def hook(message, code, error, command):
+        SEEN.append(command)
+        print("custom: %s" % message, file=sys.stderr)
+
+    result = _call(_reporting(hook), "builds")
+    assert SEEN == [None]
+    assert _text(result) == "custom: cannot build"
+
+
+def test_a_hook_that_raises_leaves_the_bare_message():
+    def hook(message, code):
+        raise RuntimeError("hook broke")
+
+    assert _text(_call(_reporting(hook), "raises-mapped")) == "gone"

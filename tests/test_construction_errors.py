@@ -218,4 +218,5 @@ def test_a_tool_call_reports_it_as_it_reports_a_dispatch_error():
         ],
         "isError": True,
     }
-    assert CALLS == []
+    ((message, code, _error, command),) = CALLS
+    assert (message, code, command) == ("unknown format toml", 2, None)

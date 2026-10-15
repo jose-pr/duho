@@ -105,6 +105,24 @@ def _mark_parser_exit(exc: SystemExit) -> None:
         exc._duho_parser_exit_ = True  # type: ignore[attr-defined]
 
 
+def _call_report(
+    report: _ty.Callable[..., object],
+    message: str,
+    code: int,
+    exc: Exception,
+    command: object,
+) -> None:
+    """Call a ``_report_error_`` hook with as many arguments as it can take (2 to 4)."""
+    from .runtime._arity import accepts_positional  # lazy: runtime imports this
+
+    if accepts_positional(report, 4):
+        report(message, code, exc, command)
+    elif accepts_positional(report, 3):
+        report(message, code, exc)
+    else:
+        report(message, code)
+
+
 def _report_caught(
     exc: Exception,
     prog: str,
@@ -127,14 +145,7 @@ def _report_caught(
         return None
     message = str(exc)
     if report is not None:
-        from .runtime._arity import accepts_positional  # lazy: runtime imports this
-
-        if accepts_positional(report, 4):
-            report(message, code, exc, command)
-        elif accepts_positional(report, 3):
-            report(message, code, exc)
-        else:
-            report(message, code)
+        _call_report(report, message, code, exc, command)
     elif message:
         print("%s: error: %s" % (prog, message), file=_sys.stderr)
     return code

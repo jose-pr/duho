@@ -507,7 +507,9 @@ just its annotation.
   `--version`, a usage error, as `main` raises them), everything else returned (a
   command's own `sys.exit(3)` is 3, Ctrl-C 130, a broken pipe 1); a callable
   `f(status, error) -> True | False | "parse"` decides, `error` being the `SystemExit`,
-  `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. Also `duho.runtime.run`.
+  `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. It calls `main`/`app`
+  directly, not through the `duho` module, so a test that patches `duho.main` does not
+  reach it: patch a command instead. Also `duho.runtime.run`.
 - **`Result(code=0, *, value=None, text=None, is_error=None)`** — an `int` subclass a
   command returns for more than a status. `int(result)` is the exit status (`sys.exit`
   and every int check work); attributes `code`, `value` (the answer: printed by `run`,

@@ -74,8 +74,9 @@ returned (a command's own `sys.exit(3)` is 3). `exit` may also be a function
 `SystemExit`, `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. A program that has
 its own `main(argv) -> int` for a console script and its tests can call it from there. `None` or an `int` is the exit status; any other
 value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
-with status 0. A `KeyboardInterrupt` exits 130 and a closed pipe exits 1, both
-silently, unless `DUHO_TRACEBACK` is set.
+with status 0. A `KeyboardInterrupt` exits 130, silently unless `DUHO_TRACEBACK` is set,
+which re-raises it. A closed pipe, from the command or from the printing, exits 1
+silently with or without the variable, before the root's `_errors_` is consulted.
 
 Raise `duho.CommandError(message, code=1)` from a command to fail with a message:
 `main` and `app` print `<prog>: error: <message>` to stderr and return the code
@@ -84,8 +85,9 @@ the command is constructed during the parse (a validating `__init__`): it is rep
 the same way and ends the parse with that code as a `SystemExit`; any other exception
 raised there, and argparse's own errors, are untouched. Under `DUHO_TRACEBACK` the
 exception propagates, unless the root has a `_report_error_` (below). Over MCP the
-message becomes the error result's text, followed by `exit code: N (meaning)` when the
-root's `_exit_codes_` declares that code.
+message becomes the error result's text, or what the root's `_report_error_` wrote
+(below), followed by `exit code: N (meaning)` when the root's `_exit_codes_` declares
+that code.
 
 A program with its own way of reporting an error, a logger or a format, sets
 `_report_error_` on the root class: a function called in place of the default line
@@ -95,9 +97,13 @@ can take three positional arguments (`error` is the exception), or as
 `f(message, code, error, command)` when it can take four (`command` is the dispatched
 instance, so the hook can read the command's own `-v` flag; `None` for an error raised
 while the command was built). It is also called for an empty message. The status
-returned is the same. Under `DUHO_TRACEBACK` a root with a hook gets the traceback on
-standard error first and then the hook, with the status kept; a root without one
-re-raises. An MCP tool call does not use the hook:
+returned is the same. Under `DUHO_TRACEBACK` a root with a hook is called exactly as
+without the variable and duho prints no traceback: the hook owns the report, and one that
+wants a traceback prints it (`duho.logging.traceback_enabled()` says whether to); a root
+without a hook re-raises. An MCP tool call calls the hook too, with `running_mode()`
+reading `"mcp"` and standard error and log output going to the call's buffer: what it
+writes there is the error text, in place of the bare message, and a hook that writes
+nothing leaves the message:
 
 ```python
 class App(duho.Cli):

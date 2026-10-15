@@ -8,6 +8,16 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+The hook owns the report, and a closed pipe is never one.
+
+- A `BrokenPipeError` ends with status 1, silently, under `main`, `app` and `run`, with or
+  without `DUHO_TRACEBACK`, ahead of `_errors_` and `_report_error_`.
+- Upgrade note: under `DUHO_TRACEBACK` a root with a `_report_error_` no longer gets duho's
+  traceback before the hook, so a hook that wants one prints it, for example when
+  `duho.logging.traceback_enabled()` is true.
+- A tool call calls the `_report_error_` hook for a `CommandError` or an `_errors_` match;
+  what it writes to standard error or the log is the result's error text.
+
 ---
 
 ## [0.7.5] — 2026-10-14

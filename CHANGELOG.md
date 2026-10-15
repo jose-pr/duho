@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A `BrokenPipeError` raised while a command runs, or while `run` prints its answer, ends
+  with status 1 and no output under `main`, `app` and `run`, with or without
+  `DUHO_TRACEBACK` and before the root's `_errors_` is consulted, so an `OSError` entry no
+  longer routes it to `_report_error_`. Ctrl-C still re-raises under the variable.
+- Under `DUHO_TRACEBACK` a root with a `_report_error_` no longer gets a traceback printed
+  by duho before the hook: the hook is called as without the variable and owns the report.
+  A hook that wants a traceback prints it; a root without a hook re-raises as before.
+- In an MCP tool call a `CommandError` or an `_errors_` match on a root with a
+  `_report_error_` calls the hook, with standard error and log output going to the call's
+  buffer; what it writes is the error text in place of the bare message (which is kept
+  when it writes nothing). Results for a root without a hook are unchanged.
+
 ## [0.7.5] - 2026-10-14
 
 ### Added

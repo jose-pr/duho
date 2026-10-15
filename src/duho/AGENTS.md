@@ -208,7 +208,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
 | `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
 | `_errors_` | `Mapping[type, int] \| None` | `None` | root | exception type → exit status for exceptions a command lets escape; matched by `isinstance` in the mapping's order, first match wins; `main`/`app` (and an MCP tool call) catch them like a `CommandError`; `None` catches nothing |
-| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, `f(message, code, error)` when it can take three positional arguments, or `f(message, code, error, command)` when it can take four (`command` is the dispatched instance, `None` for an error raised while the command was built); also called for an empty message; the status is unchanged; read by `main`/`app`/`run`, not by an MCP tool call; under `DUHO_TRACEBACK` a root with a hook gets the traceback on standard error and then the hook, a root without one re-raises |
+| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, `f(message, code, error)` when it can take three positional arguments, or `f(message, code, error, command)` when it can take four (`command` is the dispatched instance, `None` for an error raised while the command was built); also called for an empty message; the status is unchanged; read by `main`/`app`/`run` and by an MCP tool call (there its stderr and log output become the error text, the bare message when it writes none); under `DUHO_TRACEBACK` a root with a hook is called as without the variable and prints any traceback itself (`duho.logging.traceback_enabled()`), a root without one re-raises |
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
@@ -419,9 +419,10 @@ just its annotation.
   matching the root's `_errors_` is caught, `<prog>: error: <message>` goes to stderr (no
   line for an empty message) and the status is returned (an error raised in construction
   ends the parse with that status as a `SystemExit`), unless the root's `_report_error_`
-  function writes the report instead; under `DUHO_TRACEBACK` it propagates instead, or
-  with a `_report_error_` the traceback is printed to stderr first and the hook is then
-  called. Nothing else is caught: argparse's own exits and any other exception raised by a
+  function writes the report instead; under `DUHO_TRACEBACK` it propagates instead, but
+  a root with a `_report_error_` still has the hook called, which owns the report and
+  any traceback. A `BrokenPipeError` is never reported: stdout is pointed at the null
+  device and the status is 1, silently, ahead of `_errors_` and the hook. Nothing else is caught: argparse's own exits and any other exception raised by a
   constructor are untouched. In an MCP tool call a constructor's error is left to the
   tool call, which reports it as it does one raised while dispatching. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
@@ -496,9 +497,9 @@ just its annotation.
   0; a `Result` → its rendered `value` (when not `None`) on stdout, status `int(result)`;
   any other `int` (a `bool` too) → the status; any other value → printed on stdout (a
   `str` as it is, else `json.dumps(value, indent=2, ensure_ascii=False, default=str)`),
-  status 0. `KeyboardInterrupt` → 130 and `BrokenPipeError` (also from its own printing) →
-  1, silent (stdout is pointed at the null device first); both propagate under
-  `DUHO_TRACEBACK`. A `SystemExit` passes through. `exit` says when it ends the process
+  status 0. `KeyboardInterrupt` → 130, silent, and propagating under `DUHO_TRACEBACK`;
+  `BrokenPipeError` (from the command or from its own printing) → 1, silent (stdout is
+  pointed at the null device first), with or without `DUHO_TRACEBACK`. A `SystemExit` passes through. `exit` says when it ends the process
   instead of returning the status as an `int`: `True` always; `False` never (`-> int`), so
   a `SystemExit` becomes its status (`None` is 0, an `int` itself, anything else is
   printed to standard error and is 1), the parser's own exits included: `--help` and
@@ -520,7 +521,8 @@ just its annotation.
   (`duho.exceptions`, also `duho.CommandError`/`duho.UsageError`; `UsageError` is a
   `CommandError`) — raise from `__call__` to end with a message and a status; attributes
   `message`, `code`; `str(exc)` is the message. Caught by `main`/`app` as above; over MCP
-  they are an `isError` result whose text is the message.
+  they are an `isError` result whose text is the message, or what the root's
+  `_report_error_` wrote in its place.
 - **`run_command(command, instance, *, context=None, adapter=None) -> Any`** —
   dispatch one resolved
   command. `adapter(entrypoint)` is the same hook as `app`'s: it applies to a module
@@ -1144,7 +1146,8 @@ manipulating a parser tree directly:
   `isError` with stdout, stderr and `exit code: N`, plus ` (<meaning>)` when the root's
   own `_exit_codes_` declares that code (the built-in 0/1/2 table is not used); a
   `CommandError` or an exception matching the root's `_errors_` → `isError` with stdout,
-  stderr and the message, no `Type:` prefix, not logged as a broken command, plus an
+  stderr and the message (or, on a root with a `_report_error_`, what the hook wrote to
+  stderr and the log in its place), no `Type:` prefix, not logged as a broken command, plus an
   `exit code: N (<meaning>)` line when the root's own `_exit_codes_` declares the error's
   code (no line otherwise); any other
   value → success with its JSON. By the command's `_mcp_output_`: `"stream"` puts the

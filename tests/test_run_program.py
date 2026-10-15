@@ -161,12 +161,14 @@ def test_broken_pipe_is_1_and_silent(capsys, monkeypatch):
     assert captured.err == ""
 
 
-def test_traceback_env_reraises_interrupt_and_pipe(monkeypatch):
+def test_traceback_env_reraises_interrupt_but_not_a_pipe(monkeypatch):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     with pytest.raises(KeyboardInterrupt):
         duho.run(Root, ["interrupt"])
-    with pytest.raises(BrokenPipeError):
-        duho.run(Root, ["pipe"])
+    real = sys.stdout
+    assert _run(["pipe"]) == 1
+    sys.stdout.close()
+    monkeypatch.setattr(sys, "stdout", real)
 
 
 def test_app_keywords_route_through_app(capsys):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os as _os
 import sys as _sys
 import typing as _ty
 
@@ -59,6 +60,16 @@ class Result(int):
         if self._is_error is not None:
             parts.append("is_error=%r" % (self._is_error,))
         return "Result(%s)" % ", ".join(parts)
+
+
+def _silence_stdout() -> None:
+    """Point stdout at the null device so a closed pipe prints nothing at shutdown."""
+    try:
+        if _sys.stdout.fileno() == 1:
+            _os.dup2(_os.open(_os.devnull, _os.O_WRONLY), 1)
+    except (OSError, ValueError, AttributeError):
+        pass
+    _sys.stdout = open(_os.devnull, "w")
 
 
 def _render(value: object) -> str:
@@ -143,7 +154,8 @@ def _guard_dispatch(
 
     The root's ``_report_error_`` writes the report instead when it has one.
     Under ``DUHO_TRACEBACK`` the exception is re-raised unless the root has a
-    ``_report_error_``. Nothing else is caught.
+    ``_report_error_``. A ``BrokenPipeError`` is never reported: stdout is
+    silenced and the status is 1. Nothing else is caught.
     """
     try:
         return call()
@@ -151,6 +163,9 @@ def _guard_dispatch(
         # An exit from a nested program's parse is not this program's parse.
         vars(exc).pop("_duho_parser_exit_", None)
         raise
+    except BrokenPipeError:
+        _silence_stdout()
+        return 1
     except Exception as exc:
         code = _report_caught(exc, prog, root_cls, command)
         if code is None:

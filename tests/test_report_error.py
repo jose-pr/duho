@@ -352,9 +352,11 @@ def test_exit_true_lets_a_systemexit_pass_through():
     assert info.value.code == 9
 
 
-def test_exit_false_traceback_variable_still_reraises(monkeypatch):
+def test_exit_false_traceback_variable_reraises_an_interrupt_not_a_pipe(monkeypatch):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     with pytest.raises(KeyboardInterrupt):
         _returns(["interrupt"])
-    with pytest.raises(BrokenPipeError):
-        _returns(["pipe"])
+    real = sys.stdout
+    assert _returns(["pipe"]) == 1
+    sys.stdout.close()
+    monkeypatch.setattr(sys, "stdout", real)

@@ -62,14 +62,26 @@ class Result(int):
         return "Result(%s)" % ", ".join(parts)
 
 
+_DEVNULL: _ty.Optional[_ty.TextIO] = None
+
+
 def _silence_stdout() -> None:
     """Point stdout at the null device so a closed pipe prints nothing at shutdown."""
+    global _DEVNULL
     try:
         if _sys.stdout.fileno() == 1:
-            _os.dup2(_os.open(_os.devnull, _os.O_WRONLY), 1)
+            fd = _os.open(_os.devnull, _os.O_WRONLY)
+            try:
+                _os.dup2(fd, 1)
+            finally:
+                _os.close(fd)
     except (OSError, ValueError, AttributeError):
         pass
-    _sys.stdout = open(_os.devnull, "w")
+    # One stream for the process: a caller that puts its own stdout back (a test)
+    # must not leave an unclosed file behind.
+    if _DEVNULL is None:
+        _DEVNULL = open(_os.devnull, "w")
+    _sys.stdout = _DEVNULL
 
 
 def _render(value: object) -> str:

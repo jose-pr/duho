@@ -1,6 +1,8 @@
 """A broken pipe ends with status 1 and no output under ``main``, ``app`` and ``run``,
 whatever ``DUHO_TRACEBACK`` says and whatever the root's ``_errors_`` maps."""
 
+import gc
+import io
 import sys
 
 import pytest
@@ -93,3 +95,16 @@ def test_interrupt_under_the_traceback_variable_still_raises(monkeypatch):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
     with pytest.raises(KeyboardInterrupt):
         _run(["interrupt"])
+
+
+def test_a_caller_that_puts_stdout_back_leaves_no_open_file(monkeypatch):
+    class Closed(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError
+
+    for _ in range(2):
+        with monkeypatch.context() as m:
+            m.setattr(sys, "stdout", Closed())
+            assert duho.main(Root, ["pipe"], setup_logging=False) == 1
+    # An unclosed file would warn here, which the suite's settings make an error.
+    gc.collect()

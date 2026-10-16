@@ -8,15 +8,51 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.6] — 2026-10-16
+
 The hook owns the report, and a closed pipe is never one.
 
 - A `BrokenPipeError` ends with status 1, silently, under `main`, `app` and `run`, with or
   without `DUHO_TRACEBACK`, ahead of `_errors_` and `_report_error_`.
-- Upgrade note: under `DUHO_TRACEBACK` a root with a `_report_error_` no longer gets duho's
-  traceback before the hook, so a hook that wants one prints it, for example when
-  `duho.logging.traceback_enabled()` is true.
+- Under `DUHO_TRACEBACK` a root with a `_report_error_` gets no traceback from duho: the
+  hook is called as without the variable and owns the report.
 - A tool call calls the `_report_error_` hook for a `CommandError` or an `_errors_` match;
   what it writes to standard error or the log is the result's error text.
+
+### Upgrade notes
+
+- A hook that wants a traceback under `DUHO_TRACEBACK` prints it, for example when
+  `duho.logging.traceback_enabled()` is true. A test that expects duho's traceback on
+  standard error ahead of the hook's report sees only the report.
+- A test that expects a `BrokenPipeError` traceback under `DUHO_TRACEBACK`, or a hook's
+  report of a broken pipe through an `OSError` entry in `_errors_`, sees status 1 and
+  nothing on standard error.
+- A tool call's error text on a root with a hook is what the hook writes, where it was
+  the bare message.
+- `run` calls `main` and `app` directly: a test that patches `duho.main` does not reach
+  it, so patch a command instead.
+
+### Performance
+
+No performance claim is made. `import duho` loads no new module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3309 passed, 49 skipped); Linux (WSL)
+  Python 3.14 (3332 passed, 27 skipped). The skip counts are those of 0.7.5. Windows
+  Python 3.14 was not run on this machine; CI ran it.
+- CI: all 17 jobs green at the change (run
+  [38796067040](https://github.com/jose-pr/duho/actions/runs/38796067040)), and the same
+  workflow ran at the release commit before tagging.
+- The leak check exits 1 with exactly its three known hits.
+- The suites of seven projects that use duho were run against this tree. Five pass with
+  the same counts as against their installed duho. One had two errors, from the null
+  stream a closed stdout was pointed at being left unclosed when a test put its own
+  stdout back; that is fixed in this release, and its suite then passes. In one, three
+  tests fail: each expects duho's traceback under `DUHO_TRACEBACK`, which is the first
+  two upgrade notes above, measured.
 
 ---
 

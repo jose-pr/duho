@@ -108,3 +108,66 @@ def test_annotations_resolve():
     for func in (run_targets, fanout.fan_out_command):
         resolved = eval(func.__annotations__["label"], vars(fanout), {"_ty": typing})
         assert resolved == typing.Optional[typing.Callable[[object], str]]
+
+
+class _Secret:
+    def __repr__(self):
+        return "conn://user:secret@host"
+
+
+def _failure_lines(func, **kwargs):
+    handler = _Capture()
+    logger = logging.getLogger("duho.labelfail")
+    logger.addHandler(handler)
+    try:
+        rc = run_targets(func, [_Secret()], logger=logger, **kwargs)
+    finally:
+        logger.removeHandler(handler)
+    return rc, handler.messages
+
+
+def _raises(target):
+    raise RuntimeError("boom")
+
+
+def _exits(target):
+    raise SystemExit("bad")
+
+
+@pytest.mark.parametrize(
+    "func, expected",
+    [
+        (_raises, "target 'host-1' failed: boom"),
+        (lambda t: "nope", "target 'host-1' returned non-int 'nope'"),
+        (_exits, "target 'host-1' exited with non-int code 'bad'"),
+    ],
+)
+def test_failure_lines_name_the_label_not_the_target(func, expected):
+    rc, messages = _failure_lines(func, label=lambda t: "host-1")
+    assert rc == 1
+    assert messages == ["[host-1] " + expected]
+    assert "secret" not in "".join(messages)
+
+
+@pytest.mark.parametrize(
+    "func, expected",
+    [
+        (_raises, "target conn://user:secret@host failed: boom"),
+        (lambda t: "nope", "target conn://user:secret@host returned non-int 'nope'"),
+        (_exits, "target conn://user:secret@host exited with non-int code 'bad'"),
+    ],
+)
+def test_failure_lines_without_label_are_unchanged(func, expected):
+    rc, messages = _failure_lines(func)
+    assert rc == 1
+    assert messages == ["[conn://user:secret@host] " + expected]
+
+
+def test_failure_line_of_a_label_that_raises_names_the_position():
+    def label(target):
+        raise RuntimeError("no label")
+
+    rc, messages = _failure_lines(_raises, label=label)
+    assert rc == 1
+    assert messages == ["[#0] target '#0' failed: no label"]
+    assert "secret" not in "".join(messages)

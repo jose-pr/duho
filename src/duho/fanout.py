@@ -223,6 +223,7 @@ def _run_one(
     target: object,
     logger: _logging.Logger,
     label: _ty.Optional[_ty.Callable[[object], str]] = None,
+    position: int = 0,
 ) -> int:
     """Run ``func(target)`` in a target-tagged context; return an exit code.
 
@@ -231,14 +232,21 @@ def _run_one(
     too), a :class:`SystemExit` to its ``.code`` the same way (anything else is
     logged and ``1``), an ``Exception`` logged (``DUHO_TRACEBACK`` honoured) as
     ``1``. A failing target never aborts the fan-out; ``KeyboardInterrupt`` and
-    other ``BaseException`` propagate. Runs in the worker thread.
+    other ``BaseException`` propagate. Runs in the worker thread. With a ``label``
+    the failure lines name the target by its label text, or by ``#<position>``
+    when ``label`` itself raised, never by the target's own repr.
     """
     token = current_target.set(target)
     label_token = _current_label.set(None)
+    shown: object = target if label is None else "#%d" % position
+    if label is not None:
+        _current_label.set(shown)
     try:
         try:
             if label is not None:
-                _current_label.set(str(label(target)))
+                text = str(label(target))
+                _current_label.set(text)
+                shown = text
             result = _maybe_await(func(target))
         except SystemExit as exc:
             code = exc.code
@@ -246,10 +254,10 @@ def _run_one(
                 return 0
             if isinstance(code, int):
                 return code
-            logger.error("target %r exited with non-int code %r", target, code)
+            logger.error("target %r exited with non-int code %r", shown, code)
             return 1
         except Exception as exc:
-            _log_exception(logger, "target %r failed: %s", target, exc)
+            _log_exception(logger, "target %r failed: %s", shown, exc)
             return 1
         # Normalise inside the isolation boundary: a target returning a non-int,
         # non-None value must not abort the whole fan-out via an escaping
@@ -257,7 +265,7 @@ def _run_one(
         try:
             return 0 if result is None else int(result)
         except (TypeError, ValueError):
-            logger.error("target %r returned non-int %r", target, result)
+            logger.error("target %r returned non-int %r", shown, result)
             return 1
     finally:
         _current_label.reset(label_token)
@@ -316,9 +324,10 @@ def run_targets(
       module's own logger, ``"duho.fanout"`` (a child of ``"duho"``, so a handler
       configured on ``"duho"`` or the root still sees it via propagation).
     * ``label`` -- ``label(target) -> str`` is the text of the ``[...]`` log prefix
-      for that target; default ``None`` prefixes with ``str(target)``. ``func``
-      still receives the target itself. A ``label`` that raises fails only that
-      target (logged, code ``1``).
+      for that target and the name its failure lines use (formatted with ``%r``);
+      default ``None`` uses ``str(target)`` for the prefix and the target itself in
+      those lines. ``func`` still receives the target itself. A ``label`` that
+      raises fails only that target (logged as ``#<position>``, code ``1``).
 
     An ``async def`` ``func`` is supported: its coroutine result is driven to
     completion the same way :func:`duho.run_command` drives one
@@ -353,8 +362,8 @@ def run_targets(
         with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             try:
                 futures = [
-                    pool.submit(_run_one, func, target, active_logger, label)
-                    for target in target_list
+                    pool.submit(_run_one, func, target, active_logger, label, position)
+                    for position, target in enumerate(target_list)
                 ]
                 codes = [future.result() for future in futures]
             except BaseException:

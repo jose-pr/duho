@@ -243,6 +243,10 @@ def _isolate_logging_globals():
     logging_attrs_before = set(vars(logging))
     logger_cls = logging.getLoggerClass()
     logger_attrs_before = set(vars(logger_cls))
+    # The level methods are also installed on Logger and LoggerAdapter.
+    extra_classes = [
+        (cls, set(vars(cls))) for cls in (logging.Logger, logging.LoggerAdapter)
+    ]
     name_to_level_before = dict(logging._nameToLevel)
     level_to_name_before = dict(logging._levelToName)
     colors_before = dict(_DefaultFormatter.COLORS)
@@ -259,6 +263,9 @@ def _isolate_logging_globals():
             delattr(logging, name)
         for name in set(vars(logger_cls)) - logger_attrs_before:
             delattr(logger_cls, name)
+        for cls, before in extra_classes:
+            for name in set(vars(cls)) - before:
+                delattr(cls, name)
         logging._nameToLevel.clear()
         logging._nameToLevel.update(name_to_level_before)
         logging._levelToName.clear()

@@ -91,16 +91,17 @@ def add_logging_level(
 ) -> None:
     """Register a custom log level.
 
-    Installs ``NAME``/``name`` on both the ``logging`` module and
-    ``logging.Logger`` (so ``logging.name(...)`` and ``logger.name(...)``
-    both work), registers the level name, refreshes the ``-v``/``-q``
+    Installs ``NAME`` on the ``logging`` module and the method ``name`` on the
+    module, on ``logging.Logger``, on the current ``logging.getLoggerClass()`` and
+    on ``logging.LoggerAdapter`` (so ``logging.name(...)``, ``logger.name(...)``
+    and ``adapter.name(...)`` all work; the adapter's applies its ``process()``), registers the level name, refreshes the ``-v``/``-q``
     verbosity table (:func:`initverbose`) so the new level immediately
     participates in it regardless of whether anything has configured logging
     yet, and optionally gives it a color for
     :class:`DefaultFormatter`.
 
     Unless ``force`` is set, refuses (``ValueError``) to clobber an existing
-    ``logging``/``Logger`` attribute that duho itself did not install --
+    ``logging``/``Logger``/``LoggerAdapter`` attribute that duho itself did not install --
     guarding both the given ``NAME`` (as before) and its lower-cased method
     name: a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
     silently replace ``logging.log``/``Logger.exception``. A repeat call for
@@ -131,7 +132,9 @@ def add_logging_level(
             )
         for existing in (
             getattr(_logging, lname, None),
+            getattr(_logging.Logger, lname, None),
             getattr(_logging.getLoggerClass(), lname, None),
+            getattr(_logging.LoggerAdapter, lname, None),
         ):
             if existing is not None and getattr(existing, "_duho_level_", None) is None:
                 raise ValueError(
@@ -162,7 +165,18 @@ def add_logging_level(
 
     log_root._duho_level_ = level  # type: ignore[attr-defined]
 
+    def log_adapter(self: _logging.LoggerAdapter, message: str, *args, **kwargs):
+        if self.isEnabledFor(level):
+            # `LoggerAdapter.log` is one more logging frame between this wrapper
+            # and the record: Python 3.11+ skips it, earlier versions count it.
+            kwargs.setdefault("stacklevel", 2 if _sys.version_info >= (3, 11) else 3)
+            self.log(level, message, *args, **kwargs)
+
+    log_adapter._duho_level_ = level  # type: ignore[attr-defined]
+
+    setattr(_logging.Logger, lname, log_logger)
     setattr(_logging.getLoggerClass(), lname, log_logger)
+    setattr(_logging.LoggerAdapter, lname, log_adapter)
 
     if color is not None:
         DefaultFormatter.COLORS[level] = _getcolor(color)

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-10-20
+
 ### Fixed
 
 - `run_targets` and `fan_out_command` name a target by its `label` text, not its repr, in
@@ -2256,7 +2258,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.7...HEAD
+[0.7.7]: https://github.com/jose-pr/duho/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/jose-pr/duho/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/jose-pr/duho/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/jose-pr/duho/compare/v0.7.3...v0.7.4

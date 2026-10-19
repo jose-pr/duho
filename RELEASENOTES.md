@@ -8,11 +8,43 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.7] — 2026-10-20
+
+A target's label stays its name in a failure, and a custom level's method is on every
+logger.
+
 - A `label` given to `run_targets` or `fan_out_command` is also the target's name in its
   failure lines (raised, non-int return, non-int exit code); a `label` that raises is named
   by its position, `'#<position>'`.
 - A level's method (`logger.trace`) exists on `logging.Logger`, the current logger class
   and `logging.LoggerAdapter`, and the adapter's applies its `process()`.
+
+### Upgrade notes
+
+- A test that asserts a labelled target's raw repr in a failure line sees the label.
+- An explicit `add_logging_level` call now also refuses, without `force=True`, a method
+  of that name on `logging.Logger` or `logging.LoggerAdapter` that duho did not install.
+  The `TRACE` duho installs at import keeps any such method and fills the other places.
+
+### Performance
+
+No performance claim is made. `import duho` loads no new module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3329 passed, 49 skipped); Linux (WSL)
+  Python 3.14 (3352 passed, 27 skipped). The skip counts are those of 0.7.6. Windows
+  Python 3.14 was not run on this machine; CI ran it.
+- CI: all 17 jobs green at the change (run
+  [39296446472](https://github.com/jose-pr/duho/actions/runs/39296446472)), the adapter's
+  caller attribution included on every Python from 3.9 to 3.14, and the same workflow
+  ran at the release commit before tagging.
+- The leak check exits 1 with exactly its three known hits.
+- The suites of six projects that use duho were run against this tree. Each gives the same
+  counts as against its installed duho; in one, 30 tests fail both ways, from work in
+  progress in that project's tree.
 
 ---
 

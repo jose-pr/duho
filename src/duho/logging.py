@@ -143,8 +143,26 @@ def add_logging_level(
                     "pass force=True to replace it deliberately"
                 )
 
-    setattr(_logging, name, level)
-    _logging.addLevelName(level, name)
+    _install_level(name, level, color, tolerant=False)
+    initverbose()
+
+
+def _install_level(
+    name: str, level: int, color: _ty.Optional[str], tolerant: bool
+) -> None:
+    """Install ``name``'s constant and methods; ``tolerant`` keeps any foreign attribute."""
+    lname = name.lower()
+
+    def put(owner: object, attr: str, value: object) -> None:
+        existing = getattr(owner, attr, None)
+        if tolerant and existing is not None:
+            if getattr(existing, "_duho_level_", None) is None:
+                return
+        setattr(owner, attr, value)
+
+    put(_logging, name, level)
+    if not tolerant or _logging.getLevelName(level) == "Level %d" % level:
+        _logging.addLevelName(level, name)
 
     def log_logger(self: _logging.Logger, message: str, *args, **kwargs):
         if self.isEnabledFor(level):
@@ -174,16 +192,16 @@ def add_logging_level(
 
     log_adapter._duho_level_ = level  # type: ignore[attr-defined]
 
-    setattr(_logging.Logger, lname, log_logger)
-    setattr(_logging.getLoggerClass(), lname, log_logger)
-    setattr(_logging.LoggerAdapter, lname, log_adapter)
+    put(_logging.Logger, lname, log_logger)
+    put(_logging.getLoggerClass(), lname, log_logger)
+    put(_logging.LoggerAdapter, lname, log_adapter)
 
     if color is not None:
         DefaultFormatter.COLORS[level] = _getcolor(color)
 
-    setattr(_logging, lname, log_root)
-    _installed_level_names.add(name)
-    initverbose()
+    put(_logging, lname, log_root)
+    if not tolerant:
+        _installed_level_names.add(name)
 
 
 class DefaultFormatter(_logging.Formatter):  # type: ignore
@@ -423,17 +441,18 @@ def _register_trace_level() -> None:
     """Install ``TRACE`` at import, tolerating one the process already defines.
 
     An existing integer ``logging.TRACE`` is reused (named and coloured at its
-    own number); a foreign ``trace`` attribute is left in place. Never raises.
+    own number); a foreign ``trace`` attribute is left in place and every other
+    target (``Logger``, the logger class, ``LoggerAdapter``, the module) still gets
+    duho's method. Never raises.
     """
     try:
         add_logging_level("TRACE", _logging.DEBUG - 5, color=_asicode(36))
         return
     except ValueError:
         pass
-    level = getattr(_logging, "TRACE", None)
+    level = getattr(_logging, "TRACE", _logging.DEBUG - 5)
     if isinstance(level, int) and not isinstance(level, bool):
-        if _logging.getLevelName(level) == f"Level {level}":
-            _logging.addLevelName(level, "TRACE")
+        _install_level("TRACE", level, None, tolerant=True)
         DefaultFormatter.COLORS.setdefault(level, _asicode(36))
     initverbose()
 

@@ -94,15 +94,15 @@ def add_logging_level(
     Installs ``NAME`` on the ``logging`` module and the method ``name`` on the
     module, on ``logging.Logger``, on the current ``logging.getLoggerClass()`` and
     on ``logging.LoggerAdapter`` (so ``logging.name(...)``, ``logger.name(...)``
-    and ``adapter.name(...)`` all work; the adapter's applies its ``process()``), registers the level name, refreshes the ``-v``/``-q``
-    verbosity table (:func:`initverbose`) so the new level immediately
-    participates in it regardless of whether anything has configured logging
-    yet, and optionally gives it a color for
-    :class:`DefaultFormatter`.
+    and ``adapter.name(...)`` all work; the adapter's applies its ``process()``),
+    registers the level name, refreshes the ``-v``/``-q`` verbosity table
+    (:func:`initverbose`) so the new level immediately participates in it
+    regardless of whether anything has configured logging yet, and optionally
+    gives it a color for :class:`DefaultFormatter`.
 
     Unless ``force`` is set, refuses (``ValueError``) to clobber an existing
-    ``logging``/``Logger``/``LoggerAdapter`` attribute that duho itself did not install --
-    guarding both the given ``NAME`` (as before) and its lower-cased method
+    ``logging``/``Logger``/``LoggerAdapter`` attribute that duho itself did not
+    install -- guarding both the given ``NAME`` (as before) and its lower-cased method
     name: a level named e.g. ``LOG`` or ``EXCEPTION`` would otherwise
     silently replace ``logging.log``/``Logger.exception``. A repeat call for
     a name duho already installed itself (tracked in
@@ -150,7 +150,10 @@ def add_logging_level(
 def _install_level(
     name: str, level: int, color: _ty.Optional[str], tolerant: bool
 ) -> None:
-    """Install ``name``'s constant and methods; ``tolerant`` keeps any foreign attribute."""
+    """Install ``name``'s constant and methods.
+
+    ``tolerant`` keeps any attribute duho did not install and fills the rest.
+    """
     lname = name.lower()
 
     def put(owner: object, attr: str, value: object) -> None:

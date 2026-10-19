@@ -873,11 +873,16 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   stream.
 - **`add_logging_level(name, level, force=False, color=None)`** — register a custom
   level (e.g. TRACE); refreshes the `-v`/`-q` verbosity table so the new level
-  immediately participates in it. Registering a name again at the same number is a
+  immediately participates in it. The method `name` is installed on the `logging`
+  module, on `logging.Logger`, on `logging.getLoggerClass()` and on
+  `logging.LoggerAdapter` (the adapter's goes through its `log()`, so `process()`
+  applies); a name any of them already has that duho did not install raises
+  `ValueError` unless `force=True`. Registering a name again at the same number is a
   no-op; at another number it raises `ValueError` unless `force=True`. `import duho`
   registers `TRACE` itself and tolerates one the process already defines (an integer
-  `TRACE` level is reused, a foreign `trace` method is kept); only an explicit
-  `add_logging_level` call raises on such a collision.
+  `TRACE` level is reused, a foreign `trace` method is kept and duho's is still
+  installed on the other targets); only an explicit `add_logging_level` call raises on
+  such a collision.
 - **`initverbose()`** — rebuild the `VERBOSE_LEVELS`/`VERBOSE_HELP` tables from the
   currently registered logging levels (called automatically at import and whenever
   `add_logging_level`/`init_stderr_logging` runs).
@@ -1057,7 +1062,10 @@ manipulating a parser tree directly:
   aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (ThreadPool
   per-target, exit-code reduced by `aggregate`; default logger is this module's own,
   `"duho.fanout"`; `label(target)` gives the text of that target's log prefix in
-  place of `str(target)`, and `func` still receives the target), **`fan_out_command(command, make_instance, targets, *, context=None, max_workers=None, aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (sugar over `run_targets`: `make_instance(target)` builds
+  place of `str(target)`, and `func` still receives the target; with a `label`, the
+  "failed", "returned non-int" and "exited with non-int code" lines name the target by
+  that label text too, `'#<position>'` when `label` itself raised, never by the
+  target's own repr), **`fan_out_command(command, make_instance, targets, *, context=None, max_workers=None, aggregate=<worst-by-magnitude>, logger=None, label=None) -> int`** (sugar over `run_targets`: `make_instance(target)` builds
   the parsed instance for each target and the resolved duho `Command` is dispatched via
   `run_command`), **`target_logging(logger=None)`** (a
   context manager installing/removing a per-target log prefix for the duration of a

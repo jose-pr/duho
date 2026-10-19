@@ -8,6 +8,12 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+- A `label` given to `run_targets` or `fan_out_command` is also the target's name in its
+  failure lines (raised, non-int return, non-int exit code); a `label` that raises is named
+  by its position, `'#<position>'`.
+- A level's method (`logger.trace`) exists on `logging.Logger`, the current logger class
+  and `logging.LoggerAdapter`, and the adapter's applies its `process()`.
+
 ---
 
 ## [0.7.6] — 2026-10-16

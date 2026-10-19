@@ -113,12 +113,13 @@ import duho
 duho.add_logging_level("NOTICE", 25, color="cyan")
 ```
 
-The new level is usable as `logger.notice(...)`, participates in the `-v`/`-q`
+The new level is usable as `logger.notice(...)` on any logger and on a
+`logging.LoggerAdapter` (whose `process()` applies), participates in the `-v`/`-q`
 scale, and is accepted by `--loglevel`. Registering the same name again at the same
 number does nothing; at another number it raises `ValueError` unless you pass
 `force=True`. `import duho` registers `TRACE` itself and tolerates a process that
 already defines one: an integer `TRACE` level is reused and a foreign `trace` method
-is kept. Only an explicit `add_logging_level` call raises on such a collision.
+is kept while duho's goes on every other logger type. Only an explicit `add_logging_level` call raises on such a collision.
 
 ## Naming the logger
 

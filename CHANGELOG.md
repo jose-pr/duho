@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `run_targets` and `fan_out_command` name a target by its `label` text, not its repr, in
+  the lines for a target that raised, returned a non-int or exited with a non-int code, so
+  a target holding a credential no longer prints it. Without `label` the lines are unchanged.
+- `add_logging_level` installs the level's method on `logging.Logger`, on the current
+  logger class and on `logging.LoggerAdapter`, so `logger.trace(...)` works on an adapter
+  and on every logger when a library set its own logger class before duho was imported.
+
 ## [0.7.6] - 2026-10-16
 
 ### Changed

@@ -1915,7 +1915,10 @@ prefix so interleaved concurrent output stays attributable; the prefixing filter
 installed on your existing stderr handler for the duration and removed afterwards.
 `label=` is a callable giving the prefix text for a target in place of `str(target)`
 (`label=lambda host: host.name`); `func` still receives the target itself, and a
-`label` that raises fails only that target (code 1).
+`label` that raises fails only that target (code 1). Inside a target,
+`duho.fanout.current_label.get()` is that label text (`None` without `label=`), and
+`duho.status_for(root, exc)` gives the exit status `main` would end with for an exception
+under the root's `_errors_`.
 
 <!-- runnable -->
 ```python
@@ -2236,7 +2239,9 @@ command line in-process and returns `Result(status, stdout, stderr)`. With no
 `duho.app(root, argv=argv, **app_kwargs)`. `SystemExit` becomes `status` (`None` is
 0; text passed to it goes to `stderr` and the status is 1), a returned `None` is 0,
 `env` is applied to `os.environ` for the call and restored, `stdin` is the text the
-command reads, and any other exception propagates.
+command reads, and any other exception propagates. Standard output is a UTF-8 text
+stream over a byte buffer, so a command may write `sys.stdout.buffer`; `Result.stdout_bytes`
+holds everything written, in order, and `stdout` its decoding.
 
 <!-- runnable -->
 ```python

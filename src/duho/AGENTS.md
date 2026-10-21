@@ -195,7 +195,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_completion_` | `bool` | `False` | root | adds `--print-completion {bash,zsh,fish,powershell}` |
 | `_config_` | `str \| Path \| None` | `None` | root, command | config file layered under env and CLI; a path that does not exist yet is skipped; also read by a tree served over MCP |
 | `_config_backends_` | `Iterable[str \| type \| ConfigBackend] \| None` | `None` | root, command | the formats a config file may be in: `None` is every registered `duho.config` backend; a list of names, `ConfigBackend` classes and instances limits it to those, a later item winning a name or suffix; with a list, a file name no listed suffix matches is a one-line error (with `None` it is read as TOML); ignored when `_config_loader_` is set |
-| `_config_loader_` | `Callable[[Path], dict] \| Callable[[Path, str], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; a loader that takes two positional arguments is also given where the path came from (`"argument"`, `"field"`, `"env"` or `"default"`); its own exceptions propagate unchanged, a non-mapping result is a one-line error naming the file |
+| `_config_loader_` | `Callable[[Path], dict] \| Callable[[Path, str], dict] \| None` | `None` | root, command | reads the config file instead of the built-in format dispatch; a loader that takes two positional arguments is also given where the path came from (`"argument"`, `"field"`, `"env"` or `"default"`); its own exceptions are reported like a command's error when they are a `CommandError` or match the root's `_errors_` (see `_report_error_`) and propagate unchanged otherwise, a non-mapping result is a one-line error naming the file |
 | `_config_validate_` | `str \| Callable[[Args, Mapping, tuple[str, ...]], None] \| Callable[[Args, Mapping], None] \| None` | `None` | root | what to do with a config-file key nothing applies: `None`/`"ignore"` skips it, `"warn"` logs one WARNING on `duho.config`, `"strict"` is a one-line error, a callable `f(args, config, unknown)` or `f(args, config)` validates the whole file after the parse, given the parsed instance, the loaded mapping and, in the three-argument form, a tuple of dotted key paths (its `ValueError` is a one-line error); the field `_config_field_` names counts as unknown; runs only when a file was read; any other value is a `ValueError` naming the class |
 | `_config_env_` | `str \| None` | `None` | root | name of an environment variable holding the config file's path; outranks `_config_`, and the file must exist; not applied to a tree served over MCP |
 | `_config_field_` | `str \| None` | `None` | root | name of a declared field that holds the config file's path when given on the command line or through its own env var; outranks `_config_env_` and `_config_`, and the file must exist; never itself a settings key (a key of that name in the file is not applied and is unknown to `_config_validate_`); not applied to a tree served over MCP |
@@ -208,7 +208,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_examples_` | `Sequence[str \| tuple[str, str]] \| None` | `None` | root, command | examples in the agent-help document (a command's own, else a synthesized line) |
 | `_exit_codes_` | `Mapping[int, str] \| None` | `None` | root | exit-code table merged over the default 0/1/2 |
 | `_errors_` | `Mapping[type, int] \| None` | `None` | root | exception type → exit status for exceptions a command lets escape; matched by `isinstance` in the mapping's order, first match wins; `main`/`app` (and an MCP tool call) catch them like a `CommandError`; `None` catches nothing |
-| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, `f(message, code, error)` when it can take three positional arguments, or `f(message, code, error, command)` when it can take four (`command` is the dispatched instance, `None` for an error raised while the command was built); also called for an empty message; the status is unchanged; read by `main`/`app`/`run` and by an MCP tool call (there its stderr and log output become the error text, the bare message when it writes none); under `DUHO_TRACEBACK` a root with a hook is called as without the variable and prints any traceback itself (`duho.logging.traceback_enabled()`), a root without one re-raises |
+| `_report_error_` | `Callable[..., object] \| None` | `None` | root | a function that reports a caught `CommandError` or `_errors_` exception in place of the default `<prog>: error: <message>` line: `f(message, code)`, `f(message, code, error)` when it can take three positional arguments, or `f(message, code, error, command)` when it can take four (`command` is the dispatched instance, `None` for an error raised while the command was built); also called for an empty message; the status is unchanged; also called for an exception from the config loader or from choosing the config file that is a `CommandError` or an `_errors_` match, and for duho's own one-line config file error as `duho.exceptions.ConfigError` with status 2 (`command` `None`; in an MCP tool call the `ConfigError` is raised for the tool call to report); read by `main`/`app`/`run` and by an MCP tool call (there its stderr and log output become the error text, the bare message when it writes none); under `DUHO_TRACEBACK` a root with a hook is called as without the variable and prints any traceback itself (`duho.logging.traceback_enabled()`), a root without one re-raises |
 | `_traceback_env_` | `str \| None` | `None` | root | the environment variable that switches tracebacks on for this program in place of `DUHO_TRACEBACK` (same truthy values): while `main`/`app`/`run` or an MCP tool call run the root, duho and `duho.logging.traceback_enabled()` read it, so a hook sees the program's own switch; `DUHO_TRACEBACK` alone then does nothing; outside such a run `DUHO_TRACEBACK` again |
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
@@ -422,8 +422,10 @@ just its annotation.
   ends the parse with that status as a `SystemExit`), unless the root's `_report_error_`
   function writes the report instead; under `DUHO_TRACEBACK` it propagates instead, but
   a root with a `_report_error_` still has the hook called, which owns the report and
-  any traceback. A `BrokenPipeError` is never reported: stdout is pointed at the null
-  device and the status is 1, silently, ahead of `_errors_` and the hook. Nothing else is caught: argparse's own exits and any other exception raised by a
+  any traceback. A closed stdout is never reported: a `BrokenPipeError`, or an `OSError` with
+  errno `EPIPE` or `EINVAL` (Windows' closed pipe) that carries no file name and whose
+  stdout also fails a flush, points stdout at the null device and gives status 1,
+  silently, ahead of `_errors_` and the hook. Nothing else is caught: argparse's own exits and any other exception raised by a
   constructor are untouched. In an MCP tool call a constructor's error is left to the
   tool call, which reports it as it does one raised while dispatching. Dispatching a bare data `Args` (no `__call__`)
   raises `NotImplementedError`. When the dispatched leaf is a plain `Cmd` with no
@@ -499,7 +501,8 @@ just its annotation.
   any other `int` (a `bool` too) → the status; any other value → printed on stdout (a
   `str` as it is, else `json.dumps(value, indent=2, ensure_ascii=False, default=str)`),
   status 0. `KeyboardInterrupt` → 130, silent, and propagating under `DUHO_TRACEBACK`;
-  `BrokenPipeError` (from the command or from its own printing) → 1, silent (stdout is
+  a closed stdout (as above; from the command, from its own printing or from the final
+  flush of `sys.stdout`, which `run` does inside its boundary) → 1, silent (stdout is
   pointed at the null device first), with or without `DUHO_TRACEBACK`. A `SystemExit` passes through. `exit` says when it ends the process
   instead of returning the status as an `int`: `True` always; `False` never (`-> int`), so
   a `SystemExit` becomes its status (`None` is 0, an `int` itself, anything else is
@@ -509,7 +512,8 @@ just its annotation.
   `--version`, a usage error, as `main` raises them), everything else returned (a
   command's own `sys.exit(3)` is 3, Ctrl-C 130, a broken pipe 1); a callable
   `f(status, error) -> True | False | "parse"` decides, `error` being the `SystemExit`,
-  `KeyboardInterrupt` or `BrokenPipeError` caught, else `None`. It calls `main`/`app`
+  `KeyboardInterrupt` or `BrokenPipeError` caught (a closed stdout reported as another
+  `OSError` arrives as a `BrokenPipeError`), else `None`. It calls `main`/`app`
   directly, not through the `duho` module, so a test that patches `duho.main` does not
   reach it: patch a command instead. Also `duho.runtime.run`.
 - **`Result(code=0, *, value=None, text=None, is_error=None)`** — an `int` subclass a
@@ -691,7 +695,12 @@ empty when absent).
   no backend reads and a file whose top level is not a table/object end with ONE line,
   `PROG: error: MESSAGE` (the message names the file), exit `2` and no usage lines, under
   `main`, `parse` and `app` alike; the strict unknown-key error and a `_config_validate_`
-  function's `ValueError` end the same way. A value that fails to convert for one field,
+  function's `ValueError` end the same way. With a `_report_error_` on the root, under
+  `main` and `app` (and `run`), that line is replaced by a call of the hook with a
+  `ConfigError` and status 2. An exception from the `_config_loader_` or from choosing the
+  file that is a `CommandError` or matches the root's `_errors_` is reported like a
+  command's error (hook or default line, its status, `DUHO_TRACEBACK` rule) when the parse
+  reaches it, so `--help` still works; any other loader exception propagates. A value that fails to convert for one field,
   from the file or from a variable, is still an argparse usage error. `--help` and
   `--version` still work. `_config_loader_` (`Callable[[Path], dict]`)
   replaces the built-in reader, for any other format; it is not called for a skipped file.
@@ -699,8 +708,9 @@ empty when absent).
   where the path came from: `"argument"` (`config=`), `"field"` (`_config_field_`),
   `"env"` (`_config_env_`) or `"default"` (`_config_`, which includes a tree served over
   MCP); a loader of one argument is called as before.
-  An exception the loader itself raises propagates to the caller unchanged (the
-  application reports it); a loader that returns something that is not a mapping is a
+  An exception the loader itself raises is reported like a command's error when it is a
+  `CommandError` or matches the root's `_errors_`, and otherwise propagates to the caller
+  unchanged (the application reports it); a loader that returns something that is not a mapping is a
   one-line error naming the file. A `loglevels` table in a config file takes level names or
   numbers and is converted to numeric levels. A collection field treats an
   env or TOML *string* as one element and a TOML array element-wise; non-string TOML
@@ -899,7 +909,8 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   parse a `[NAME:]LEVEL[,...]` spec string; raises `argparse.ArgumentTypeError` on a
   bad token (reported as a normal argparse usage error, not silently dropped).
 - **`TRACEBACK_ENV`** — the string `"DUHO_TRACEBACK"`. **`traceback_enabled() -> bool`** —
-  current truthiness of that env var (re-read every call). **`log_exception(logger, msg,
+  current truthiness of that env var (re-read every call), or of the variable the running
+  program's root names with `_traceback_env_` while `main`/`app`/`run` or a tool call run it. **`log_exception(logger, msg,
   *args, level=logging.ERROR)`** — log `msg` from inside an `except:` block, attaching
   `exc_info` iff `traceback_enabled()` (omits the kwarg entirely rather than passing
   `False` when disabled, so `LogRecord.exc_info` stays `None` like an undecorated record).

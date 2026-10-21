@@ -442,11 +442,17 @@ class Deploy(duho.Cli):
     _config_loader_ = staticmethod(load)
 ```
 
-Errors raised inside the loader propagate to the caller unchanged: duho does not convert
-them, so the application reports them its own way. Only the backends, and the check that
+An error raised inside the loader that is a `duho.CommandError` or matches the root's
+`_errors_` is reported like a command's error (the `_report_error_` hook or the
+`<prog>: error: <message>` line, with its status), once the parse reaches it, so `--help`
+still works; any other exception propagates to the caller unchanged. Only the backends, and the check that
 the loaded value is a mapping, report through the parser: a loader that returns something
 that is not a mapping is a one-line error naming the file. For anything you would use
 twice, a `ConfigBackend` subclass is the better home.
+
+When the root has a `_report_error_`, the one-line error for a malformed or unreadable
+file is given to it, as a `duho.exceptions.ConfigError` with status 2, instead of being
+printed.
 
 ## Where did this value come from?
 

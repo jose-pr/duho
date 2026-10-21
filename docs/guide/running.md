@@ -75,8 +75,12 @@ returned (a command's own `sys.exit(3)` is 3). `exit` may also be a function
 its own `main(argv) -> int` for a console script and its tests can call it from there. `None` or an `int` is the exit status; any other
 value is an answer, printed to stdout (a `str` as it is, anything else as JSON)
 with status 0. A `KeyboardInterrupt` exits 130, silently unless `DUHO_TRACEBACK` is set,
-which re-raises it. A closed pipe, from the command or from the printing, exits 1
-silently with or without the variable, before the root's `_errors_` is consulted.
+which re-raises it. A closed stdout, from the command, from the printing or from the final
+flush of standard output, exits 1 silently with or without the variable, before the root's
+`_errors_` is consulted. Windows reports a reader that left as `OSError(EINVAL)` rather
+than `BrokenPipeError`, so an `OSError` with errno `EPIPE` or `EINVAL` that names no file
+and whose standard output also fails a flush counts the same; an `EINVAL` from anywhere
+else still reaches `_errors_`.
 
 Raise `duho.CommandError(message, code=1)` from a command to fail with a message:
 `main` and `app` print `<prog>: error: <message>` to stderr and return the code
@@ -103,12 +107,26 @@ wants a traceback prints it (`duho.logging.traceback_enabled()` says whether to)
 without a hook re-raises. An MCP tool call calls the hook too, with `running_mode()`
 reading `"mcp"` and standard error and log output going to the call's buffer: what it
 writes there is the error text, in place of the bare message, and a hook that writes
-nothing leaves the message:
+nothing leaves the message. The hook is also called for an exception raised while the
+config file is chosen or read (a `_config_loader_`'s) that is a `CommandError` or matches
+`_errors_`, and for duho's own one-line config file error, as `f(message, 2, error)` with a
+`duho.exceptions.ConfigError` (the root's `_errors_` does not remap it); without a hook
+that error prints the same `<prog>: error: <message>` line as before:
 
 ```python
 class App(duho.Cli):
     _report_error_ = staticmethod(lambda message, code: log.error(message))
 ```
+
+`duho.status_for(root, exc)` is the status `main` and `app` end with for `exc`: a
+`CommandError`'s code, else the first `_errors_` match, else `None`. Code that runs
+commands itself, once per target, uses it instead of repeating the lookup.
+
+A program that keeps its own traceback variable sets `_traceback_env_ = "APP_TRACEBACK"`
+on the root. While `main`, `app` or `run` (or an MCP tool call) runs it, duho reads that
+variable where it would read `DUHO_TRACEBACK`, and so does
+`duho.logging.traceback_enabled()` inside a command or a hook; `DUHO_TRACEBACK` alone
+then does nothing, and outside the run it is read again.
 
 <!-- runnable: commands -->
 ```python

@@ -37,7 +37,9 @@ assert invoke(Greet, ["--nope"]).status == 2     # usage error: argparse exits 2
 - With no `app_kwargs` it runs `duho.main(root, argv)`. With any (`source=`, `name=`,
   `commands=`, ...) it runs `duho.app(root, argv=argv, **app_kwargs)`.
 - It returns `Result(status, stdout, stderr)`, a named tuple, so it unpacks as well as
-  reading by attribute.
+  reading by attribute. `Result.stdout_bytes` is the standard output as written: it is a
+  UTF-8 text stream over a byte buffer, so a command may write `sys.stdout.buffer` too, and
+  `stdout` is those bytes decoded (undecodable bytes become U+FFFD).
 - `env` is applied to `os.environ` for the call and restored afterwards, including a
   key the call added.
 - `stdin` is the text the command reads from `sys.stdin`; it is empty when `None`.

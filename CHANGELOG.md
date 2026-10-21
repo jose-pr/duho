@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `_traceback_env_` on a root names the environment variable that replaces `DUHO_TRACEBACK`
+  for that program: while `main`, `app`, `run` or an MCP tool call run it, duho and
+  `duho.logging.traceback_enabled()` read that variable, so a `_report_error_` hook sees
+  the program's own switch. Outside such a run `DUHO_TRACEBACK` is read as before.
+- `duho.status_for(root, exc)` returns the exit status `main` and `app` end with for an
+  exception: a `CommandError`'s code, else the first `_errors_` match, else `None`.
+- `duho.fanout.current_label`, a `ContextVar` holding the label text of the target a
+  worker is running (`None` without `label=`).
+- `duho.testing.Result.stdout_bytes`: the standard output as written. `invoke` captures
+  standard output as a UTF-8 text stream over a byte buffer, so a command may write
+  `sys.stdout.buffer`.
+
+### Changed
+
+- A closed standard output ends silently with status 1 on Windows too: an `OSError` with
+  errno `EPIPE` or `EINVAL` that names no file and whose standard output also fails a
+  flush counts as a `BrokenPipeError`, under `main`, `app` and `run`. `run` flushes
+  standard output before it exits or returns, so a pipe that fails only there is the same
+  silent status 1. An `EINVAL` from anywhere else still reaches `_errors_`.
+- An exception raised while the config file is chosen or read, a `_config_loader_`'s
+  included, is reported like a command's error when it is a `CommandError` or matches the
+  root's `_errors_` (the `_report_error_` hook or the default line, the same status, the
+  same `DUHO_TRACEBACK` rule), once the parse reaches it, so `--help` still works. Any
+  other loader exception propagates as before. duho's own one-line config error calls the
+  root's `_report_error_` with a `duho.exceptions.ConfigError` and status 2; without a hook
+  its text is unchanged. In an MCP tool call the `ConfigError` is raised for the tool call
+  to report.
+
 ## [0.7.7] - 2026-10-20
 
 ### Fixed

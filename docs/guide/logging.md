@@ -169,6 +169,10 @@ Traceback (most recent call last):
 RuntimeError: kaboom
 ```
 
+A program with its own variable names it with `_traceback_env_ = "APP_TRACEBACK"` on the
+root class: while `main`, `app` or `run` (or an MCP tool call) runs that root, this switch is
+read from `APP_TRACEBACK` instead, and `DUHO_TRACEBACK` alone does nothing.
+
 The variable is read fresh on every log call, so you can export it for one run
 without reinstalling or re-importing anything. Only `1`, `true`, `yes`, `on`, `y`
 and `t` (case-insensitive) enable it. Anything else is off — `0`, `false`, `no`,

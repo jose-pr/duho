@@ -8,6 +8,28 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+Closed-stdout, config-error and traceback-switch edges of a program's boundary.
+
+- `_traceback_env_`, `duho.status_for`, `duho.fanout.current_label` and
+  `duho.testing.Result.stdout_bytes` are new.
+- Windows' closed pipe (`OSError(EINVAL)`) and a pipe that fails only at the final flush
+  end like a `BrokenPipeError`: status 1, silent.
+- A config loader's `CommandError` or `_errors_` match, and duho's own config file error,
+  go through the root's `_report_error_`.
+
+### Upgrade notes
+
+- A root that maps `OSError` in `_errors_` no longer sees an `EPIPE`/`EINVAL` from a failed
+  standard output write, and a program that catches `OSError` around `run` to detect a
+  closed stdout can drop it.
+- A root with a `_report_error_` now has it called for a malformed config file, with
+  status 2 and a `ConfigError`, where it printed `<prog>: error: <message>` itself before.
+- A `_config_loader_` that raises a `CommandError`, or an exception the root maps in
+  `_errors_`, no longer propagates out of `main`/`app`: it is reported and its status
+  returned.
+- `duho.testing.invoke` standard output is no longer a `StringIO`: `sys.stdout.buffer`
+  exists, and `getvalue()` does not.
+
 ---
 
 ## [0.7.7] — 2026-10-20

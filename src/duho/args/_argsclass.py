@@ -14,7 +14,7 @@ from .._layers import _merge_layers_upward as _merge_layers_upward
 from .._layers import _run_config_validator as _run_config_validator
 from .._layers import _stage_layers as _stage_layers
 
-from .._outcome import _report_caught
+from .._outcome import _report_caught, _reported_exit
 from ._actions import (
     _COMPLETION_SHELLS,
     _PrintCompletionAction,
@@ -673,9 +673,7 @@ class Args(_argparse.Namespace):
                 status = _report_caught(exc, parser.prog, cls)
                 if status is None:
                     raise
-                reported = SystemExit(status)
-                reported._duho_reported_ = True  # type: ignore[attr-defined]
-                raise reported from None
+                raise _reported_exit(status) from None
             # Attach captured passthrough (empty list when no `--` was seen).
             instance._passthrough_ = passthrough if passthrough is not None else []
             # For duho.value_sources(): `parser` is still the ROOT's and holds

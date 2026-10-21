@@ -7,11 +7,12 @@ from pathlib import Path as _Path
 
 from .. import _compat as _compat
 from .. import parsers as _parsers
-from .._outcome import _guard_dispatch, _mark_parser_exit
+from .._outcome import _end_if_reported, _guard_dispatch, _mark_parser_exit
 from ..args import Args as _Args, Cmd as _Cmd
 from ..args._mcptrigger import _maybe_serve_mcp_trigger as _maybe_serve_mcp_trigger
 from ..args._argsclass import _names_config_source as _names_config_source
 from ..args._entry import _class_config_location as _class_config_location
+from ..args._naming import _app_name
 from ..args._entry import _setup_instance_logging as _setup_instance_logging
 from ..discovery import Command as _Command, ModuleCommand as _ModuleCommand
 
@@ -324,7 +325,11 @@ def app(
 
     config_source = None
     if config is None and root is not None:
-        config, config_source = _class_config_location(root, argv)
+        try:
+            config, config_source = _class_config_location(root, argv)
+        except Exception as exc:
+            _end_if_reported(exc, _app_name(root, name), root)
+            raise
 
     run = _default_run(dispatch, adapter)
     # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also

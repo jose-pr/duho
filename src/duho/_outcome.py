@@ -7,6 +7,7 @@ import os as _os
 import sys as _sys
 import typing as _ty
 
+from . import _compat as _compat
 from .exceptions import CommandError as _CommandError
 from .logging import traceback_enabled as _traceback_enabled
 
@@ -205,6 +206,26 @@ def _report_caught(
     elif message:
         print("%s: error: %s" % (prog, message), file=_sys.stderr)
     return code
+
+
+def _reported_exit(status: int) -> SystemExit:
+    """The ``SystemExit`` that ends a parse with an error already reported."""
+    reported = SystemExit(status)
+    reported._duho_reported_ = True  # type: ignore[attr-defined]
+    return reported
+
+
+def _end_if_reported(exc: Exception, prog: str, root_cls: _ty.Optional[type]) -> None:
+    """Called from an ``except``: report ``exc`` and end with its status, or return.
+
+    Returns (so the caller re-raises) when ``exc`` is not one to report, and always
+    inside a tool call, which reports it itself.
+    """
+    if _compat._RUNNING_MODE.get() == "mcp":
+        return
+    status = _report_caught(exc, prog, root_cls)
+    if status is not None:
+        raise _reported_exit(status) from None
 
 
 def _guard_dispatch(

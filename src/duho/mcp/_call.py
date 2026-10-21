@@ -16,6 +16,7 @@ from .. import _compat
 from ..logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .._outcome import Result as _Result
 from .._outcome import _call_report, _error_status, _render
+from ..exceptions import ConfigError as _ConfigError
 from ..logging import log_exception as _log_exception
 
 from ._argv import _sibling_names, _synthesize_step_argv
@@ -783,6 +784,12 @@ def call_tool(
         if capture.raw.error is not None:
             return _write_failure(output_fd, capture.raw.error)
         error_code = _error_status(exc, core.root_cls)
+        if (
+            error_code is None
+            and isinstance(exc, _ConfigError)
+            and getattr(core.root_cls, "_report_error_", None) is not None
+        ):
+            error_code = 2  # a config file error, as the command line reports it
         if error_code is not None:
             # An error the command meant to end with: its words, not a crash.
             reported = _run_report_hook(

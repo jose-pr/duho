@@ -173,12 +173,43 @@ def _config_file_error(parser: _argparse.ArgumentParser, message: str) -> _ty.No
     """End with ``PROG: error: MESSAGE`` and status 2, without the usage lines.
 
     A parser whose ``error`` was replaced (the silent advisory prepass) is
-    asked instead, so it stays silent.
+    asked instead, so it stays silent. A root with a ``_report_error_`` is called
+    with a ``ConfigError`` and status 2 in place of the line; in a tool call the
+    ``ConfigError`` is raised, for the tool call to report.
     """
     if "error" in vars(parser):
         parser.error(message)
+    report = getattr(getattr(parser, "_duho_cls_", None), "_report_error_", None)
+    if report is not None:
+        from . import _compat
+        from ._outcome import _call_report
+        from .exceptions import ConfigError
+
+        error = ConfigError(message)
+        if _compat._RUNNING_MODE.get() == "mcp":
+            raise error
+        _call_report(report, message, 2, error, None)
+        parser.exit(2)
     parser.exit(2, f"{parser.prog}: error: {message}\n")
     raise AssertionError("parser.exit returned")  # pragma: no cover
+
+
+def _end_held_config_exception(parser, cls, held: Exception) -> _ty.NoReturn:
+    """Report the exception :func:`_resolve_config_or_error` held, as a command's.
+
+    It propagates instead when it is not to be reported (``DUHO_TRACEBACK`` with
+    no ``_report_error_``) and always in a tool call, which reports it itself.
+    """
+    from . import _compat
+    from ._outcome import _report_caught, _reported_exit
+
+    if "error" in vars(parser):
+        parser.error(str(held))
+    if _compat._RUNNING_MODE.get() != "mcp":
+        status = _report_caught(held, parser.prog, cls)
+        if status is not None:
+            raise _reported_exit(status) from None
+    raise held
 
 
 def _resolve_config_or_error(
@@ -191,19 +222,31 @@ def _resolve_config_or_error(
     held on the parser for :func:`_finalize_layers` to report (one line, exit
     2), so ``--help`` and ``--version`` work whatever the file holds.
 
-    A ``ValueError`` from the class's own ``_config_loader_`` propagates
-    unchanged.
+    An exception from the class's own ``_config_loader_`` (or from choosing the
+    file) that is a ``CommandError`` or matches the root's ``_errors_`` is held
+    too, for :func:`_finalize_layers` to report like a command's error; any other
+    propagates unchanged.
     """
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
+    parser._duho_config_exc_ = None  # type: ignore[attr-defined]
     parser._duho_config_path_ = None  # type: ignore[attr-defined]
     try:
         raw, path = _read_config(cls, config, source)
         parser._duho_config_path_ = path  # type: ignore[attr-defined]
         return raw
-    except ValueError as exc:
-        if getattr(exc, "_duho_from_loader_", False):
+    except Exception as exc:
+        from ._outcome import _error_status
+
+        # duho's own reader errors are always the one-line status-2 error, whatever
+        # the root maps; a loader's own exceptions are the application's.
+        if isinstance(exc, ValueError) and not getattr(
+            exc, "_duho_from_loader_", False
+        ):
+            parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
+            return {}
+        if _error_status(exc, cls) is None:
             raise
-        parser._duho_config_error_ = str(exc)  # type: ignore[attr-defined]
+        parser._duho_config_exc_ = exc  # type: ignore[attr-defined]
         return {}
 
 
@@ -621,6 +664,9 @@ def _finalize_layers(parser: _argparse.ArgumentParser, cls, parsed) -> None:
     exit 2), never a raw traceback -- for THIS parser only, i.e. only
     once the user's invocation actually reached it.
     """
+    held = getattr(parser, "_duho_config_exc_", None)
+    if held is not None:
+        _end_held_config_exception(parser, cls, held)
     config_error = getattr(parser, "_duho_config_error_", None)
     if config_error:
         _config_file_error(parser, config_error)

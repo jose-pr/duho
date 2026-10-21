@@ -9,7 +9,7 @@ import typing as _ty
 
 from .. import _compat as _compat
 from .. import logging as _duho_logging
-from .._outcome import _guard_dispatch, _mark_parser_exit
+from .._outcome import _end_if_reported, _guard_dispatch, _mark_parser_exit
 from .._layers import _apply_layers as _apply_layers
 from .._layers import _LayeredDefault as _LayeredDefault
 
@@ -258,7 +258,11 @@ def main(
 
     config_source = None
     if config is None:
-        config, config_source = _class_config_location(cls, argv)
+        try:
+            config, config_source = _class_config_location(cls, argv)
+        except Exception as exc:
+            _end_if_reported(exc, _app_name(cls), cls)
+            raise
 
     root_cls = cls
     extra_cmds: list[type] = []

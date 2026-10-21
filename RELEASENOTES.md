@@ -8,6 +8,10 @@ user-facing; this file is the durable record.
 
 ## [Unreleased]
 
+---
+
+## [0.7.8] — 2026-10-21
+
 Closed-stdout, config-error and traceback-switch edges of a program's boundary.
 
 - `duho.config_source`, `duho.OutputArgs` and `_env_prefix_` are new.
@@ -30,6 +34,25 @@ Closed-stdout, config-error and traceback-switch edges of a program's boundary.
   returned.
 - `duho.testing.invoke` standard output is no longer a `StringIO`: `sys.stdout.buffer`
   exists, and `getvalue()` does not.
+- A silenced standard output's null stream is closed at exit, so warnings-on runs no
+  longer report it as unclosed.
+
+### Performance
+
+No performance claim is made. `import duho` loads no new module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3486 passed, 49 skipped); Linux (WSL)
+  Python 3.14 (3509 passed, 27 skipped). The skip counts are those of 0.7.7. Windows
+  Python 3.14 was not run on this machine; CI ran it.
+- CI: all 17 jobs green at the change (run
+  [39612534460](https://github.com/jose-pr/duho/actions/runs/39612534460)), and the same
+  workflow ran at the release commit before tagging.
+- The leak check exits 1 with exactly its three known hits.
+- The suites of nineteen projects that use duho were run against this tree and against
+  their installed duho (or duho 0.7.7's source). Every one gives the same results both
+  ways; where a project's own environment fails tests, the same tests fail with either.
 
 ---
 

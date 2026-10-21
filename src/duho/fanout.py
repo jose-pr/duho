@@ -73,6 +73,7 @@ __all__ = [
     "run_targets",
     "fan_out_command",
     "current_target",
+    "current_label",
     "TargetPrefixFilter",
     "target_logging",
 ]
@@ -88,10 +89,11 @@ current_target: _contextvars.ContextVar[object] = _contextvars.ContextVar(
 )
 
 
-#: The log-prefix text for the current target when a ``label`` was given;
-#: ``None`` means the prefix is the target itself.
-_current_label: _contextvars.ContextVar[_ty.Optional[str]] = _contextvars.ContextVar(
-    "duho_fanout_current_label", default=None
+#: The label text of the current target (what log records and failure lines show
+#: for it, ``#<position>`` when ``label`` itself raised); ``None`` without a
+#: ``label=``, and outside a target.
+current_label: _contextvars.ContextVar[_ty.Optional[str]] = _contextvars.ContextVar(
+    "duho_fanoutcurrent_label", default=None
 )
 
 
@@ -164,7 +166,7 @@ class TargetPrefixFilter(_logging.Filter):
         if _sys.version_info >= (3, 12):
             record = _copy.copy(record)
         record._duho_target_tagged_ = True  # type: ignore[attr-defined]
-        label = _current_label.get()
+        label = current_label.get()
         record._duho_target_ = target if label is None else label  # type: ignore[attr-defined]
         record._duho_tagged_args_ = record.args  # type: ignore[attr-defined]
         record.__class__ = _TargetRecord
@@ -237,15 +239,15 @@ def _run_one(
     when ``label`` itself raised, never by the target's own repr.
     """
     token = current_target.set(target)
-    label_token = _current_label.set(None)
+    label_token = current_label.set(None)
     shown: object = target if label is None else "#%d" % position
     if label is not None:
-        _current_label.set(shown)
+        current_label.set(shown)
     try:
         try:
             if label is not None:
                 text = str(label(target))
-                _current_label.set(text)
+                current_label.set(text)
                 shown = text
             result = _maybe_await(func(target))
         except SystemExit as exc:
@@ -268,7 +270,7 @@ def _run_one(
             logger.error("target %r returned non-int %r", shown, result)
             return 1
     finally:
-        _current_label.reset(label_token)
+        current_label.reset(label_token)
         current_target.reset(token)
 
 

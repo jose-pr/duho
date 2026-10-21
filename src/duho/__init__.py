@@ -37,7 +37,7 @@ from .args import (
     value_sources,
 )
 from .args._meta import _A as _A
-from ._outcome import Result
+from ._outcome import Result, status_for
 from .exceptions import CommandError, UsageError
 from .discovery import (
     CmdBuilder,
@@ -176,6 +176,7 @@ __all__ = [
     "run_command",
     "running_mode",
     "snakecase",
+    "status_for",
     "subcommand",
     "unregister_command_provider",
     "UsageError",

@@ -138,6 +138,16 @@ def _render(value: object) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False, default=str)
 
 
+def status_for(root: _ty.Optional[type], exc: BaseException) -> _ty.Optional[int]:
+    """The exit status ``main`` and ``app`` would end with for ``exc`` under ``root``.
+
+    A ``CommandError``'s own ``code``, else the status of the first ``_errors_``
+    entry of ``root`` that ``exc`` is an instance of, else ``None`` (``main``
+    would let it propagate). ``root`` may be ``None`` or declare no ``_errors_``.
+    """
+    return _error_status(exc, root)
+
+
 def _error_status(
     exc: BaseException, root_cls: _ty.Optional[type]
 ) -> _ty.Optional[int]:

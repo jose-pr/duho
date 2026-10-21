@@ -524,6 +524,11 @@ just its annotation.
   `message`, `code`; `str(exc)` is the message. Caught by `main`/`app` as above; over MCP
   they are an `isError` result whose text is the message, or what the root's
   `_report_error_` wrote in its place.
+- **`status_for(root, exc) -> int | None`** — the exit status `main`/`app` end with for `exc`
+  under `root`: a `CommandError`'s `code`, else the status of the first `root._errors_`
+  entry `exc` is an instance of, else `None` (it would propagate). `root` may be `None` or
+  declare no `_errors_`. For code that runs commands itself (a fan-out per target) and
+  wants the same lookup.
 - **`run_command(command, instance, *, context=None, adapter=None) -> Any`** —
   dispatch one resolved
   command. `adapter(entrypoint)` is the same hook as `app`'s: it applies to a module
@@ -1073,7 +1078,9 @@ manipulating a parser tree directly:
   fan-out), **`TargetPrefixFilter`** (the `logging.Filter` that prefixes active-target
   records with `[<target>] ` without mutating the record's own message/args),
   **`current_target`** (the `contextvars.ContextVar` naming the target currently
-  running, read by `TargetPrefixFilter`).
+  running, read by `TargetPrefixFilter`), **`current_label`**
+  (`ContextVar[str | None]`: the label text of the current target, the same text the
+  log prefix and failure lines show; `None` without `label=` and outside a target).
 - **`duho.testing`** — **`invoke(root, argv=(), *, env=None, stdin=None,
   **app_kwargs) -> Result`** runs a command line in-process: `duho.main(root, argv)`,
   or `duho.app(root, argv=argv, **app_kwargs)` when any `app_kwargs` is given.

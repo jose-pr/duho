@@ -52,6 +52,7 @@ _KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
         "_runpath_logger_",
         "_set_loglevels_",
         "_subcommands_",
+        "_traceback_env_",
         "_utf8_stdio_",
         "_verbose_loglevel_",
         "_version_",

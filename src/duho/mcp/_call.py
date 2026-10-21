@@ -17,6 +17,7 @@ from ..logging import _STDERR_HANDLER_TAG as _STDERR_HANDLER_TAG
 from .._outcome import Result as _Result
 from .._outcome import _call_report, _error_status, _render
 from ..exceptions import ConfigError as _ConfigError
+from ..logging import _enter_traceback_env, _exit_traceback_env
 from ..logging import log_exception as _log_exception
 
 from ._argv import _sibling_names, _synthesize_step_argv
@@ -718,6 +719,7 @@ def call_tool(
     dispatched: object = None
     all_parsers = [root_parser] + [n.parser for n in nodes.values()]
     real_stderr = _sys.stderr
+    traceback_token = _enter_traceback_env(core.root_cls)
     try:
         with _contextlib.redirect_stdout(out), _contextlib.redirect_stderr(err):
             old_stdin = _sys.stdin
@@ -820,6 +822,8 @@ def call_tool(
             exc,
         )
         return _text_result("%s: %s" % (type(exc).__name__, exc), is_error=True)
+    finally:
+        _exit_traceback_env(traceback_token)
 
     taken = capture.finish(output_var)
     if taken.error is not None:

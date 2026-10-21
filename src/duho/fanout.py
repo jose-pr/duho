@@ -361,8 +361,18 @@ def run_targets(
     with target_logging(active_logger):
         with _futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             try:
+                # Each worker runs in a copy of this context, so the program's
+                # traceback switch reaches it.
                 futures = [
-                    pool.submit(_run_one, func, target, active_logger, label, position)
+                    pool.submit(
+                        _contextvars.copy_context().run,
+                        _run_one,
+                        func,
+                        target,
+                        active_logger,
+                        label,
+                        position,
+                    )
                     for position, target in enumerate(target_list)
                 ]
                 codes = [future.result() for future in futures]

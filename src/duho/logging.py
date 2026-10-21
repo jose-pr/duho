@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse as _argparse
+import contextvars as _contextvars
 import copy as _copy
 import logging as _logging
 import os as _os
@@ -392,12 +393,37 @@ TRACEBACK_ENV = "DUHO_TRACEBACK"
 #: defaults unknown input to the safer reading instead of raising.
 _TRUTHY = _BOOL_TRUE
 
+# The variable a running program named with ``_traceback_env_`` in place of
+# ``TRACEBACK_ENV``; ``None`` outside such a run.
+_TRACEBACK_VAR: _contextvars.ContextVar[_ty.Optional[str]] = _contextvars.ContextVar(
+    "duho_traceback_env", default=None
+)
+
+
+def _enter_traceback_env(root_cls: object) -> object:
+    """Make ``root_cls``'s ``_traceback_env_`` the switch; the token for :func:`_exit_traceback_env`.
+
+    ``None`` (nothing to undo) when the root names no variable, so a nested program
+    without one keeps the enclosing program's.
+    """
+    name = getattr(root_cls, "_traceback_env_", None)
+    if not name or not isinstance(name, str):
+        return None
+    return _TRACEBACK_VAR.set(name)
+
+
+def _exit_traceback_env(token: object) -> None:
+    """Undo :func:`_enter_traceback_env`."""
+    if token is not None:
+        _TRACEBACK_VAR.reset(token)  # type: ignore[arg-type]
+
 
 def traceback_enabled() -> bool:
     """Return whether framework error logs should carry a full traceback.
 
     Reads :data:`TRACEBACK_ENV` (``DUHO_TRACEBACK``) from the process
-    environment on EVERY call rather than caching it, so a test (or an app that
+    environment on EVERY call, or the variable a running program's root names
+    with ``_traceback_env_`` instead rather than caching it, so a test (or an app that
     sets it mid-run) can flip the switch without re-importing duho. The read is
     a dict lookup -- cheap enough to sit on an error path.
 
@@ -405,7 +431,8 @@ def traceback_enabled() -> bool:
     a stack. A developer debugging *where* a step/command/target actually failed
     exports ``DUHO_TRACEBACK=1`` and gets the traceback for free at every site.
     """
-    return _os.environ.get(TRACEBACK_ENV, "").strip().lower() in _TRUTHY
+    name = _TRACEBACK_VAR.get() or TRACEBACK_ENV
+    return _os.environ.get(name, "").strip().lower() in _TRUTHY
 
 
 def log_exception(

@@ -11,6 +11,7 @@ from .._outcome import (
     _silence_stdout,
     _stdout_closed,
 )
+from .. import logging as _duho_logging
 from ..logging import traceback_enabled as _traceback_enabled
 
 
@@ -101,37 +102,41 @@ def run(
     ``error`` being the ``SystemExit``, ``KeyboardInterrupt`` or
     ``BrokenPipeError`` caught (else ``None``), and returns one of those.
     """
-    error: _ty.Optional[BaseException] = None
+    _token = _duho_logging._enter_traceback_env(root)
     try:
-        if app_kwargs:
-            from ._app import app as _app
+        error: _ty.Optional[BaseException] = None
+        try:
+            if app_kwargs:
+                from ._app import app as _app
 
-            outcome = _app(root, argv=argv, **app_kwargs)
+                outcome = _app(root, argv=argv, **app_kwargs)
+            else:
+                from ..args._entry import main as _main
+
+                outcome = _main(root, argv)
+            status = _status_of(outcome)
+        except SystemExit as exc:
+            if exit is True:
+                raise
+            error, status = exc, _exit_status(exc.code)
+        except KeyboardInterrupt as exc:
+            if _traceback_enabled():
+                raise
+            error, status = exc, 130
+        except OSError as exc:
+            if not _stdout_closed(exc):
+                raise
+            _silence_stdout()
+            error, status = _as_broken_pipe(exc), 1
         else:
-            from ..args._entry import main as _main
-
-            outcome = _main(root, argv)
-        status = _status_of(outcome)
-    except SystemExit as exc:
-        if exit is True:
-            raise
-        error, status = exc, _exit_status(exc.code)
-    except KeyboardInterrupt as exc:
-        if _traceback_enabled():
-            raise
-        error, status = exc, 130
-    except OSError as exc:
-        if not _stdout_closed(exc):
-            raise
-        _silence_stdout()
-        error, status = _as_broken_pipe(exc), 1
-    else:
-        closed = _flush_stdout()
-        if closed is not None:
-            error, status = closed, 1
-    policy = exit(status, error) if callable(exit) else exit
-    if policy == "parse":
-        policy = getattr(error, "_duho_parser_exit_", False)
-    if policy is True:
-        _sys.exit(status)
-    return status
+            closed = _flush_stdout()
+            if closed is not None:
+                error, status = closed, 1
+        policy = exit(status, error) if callable(exit) else exit
+        if policy == "parse":
+            policy = getattr(error, "_duho_parser_exit_", False)
+        if policy is True:
+            _sys.exit(status)
+        return status
+    finally:
+        _duho_logging._exit_traceback_env(_token)

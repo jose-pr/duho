@@ -261,6 +261,12 @@ class Cli(Cmd):
     #: MCP tool call; ``DUHO_TRACEBACK`` re-raises before it.
     _report_error_: _ty.Optional[_ty.Callable[..., object]] = None
 
+    #: On the root: the environment variable that switches tracebacks on for this
+    #: program in place of ``DUHO_TRACEBACK`` (same truthy values). While
+    #: ``duho.main``/``duho.app``/``duho.run`` (or an MCP tool call) run the root,
+    #: duho and ``duho.logging.traceback_enabled()`` read that variable instead.
+    _traceback_env_: _ty.Optional[str] = None
+
     #: When ``True`` (the default), ``duho.main``/``duho.app`` call
     #: :func:`duho.utf8_stdio` first, before the MCP trigger and argv parsing, so
     #: piped stdout/stderr on a non-UTF-8 locale (``cp1252`` on Windows) become

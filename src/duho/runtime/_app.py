@@ -6,6 +6,7 @@ import typing as _ty
 from pathlib import Path as _Path
 
 from .. import _compat as _compat
+from .. import logging as _duho_logging
 from .. import parsers as _parsers
 from .._outcome import _end_if_reported, _guard_dispatch, _mark_parser_exit
 from ..args import Args as _Args, Cmd as _Cmd
@@ -288,122 +289,131 @@ def app(
     root is treated as opted in, matching ``_mcp_``'s own default-root
     handling). Opted out, duho does not touch stdio at all.
     """
-    root_cls_for_mcp = root if root is not None else _Args
-    if (
-        utf8_stdio
-        if utf8_stdio is not None
-        else getattr(root_cls_for_mcp, "_utf8_stdio_", True)
-    ):
-        _compat.utf8_stdio()
-
-    mcp_enabled = mcp if mcp is not None else getattr(root_cls_for_mcp, "_mcp_", True)
-    if mcp_enabled:
-
-        def _mcp_core_for_this_app() -> object:
-            from .. import mcp as _mcp_module
-
-            return _mcp_module._core_for_app(
-                root,
-                commands=commands,
-                source=source,
-                entry_points=entry_points,
-                argv=argv,
-                name=name,
-                description=description,
-                env=env,
-                config=config,
-                dispatch=dispatch,
-                on_error=on_error,
-                adapter=adapter,
-            )
-
-        served = _maybe_serve_mcp_trigger(
-            root_cls_for_mcp, env=env, name=name, core_factory=_mcp_core_for_this_app
-        )
-        if served is not None:
-            return served
-
-    config_source = None
-    if config is None and root is not None:
-        try:
-            config, config_source = _class_config_location(root, argv)
-        except Exception as exc:
-            _end_if_reported(exc, _app_name(root, name), root)
-            raise
-
-    run = _default_run(dispatch, adapter)
-    # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also
-    # lets `_register_commands` treat a collision on that name as this override.
-    cmds_path_overridden: set[str] = set()
-    resolved_commands = _resolve_commands(
-        root,
-        commands,
-        source,
-        env,
-        entry_points,
-        overridden=cmds_path_overridden,
-        on_error=on_error,
-    )
-
-    mcp_cls = _build_mcp_command_class(
-        root,
-        mcp_command,
-        _existing_command_names(root, resolved_commands),
-        has_other_subcommand=bool(resolved_commands)
-        or bool(getattr(root, "_subcommands_", None)),
-    )
-    if mcp_cls is not None:
-        resolved_commands = list(resolved_commands) + [mcp_cls]
-
-    completion_cls = _build_completion_command_class(
-        root,
-        _existing_command_names(root, resolved_commands),
-        has_other_subcommand=bool(resolved_commands)
-        or bool(getattr(root, "_subcommands_", None)),
-    )
-    if completion_cls is not None:
-        resolved_commands = list(resolved_commands) + [completion_cls]
-
-    parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
-        root, name, description, config, argv, resolved_commands, config_source
-    )
-
-    subparsers, registry, notices = _register_commands(
-        root,
-        resolved_commands,
-        parser,
-        base_parser,
-        root_cls,
-        prepass_args,
-        cmds_path_overridden,
-        inherited_config_hint=config is not None or _names_config_source(root_cls),
-        on_error=on_error,
-    )
-
-    required_root_actions = _finalize_command_tree(
-        parser, subparsers, root_cls, registry, raw_config
-    )
-
-    # Lets `duho.mcp.serve_running_app`, called from a dispatched command, serve
-    # this already-built tree. Set only around the dispatch.
-    mcp_dispatch = _make_post_parse_dispatch(
-        env, root_cls, notices, cmds_path_overridden, run
-    )
-    token = _compat._MCP_CONTEXT.set(("app", parser, root_cls, mcp_dispatch))
+    _token = _duho_logging._enter_traceback_env(root)
     try:
-        return _run_app(
-            parser,
-            argv,
-            env,
-            setup_logging,
-            root_cls,
-            required_root_actions,
-            cmds_path_overridden,
-            notices,
-            run,
+        root_cls_for_mcp = root if root is not None else _Args
+        if (
+            utf8_stdio
+            if utf8_stdio is not None
+            else getattr(root_cls_for_mcp, "_utf8_stdio_", True)
+        ):
+            _compat.utf8_stdio()
+
+        mcp_enabled = (
+            mcp if mcp is not None else getattr(root_cls_for_mcp, "_mcp_", True)
         )
+        if mcp_enabled:
+
+            def _mcp_core_for_this_app() -> object:
+                from .. import mcp as _mcp_module
+
+                return _mcp_module._core_for_app(
+                    root,
+                    commands=commands,
+                    source=source,
+                    entry_points=entry_points,
+                    argv=argv,
+                    name=name,
+                    description=description,
+                    env=env,
+                    config=config,
+                    dispatch=dispatch,
+                    on_error=on_error,
+                    adapter=adapter,
+                )
+
+            served = _maybe_serve_mcp_trigger(
+                root_cls_for_mcp,
+                env=env,
+                name=name,
+                core_factory=_mcp_core_for_this_app,
+            )
+            if served is not None:
+                return served
+
+        config_source = None
+        if config is None and root is not None:
+            try:
+                config, config_source = _class_config_location(root, argv)
+            except Exception as exc:
+                _end_if_reported(exc, _app_name(root, name), root)
+                raise
+
+        run = _default_run(dispatch, adapter)
+        # Names CMDS_PATH overrode, logged by `_run_app` once logging is set up; also
+        # lets `_register_commands` treat a collision on that name as this override.
+        cmds_path_overridden: set[str] = set()
+        resolved_commands = _resolve_commands(
+            root,
+            commands,
+            source,
+            env,
+            entry_points,
+            overridden=cmds_path_overridden,
+            on_error=on_error,
+        )
+
+        mcp_cls = _build_mcp_command_class(
+            root,
+            mcp_command,
+            _existing_command_names(root, resolved_commands),
+            has_other_subcommand=bool(resolved_commands)
+            or bool(getattr(root, "_subcommands_", None)),
+        )
+        if mcp_cls is not None:
+            resolved_commands = list(resolved_commands) + [mcp_cls]
+
+        completion_cls = _build_completion_command_class(
+            root,
+            _existing_command_names(root, resolved_commands),
+            has_other_subcommand=bool(resolved_commands)
+            or bool(getattr(root, "_subcommands_", None)),
+        )
+        if completion_cls is not None:
+            resolved_commands = list(resolved_commands) + [completion_cls]
+
+        parser, base_parser, root_cls, raw_config, prepass_args = _prepare_app_parser(
+            root, name, description, config, argv, resolved_commands, config_source
+        )
+
+        subparsers, registry, notices = _register_commands(
+            root,
+            resolved_commands,
+            parser,
+            base_parser,
+            root_cls,
+            prepass_args,
+            cmds_path_overridden,
+            inherited_config_hint=config is not None or _names_config_source(root_cls),
+            on_error=on_error,
+        )
+
+        required_root_actions = _finalize_command_tree(
+            parser, subparsers, root_cls, registry, raw_config
+        )
+
+        # Lets `duho.mcp.serve_running_app`, called from a dispatched command, serve
+        # this already-built tree. Set only around the dispatch.
+        mcp_dispatch = _make_post_parse_dispatch(
+            env, root_cls, notices, cmds_path_overridden, run
+        )
+        token = _compat._MCP_CONTEXT.set(("app", parser, root_cls, mcp_dispatch))
+        try:
+            return _run_app(
+                parser,
+                argv,
+                env,
+                setup_logging,
+                root_cls,
+                required_root_actions,
+                cmds_path_overridden,
+                notices,
+                run,
+            )
+        finally:
+            _compat._MCP_CONTEXT.reset(token)
     finally:
-        _compat._MCP_CONTEXT.reset(token)
+        _duho_logging._exit_traceback_env(_token)
 
 
 def _make_post_parse_dispatch(

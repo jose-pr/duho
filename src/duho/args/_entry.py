@@ -249,98 +249,102 @@ def main(
     stdio via :func:`duho.mcp.serve_running_app`, through the same
     ``_MCP_CONTEXT`` ContextVar ``app()`` sets.
     """
-    if utf8_stdio if utf8_stdio is not None else getattr(cls, "_utf8_stdio_", True):
-        _compat.utf8_stdio()
+    _token = _duho_logging._enter_traceback_env(cls)
+    try:
+        if utf8_stdio if utf8_stdio is not None else getattr(cls, "_utf8_stdio_", True):
+            _compat.utf8_stdio()
 
-    served = _maybe_serve_mcp_trigger(cls)
-    if served is not None:
-        return served
+        served = _maybe_serve_mcp_trigger(cls)
+        if served is not None:
+            return served
 
-    config_source = None
-    if config is None:
+        config_source = None
+        if config is None:
+            try:
+                config, config_source = _class_config_location(cls, argv)
+            except Exception as exc:
+                _end_if_reported(exc, _app_name(cls), cls)
+                raise
+
+        root_cls = cls
+        extra_cmds: list[type] = []
+        completion_cls = None
+        if (
+            getattr(cls, "_mcp_command_", False) is not False
+            or getattr(cls, "_completion_command_", False) is not False
+        ):
+            # Lazy: `runtime` (and `mcp`/`completion` through it) is imported only
+            # for a value other than the literal `False`; `is not False`, not
+            # truthiness, so an empty string still reaches the builders' validation.
+            from .. import runtime as _runtime
+
+            has_other = bool(getattr(cls, "_subcommands_", None))
+            mcp_cls = _runtime._build_mcp_command_class(
+                cls,
+                None,
+                _runtime._existing_command_names(cls, ()),
+                has_other_subcommand=has_other,
+            )
+            if mcp_cls is not None:
+                extra_cmds.append(mcp_cls)
+            completion_cls = _runtime._build_completion_command_class(
+                cls,
+                _runtime._existing_command_names(cls, ())
+                | {c._parsername_ for c in extra_cmds},
+                has_other_subcommand=has_other,
+            )
+            if completion_cls is not None:
+                extra_cmds.append(completion_cls)
+        if extra_cmds:
+            # A fresh per-call subclass carrying the extra subcommands, never
+            # mutating `cls` (it would leak across calls/threads). `_MCP_CONTEXT`
+            # below holds the ORIGINAL `cls`, whose tree has no injected commands.
+            extra_attrs: dict[str, object] = {
+                "__module__": cls.__module__,
+                "__qualname__": cls.__qualname__,
+                "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
+                + extra_cmds,
+                "_duho_constants_": {},
+                "__doc__": cls.__doc__,
+            }
+            own_parsername = vars(cls).get("_parsername_")
+            if own_parsername is not None:
+                extra_attrs["_parsername_"] = own_parsername
+            root_cls = type(cls.__name__, (cls,), extra_attrs)
+            if completion_cls is not None:
+                # The script describes the tree including its own subcommand.
+                completion_cls._completion_tree_ = root_cls
+
+        parser = root_cls._parser_(_inherited_config_hint_=config is not None)
+        _apply_layers(parser, root_cls, config=config, config_source=config_source)
         try:
-            config, config_source = _class_config_location(cls, argv)
-        except Exception as exc:
-            _end_if_reported(exc, _app_name(cls), cls)
+            instance = parser.parse_args(argv)
+        except SystemExit as exc:
+            _mark_parser_exit(exc)
             raise
 
-    root_cls = cls
-    extra_cmds: list[type] = []
-    completion_cls = None
-    if (
-        getattr(cls, "_mcp_command_", False) is not False
-        or getattr(cls, "_completion_command_", False) is not False
-    ):
-        # Lazy: `runtime` (and `mcp`/`completion` through it) is imported only
-        # for a value other than the literal `False`; `is not False`, not
-        # truthiness, so an empty string still reaches the builders' validation.
-        from .. import runtime as _runtime
+        _setup_instance_logging(instance, setup_logging, cls)
 
-        has_other = bool(getattr(cls, "_subcommands_", None))
-        mcp_cls = _runtime._build_mcp_command_class(
-            cls,
-            None,
-            _runtime._existing_command_names(cls, ()),
-            has_other_subcommand=has_other,
-        )
-        if mcp_cls is not None:
-            extra_cmds.append(mcp_cls)
-        completion_cls = _runtime._build_completion_command_class(
-            cls,
-            _runtime._existing_command_names(cls, ())
-            | {c._parsername_ for c in extra_cmds},
-            has_other_subcommand=has_other,
-        )
-        if completion_cls is not None:
-            extra_cmds.append(completion_cls)
-    if extra_cmds:
-        # A fresh per-call subclass carrying the extra subcommands, never
-        # mutating `cls` (it would leak across calls/threads). `_MCP_CONTEXT`
-        # below holds the ORIGINAL `cls`, whose tree has no injected commands.
-        extra_attrs: dict[str, object] = {
-            "__module__": cls.__module__,
-            "__qualname__": cls.__qualname__,
-            "_subcommands_": list(getattr(cls, "_subcommands_", None) or ())
-            + extra_cmds,
-            "_duho_constants_": {},
-            "__doc__": cls.__doc__,
-        }
-        own_parsername = vars(cls).get("_parsername_")
-        if own_parsername is not None:
-            extra_attrs["_parsername_"] = own_parsername
-        root_cls = type(cls.__name__, (cls,), extra_attrs)
-        if completion_cls is not None:
-            # The script describes the tree including its own subcommand.
-            completion_cls._completion_tree_ = root_cls
+        run = getattr(instance, "__call__", None)
+        if run is None:
+            raise NotImplementedError(
+                f"{type(instance).__name__} holds data but is not runnable "
+                f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
+                f"build one with duho.command(...)) to run it"
+            )
 
-    parser = root_cls._parser_(_inherited_config_hint_=config is not None)
-    _apply_layers(parser, root_cls, config=config, config_source=config_source)
-    try:
-        instance = parser.parse_args(argv)
-    except SystemExit as exc:
-        _mark_parser_exit(exc)
-        raise
-
-    _setup_instance_logging(instance, setup_logging, cls)
-
-    run = getattr(instance, "__call__", None)
-    if run is None:
-        raise NotImplementedError(
-            f"{type(instance).__name__} holds data but is not runnable "
-            f"(no '__call__'); make it a Cmd (subclass duho.Cmd or "
-            f"build one with duho.command(...)) to run it"
-        )
-
-    # Recorded so `duho.mcp.serve_running_app` can serve THIS class tree from
-    # within a dispatched command.
-    token = _compat._MCP_CONTEXT.set(("class", cls))
-    try:
-        result = _guard_dispatch(
-            lambda: _maybe_await(run()), parser.prog, cls, instance
-        )
+        # Recorded so `duho.mcp.serve_running_app` can serve THIS class tree from
+        # within a dispatched command.
+        token = _compat._MCP_CONTEXT.set(("class", cls))
+        try:
+            result = _guard_dispatch(
+                lambda: _maybe_await(run()), parser.prog, cls, instance
+            )
+        finally:
+            _compat._MCP_CONTEXT.reset(token)
+        return 0 if result is None else result
     finally:
-        _compat._MCP_CONTEXT.reset(token)
-    return 0 if result is None else result
+        _duho_logging._exit_traceback_env(_token)
 
 
 def parse(

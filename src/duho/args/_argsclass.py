@@ -111,6 +111,35 @@ def _names_config_source(cls: type) -> bool:
     )
 
 
+def _apply_env_prefix(cls: type, builders: "list[ArgumentBuilder]") -> None:
+    """Give each field of ``cls`` without an env name ``PREFIX + NAME.upper()``.
+
+    The prefix is ``cls._env_prefix_``: a string, or a function of ``cls``; ``None``
+    applies none. A field a duho class declares (the presets) keeps no env name.
+    """
+    prefix = getattr(cls, "_env_prefix_", None)
+    if callable(prefix):
+        prefix = prefix(cls)
+    if prefix is None:
+        return
+    if not isinstance(prefix, str):
+        raise TypeError(
+            f"{cls.__qualname__}._env_prefix_ must be a str, a function of the "
+            f"class returning one, or None, got {prefix!r}"
+        )
+    for built in builders:
+        if built.env is None and not _declared_by_duho(cls, built.name):
+            built.env = prefix + built.name.upper()
+
+
+def _declared_by_duho(cls: type, name: str) -> bool:
+    """Whether the nearest class in ``cls``'s MRO declaring field ``name`` is duho's."""
+    for klass in cls.__mro__:
+        if name in _introspect._own_annotations(klass):
+            return klass.__module__.partition(".")[0] == "duho"
+    return False
+
+
 def _add_fields(
     parser: _argparse.ArgumentParser,
     cls: type,
@@ -363,6 +392,7 @@ class Args(_argparse.Namespace):
                 built = Argument.from_type(decl.type)._argbuilder_(name, decl)
             args.append(built)
 
+        _apply_env_prefix(cls, args)
         setattr(cls, "_duho_builders_", args)
         return args
 

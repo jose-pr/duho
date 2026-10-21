@@ -30,6 +30,7 @@ _KNOWN_ATTRS: _ty.FrozenSet[str] = frozenset(
         "_distribution_",
         "_effective_default_",
         "_env_",
+        "_env_prefix_",
         "_errors_",
         "_examples_",
         "_exit_codes_",

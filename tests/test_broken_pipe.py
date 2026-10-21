@@ -241,9 +241,7 @@ def test_a_flush_that_fails_for_another_reason_propagates(monkeypatch):
 
 def test_a_silenced_program_exits_without_an_unclosed_file_warning(tmp_path):
     script = tmp_path / "prog.py"
-    script.write_text(
-        textwrap.dedent(
-            """
+    script.write_text(textwrap.dedent("""
             import duho
             from duho import Cli, Cmd
 
@@ -257,9 +255,7 @@ def test_a_silenced_program_exits_without_an_unclosed_file_warning(tmp_path):
                 _subcommands_ = [Pipe]
 
             duho.run(Root, ["pipe"], setup_logging=False)
-            """
-        )
-    )
+            """))
     proc = subprocess.run(
         [sys.executable, "-X", "dev", "-W", "error::ResourceWarning", str(script)],
         capture_output=True,

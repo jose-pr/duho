@@ -887,6 +887,16 @@ name resolves on it, outside `__all__` — `duho.logging.getLogger`, `.Logger`,
   (default `logging.INFO`; a level number or the name of a registered level, else
   `ValueError` at dispatch). On a `LoggingArgs` root, a plain `Cmd` leaf uses the root's
   value, and an overridden `_verbose_loglevel_` still wins.
+- **`OutputArgs`** (`from duho import OutputArgs`) — data mixin like `LoggingArgs`: adds
+  `--format {text,json}` (field `format`, default `"text"`) and `--json` (field `json`, the
+  same as `--format json`; with both, JSON wins), and **`self._output_(value, *, text=None)
+  -> None`**: with JSON it prints `json.dumps(value, indent=2, ensure_ascii=False,
+  default=str)`; otherwise it prints `text` (a `str`, or a callable given `value` that
+  returns one) or, with no `text`, `value` as `run` renders it (a `str` as it is, else that
+  JSON). It prints nothing else. A class that declares `format` or `json` itself, or
+  inherits either, and mixes in `OutputArgs` is a `TypeError` at class creation naming the
+  class. A tool call passes `{"format": "json"}` or `{"json": true}` like any field.
+  `class Show(OutputArgs, Cmd)`.
 - **`init_stderr_logging(name=None, level=None) -> Logger`** — one-liner console
   logging setup; idempotent (a repeat call on the same logger does not add a duplicate
   handler), honors `NO_COLOR`/`FORCE_COLOR`/`TERM=dumb`/TTY detection. The handler

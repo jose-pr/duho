@@ -12,6 +12,8 @@ from . import logging as _duho_logging
 from .args import Args, Meta, UpdateAction
 from .args._naming import _command_name as _command_name
 from .args._entry import _logger_name_for
+from ._introspect import _own_annotations
+from ._outcome import _render
 from .logging import parse_loglevels
 
 
@@ -248,4 +250,58 @@ class ConfigArgs(Args):
             )
 
 
-__all__ = ["ConfigArgs", "LoggingArgs"]
+class OutputArgs(Args):
+    """A data mixin that adds ``--format {text,json}`` and ``--json``, and ``_output_``.
+
+    ``self._output_(value, text=None)`` prints ``value`` as the user asked: indented
+    JSON for ``--json`` or ``--format json``, else ``text`` (a ``str``, or a callable
+    taking ``value`` and returning one) or, with no ``text``, duho's own rendering of
+    ``value``. Nothing is printed implicitly. A class that declares a ``format`` or a
+    ``json`` field of its own, or inherits one, cannot use this mixin (``TypeError``).
+    """
+
+    _duho_constants_: dict = {}
+
+    format: _ty.Annotated[
+        _ty.Literal["text", "json"],
+        Meta(flags=("--format",), help="Output format"),
+    ] = "text"
+
+    json: _ty.Annotated[
+        bool,
+        Meta(action="store_true", flags=("--json",), help="Same as --format json"),
+    ] = False
+
+    def __init_subclass__(cls, **kwargs: _ty.Any) -> None:
+        super().__init_subclass__(**kwargs)
+        for klass in cls.__mro__:
+            if klass is OutputArgs:
+                continue
+            clash = sorted(_OUTPUT_FIELDS.intersection(_own_annotations(klass)))
+            if clash:
+                raise TypeError(
+                    f"{cls.__qualname__}: OutputArgs adds the field {clash[0]!r}, "
+                    f"which {klass.__qualname__} already declares"
+                )
+
+    def _output_(
+        self,
+        value: object,
+        *,
+        text: "_ty.Union[str, _ty.Callable[[_ty.Any], str], None]" = None,
+    ) -> None:
+        """Print ``value`` in the format the command line chose."""
+        if self.json or self.format == "json":
+            import json
+
+            print(json.dumps(value, indent=2, ensure_ascii=False, default=str))
+        elif text is None:
+            print(_render(value))
+        else:
+            print(text(value) if callable(text) else text)
+
+
+_OUTPUT_FIELDS = frozenset(("format", "json"))
+
+
+__all__ = ["ConfigArgs", "LoggingArgs", "OutputArgs"]

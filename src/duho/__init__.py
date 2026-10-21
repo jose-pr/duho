@@ -66,7 +66,7 @@ from .logging import (
     parse_loglevels,
 )
 from .parsers import command_name
-from .presets import ConfigArgs, LoggingArgs
+from .presets import ConfigArgs, LoggingArgs, OutputArgs
 from .qualname import PythonName, QualName
 from .runtime import app, run, run_command
 from .text import (
@@ -159,6 +159,7 @@ __all__ = [
     "is_module_command",
     "kebabcase",
     "LoggingArgs",
+    "OutputArgs",
     "main",
     "InitParserKwargs",
     "Meta",

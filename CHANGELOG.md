@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its text is unchanged. In an MCP tool call the `ConfigError` is raised for the tool call
   to report.
 
+### Fixed
+
+- A program whose standard output was silenced after a closed pipe no longer reports an
+  unclosed file at exit when warnings are on: the null stream is closed before the
+  interpreter's final flush.
+
 ## [0.7.7] - 2026-10-20
 
 ### Fixed

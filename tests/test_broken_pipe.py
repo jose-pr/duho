@@ -4,9 +4,12 @@ whatever ``DUHO_TRACEBACK`` says and whatever the root's ``_errors_`` maps."""
 import errno
 import gc
 import io
+import subprocess
 import sys
+import textwrap
 
 import pytest
+from conftest import subprocess_env
 
 import duho
 from duho import Cli, Cmd
@@ -234,3 +237,35 @@ def test_a_flush_that_fails_for_another_reason_propagates(monkeypatch):
     monkeypatch.setattr(sys, "stdout", _FlushOnly(errno.EIO))
     with pytest.raises(OSError):
         duho.run(Bare, ["quiet"], exit=False)
+
+
+def test_a_silenced_program_exits_without_an_unclosed_file_warning(tmp_path):
+    script = tmp_path / "prog.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import duho
+            from duho import Cli, Cmd
+
+            class Pipe(Cmd):
+                _parsername_ = "pipe"
+
+                def __call__(self):
+                    raise BrokenPipeError
+
+            class Root(Cli):
+                _subcommands_ = [Pipe]
+
+            duho.run(Root, ["pipe"], setup_logging=False)
+            """
+        )
+    )
+    proc = subprocess.run(
+        [sys.executable, "-X", "dev", "-W", "error::ResourceWarning", str(script)],
+        capture_output=True,
+        text=True,
+        env=subprocess_env(),
+        timeout=60,
+    )
+    assert proc.returncode == 1
+    assert "ResourceWarning" not in proc.stderr

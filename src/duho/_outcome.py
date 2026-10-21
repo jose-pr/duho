@@ -80,9 +80,14 @@ def _silence_stdout() -> None:
     except (OSError, ValueError, AttributeError):
         pass
     # One stream for the process: a caller that puts its own stdout back (a test)
-    # must not leave an unclosed file behind.
+    # must not leave an unclosed file behind. Closed at exit, before the
+    # interpreter's final flush (which skips a closed stream), so it is never
+    # reported as unclosed.
     if _DEVNULL is None:
+        import atexit  # lazy: only once stdout is silenced
+
         _DEVNULL = open(_os.devnull, "w")
+        atexit.register(_DEVNULL.close)
     _sys.stdout = _DEVNULL
 
 

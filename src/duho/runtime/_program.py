@@ -4,7 +4,13 @@ import sys as _sys
 import typing as _ty
 
 from .._outcome import Result as _Result
-from .._outcome import _render, _silence_stdout
+from .._outcome import (
+    _as_broken_pipe,
+    _flush_stdout,
+    _render,
+    _silence_stdout,
+    _stdout_closed,
+)
 from ..logging import traceback_enabled as _traceback_enabled
 
 
@@ -81,8 +87,9 @@ def run(
     ``Result`` prints its rendered ``value`` (if not ``None``) and exits with its
     code; any other ``int`` is the status; any other value is printed (a ``str``
     as it is, else JSON) with status 0. ``KeyboardInterrupt`` exits 130, silently
-    unless ``DUHO_TRACEBACK`` is set, which re-raises it; a ``BrokenPipeError``,
-    from the command or from printing, exits 1 silently either way. A
+    unless ``DUHO_TRACEBACK`` is set, which re-raises it; a closed stdout (a
+    ``BrokenPipeError``, or on Windows ``OSError(EINVAL)``), from the command, from
+    printing or from the final flush, exits 1 silently either way. A
     ``SystemExit`` passes through untouched.
 
     ``exit`` says when to end the process instead of returning the status:
@@ -113,9 +120,15 @@ def run(
         if _traceback_enabled():
             raise
         error, status = exc, 130
-    except BrokenPipeError as exc:
+    except OSError as exc:
+        if not _stdout_closed(exc):
+            raise
         _silence_stdout()
-        error, status = exc, 1
+        error, status = _as_broken_pipe(exc), 1
+    else:
+        closed = _flush_stdout()
+        if closed is not None:
+            error, status = closed, 1
     policy = exit(status, error) if callable(exit) else exit
     if policy == "parse":
         policy = getattr(error, "_duho_parser_exit_", False)

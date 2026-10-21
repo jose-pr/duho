@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno as _errno
 import os as _os
 import sys as _sys
 import typing as _ty
@@ -82,6 +83,49 @@ def _silence_stdout() -> None:
     if _DEVNULL is None:
         _DEVNULL = open(_os.devnull, "w")
     _sys.stdout = _DEVNULL
+
+
+def _stdout_closed(exc: BaseException) -> bool:
+    """Whether ``exc`` is a write to a stdout nobody reads any more.
+
+    Windows reports that as ``OSError(EINVAL)``, POSIX as ``EPIPE``. An error that
+    names a file is not one, and an errno alone is not enough: stdout must also
+    refuse a flush, so an unrelated ``EINVAL`` is left to ``_errors_``.
+    """
+    if isinstance(exc, BrokenPipeError):
+        return True
+    if not isinstance(exc, OSError) or exc.filename is not None:
+        return False
+    if exc.errno not in (_errno.EPIPE, _errno.EINVAL):
+        return False
+    try:
+        _sys.stdout.flush()
+    except (OSError, ValueError):
+        return True
+    except AttributeError:
+        return False
+    return False
+
+
+def _as_broken_pipe(exc: OSError) -> BrokenPipeError:
+    """``exc`` itself when it is a ``BrokenPipeError``, else one standing for it."""
+    if isinstance(exc, BrokenPipeError):
+        return exc
+    return BrokenPipeError(_errno.EPIPE, "stdout is closed")
+
+
+def _flush_stdout() -> _ty.Optional[BrokenPipeError]:
+    """Flush stdout; a closed one is silenced and returned as a ``BrokenPipeError``."""
+    try:
+        _sys.stdout.flush()
+    except OSError as exc:
+        if exc.errno not in (_errno.EPIPE, _errno.EINVAL):
+            raise
+        _silence_stdout()
+        return _as_broken_pipe(exc)
+    except (AttributeError, ValueError):
+        pass
+    return None
 
 
 def _render(value: object) -> str:
@@ -173,8 +217,9 @@ def _guard_dispatch(
 
     The root's ``_report_error_`` writes the report instead when it has one.
     Under ``DUHO_TRACEBACK`` the exception is re-raised unless the root has a
-    ``_report_error_``. A ``BrokenPipeError`` is never reported: stdout is
-    silenced and the status is 1. Nothing else is caught.
+    ``_report_error_``. A closed stdout (``BrokenPipeError``, or an
+    ``OSError`` with ``EPIPE``/``EINVAL`` that stdout cannot flush past) is never
+    reported: stdout is silenced and the status is 1. Nothing else is caught.
     """
     try:
         return call()
@@ -182,10 +227,10 @@ def _guard_dispatch(
         # An exit from a nested program's parse is not this program's parse.
         vars(exc).pop("_duho_parser_exit_", None)
         raise
-    except BrokenPipeError:
-        _silence_stdout()
-        return 1
     except Exception as exc:
+        if _stdout_closed(exc):
+            _silence_stdout()
+            return 1
         code = _report_caught(exc, prog, root_cls, command)
         if code is None:
             raise

@@ -40,6 +40,26 @@ case-insensitively; `duho.parse_bool(text)` applies the same rule to any string
 (`duho.text.BOOL_TRUE` and `BOOL_FALSE` are the token tables) and raises `ValueError`
 for anything else.
 
+### One prefix for every field: `_env_prefix_`
+
+Set `_env_prefix_` on a class and each of its fields without a `Meta(env=...)` reads the
+variable `PREFIX + FIELD_NAME.upper()`, with the layering, conversion and `(from env X)`
+help note `Meta(env=...)` gives:
+
+```python
+class Serve(duho.Cmd):
+    _env_prefix_ = "MYAPP_"
+
+    port: int = 8080          # MYAPP_PORT
+    host: str = "127.0.0.1"   # MYAPP_HOST
+    token: Arg[str, Meta(env="API_TOKEN")] = ""   # API_TOKEN: an explicit name wins
+```
+
+The prefix can be a function of the command class, so each command has its own
+(`_env_prefix_ = staticmethod(lambda cls: "MYAPP_" + cls.__name__.upper() + "_")`).
+Subclasses inherit it. The fields the presets add (`-v`, `--config`, `--format`, ...)
+never get a name.
+
 ## Config files
 
 Set `_config_` on the class, or pass `config=` to `duho.parse` / `duho.main`
@@ -469,3 +489,18 @@ duho.value_sources(result)
 Each value is one of `"cli"`, `"instance"` (a field that came from an instance
 passed to `duho.parse`), `"env"`, `"config"`, or `"default"`. This is the
 fastest way to answer "why is this setting not what I expect".
+
+### Which config file is in force
+
+`duho.config_source(parsed)` returns the file the parse read and where its path came
+from, for the root or any subcommand instance, or `None` when no file was read:
+
+```python
+source = duho.config_source(self)
+# ConfigSource(path=PosixPath('/etc/deploy.toml'), source='default')
+```
+
+`source` is `"argument"` (`config=`), `"field"` (the `_config_field_` field), `"env"`
+(`_config_env_`) or `"default"` (`_config_`), the vocabulary a two-argument
+`_config_loader_` receives. It is `None` for an empty path, a default file that does
+not exist, and an instance built directly rather than parsed.

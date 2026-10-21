@@ -563,6 +563,25 @@ name to the class's top-level import package. If the distribution isn't installe
 (a source checkout, say), duho adds **no** `--version` flag at all and logs a
 debug message — rather than printing a bogus version or crashing.
 
+## Choosing text or JSON output: `OutputArgs`
+
+`OutputArgs` is a data mixin, like `LoggingArgs`, that adds `--format {text,json}` and
+`--json` (the same as `--format json`), and the method `self._output_(value, *, text=None)`:
+
+```python
+class Info(duho.OutputArgs, duho.Cmd):
+    def __call__(self):
+        data = {"name": "web", "ports": [80, 443]}
+        self._output_(data, text=lambda d: f"{d['name']}: {len(d['ports'])} ports")
+```
+
+With JSON chosen it prints the value as indented JSON (`ensure_ascii=False`, `default=str`
+for anything JSON cannot hold). Otherwise it prints `text`, a string or a function of
+the value, or, with no `text`, the value as `duho.run` renders it. Nothing is printed
+unless the command calls `_output_`. A tool call passes `{"format": "json"}` or
+`{"json": true}`. A class that declares `format` or `json` itself cannot use the mixin
+(`TypeError` at class creation).
+
 ## Output encoding
 
 `duho.main`/`duho.app` call `duho.utf8_stdio()` before anything else runs. It

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `duho.config_source(parsed)` and `duho.ConfigSource(path, source)`: the config file read
+  for a parsed command, root or subcommand, and where its path came from (`"argument"`,
+  `"field"`, `"env"` or `"default"`); `None` when no file was read.
+- `duho.OutputArgs`, a data mixin adding `--format {text,json}` and `--json` and the method
+  `_output_(value, *, text=None)`, which prints indented JSON or the text.
+- `_env_prefix_` on a class (a string, or a function of the class) gives every field
+  without a `Meta(env=)` the variable `PREFIX + FIELD_NAME.upper()`; the preset fields keep
+  none.
 - `_traceback_env_` on a root names the environment variable that replaces `DUHO_TRACEBACK`
   for that program: while `main`, `app`, `run` or an MCP tool call run it, duho and
   `duho.logging.traceback_enabled()` read that variable, so a `_report_error_` hook sees

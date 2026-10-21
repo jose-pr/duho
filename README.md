@@ -19,7 +19,7 @@ Named after the sacred Taíno ceremonial stool—a symbol of power and authority
 - **Logging**: Integrated colored logging with configurable verbosity levels
 - **Subcommands**: Easily compose multi-command CLI applications
 - **Extensible**: Customize argument behavior with protocols and builders
-- **Layered defaults**: Environment variables and JSON, TOML, YAML or INI config files sit under the command line, with a ready-made `--config`/`-c` flag (`ConfigArgs`), and `duho.value_sources` reports which layer supplied each value
+- **Layered defaults**: Environment variables and JSON, TOML, YAML or INI config files sit under the command line, with a ready-made `--config`/`-c` flag (`ConfigArgs`), and `duho.value_sources` and `duho.config_source` report which layer supplied each value and which file was read
 - **Shell completion**: Static bash, zsh, fish and PowerShell completion scripts, generated from the same declarations
 - **Agent help**: A machine-readable `--help` document, and the same classes served as MCP tools
 - **Discovery**: Commands from loose files, packages or installed entry points, plus ordered step directories (RunPath)
@@ -221,7 +221,7 @@ modules are imported by name. The full reference is on the
 | `duho.env` | `Env`, the prefixed, typed environment accessor |
 | `duho.logging` | Colored log formatting, custom levels, `init_stderr_logging`; a superset of stdlib `logging` |
 | `duho.formatters` | `DefaultsFormatter`, `ColorHelpFormatter`, `ColorDefaultsFormatter` for `_help_formatter_` |
-| `duho.presets` | `LoggingArgs`, the `-v`/`-q`/`--loglevel` mixin, and `ConfigArgs`, the `--config`/`-c` mixin |
+| `duho.presets` | `LoggingArgs`, the `-v`/`-q`/`--loglevel` mixin, `ConfigArgs`, the `--config`/`-c` mixin, and `OutputArgs`, the `--format text\|json`/`--json` mixin |
 | `duho.config` | `ConfigBackend`, the JSON/TOML/YAML/INI backends, `load`, `loads`, `dump`, `dumps` |
 | `duho.agenthelp` | The machine-readable `--help` document (`describe`, `print_agent_help`) |
 | `duho.completion` | bash, zsh, fish and PowerShell completion-script generation |

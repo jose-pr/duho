@@ -10,6 +10,7 @@ user-facing; this file is the durable record.
 
 Closed-stdout, config-error and traceback-switch edges of a program's boundary.
 
+- `duho.config_source`, `duho.OutputArgs` and `_env_prefix_` are new.
 - `_traceback_env_`, `duho.status_for`, `duho.fanout.current_label` and
   `duho.testing.Result.stdout_bytes` are new.
 - Windows' closed pipe (`OSError(EINVAL)`) and a pipe that fails only at the final flush

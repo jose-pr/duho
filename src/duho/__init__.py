@@ -34,6 +34,8 @@ from .args import (
     print_completion,
     subcommand,
     UpdateAction,
+    ConfigSource,
+    config_source,
     value_sources,
 )
 from .args._meta import _A as _A
@@ -182,6 +184,8 @@ __all__ = [
     "UsageError",
     "utf8_stdio",
     "UpdateAction",
+    "ConfigSource",
+    "config_source",
     "value_sources",
     "add_logging_level",
     "DefaultFormatter",

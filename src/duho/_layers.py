@@ -121,27 +121,27 @@ def _raw_config_values(cls, config_table: dict) -> dict[str, object]:
 
 def _read_config(
     cls, config: str | _pathlib.Path | None, source: str | None = None
-) -> tuple[dict, _pathlib.Path | None]:
+) -> tuple[dict, _pathlib.Path | None, str | None]:
     """:func:`_resolve_config_dict` for `cls`, plus the expanded path of the file
-    actually read (``None`` when there was no file to read). An empty `config`
+    actually read and where it came from (both ``None`` when there was no file to
+    read). An empty `config`
     string is "no file": nothing is read and no loader runs. `source` says where
     an explicit `config` came from (``"argument"`` when ``None``); a path taken
     from ``_config_`` is ``"default"``."""
     if isinstance(config, str) and config == "":
-        return {}, None  # an empty path names no file, `_config_` included
+        return {}, None, None  # an empty path names no file, `_config_` included
     explicit = config is not None
     path = config if explicit else getattr(cls, "_config_", None)
     if path is None:
-        return {}, None
+        return {}, None, None
     p = _pathlib.Path(path).expanduser()
     loader = getattr(cls, "_config_loader_", None)
     backends = getattr(cls, "_config_backends_", None)
     if not explicit and not p.exists():
         _LOGGER.debug("duho: class config %s not found; skipping config layer", p)
-        return {}, None
-    raw = _load_config(
-        p, loader, backends, (source or "argument") if explicit else "default"
-    )
+        return {}, None, None
+    origin = (source or "argument") if explicit else "default"
+    raw = _load_config(p, loader, backends, origin)
     if raw is None:
         raw = {}
     if not isinstance(raw, _ty.Mapping):
@@ -149,7 +149,7 @@ def _read_config(
             f"duho: config file {_os.fspath(p)} must contain a table/object "
             f"at the top level, got {type(raw).__name__}"
         )
-    return raw, p
+    return raw, p, origin
 
 
 def _resolve_config_dict(
@@ -230,9 +230,11 @@ def _resolve_config_or_error(
     parser._duho_config_error_ = None  # type: ignore[attr-defined]
     parser._duho_config_exc_ = None  # type: ignore[attr-defined]
     parser._duho_config_path_ = None  # type: ignore[attr-defined]
+    parser._duho_config_source_ = None  # type: ignore[attr-defined]
     try:
-        raw, path = _read_config(cls, config, source)
+        raw, path, origin = _read_config(cls, config, source)
         parser._duho_config_path_ = path  # type: ignore[attr-defined]
+        parser._duho_config_source_ = origin  # type: ignore[attr-defined]
         return raw
     except Exception as exc:
         from ._outcome import _error_status
@@ -944,6 +946,33 @@ def _apply_default_layers_one(
 
     parser._duho_value_sources_ = sources  # type: ignore[attr-defined]
     parser._duho_merged_defaults_ = merged  # type: ignore[attr-defined]
+
+
+class ConfigSource(_ty.NamedTuple):
+    """The config file read for a parse and where its path came from."""
+
+    path: _pathlib.Path
+    #: ``"argument"``, ``"field"``, ``"env"`` or ``"default"``.
+    source: str
+
+
+def config_source(parsed: object) -> _ty.Optional[ConfigSource]:
+    """The config file in force for a parsed (sub)command instance, or ``None``.
+
+    ``None`` when no file was read (none named, an empty path, an absent default
+    file or no ``_config_``) and for an instance that was not produced by a parse.
+    """
+    from .args._argsclass import _duho_instance_last_parser_  # lazy: circular
+
+    # Per instance only: the per-class parser is shared and may be a later parse's.
+    parser = _duho_instance_last_parser_.get(id(parsed))
+    # The file is resolved on the root parser; walk up from the selected leaf.
+    while parser is not None:
+        path = getattr(parser, "_duho_config_path_", None)
+        if path is not None:
+            return ConfigSource(path, parser._duho_config_source_)
+        parser = getattr(parser, "_duho_parent_parser_", None)
+    return None
 
 
 def value_sources(parsed: object) -> dict[str, str]:

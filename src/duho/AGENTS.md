@@ -778,6 +778,12 @@ empty when absent).
 - **`value_sources(parsed) -> dict[str, str]`** — introspect where each field's value
   came from: `"cli"`, `"env"`, `"config"`, `"instance"` (a field that came from an
   instance passed to `duho.parse`), or `"default"`.
+- **`config_source(parsed) -> ConfigSource | None`** — the config file read for a parsed
+  command instance, a root or a subcommand: `ConfigSource(path, source)`, a `NamedTuple`
+  (`path` a `Path`, `source` where the path came from: `"argument"`, `"field"`, `"env"` or
+  `"default"`, as for a loader). `None` when no file was read (none named, an empty
+  value, an absent default file, no `_config_`) and for an instance that no parse
+  produced. **`ConfigSource`** is that tuple.
 - A bad env or config value is reported the SAME way a bad CLI value is — argparse
   usage text on stderr plus `SystemExit(2)` — for a normal `main`/`parse`/`parse_globals`
   class-command build. A module command's own declaratively-bound fields under `app()`

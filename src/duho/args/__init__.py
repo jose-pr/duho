@@ -35,6 +35,8 @@ from .._layers import _raw_env_values as _raw_env_values
 from .._layers import _resolve_config_dict as _resolve_config_dict
 from .._layers import _stage_layers as _stage_layers
 from .._layers import _stash_layer_state as _stash_layer_state
+from .._layers import ConfigSource as ConfigSource
+from .._layers import config_source as config_source
 from .._layers import value_sources as value_sources
 from ..text import kebabcase as _kebabcase
 
@@ -164,5 +166,7 @@ __all__ = [
     "print_completion",
     "subcommand",
     "UpdateAction",
+    "ConfigSource",
+    "config_source",
     "value_sources",
 ]

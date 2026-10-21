@@ -117,3 +117,37 @@ def test_annotations_resolve():
         "stdout": str,
         "stderr": str,
     }
+
+
+class _Bytes(Cmd):
+    def __call__(self):
+        print("a", end="")
+        sys.stdout.flush()
+        sys.stdout.buffer.write(b"\xff\n")
+        sys.stdout.buffer.flush()
+        print("b")
+        return 0
+
+
+def test_a_command_may_write_bytes_to_stdout_buffer():
+    result = invoke(_Bytes)
+    assert result.stdout_bytes == b"a\xff\nb\n"
+    assert result.stdout == "a�\nb\n"
+    assert result.status == 0
+
+
+def test_text_only_output_has_the_same_bytes_and_text():
+    result = invoke(_Echo, ["--name", "é"])
+    assert result.stdout == "hello é\n"
+    assert result.stdout_bytes == "hello é\n".encode("utf-8")
+    assert result == (3, "hello é\n", "to-stderr\n")
+
+
+def test_stdout_is_not_a_terminal_and_the_result_stays_a_three_tuple():
+    class Probe(Cmd):
+        def __call__(self):
+            print(sys.stdout.isatty(), sys.stdout.encoding)
+
+    result = invoke(Probe)
+    assert result.stdout == "False utf-8\n"
+    assert len(result) == 3

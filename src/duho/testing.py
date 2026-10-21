@@ -17,12 +17,26 @@ from .runtime import app as _app
 __all__ = ["Result", "invoke"]
 
 
-class Result(_ty.NamedTuple):
-    """What :func:`invoke` observed: exit ``status`` and the captured streams."""
-
+class _Observed(_ty.NamedTuple):
     status: int
     stdout: str
     stderr: str
+
+
+class Result(_Observed):
+    """What :func:`invoke` observed: exit ``status`` and the captured streams.
+
+    It is the three-item tuple ``(status, stdout, stderr)``; ``stdout_bytes`` is
+    the standard output as written, bytes included, and ``stdout`` its UTF-8
+    decoding (``errors="replace"``).
+    """
+
+    def __new__(
+        cls, status: int, stdout: str, stderr: str, stdout_bytes: bytes = b""
+    ) -> Result:
+        self = super().__new__(cls, status, stdout, stderr)
+        self.stdout_bytes = stdout_bytes
+        return self
 
 
 def _status(code: object, stderr: _io.StringIO) -> int:
@@ -62,7 +76,9 @@ def invoke(
 
     With no ``app_kwargs`` this is ``duho.main(root, argv)``; with any, it is
     ``duho.app(root, argv=argv, **app_kwargs)``. Standard output and error are
-    captured; ``env`` is applied to ``os.environ`` for the call and restored;
+    captured; standard output is a UTF-8 text stream over a byte buffer, so a
+    command may write to ``sys.stdout.buffer`` too and ``Result.stdout_bytes``
+    holds everything in order; ``env`` is applied to ``os.environ`` for the call and restored;
     ``stdin`` is the text the command reads (empty when ``None``).
 
     A ``SystemExit`` (``--help``, a usage error, ``sys.exit``) becomes the
@@ -70,7 +86,11 @@ def invoke(
     is written to the captured stderr with status ``1``. Any other exception
     propagates, with the environment and streams restored.
     """
-    out, err = _io.StringIO(), _io.StringIO()
+    raw = _io.BytesIO()
+    out = _io.TextIOWrapper(
+        raw, encoding="utf-8", errors="replace", newline="\n", write_through=True
+    )
+    err = _io.StringIO()
     old_stdin = _sys.stdin
     _sys.stdin = _io.StringIO(stdin or "")
     try:
@@ -89,4 +109,7 @@ def invoke(
             status = _status(code, err)
     finally:
         _sys.stdin = old_stdin
-    return Result(status, out.getvalue(), err.getvalue())
+    out.flush()
+    out.detach()
+    data = raw.getvalue()
+    return Result(status, data.decode("utf-8", "replace"), err.getvalue(), data)

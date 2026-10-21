@@ -1084,7 +1084,11 @@ manipulating a parser tree directly:
 - **`duho.testing`** — **`invoke(root, argv=(), *, env=None, stdin=None,
   **app_kwargs) -> Result`** runs a command line in-process: `duho.main(root, argv)`,
   or `duho.app(root, argv=argv, **app_kwargs)` when any `app_kwargs` is given.
-  **`Result`** is a named tuple `(status, stdout, stderr)`. `env` is applied to
+  **`Result`** is a named tuple `(status, stdout, stderr)` with one more attribute,
+  `stdout_bytes: bytes`, the standard output exactly as written. Standard output is a
+  UTF-8 text stream over a byte buffer, so a command can write `sys.stdout.buffer` too;
+  `stdout` is the bytes decoded as UTF-8 with `errors="replace"`, text and bytes in the
+  order written. `env` is applied to
   `os.environ` for the call and restored; `stdin` is the text the command reads (empty when `None`). A
   `SystemExit` becomes `status` (text passed to it goes to `stderr`, status 1); any
   other exception propagates.

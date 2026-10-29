@@ -10,6 +10,41 @@ user-facing; this file is the durable record.
 
 ---
 
+## [0.7.9] — 2026-10-29
+
+Tools that are not commands, served by the same MCP server.
+
+- `duho.mcp.ToolProvider` is new: `serve(..., tools=)`, `serve_running_app(tools=)` and
+  a root's `_mcp_tools_` take a factory for one. Its tools are listed after the command
+  tools and called for names the command tree does not resolve; the factory gets a
+  `notify(method, params=None)` for notifications such as
+  `notifications/tools/list_changed`.
+
+### Upgrade notes
+
+- Nothing changes for an app that declares no provider: `initialize` still declares
+  `"tools": {}`, and every answer is as in 0.7.8.
+
+### Performance
+
+No performance claim is made. `import duho` loads no new module; `duho.mcp` imports one
+more private module.
+
+### Validation
+
+- Test suite, no failures: Windows Python 3.9 (3469 passed, 49 skipped) and 3.14 (3469
+  passed, 40 skipped); Linux (WSL) Python 3.14 (3521 passed, 27 skipped).
+- CI: all 17 jobs green at the change (run
+  [40912740328](https://github.com/jose-pr/duho/actions/runs/40912740328)), and the same
+  workflow ran at the release commit before tagging.
+- The leak check exits 1 with exactly its three known hits.
+- The suites of six projects that use duho give the same results against this tree and
+  against their installed duho (one of them ends in 17 errors from its own environment
+  either way). Four could not run here: one has no environment, and three have
+  environments whose interpreter is no longer installed.
+
+---
+
 ## [0.7.8] — 2026-10-21
 
 Closed-stdout, config-error and traceback-switch edges of a program's boundary.

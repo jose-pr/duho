@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-10-29
+
 ### Added
 
 - `duho.mcp.ToolProvider`, a protocol for tools served beside the command tools
@@ -2314,7 +2316,8 @@ Initial release.
   logging) and `config` (TOML on Python 3.9/3.10, where `tomllib` isn't stdlib).
 - Supports Python 3.9 through 3.13.
 
-[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.8...HEAD
+[Unreleased]: https://github.com/jose-pr/duho/compare/v0.7.9...HEAD
+[0.7.9]: https://github.com/jose-pr/duho/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/jose-pr/duho/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/jose-pr/duho/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/jose-pr/duho/compare/v0.7.5...v0.7.6

@@ -92,6 +92,55 @@ def _arguments_are_results(session: _ty.Optional[dict]) -> bool:
     return negotiated is not None and negotiated >= _ARGUMENT_ERRORS_AS_RESULTS_FROM
 
 
+def _list_tools(
+    root_cls: _ty.Union[type, _ServerCore], session: _ty.Optional[dict]
+) -> list:
+    """The command tools, then the session provider's tools whose names are free."""
+    tools = describe_tools(root_cls)
+    provider = session.get("tools") if session else None
+    if provider is None:
+        return tools
+    taken = {tool["name"] for tool in tools}
+    dropped = session.setdefault("dropped_tools", set())
+    for tool in provider.list_tools():
+        name = tool.get("name") if isinstance(tool, dict) else None
+        if not isinstance(name, str):
+            name = None
+        if name is None or name in taken:
+            if name not in dropped:
+                # Once per name: the provider is asked again on every list.
+                dropped.add(name)
+                _LOGGER.warning(
+                    "tool provider: dropped tool %r (no name, or taken)", name
+                )
+            continue
+        taken.add(name)
+        tools.append(tool)
+    return tools
+
+
+def _call_provider(
+    session: _ty.Optional[dict], name: object, arguments: object
+) -> _ty.Optional[dict]:
+    """The session provider's result for ``name``, or ``None`` when it has none."""
+    provider = session.get("tools") if session else None
+    if provider is None or not isinstance(name, str):
+        return None
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        raise InvalidArgumentsError(
+            "arguments must be a JSON object, got %s" % (type(arguments).__name__,)
+        )
+    result = provider.call_tool(name, arguments)
+    if result is not None and not isinstance(result, dict):
+        raise TypeError(
+            "tool provider returned %s for %r, not a dict"
+            % (type(result).__name__, name)
+        )
+    return result
+
+
 def _handle_request(
     root_cls: type[_Cmd], request: object, session: _ty.Optional[dict] = None
 ) -> dict | None:
@@ -112,6 +161,10 @@ def _handle_request(
     ``isError`` tool result instead of ``-32602``; an unknown tool, a
     non-object ``arguments`` and any request before ``initialize`` (or with no
     ``session``) keep the JSON-RPC error.
+
+    ``session["tools"]``, when set, is a :class:`ToolProvider`: ``tools/list``
+    appends its tools and ``tools/call`` asks it for a name the command tree does
+    not resolve.
     """
     if not isinstance(request, dict):
         return _error_response(None, -32600, "invalid request: expected a JSON object")
@@ -166,9 +219,11 @@ def _handle_request(
         )
         if session is not None:
             session["protocolVersion"] = negotiated
+        # A provider's tool set can change, and it is told how to say so.
+        has_provider = session is not None and session.get("tools") is not None
         result = {
             "protocolVersion": negotiated,
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {"listChanged": True} if has_provider else {}},
             "serverInfo": _server_info(root_cls),
         }
     elif method in ("notifications/initialized", "initialized"):
@@ -177,7 +232,7 @@ def _handle_request(
         result = {}
     elif method == "tools/list":
         try:
-            result = {"tools": describe_tools(root_cls)}
+            result = {"tools": _list_tools(root_cls, session)}
         except Exception as exc:  # noqa: BLE001 - see docstring
             _log_exception(
                 _LOGGER, "tools/list raised: %s: %s", type(exc).__name__, exc
@@ -193,14 +248,19 @@ def _handle_request(
         tool_name = params.get("name")
         tool_arguments = params.get("arguments")
         try:
-            result = call_tool(
-                root_cls,
-                tool_name,
-                tool_arguments,
-                output_fd=(session or {}).get("output_fd"),
-                output_var=(session or {}).get("output_var"),
-                output_path=(session or {}).get("output_path"),
-            )
+            try:
+                result = call_tool(
+                    root_cls,
+                    tool_name,
+                    tool_arguments,
+                    output_fd=(session or {}).get("output_fd"),
+                    output_var=(session or {}).get("output_var"),
+                    output_path=(session or {}).get("output_path"),
+                )
+            except UnknownToolError:
+                result = _call_provider(session, tool_name, tool_arguments)
+                if result is None:
+                    raise
         except (UnknownToolError, InvalidArgumentsError) as exc:
             if (
                 isinstance(exc, InvalidArgumentsError)

@@ -17,6 +17,7 @@ from ._protocol import (
 )
 from ._call import _OutputTarget, _WRITTEN
 from ._tree import _ServerCore, _core_for_class, _walk_tree
+from ._provider import ToolProvider
 
 _LOGGER = _logging.getLogger(__package__)
 
@@ -85,7 +86,11 @@ def _resolve_output_target(
         ) from None
 
 
-def serve_running_app(transport: str = "stdio") -> int:
+def serve_running_app(
+    transport: str = "stdio",
+    *,
+    tools: _ty.Optional[_ty.Callable[..., ToolProvider]] = None,
+) -> int:
     """Serve the CLI currently being dispatched as an MCP server, over
     ``transport`` (currently only ``"stdio"``).
 
@@ -108,6 +113,8 @@ def serve_running_app(transport: str = "stdio") -> int:
     running app context to serve). Raises ``ValueError`` for an unsupported
     ``transport`` -- checked BEFORE consulting the context, so it is
     reported the same way regardless of whether one exists.
+
+    ``tools`` is passed to :func:`serve`.
     """
     if transport != "stdio":
         raise ValueError(
@@ -128,7 +135,7 @@ def serve_running_app(transport: str = "stdio") -> int:
         nodes = _walk_tree(parser, root_cls, parser.prog)
         core = _ServerCore(parser, nodes, dispatch, root_cls)
         output_var = _mcp_env_var_name(root_cls, name=parser.prog) + "_OUTPUT"
-    return serve(core, output_var=output_var)
+    return serve(core, output_var=output_var, tools=tools)
 
 
 def _reject_constant(name: str) -> _ty.NoReturn:
@@ -190,6 +197,7 @@ def serve(
     stdin: _ty.Optional[_ty.TextIO] = None,
     stdout: _ty.Optional[_ty.TextIO] = None,
     output_var: _ty.Optional[str] = None,
+    tools: _ty.Optional[_ty.Callable[..., ToolProvider]] = None,
 ) -> int:
     """Run the stdio JSON-RPC loop for ``root_cls`` until stdin closes (EOF).
 
@@ -235,6 +243,15 @@ def serve(
     ``<NAME>_MCP`` variable plus ``_OUTPUT``), a descriptor number or a file
     name opened for appending and closed when the loop ends. A bad variable
     writes one line to stderr and returns ``2``.
+
+    ``tools`` (default: the root's ``_mcp_tools_``) is a factory called once,
+    after stdio is taken over, as ``tools(notify)``; it returns a
+    :class:`ToolProvider` whose tools are served beside the command tools
+    (a name the commands use is dropped with a warning), and which is closed
+    when the loop ends. ``notify(method, params=None)`` writes a notification
+    on the protocol stream; call it from inside the provider's methods. With a
+    provider, ``initialize`` declares ``tools.listChanged``. A factory that
+    raises writes one line to stderr and returns ``2``.
     """
     core_root = root_cls.root_cls if isinstance(root_cls, _ServerCore) else root_cls
     if output_var is None:
@@ -252,22 +269,49 @@ def serve(
         "output_path": None if target is None else target.path,
         "output_var": output_var,
     }
+    if tools is None:
+        tools = getattr(core_root, "_mcp_tools_", None)
     try:
-        return _serve_stream(root_cls, stdin, stdout, session)
+        return _serve_stream(root_cls, stdin, stdout, session, tools)
     finally:
         if target is not None and target.path is not None:
             _os.close(target.fd)
 
 
-def _serve_stream(root_cls, stdin, stdout, session: dict) -> int:
-    """The JSON-RPC loop of :func:`serve`, with the session's output target."""
-    import json
-
+def _serve_stream(root_cls, stdin, stdout, session: dict, tools=None) -> int:
+    """:func:`_serve_lines` on the chosen streams, with the session's provider."""
     if stdin is None and stdout is None:
         stream_in, stream_out = _real_stdio_streams()
     else:
         stream_in = stdin if stdin is not None else _sys.stdin
         stream_out = stdout if stdout is not None else _sys.stdout
+    if tools is None:
+        return _serve_lines(root_cls, stream_in, stream_out, session)
+
+    def notify(method: str, params: _ty.Optional[dict] = None) -> None:
+        message: dict = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            message["params"] = params
+        _write_message(stream_out, message)
+
+    try:
+        provider = tools(notify)
+    except Exception as exc:  # noqa: BLE001 - reported as a start failure
+        _compat.write_human(
+            "tool provider failed to start: %s: %s\n" % (type(exc).__name__, exc),
+            _sys.stderr,
+        )
+        return 2
+    session["tools"] = provider
+    try:
+        return _serve_lines(root_cls, stream_in, stream_out, session)
+    finally:
+        provider.close()
+
+
+def _serve_lines(root_cls, stream_in, stream_out, session: dict) -> int:
+    """The JSON-RPC loop of :func:`serve`, with the session's output target."""
+    import json
 
     def _safe_handle(request):
         """`_handle_request`, with any unexpected exception mapped to a

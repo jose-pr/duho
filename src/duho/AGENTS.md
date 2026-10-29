@@ -214,6 +214,7 @@ set it. A "root" attribute is read on the class `main`/`app` was called with; a
 | `_utf8_stdio_` | `bool` | `True` | root | `main`/`app` call `utf8_stdio()` first |
 | `_mcp_` | `bool` | `True` | root; command | on the root, `False` disables the `<NAME>_MCP` launch variable; on any other command, `False` leaves it and its subtree out of the MCP tools (a module command sets it at module level) |
 | `_mcp_command_` | `str \| bool` | `False` | root | registers a built-in MCP-serving subcommand (`True` → `mcp`, a string → that name) |
+| `_mcp_tools_` | `Callable \| None` | `None` | root | a `duho.mcp.ToolProvider` factory every MCP server of this root uses when `serve` gets no `tools=` (declare it as a `staticmethod`) |
 | `_mcp_output_` | `str \| None` | `None` | command | where the command's standard output goes as an MCP tool: `"auto"` (or `None`) text in the result and output that is not UTF-8 to the server's output target; `"stream"` all of it to the target as written (no target: the call fails before the command runs); `"result"` all of it in the result, bytes that are not text as a base64 embedded resource; anything else is a `ValueError` naming the command when the tool tree is built; a module command sets it at module level |
 | `_completion_command_` | `str \| bool` | `False` | root | registers a subcommand that prints a shell completion script (`True` → `completion`, a string → that name; no whitespace, not starting with `-`); its one required positional is the shell (`bash`, `zsh`, `fish`, `powershell`) and the script goes to stdout; needs another subcommand and a free name, else `ValueError` naming the attribute; never an MCP tool; read by `main` and `app` (no kwarg) |
 | `_parsername_` | `str` | kebab-case class name | command | the subcommand name (and the application's name on a root) |
@@ -1207,9 +1208,10 @@ manipulating a parser tree directly:
   with the exit-code line or the `Result`'s text) followed by one item
   `{"type": "resource", "resource": {"uri": "duho://output/<tool name>", "mimeType":
   "application/octet-stream", "blob": <base64>}}`.
-  **`serve(root_cls, *, stdin=None, stdout=None, output_var=None)`** (a `ping` request is
+  **`serve(root_cls, *, stdin=None, stdout=None, output_var=None, tools=None)`** (a `ping` request is
   answered directly; `output_var` names the variable that holds the output target, by
-  default the root's `<NAME>_MCP` variable plus `_OUTPUT`), **`input_schema_for_command(cls) -> dict`**,
+  default the root's `<NAME>_MCP` variable plus `_OUTPUT`; `tools`, by default the root's
+  `_mcp_tools_`, is a factory for a `ToolProvider`, below), **`input_schema_for_command(cls) -> dict`**,
   **`json_schema_for_field(decl, builder) -> tuple[dict, bool]`** (per-field JSON Schema fragment), **`main(argv=None)
   -> int`** — CLI entry point: `python -m duho.mcp <app>` (`<app>` a `module:ClassName`
   or dotted `module.ClassName` path to a root `Cmd`/`Cli`). Pass a `Cmd`/`Cli` class as
@@ -1221,7 +1223,18 @@ manipulating a parser tree directly:
   hand-made subparsers' own options are not served. **`UnknownToolError`** /
   **`InvalidArgumentsError`** — `ValueError` subclasses (JSON-RPC code `-32602`) for an
   unresolvable tool name and for arguments that are not a JSON object or fail the
-  tool's schema, respectively. **Output that is not text**: `serve` (every way a server starts)
+  tool's schema, respectively. **`ToolProvider`** — a `typing.Protocol` for tools served
+  beside the command tools: `list_tools() -> list[dict]` (MCP `Tool` objects, read on every
+  `tools/list`), `call_tool(name, arguments) -> Optional[dict]` (a `CallToolResult`, or
+  `None` when the name is not the provider's; asked only for a name the command tree does
+  not resolve), `close()`. `serve` calls the factory once as `tools(notify)` after taking
+  stdio over (`notify(method, params=None)` writes a notification on the protocol stream,
+  such as `notifications/tools/list_changed`), calls the provider from the loop thread one
+  request at a time, and closes it when the loop ends. A provider tool whose name a command
+  tool has, or that has no name, is left out with one warning per name; a provider
+  exception or a result that is not a dict is a `-32603` error; with a provider,
+  `initialize` declares `tools.listChanged`. A factory that raises ends `serve` with
+  status `2` and one stderr line. **Output that is not text**: `serve` (every way a server starts)
   decides the output target once, before the first request, and gives it to every `tools/call`.
   The target is descriptor 3 when it is open and inheritable (handed to the process, not
   opened by it: `os.get_inheritable`), or what the variable named `output_var` holds (default:
@@ -1260,7 +1273,8 @@ manipulating a parser tree directly:
     (declared on `Cli`) or **`app(..., mcp=False)`** disables it entirely
     (the variable, if set, is then left untouched).
   - **`McpCmd`** — a ready `Cmd` (`--transport {stdio}`) whose `__call__`
-    calls **`serve_running_app(transport="stdio") -> int`**, which serves
+    calls **`serve_running_app(transport="stdio", *, tools=None) -> int`** (`tools` as
+    for `serve`), which serves
     the CLI currently being dispatched (read from a `ContextVar` `duho.main`/
     `duho.app` set around their own dispatch — `RuntimeError` outside such a
     dispatch; `ValueError` for an unsupported transport). Register a

@@ -183,6 +183,9 @@ from ._schema import (
     json_schema_for_field,
     input_schema_for_command,
 )
+from ._provider import (
+    ToolProvider,
+)
 from ._command import (
     McpCmd,
 )
@@ -261,4 +264,5 @@ __all__ = [
     "main",
     "UnknownToolError",
     "InvalidArgumentsError",
+    "ToolProvider",
 ]

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `duho.mcp.ToolProvider`, a protocol for tools served beside the command tools
+  (`list_tools()`, `call_tool(name, arguments)`, `close()`). `serve(..., tools=)` and
+  `serve_running_app(tools=)` take a factory for one, called with a
+  `notify(method, params=None)` that writes a notification on the protocol stream; a
+  root's `_mcp_tools_` is the default factory, so the `<NAME>_MCP` trigger and
+  `python -m duho.mcp` serve the same tools. With a provider, `initialize` declares
+  `tools.listChanged`.
+
 ## [0.7.8] - 2026-10-21
 
 ### Added
